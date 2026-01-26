@@ -1,0 +1,48 @@
+# ════════════════════════════════════════════════
+# HiveApp Platform — Development Profile
+# ════════════════════════════════════════════════
+
+spring:
+  # ── Database ─────────────────────────────────
+  datasource:
+    url: jdbc:postgresql://localhost:5432/hiveapp
+    username: hiveapp
+    password: hiveapp_dev_secret
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  # ── Redis ────────────────────────────────────
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: hiveapp_redis_secret
+
+  # ── JPA ──────────────────────────────────────
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        generate_statistics: true
+
+# ── Logging ──────────────────────────────────
+logging:
+  level:
+    com.hiveapp: DEBUG
+    org.springframework.modulith: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.flywaydb: DEBUG
+
+# ── Actuator (more open in dev) ──────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
