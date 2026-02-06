@@ -1,0 +1,210 @@
+// ════════════════════════════════════════════════
+// HiveApp Platform — Jenkins CI/CD Pipeline
+// ════════════════════════════════════════════════
+
+pipeline {
+    agent any
+
+    tools {
+        maven 'Maven-3.9'
+        jdk 'JDK-21'
+    }
+
+    environment {
+        DOCKER_REGISTRY = 'your-registry.com'
+        APP_NAME = 'hiveapp-platform'
+        DOCKER_IMAGE = "${DOCKER_REGISTRY}/${APP_NAME}"
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+                    env.BUILD_VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+
+        stage('Validate') {
+            steps {
+                dir('backend') {
+                    sh 'mvn validate -B'
+                }
+            }
+        }
+
+        stage('Compile') {
+            steps {
+                dir('backend') {
+                    sh 'mvn compile -B'
+                }
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                dir('backend') {
+                    sh 'mvn test -B'
+                }
+            }
+            post {
+                always {
+                    dir('backend') {
+                        junit allowEmptyResults: true,
+                             testResults: 'target/surefire-reports/*.xml'
+                        jacoco(
+                            execPattern: 'target/jacoco.exec',
+                            classPattern: 'target/classes',
+                            sourcePattern: 'src/main/java',
+                            exclusionPattern: '**/dto/**,**/config/**,**/exception/**'
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Integration Tests') {
+            steps {
+                dir('backend') {
+                    sh 'mvn verify -P integration-test -B'
+                }
+            }
+            post {
+                always {
+                    dir('backend') {
+                        junit allowEmptyResults: true,
+                             testResults: 'target/failsafe-reports/*.xml'
+                    }
+                }
+            }
+        }
+
+        stage('Code Quality') {
+            parallel {
+                stage('Spotless Check') {
+                    steps {
+                        dir('backend') {
+                            sh 'mvn spotless:check -B'
+                        }
+                    }
+                }
+                stage('Checkstyle') {
+                    steps {
+                        dir('backend') {
+                            sh 'mvn checkstyle:check -B'
+                        }
+                    }
+                }
+                stage('Coverage Check') {
+                    steps {
+                        dir('backend') {
+                            sh 'mvn jacoco:check -B'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Package') {
+            steps {
+                dir('backend') {
+                    sh 'mvn package -DskipTests -B'
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                    branch pattern: 'release/*'
+                }
+            }
+            steps {
+                dir('backend') {
+                    script {
+                        def tag = "${env.DOCKER_IMAGE}:${env.BUILD_VERSION}"
+                        def latestTag = "${env.DOCKER_IMAGE}:latest"
+
+                        sh "docker build -t ${tag} -t ${latestTag} ."
+
+                        env.DOCKER_TAG = tag
+                    }
+                }
+            }
+        }
+
+        stage('Docker Push') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'release/*'
+                }
+            }
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'docker-registry-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )
+                ]) {
+                    sh "echo ${DOCKER_PASS} | docker login ${DOCKER_REGISTRY} -u ${DOCKER_USER} --password-stdin"
+                    sh "docker push ${env.DOCKER_TAG}"
+                    sh "docker push ${env.DOCKER_IMAGE}:latest"
+                }
+            }
+        }
+
+        stage('Deploy to Staging') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                echo "Deploying to staging environment..."
+                // Add staging deployment steps here
+            }
+        }
+
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            input {
+                message "Deploy to production?"
+                ok "Deploy"
+            }
+            steps {
+                echo "Deploying to production environment..."
+                // Add production deployment steps here
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "Pipeline completed successfully: ${env.BUILD_VERSION}"
+        }
+        failure {
+            echo "Pipeline failed: ${env.BUILD_VERSION}"
+            // Add notification (Slack, email, etc.)
+        }
+    }
+}
