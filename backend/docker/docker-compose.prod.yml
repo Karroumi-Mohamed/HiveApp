@@ -1,0 +1,58 @@
+version: '3.9'
+
+# ════════════════════════════════════════════════
+# HiveApp — Production Infrastructure
+# ════════════════════════════════════════════════
+# Override: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+
+services:
+
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - /opt/hiveapp/data/postgres:/var/lib/postgresql/data
+
+  redis:
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD} --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: hiveapp-app
+    restart: always
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hiveapp
+      SPRING_DATASOURCE_USERNAME: hiveapp
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      HIVEAPP_JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+    networks:
+      - hiveapp-network
+
+  # Remove dev tools in production
+  pgadmin:
+    profiles:
+      - disabled
+  redis-commander:
+    profiles:
+      - disabled
+  jenkins:
+    profiles:
+      - disabled
