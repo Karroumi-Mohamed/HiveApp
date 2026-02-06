@@ -1,0 +1,449 @@
+classDiagram
+    %% ============================================
+    %% HiveApp - Class Diagram
+    %% ============================================
+
+    %% ──────────────────────────────────────────
+    %% SHARED PERMISSION ENGINE
+    %% ──────────────────────────────────────────
+
+    class PermissionEngine {
+        <<service>>
+        +resolvePermissions(actor: IPermissionActor, context: PermissionContext) PermissionSet
+        +checkAccess(actor: IPermissionActor, permission: String, context: PermissionContext) Boolean
+        +getEffectivePermissions(actor: IPermissionActor, context: PermissionContext) PermissionSet
+        -applyCeiling(permissions: PermissionSet, ceiling: PermissionSet) PermissionSet
+        -mergeRolePermissions(roles: Role[]) PermissionSet
+        -resolveCollaborationCeiling(collaboration: Collaboration) PermissionSet
+        -resolvePlanCeiling(account: Account) PermissionSet
+    }
+
+    class PermissionContext {
+        <<valueobject>>
+        +contextType: ContextType
+        +accountId: UUID
+        +companyId: UUID?
+        +collaborationId: UUID?
+        +getContextType() ContextType
+    }
+
+    class ContextType {
+        <<enumeration>>
+        ADMIN_PLATFORM
+        CLIENT_OWN_ACCOUNT
+        CLIENT_COLLABORATION
+    }
+
+    class PermissionSet {
+        <<valueobject>>
+        -permissions: Map~String, Permission~
+        +has(permissionCode: String) Boolean
+        +intersect(other: PermissionSet) PermissionSet
+        +union(other: PermissionSet) PermissionSet
+        +subtract(other: PermissionSet) PermissionSet
+        +toList() Permission[]
+        +isEmpty() Boolean
+    }
+
+    class IPermissionActor {
+        <<interface>>
+        +getId() UUID
+        +getRoles(context: PermissionContext) Role[]
+        +getPermissionCeiling(context: PermissionContext) PermissionSet
+    }
+
+    %% ──────────────────────────────────────────
+    %% SHARED IDENTITY LAYER
+    %% ──────────────────────────────────────────
+
+    class User {
+        <<entity>>
+        -id: UUID
+        -email: String
+        -passwordHash: String
+        -firstName: String
+        -lastName: String
+        -phone: String
+        -avatarUrl: String
+        -isActive: Boolean
+        -createdAt: DateTime
+        -updatedAt: DateTime
+        +authenticate(credentials: Credentials) AuthResult
+        +getOwnedAccount() Account?
+        +getMemberships() Member[]
+        +getAdminUser() AdminUser?
+        +isOwnerOf(account: Account) Boolean
+        +deactivate() void
+    }
+
+    %% ──────────────────────────────────────────
+    %% ADMIN PLATFORM
+    %% ──────────────────────────────────────────
+
+    class AdminUser {
+        <<entity>>
+        -id: UUID
+        -user: User
+        -isSuperAdmin: Boolean
+        -isActive: Boolean
+        -createdAt: DateTime
+        +assignRole(role: AdminRole) void
+        +removeRole(role: AdminRole) void
+        +getRoles() AdminRole[]
+        +hasPermission(permissionCode: String) Boolean
+        +getEffectivePermissions() PermissionSet
+    }
+
+    class AdminRole {
+        <<entity>>
+        -id: UUID
+        -name: String
+        -description: String
+        -isActive: Boolean
+        -permissions: AdminPermission[]
+        -createdAt: DateTime
+        +addPermission(permission: AdminPermission) void
+        +removePermission(permission: AdminPermission) void
+        +getPermissions() AdminPermission[]
+        +hasPermission(permissionCode: String) Boolean
+    }
+
+    class AdminPermission {
+        <<entity>>
+        -id: UUID
+        -code: String
+        -name: String
+        -description: String
+        -module: Module
+        -action: String
+        -resource: String
+        +matches(action: String, resource: String) Boolean
+    }
+
+    %% ──────────────────────────────────────────
+    %% MODULE & FEATURE REGISTRY
+    %% ──────────────────────────────────────────
+
+    class Module {
+        <<entity>>
+        -id: UUID
+        -code: String
+        -name: String
+        -description: String
+        -icon: String
+        -isActive: Boolean
+        -sortOrder: Int
+        -features: Feature[]
+        +getFeatures() Feature[]
+        +getActiveFeatures() Feature[]
+        +getPermissions() Permission[]
+        +activate() void
+        +deactivate() void
+    }
+
+    class Feature {
+        <<entity>>
+        -id: UUID
+        -module: Module
+        -code: String
+        -name: String
+        -description: String
+        -isActive: Boolean
+        -sortOrder: Int
+        -permissions: Permission[]
+        +getPermissions() Permission[]
+        +belongsToModule() Module
+    }
+
+    %% ──────────────────────────────────────────
+    %% PLAN SYSTEM
+    %% ──────────────────────────────────────────
+
+    class Plan {
+        <<entity>>
+        -id: UUID
+        -code: String
+        -name: String
+        -description: String
+        -price: Decimal
+        -billingCycle: String
+        -maxCompanies: Int
+        -maxMembers: Int
+        -isActive: Boolean
+        -features: PlanFeature[]
+        +getFeatures() Feature[]
+        +getPermissionCeiling() PermissionSet
+        +includesFeature(feature: Feature) Boolean
+        +includesModule(module: Module) Boolean
+        +getModules() Module[]
+    }
+
+    class PlanFeature {
+        <<entity>>
+        -id: UUID
+        -plan: Plan
+        -feature: Feature
+        -config: JSON
+        +getFeature() Feature
+        +getConfig() JSON
+    }
+
+    %% ──────────────────────────────────────────
+    %% CLIENT PLATFORM - ACCOUNT & ORGANIZATION
+    %% ──────────────────────────────────────────
+
+    class Account {
+        <<entity>>
+        -id: UUID
+        -owner: User
+        -plan: Plan
+        -name: String
+        -slug: String
+        -isActive: Boolean
+        -createdAt: DateTime
+        +getOwner() User
+        +getPlan() Plan
+        +getCompanies() Company[]
+        +getMembers() Member[]
+        +getRoles() Role[]
+        +getPermissionCeiling() PermissionSet
+        +createCompany(data: CompanyData) Company
+        +createMember(user: User, roles: Role[]) Member
+        +createRole(name: String, permissions: Permission[]) Role
+        +getCollaborationsAsClient() Collaboration[]
+        +getCollaborationsAsProvider() Collaboration[]
+        +changePlan(plan: Plan) void
+        +suspend() void
+        +activate() void
+    }
+
+    class Company {
+        <<entity>>
+        -id: UUID
+        -account: Account
+        -name: String
+        -legalName: String
+        -taxId: String
+        -industry: String
+        -country: String
+        -address: String
+        -logoUrl: String
+        -isActive: Boolean
+        -activeModules: CompanyModule[]
+        +getAccount() Account
+        +activateModule(module: Module) CompanyModule
+        +deactivateModule(module: Module) void
+        +getActiveModules() Module[]
+        +hasModule(module: Module) Boolean
+        +getMembers() Member[]
+    }
+
+    class CompanyModule {
+        <<entity>>
+        -id: UUID
+        -company: Company
+        -module: Module
+        -isActive: Boolean
+        -activatedAt: DateTime
+        -deactivatedAt: DateTime
+        +activate() void
+        +deactivate() void
+    }
+
+    %% ──────────────────────────────────────────
+    %% CLIENT PLATFORM - MEMBERS
+    %% ──────────────────────────────────────────
+
+    class Member {
+        <<entity>>
+        -id: UUID
+        -user: User
+        -account: Account
+        -displayName: String
+        -isOwner: Boolean
+        -isActive: Boolean
+        -joinedAt: DateTime
+        -memberRoles: MemberRole[]
+        +getUser() User
+        +getAccount() Account
+        +getRolesForCompany(company: Company) Role[]
+        +getAccountWideRoles() Role[]
+        +getAllRoles() Role[]
+        +getAccessibleCompanies() Company[]
+        +hasAccessToCompany(company: Company) Boolean
+        +hasPermission(permissionCode: String, context: PermissionContext) Boolean
+        +getEffectivePermissions(context: PermissionContext) PermissionSet
+        +assignRole(role: Role, company: Company?) MemberRole
+        +removeRole(role: Role, company: Company?) void
+        +deactivate() void
+    }
+
+    %% ──────────────────────────────────────────
+    %% CLIENT PLATFORM - PERMISSION SYSTEM
+    %% ──────────────────────────────────────────
+
+    class Role {
+        <<entity>>
+        -id: UUID
+        -account: Account
+        -name: String
+        -description: String
+        -isSystemRole: Boolean
+        -isActive: Boolean
+        -permissions: RolePermission[]
+        +getPermissions() Permission[]
+        +addPermission(permission: Permission) void
+        +removePermission(permission: Permission) void
+        +hasPermission(permissionCode: String) Boolean
+        +getPermissionSet() PermissionSet
+    }
+
+    class Permission {
+        <<entity>>
+        -id: UUID
+        -feature: Feature
+        -code: String
+        -name: String
+        -description: String
+        -action: String
+        -resource: String
+        +getFeature() Feature
+        +getModule() Module
+        +matches(action: String, resource: String) Boolean
+    }
+
+    class RolePermission {
+        <<entity>>
+        -id: UUID
+        -role: Role
+        -permission: Permission
+        -grantedAt: DateTime
+    }
+
+    class MemberRole {
+        <<entity>>
+        -id: UUID
+        -member: Member
+        -role: Role
+        -company: Company?
+        -assignedAt: DateTime
+        +isAccountWide() Boolean
+        +isCompanyScoped() Boolean
+        +getScope() Company?
+    }
+
+    %% ──────────────────────────────────────────
+    %% CLIENT PLATFORM - COLLABORATION SYSTEM
+    %% ──────────────────────────────────────────
+
+    class Collaboration {
+        <<entity>>
+        -id: UUID
+        -clientAccount: Account
+        -providerAccount: Account
+        -company: Company
+        -status: String
+        -requestedAt: DateTime
+        -acceptedAt: DateTime
+        -revokedAt: DateTime
+        -grantedPermissions: CollaborationPermission[]
+        +getClientAccount() Account
+        +getProviderAccount() Account
+        +getCompany() Company
+        +getGrantedPermissions() Permission[]
+        +getPermissionCeiling() PermissionSet
+        +grantPermission(permission: Permission) void
+        +revokePermission(permission: Permission) void
+        +accept() void
+        +suspend() void
+        +revoke() void
+        +isActive() Boolean
+    }
+
+    class CollaborationPermission {
+        <<entity>>
+        -id: UUID
+        -collaboration: Collaboration
+        -permission: Permission
+        -grantedAt: DateTime
+    }
+
+    %% ──────────────────────────────────────────
+    %% BILLING
+    %% ──────────────────────────────────────────
+
+    class Subscription {
+        <<entity>>
+        -id: UUID
+        -account: Account
+        -plan: Plan
+        -status: String
+        -currentPeriodStart: DateTime
+        -currentPeriodEnd: DateTime
+        -cancelledAt: DateTime
+        +isActive() Boolean
+        +isTrialing() Boolean
+        +cancel() void
+        +renew() void
+        +changePlan(newPlan: Plan) void
+    }
+
+    %% ============================================
+    %% RELATIONSHIPS
+    %% ============================================
+
+    %% Interface implementations
+    AdminUser ..|> IPermissionActor : implements
+    Member ..|> IPermissionActor : implements
+
+    %% Permission Engine
+    PermissionEngine --> IPermissionActor : resolves for
+    PermissionEngine --> PermissionContext : uses
+    PermissionEngine --> PermissionSet : produces
+    PermissionContext --> ContextType : has
+
+    %% Identity
+    User "1" --> "0..1" AdminUser : can be
+    User "1" --> "0..*" Member : identity of
+    User "1" --> "0..1" Account : owns
+
+    %% Admin Platform
+    AdminUser "1" --> "0..*" AdminRole : has
+    AdminRole "1" --> "0..*" AdminPermission : contains
+    AdminPermission "0..*" --> "1" Module : scoped to
+
+    %% Module Registry
+    Module "1" --> "0..*" Feature : contains
+    Feature "1" --> "0..*" Permission : defines
+
+    %% Plan
+    Plan "1" --> "0..*" PlanFeature : includes
+    PlanFeature "0..*" --> "1" Feature : references
+
+    %% Account
+    Account "1" --> "1" Plan : subscribed to
+    Account "1" --> "0..*" Company : contains
+    Account "1" --> "0..*" Member : has
+    Account "1" --> "0..*" Role : defines
+    Account "1" --> "0..1" Subscription : billed via
+
+    %% Company
+    Company "1" --> "0..*" CompanyModule : activates
+    CompanyModule "0..*" --> "1" Module : references
+
+    %% Member Permissions
+    Member "1" --> "0..*" MemberRole : assigned
+    MemberRole "0..*" --> "1" Role : references
+    MemberRole "0..*" --> "0..1" Company : scoped to
+    Role "1" --> "0..*" RolePermission : contains
+    RolePermission "0..*" --> "1" Permission : references
+
+    %% Collaboration
+    Account "1" --> "0..*" Collaboration : grants as client
+    Account "1" --> "0..*" Collaboration : receives as provider
+    Collaboration "0..*" --> "1" Company : shares
+    Collaboration "1" --> "0..*" CollaborationPermission : defines ceiling
+    CollaborationPermission "0..*" --> "1" Permission : references
+
+    %% Billing
+    Subscription "0..*" --> "1" Plan : subscribes to

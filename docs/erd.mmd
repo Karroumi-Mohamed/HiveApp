@@ -1,0 +1,300 @@
+erDiagram
+    %% ============================================
+    %% HiveApp - Entity Relationship Diagram
+    %% ============================================
+
+    %% ──────────────────────────────────────────
+    %% SHARED IDENTITY LAYER
+    %% ──────────────────────────────────────────
+
+    User {
+        uuid id PK
+        string email UK
+        string password_hash
+        string first_name
+        string last_name
+        string phone
+        string avatar_url
+        boolean is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    %% ──────────────────────────────────────────
+    %% ADMIN PLATFORM
+    %% ──────────────────────────────────────────
+
+    AdminUser {
+        uuid id PK
+        uuid user_id FK
+        boolean is_super_admin
+        boolean is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    AdminRole {
+        uuid id PK
+        string name
+        string description
+        boolean is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    AdminPermission {
+        uuid id PK
+        string code UK
+        string name
+        string description
+        uuid module_id FK
+        string action
+        string resource
+        datetime created_at
+    }
+
+    AdminRolePermission {
+        uuid id PK
+        uuid admin_role_id FK
+        uuid admin_permission_id FK
+        datetime granted_at
+    }
+
+    AdminUserRole {
+        uuid id PK
+        uuid admin_user_id FK
+        uuid admin_role_id FK
+        datetime assigned_at
+    }
+
+    Module {
+        uuid id PK
+        string code UK
+        string name
+        string description
+        string icon
+        boolean is_active
+        int sort_order
+        datetime created_at
+        datetime updated_at
+    }
+
+    Feature {
+        uuid id PK
+        uuid module_id FK
+        string code UK
+        string name
+        string description
+        boolean is_active
+        int sort_order
+        datetime created_at
+        datetime updated_at
+    }
+
+    Plan {
+        uuid id PK
+        string code UK
+        string name
+        string description
+        decimal price
+        string billing_cycle
+        int max_companies
+        int max_members
+        boolean is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    PlanFeature {
+        uuid id PK
+        uuid plan_id FK
+        uuid feature_id FK
+        jsonb config
+        datetime created_at
+    }
+
+    %% ──────────────────────────────────────────
+    %% CLIENT PLATFORM - ACCOUNT & ORGANIZATION
+    %% ──────────────────────────────────────────
+
+    Account {
+        uuid id PK
+        uuid owner_id FK
+        uuid plan_id FK
+        string name
+        string slug UK
+        boolean is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    Company {
+        uuid id PK
+        uuid account_id FK
+        string name
+        string legal_name
+        string tax_id
+        string industry
+        string country
+        string address
+        string logo_url
+        boolean is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    CompanyModule {
+        uuid id PK
+        uuid company_id FK
+        uuid module_id FK
+        boolean is_active
+        datetime activated_at
+        datetime deactivated_at
+    }
+
+    %% ──────────────────────────────────────────
+    %% CLIENT PLATFORM - MEMBERS
+    %% ──────────────────────────────────────────
+
+    Member {
+        uuid id PK
+        uuid user_id FK
+        uuid account_id FK
+        string display_name
+        boolean is_owner
+        boolean is_active
+        datetime joined_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    %% ──────────────────────────────────────────
+    %% CLIENT PLATFORM - PERMISSION SYSTEM
+    %% ──────────────────────────────────────────
+
+    Role {
+        uuid id PK
+        uuid account_id FK
+        string name
+        string description
+        boolean is_system_role
+        boolean is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    Permission {
+        uuid id PK
+        uuid feature_id FK
+        string code UK
+        string name
+        string description
+        string action
+        string resource
+        datetime created_at
+    }
+
+    RolePermission {
+        uuid id PK
+        uuid role_id FK
+        uuid permission_id FK
+        datetime granted_at
+    }
+
+    MemberRole {
+        uuid id PK
+        uuid member_id FK
+        uuid role_id FK
+        uuid company_id FK "nullable - null means account-wide"
+        datetime assigned_at
+    }
+
+    %% ──────────────────────────────────────────
+    %% CLIENT PLATFORM - COLLABORATION SYSTEM
+    %% ──────────────────────────────────────────
+
+    Collaboration {
+        uuid id PK
+        uuid client_account_id FK "account granting access"
+        uuid provider_account_id FK "account receiving access"
+        uuid company_id FK "specific company being shared"
+        string status "pending, active, suspended, revoked"
+        datetime requested_at
+        datetime accepted_at
+        datetime revoked_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    CollaborationPermission {
+        uuid id PK
+        uuid collaboration_id FK
+        uuid permission_id FK
+        datetime granted_at
+    }
+
+    %% ──────────────────────────────────────────
+    %% BILLING
+    %% ──────────────────────────────────────────
+
+    Subscription {
+        uuid id PK
+        uuid account_id FK
+        uuid plan_id FK
+        string status "active, past_due, cancelled, trialing"
+        datetime current_period_start
+        datetime current_period_end
+        datetime cancelled_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    %% ============================================
+    %% RELATIONSHIPS
+    %% ============================================
+
+    %% Identity
+    User ||--o{ AdminUser : "can be"
+    User ||--o{ Member : "identity of"
+
+    %% Admin Platform
+    AdminUser ||--o{ AdminUserRole : "has"
+    AdminRole ||--o{ AdminUserRole : "assigned via"
+    AdminRole ||--o{ AdminRolePermission : "contains"
+    AdminPermission ||--o{ AdminRolePermission : "granted through"
+    Module ||--o{ AdminPermission : "scoped to"
+
+    %% Module & Feature Registry
+    Module ||--o{ Feature : "contains"
+    Feature ||--o{ Permission : "defines"
+
+    %% Plan Composition
+    Plan ||--o{ PlanFeature : "includes"
+    Feature ||--o{ PlanFeature : "available in"
+
+    %% Account Structure
+    User ||--|| Account : "owns"
+    Account ||--o| Subscription : "billed via"
+    Plan ||--o{ Subscription : "subscribed to"
+    Plan ||--o{ Account : "current plan"
+    Account ||--o{ Company : "contains"
+    Account ||--o{ Member : "has"
+    Account ||--o{ Role : "defines"
+
+    %% Company Modules
+    Company ||--o{ CompanyModule : "activates"
+    Module ||--o{ CompanyModule : "activated in"
+
+    %% Permission Assignment
+    Role ||--o{ RolePermission : "contains"
+    Permission ||--o{ RolePermission : "granted through"
+    Member ||--o{ MemberRole : "assigned"
+    Role ||--o{ MemberRole : "assigned via"
+    Company ||--o{ MemberRole : "scoped to"
+
+    %% Collaboration
+    Account ||--o{ Collaboration : "grants access as client"
+    Account ||--o{ Collaboration : "receives access as provider"
+    Company ||--o{ Collaboration : "shared company"
+    Collaboration ||--o{ CollaborationPermission : "defines"
+    Permission ||--o{ CollaborationPermission : "granted in collab"
