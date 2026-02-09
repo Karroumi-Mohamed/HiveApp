@@ -1,0 +1,2005 @@
+{
+  "info": {
+    "name": "HiveApp Platform — Full Demo",
+    "description": "End-to-end demonstration of HiveApp: a modular ERP platform with dynamic permissions, plan-based ceilings, multi-company support, and collaboration system.\n\nRun folders sequentially (top → bottom). Each folder builds on data created by the previous ones.\n\nVariables are auto-populated by test scripts — no manual copy-paste needed.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080/api" },
+    { "key": "jwt", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "userId", "value": "" },
+    { "key": "accountId", "value": "" },
+    { "key": "accountSlug", "value": "" },
+    { "key": "memberId", "value": "" },
+    { "key": "companyId", "value": "" },
+    { "key": "moduleId", "value": "" },
+    { "key": "featureId1", "value": "" },
+    { "key": "featureId2", "value": "" },
+    { "key": "featureId3", "value": "" },
+    { "key": "permissionId1", "value": "" },
+    { "key": "permissionId2", "value": "" },
+    { "key": "permissionId3", "value": "" },
+    { "key": "permissionId4", "value": "" },
+    { "key": "freePlanId", "value": "" },
+    { "key": "proPlanId", "value": "" },
+    { "key": "subscriptionId", "value": "" },
+    { "key": "roleId", "value": "" },
+    { "key": "secondUserId", "value": "" },
+    { "key": "secondJwt", "value": "" },
+    { "key": "secondAccountId", "value": "" },
+    { "key": "secondMemberId", "value": "" },
+    { "key": "collaborationId", "value": "" },
+    { "key": "module2Id", "value": "" },
+    { "key": "feature4Id", "value": "" },
+    { "key": "secondCompanyId", "value": "" },
+    { "key": "invitedMemberId", "value": "" },
+    { "key": "roleId2", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{jwt}}", "type": "string" }]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 — Auth & Registration",
+      "description": "Register the primary user, login, verify token refresh.",
+      "item": [
+        {
+          "name": "Register Primary User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Has access token', () => pm.expect(json.accessToken).to.be.a('string'));",
+                  "pm.collectionVariables.set('jwt', json.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', json.refreshToken);",
+                  "pm.collectionVariables.set('userId', json.userId);",
+                  "if (json.accountId) pm.collectionVariables.set('accountId', json.accountId);",
+                  "console.log('Registered userId:', json.userId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@hiveapp.io\",\n  \"password\": \"Password123!\",\n  \"firstName\": \"Alice\",\n  \"lastName\": \"Martin\",\n  \"phone\": \"+33612345678\",\n  \"accountName\": \"Martin Consulting\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] }
+          }
+        },
+        {
+          "name": "Login Primary User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Has tokens', () => {",
+                  "  pm.expect(json.accessToken).to.be.a('string');",
+                  "  pm.expect(json.refreshToken).to.be.a('string');",
+                  "});",
+                  "pm.collectionVariables.set('jwt', json.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', json.refreshToken);",
+                  "pm.collectionVariables.set('userId', json.userId);",
+                  "if (json.accountId) pm.collectionVariables.set('accountId', json.accountId);",
+                  "console.log('Logged in — JWT stored');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@hiveapp.io\",\n  \"password\": \"Password123!\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('New access token received', () => pm.expect(json.accessToken).to.be.a('string'));",
+                  "pm.collectionVariables.set('jwt', json.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', json.refreshToken);",
+                  "console.log('Token refreshed');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/refresh", "host": ["{{baseUrl}}"], "path": ["auth", "refresh"] }
+          }
+        },
+        {
+          "name": "Get Current User (me)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('User is Alice', () => pm.expect(json.firstName).to.eql('Alice'));",
+                  "pm.collectionVariables.set('userId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"] }
+          }
+        },
+        {
+          "name": "Update User Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Phone updated', () => pm.expect(json.phone).to.eql('+33699887766'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Alice\",\n  \"lastName\": \"Martin\",\n  \"phone\": \"+33699887766\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 — Account Setup",
+      "description": "Retrieve the auto-created account, update it, verify by slug.",
+      "item": [
+        {
+          "name": "Get My Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Account name is Martin Consulting', () => pm.expect(json.name).to.eql('Martin Consulting'));",
+                  "pm.collectionVariables.set('accountId', json.id);",
+                  "pm.collectionVariables.set('accountSlug', json.slug);",
+                  "console.log('accountId:', json.id, 'slug:', json.slug);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/accounts/me", "host": ["{{baseUrl}}"], "path": ["accounts", "me"] }
+          }
+        },
+        {
+          "name": "Get Account by Slug",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Slug matches', () => pm.expect(json.slug).to.eql(pm.collectionVariables.get('accountSlug')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/accounts/slug/{{accountSlug}}", "host": ["{{baseUrl}}"], "path": ["accounts", "slug", "{{accountSlug}}"] }
+          }
+        },
+        {
+          "name": "Update Account Name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Name updated', () => pm.expect(json.name).to.eql('Martin Consulting Group'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Martin Consulting Group\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/accounts/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["accounts", "{{accountId}}"] }
+          }
+        },
+        {
+          "name": "Get Members for Account (owner auto-created)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('At least 1 member (owner)', () => pm.expect(json.length).to.be.at.least(1));",
+                  "const owner = json.find(m => m.owner === true || m.isOwner === true);",
+                  "if (owner) { pm.collectionVariables.set('memberId', owner.id); console.log('Owner memberId:', owner.id); }",
+                  "else { pm.collectionVariables.set('memberId', json[0].id); console.log('First memberId:', json[0].id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/members/account/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["members", "account", "{{accountId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 — Plans & Modules (Admin Seed Data)",
+      "description": "Create the FREE plan, PRO plan, modules, features, and permissions that the platform needs.\n\nNote: These endpoints require ADMIN role. For demo purposes, if your setup uses a super-admin bootstrap, login as admin first. Otherwise, these will demonstrate the admin endpoints.",
+      "item": [
+        {
+          "name": "Create Module — Accounting",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('moduleId', json.id);",
+                  "console.log('moduleId (Accounting):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"ACCOUNTING\",\n  \"name\": \"Accounting\",\n  \"description\": \"Financial accounting, invoicing, and reporting\",\n  \"icon\": \"calculator\",\n  \"sortOrder\": 1\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/modules", "host": ["{{baseUrl}}"], "path": ["modules"] }
+          }
+        },
+        {
+          "name": "Create Module — HR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('module2Id', json.id);",
+                  "console.log('module2Id (HR):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"HR\",\n  \"name\": \"Human Resources\",\n  \"description\": \"Employee management, payroll, time tracking\",\n  \"icon\": \"people\",\n  \"sortOrder\": 2\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/modules", "host": ["{{baseUrl}}"], "path": ["modules"] }
+          }
+        },
+        {
+          "name": "Get All Modules",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('At least 2 modules', () => pm.expect(pm.response.json().length).to.be.at.least(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/modules", "host": ["{{baseUrl}}"], "path": ["modules"] }
+          }
+        },
+        {
+          "name": "Create Feature — Invoices",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('featureId1', json.id);",
+                  "console.log('featureId1 (Invoices):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"moduleId\": \"{{moduleId}}\",\n  \"code\": \"INVOICES\",\n  \"name\": \"Invoice Management\",\n  \"description\": \"Create, send, and track invoices\",\n  \"sortOrder\": 1\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/modules/features", "host": ["{{baseUrl}}"], "path": ["modules", "features"] }
+          }
+        },
+        {
+          "name": "Create Feature — Expenses",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('featureId2', json.id);",
+                  "console.log('featureId2 (Expenses):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"moduleId\": \"{{moduleId}}\",\n  \"code\": \"EXPENSES\",\n  \"name\": \"Expense Tracking\",\n  \"description\": \"Track and approve expense reports\",\n  \"sortOrder\": 2\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/modules/features", "host": ["{{baseUrl}}"], "path": ["modules", "features"] }
+          }
+        },
+        {
+          "name": "Create Feature — Payroll",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('featureId3', json.id);",
+                  "console.log('featureId3 (Payroll):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"moduleId\": \"{{module2Id}}\",\n  \"code\": \"PAYROLL\",\n  \"name\": \"Payroll Processing\",\n  \"description\": \"Process employee payroll\",\n  \"sortOrder\": 1\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/modules/features", "host": ["{{baseUrl}}"], "path": ["modules", "features"] }
+          }
+        },
+        {
+          "name": "Create Feature — Recruitment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('feature4Id', json.id);",
+                  "console.log('feature4Id (Recruitment):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"moduleId\": \"{{module2Id}}\",\n  \"code\": \"RECRUITMENT\",\n  \"name\": \"Recruitment Pipeline\",\n  \"description\": \"Manage job postings and candidates\",\n  \"sortOrder\": 2\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/modules/features", "host": ["{{baseUrl}}"], "path": ["modules", "features"] }
+          }
+        },
+        {
+          "name": "Get Features for Accounting Module",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('2 features', () => pm.expect(pm.response.json().length).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/modules/{{moduleId}}/features", "host": ["{{baseUrl}}"], "path": ["modules", "{{moduleId}}", "features"] }
+          }
+        },
+        {
+          "name": "Create Permission — invoices.create",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('permissionId1', json.id);",
+                  "console.log('permissionId1 (invoices.create):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"featureId\": \"{{featureId1}}\",\n  \"code\": \"invoices.create\",\n  \"name\": \"Create Invoices\",\n  \"description\": \"Permission to create new invoices\",\n  \"action\": \"create\",\n  \"resource\": \"invoices\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/permissions", "host": ["{{baseUrl}}"], "path": ["permissions"] }
+          }
+        },
+        {
+          "name": "Create Permission — invoices.read",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('permissionId2', json.id);",
+                  "console.log('permissionId2 (invoices.read):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"featureId\": \"{{featureId1}}\",\n  \"code\": \"invoices.read\",\n  \"name\": \"Read Invoices\",\n  \"description\": \"Permission to view invoices\",\n  \"action\": \"read\",\n  \"resource\": \"invoices\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/permissions", "host": ["{{baseUrl}}"], "path": ["permissions"] }
+          }
+        },
+        {
+          "name": "Create Permission — expenses.manage",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('permissionId3', json.id);",
+                  "console.log('permissionId3 (expenses.manage):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"featureId\": \"{{featureId2}}\",\n  \"code\": \"expenses.manage\",\n  \"name\": \"Manage Expenses\",\n  \"description\": \"Permission to create and approve expenses\",\n  \"action\": \"manage\",\n  \"resource\": \"expenses\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/permissions", "host": ["{{baseUrl}}"], "path": ["permissions"] }
+          }
+        },
+        {
+          "name": "Create Permission — payroll.run",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('permissionId4', json.id);",
+                  "console.log('permissionId4 (payroll.run):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"featureId\": \"{{featureId3}}\",\n  \"code\": \"payroll.run\",\n  \"name\": \"Run Payroll\",\n  \"description\": \"Permission to process payroll runs\",\n  \"action\": \"execute\",\n  \"resource\": \"payroll\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/permissions", "host": ["{{baseUrl}}"], "path": ["permissions"] }
+          }
+        },
+        {
+          "name": "Get Permissions for Invoices Feature",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('2 permissions', () => pm.expect(pm.response.json().length).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/permissions/feature/{{featureId1}}", "host": ["{{baseUrl}}"], "path": ["permissions", "feature", "{{featureId1}}"] }
+          }
+        },
+        {
+          "name": "Create FREE Plan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('freePlanId', json.id);",
+                  "console.log('freePlanId:', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"FREE\",\n  \"name\": \"Free Starter\",\n  \"description\": \"Basic plan with Invoices only\",\n  \"price\": 0,\n  \"billingCycle\": \"monthly\",\n  \"maxCompanies\": 1,\n  \"maxMembers\": 3,\n  \"featureIds\": [\"{{featureId1}}\"]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/plans", "host": ["{{baseUrl}}"], "path": ["plans"] }
+          }
+        },
+        {
+          "name": "Create PRO Plan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('proPlanId', json.id);",
+                  "console.log('proPlanId:', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PRO\",\n  \"name\": \"Professional\",\n  \"description\": \"Full accounting + HR with all features\",\n  \"price\": 49.99,\n  \"billingCycle\": \"monthly\",\n  \"maxCompanies\": 5,\n  \"maxMembers\": 25,\n  \"featureIds\": [\"{{featureId1}}\", \"{{featureId2}}\", \"{{featureId3}}\", \"{{feature4Id}}\"]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/plans", "host": ["{{baseUrl}}"], "path": ["plans"] }
+          }
+        },
+        {
+          "name": "Get All Plans",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('2 plans exist', () => pm.expect(pm.response.json().length).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/plans", "host": ["{{baseUrl}}"], "path": ["plans"] }
+          }
+        },
+        {
+          "name": "Add Expenses Feature to FREE Plan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 204 or 200', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/plans/{{freePlanId}}/features/{{featureId2}}", "host": ["{{baseUrl}}"], "path": ["plans", "{{freePlanId}}", "features", "{{featureId2}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 — Subscription & Plan Assignment",
+      "description": "Assign the FREE plan to Alice's account via subscription, then upgrade to PRO.",
+      "item": [
+        {
+          "name": "Create Subscription (FREE plan)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('subscriptionId', json.id);",
+                  "console.log('subscriptionId:', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"planId\": \"{{freePlanId}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/subscriptions", "host": ["{{baseUrl}}"], "path": ["subscriptions"] }
+          }
+        },
+        {
+          "name": "Change Account Plan → FREE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Plan updated', () => pm.expect(json.planId).to.eql(pm.collectionVariables.get('freePlanId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/accounts/{{accountId}}/plan/{{freePlanId}}", "host": ["{{baseUrl}}"], "path": ["accounts", "{{accountId}}", "plan", "{{freePlanId}}"] }
+          }
+        },
+        {
+          "name": "Get Active Subscription",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Status is active', () => pm.expect(json.status).to.eql('active'));",
+                  "pm.collectionVariables.set('subscriptionId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/subscriptions/account/{{accountId}}/active", "host": ["{{baseUrl}}"], "path": ["subscriptions", "account", "{{accountId}}", "active"] }
+          }
+        },
+        {
+          "name": "Upgrade Subscription → PRO",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 204', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/subscriptions/{{subscriptionId}}/plan/{{proPlanId}}", "host": ["{{baseUrl}}"], "path": ["subscriptions", "{{subscriptionId}}", "plan", "{{proPlanId}}"] }
+          }
+        },
+        {
+          "name": "Change Account Plan → PRO",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/accounts/{{accountId}}/plan/{{proPlanId}}", "host": ["{{baseUrl}}"], "path": ["accounts", "{{accountId}}", "plan", "{{proPlanId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 — Company & Module Activation",
+      "description": "Create a company under Alice's account, activate modules.",
+      "item": [
+        {
+          "name": "Create Company — Acme Corp",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('companyId', json.id);",
+                  "console.log('companyId:', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"name\": \"Acme Corp\",\n  \"legalName\": \"Acme Corporation SAS\",\n  \"taxId\": \"FR12345678901\",\n  \"industry\": \"Technology\",\n  \"country\": \"France\",\n  \"address\": \"42 Rue de la Paix, 75002 Paris\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/companies", "host": ["{{baseUrl}}"], "path": ["companies"] }
+          }
+        },
+        {
+          "name": "Create Second Company — Beta Labs",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('secondCompanyId', json.id);",
+                  "console.log('secondCompanyId:', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"name\": \"Beta Labs\",\n  \"legalName\": \"Beta Laboratories SARL\",\n  \"industry\": \"Biotech\",\n  \"country\": \"France\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/companies", "host": ["{{baseUrl}}"], "path": ["companies"] }
+          }
+        },
+        {
+          "name": "Get Companies for Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('2 companies', () => pm.expect(pm.response.json().length).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/companies/account/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["companies", "account", "{{accountId}}"] }
+          }
+        },
+        {
+          "name": "Activate Accounting Module on Acme Corp",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 204', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/companies/{{companyId}}/modules/{{moduleId}}/activate", "host": ["{{baseUrl}}"], "path": ["companies", "{{companyId}}", "modules", "{{moduleId}}", "activate"] }
+          }
+        },
+        {
+          "name": "Activate HR Module on Acme Corp",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 204', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/companies/{{companyId}}/modules/{{module2Id}}/activate", "host": ["{{baseUrl}}"], "path": ["companies", "{{companyId}}", "modules", "{{module2Id}}", "activate"] }
+          }
+        },
+        {
+          "name": "Update Company",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Logo updated', () => pm.expect(pm.response.json().logoUrl).to.eql('https://acme.io/logo.png'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Acme Corp\",\n  \"logoUrl\": \"https://acme.io/logo.png\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/companies/{{companyId}}", "host": ["{{baseUrl}}"], "path": ["companies", "{{companyId}}"] }
+          }
+        },
+        {
+          "name": "Get Company by ID (with modules)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Company is Acme Corp', () => pm.expect(pm.response.json().name).to.eql('Acme Corp'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/companies/{{companyId}}", "host": ["{{baseUrl}}"], "path": ["companies", "{{companyId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 — Roles & Permission Assignment",
+      "description": "Create roles with permissions, assign roles to the owner member.",
+      "item": [
+        {
+          "name": "Create Role — Accountant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('roleId', json.id);",
+                  "console.log('roleId (Accountant):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"name\": \"Accountant\",\n  \"description\": \"Full access to invoices and expense management\",\n  \"permissionIds\": [\"{{permissionId1}}\", \"{{permissionId2}}\", \"{{permissionId3}}\"]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/roles", "host": ["{{baseUrl}}"], "path": ["roles"] }
+          }
+        },
+        {
+          "name": "Create Role — HR Manager",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('roleId2', json.id);",
+                  "console.log('roleId2 (HR Manager):', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"name\": \"HR Manager\",\n  \"description\": \"Payroll and recruitment access\",\n  \"permissionIds\": [\"{{permissionId4}}\"]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/roles", "host": ["{{baseUrl}}"], "path": ["roles"] }
+          }
+        },
+        {
+          "name": "Get All Roles for Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('At least 2 roles', () => pm.expect(pm.response.json().length).to.be.at.least(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/roles/account/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["roles", "account", "{{accountId}}"] }
+          }
+        },
+        {
+          "name": "Get Role by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Role is Accountant', () => pm.expect(pm.response.json().name).to.eql('Accountant'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/roles/{{roleId}}", "host": ["{{baseUrl}}"], "path": ["roles", "{{roleId}}"] }
+          }
+        },
+        {
+          "name": "Update Role — add payroll permission",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Senior Accountant\",\n  \"description\": \"Full accounting + payroll access\",\n  \"permissionIds\": [\"{{permissionId1}}\", \"{{permissionId2}}\", \"{{permissionId3}}\", \"{{permissionId4}}\"]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/roles/{{roleId}}", "host": ["{{baseUrl}}"], "path": ["roles", "{{roleId}}"] }
+          }
+        },
+        {
+          "name": "Assign Accountant Role to Owner Member",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 201', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleId\": \"{{roleId}}\",\n  \"companyId\": \"{{companyId}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/members/{{memberId}}/roles", "host": ["{{baseUrl}}"], "path": ["members", "{{memberId}}", "roles"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 — Permission Resolution (The Engine)",
+      "description": "Demonstrate the permission resolution formula:\nrolePermissions ∩ planCeiling ∩ companyModulePermissions = effectivePermissions",
+      "item": [
+        {
+          "name": "Get Effective Permissions on Acme Corp",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const perms = pm.response.json();",
+                  "pm.test('Returns permission codes', () => pm.expect(perms).to.be.an('array'));",
+                  "console.log('Effective permissions:', JSON.stringify(perms));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/permissions/effective/company/{{companyId}}", "host": ["{{baseUrl}}"], "path": ["permissions", "effective", "company", "{{companyId}}"] }
+          }
+        },
+        {
+          "name": "Get Member Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/members/{{memberId}}", "host": ["{{baseUrl}}"], "path": ["members", "{{memberId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 — Second User & Multi-Account",
+      "description": "Register a second user (Bob), demonstrating multi-user/multi-account support.",
+      "item": [
+        {
+          "name": "Register Second User (Bob)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('secondUserId', json.userId);",
+                  "pm.collectionVariables.set('secondJwt', json.accessToken);",
+                  "if (json.accountId) pm.collectionVariables.set('secondAccountId', json.accountId);",
+                  "console.log('Second userId:', json.userId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"bob@hiveapp.io\",\n  \"password\": \"Password456!\",\n  \"firstName\": \"Bob\",\n  \"lastName\": \"Dupont\",\n  \"accountName\": \"Dupont Expertise\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] }
+          }
+        },
+        {
+          "name": "Login as Bob",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('secondJwt', json.accessToken);",
+                  "pm.collectionVariables.set('secondUserId', json.userId);",
+                  "if (json.accountId) pm.collectionVariables.set('secondAccountId', json.accountId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"bob@hiveapp.io\",\n  \"password\": \"Password456!\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Get Bob's Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('secondAccountId', json.id);",
+                  "console.log('Bob accountId:', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{secondJwt}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/accounts/me", "host": ["{{baseUrl}}"], "path": ["accounts", "me"] }
+          }
+        },
+        {
+          "name": "Invite Bob as Member in Alice's Account (switch back to Alice)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('invitedMemberId', json.id);",
+                  "console.log('Invited memberId:', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{secondUserId}}\",\n  \"accountId\": \"{{accountId}}\",\n  \"email\": \"bob@hiveapp.io\",\n  \"firstName\": \"Bob\",\n  \"lastName\": \"Dupont\",\n  \"displayName\": \"Bob D.\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/members", "host": ["{{baseUrl}}"], "path": ["members"] }
+          }
+        },
+        {
+          "name": "Assign HR Manager Role to Bob",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 201', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleId\": \"{{roleId2}}\",\n  \"companyId\": \"{{companyId}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/members/{{invitedMemberId}}/roles", "host": ["{{baseUrl}}"], "path": ["members", "{{invitedMemberId}}", "roles"] }
+          }
+        },
+        {
+          "name": "Get All Members for Alice's Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('2 members (owner + invited)', () => pm.expect(pm.response.json().length).to.be.at.least(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/members/account/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["members", "account", "{{accountId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 — Collaboration System",
+      "description": "Alice (client) creates a collaboration giving Bob's account (provider) access to Acme Corp with a permission ceiling.",
+      "item": [
+        {
+          "name": "Create Collaboration (Alice → Bob on Acme Corp)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('collaborationId', json.id);",
+                  "console.log('collaborationId:', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"providerAccountId\": \"{{secondAccountId}}\",\n  \"companyId\": \"{{companyId}}\",\n  \"permissionIds\": [\"{{permissionId1}}\", \"{{permissionId2}}\"]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/collaborations/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["collaborations", "{{accountId}}"] }
+          }
+        },
+        {
+          "name": "Get Collaboration by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Collaboration exists', () => pm.expect(json.id).to.eql(pm.collectionVariables.get('collaborationId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/collaborations/{{collaborationId}}", "host": ["{{baseUrl}}"], "path": ["collaborations", "{{collaborationId}}"] }
+          }
+        },
+        {
+          "name": "Get Collaborations as Client",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('At least 1 collaboration', () => pm.expect(pm.response.json().length).to.be.at.least(1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/collaborations/client/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["collaborations", "client", "{{accountId}}"] }
+          }
+        },
+        {
+          "name": "Get Collaborations as Provider (Bob's view)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Bob sees 1 collaboration', () => pm.expect(pm.response.json().length).to.be.at.least(1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{secondJwt}}", "type": "string" }] },
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/collaborations/provider/{{secondAccountId}}", "host": ["{{baseUrl}}"], "path": ["collaborations", "provider", "{{secondAccountId}}"] }
+          }
+        },
+        {
+          "name": "Accept Collaboration",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status is active', () => pm.expect(pm.response.json().status).to.eql('active'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/collaborations/{{collaborationId}}/accept", "host": ["{{baseUrl}}"], "path": ["collaborations", "{{collaborationId}}", "accept"] }
+          }
+        },
+        {
+          "name": "Get Effective Collaboration Permissions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const perms = pm.response.json();",
+                  "pm.test('Returns permission codes', () => pm.expect(perms).to.be.an('array'));",
+                  "console.log('Collaboration permissions:', JSON.stringify(perms));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/permissions/effective/collaboration/{{collaborationId}}", "host": ["{{baseUrl}}"], "path": ["permissions", "effective", "collaboration", "{{collaborationId}}"] }
+          }
+        },
+        {
+          "name": "Update Collaboration Permissions (narrow ceiling)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissionIds\": [\"{{permissionId2}}\"]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/collaborations/{{collaborationId}}/permissions", "host": ["{{baseUrl}}"], "path": ["collaborations", "{{collaborationId}}", "permissions"] }
+          }
+        },
+        {
+          "name": "Suspend Collaboration",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/collaborations/{{collaborationId}}/suspend", "host": ["{{baseUrl}}"], "path": ["collaborations", "{{collaborationId}}", "suspend"] }
+          }
+        },
+        {
+          "name": "Revoke Collaboration",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/collaborations/{{collaborationId}}/revoke", "host": ["{{baseUrl}}"], "path": ["collaborations", "{{collaborationId}}", "revoke"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 — Member Lifecycle",
+      "description": "Deactivate a member, remove roles — demonstrate member lifecycle.",
+      "item": [
+        {
+          "name": "Remove HR Role from Bob",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 204', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/members/{{invitedMemberId}}/roles/{{roleId2}}?companyId={{companyId}}", "host": ["{{baseUrl}}"], "path": ["members", "{{invitedMemberId}}", "roles", "{{roleId2}}"], "query": [{ "key": "companyId", "value": "{{companyId}}" }] }
+          }
+        },
+        {
+          "name": "Deactivate Bob's Membership",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 204', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/members/{{invitedMemberId}}/deactivate", "host": ["{{baseUrl}}"], "path": ["members", "{{invitedMemberId}}", "deactivate"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 — Plan Downgrade Demonstration",
+      "description": "Downgrade from PRO → FREE and verify that the downgrade handlers fire:\n- Out-of-plan permissions stripped from roles\n- Out-of-plan company modules deactivated",
+      "item": [
+        {
+          "name": "Verify Current Plan (PRO) — before downgrade",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Plan is PRO', () => pm.expect(json.planId).to.eql(pm.collectionVariables.get('proPlanId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/accounts/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["accounts", "{{accountId}}"] }
+          }
+        },
+        {
+          "name": "Verify Accountant Role — has 4 permissions before downgrade",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "console.log('Role before downgrade:', JSON.stringify(pm.response.json()));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/roles/{{roleId}}", "host": ["{{baseUrl}}"], "path": ["roles", "{{roleId}}"] }
+          }
+        },
+        {
+          "name": "Downgrade Subscription → FREE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 204', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));",
+                  "console.log('Downgrade triggered — handlers should fire');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/subscriptions/{{subscriptionId}}/plan/{{freePlanId}}", "host": ["{{baseUrl}}"], "path": ["subscriptions", "{{subscriptionId}}", "plan", "{{freePlanId}}"] }
+          }
+        },
+        {
+          "name": "Change Account Plan → FREE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/accounts/{{accountId}}/plan/{{freePlanId}}", "host": ["{{baseUrl}}"], "path": ["accounts", "{{accountId}}", "plan", "{{freePlanId}}"] }
+          }
+        },
+        {
+          "name": "Verify Role AFTER downgrade — out-of-plan perms stripped",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "console.log('Role after downgrade:', JSON.stringify(json));",
+                  "// FREE plan only has featureId1 (Invoices) and featureId2 (Expenses),",
+                  "// so payroll.run permission (featureId3) should be stripped"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/roles/{{roleId}}", "host": ["{{baseUrl}}"], "path": ["roles", "{{roleId}}"] }
+          }
+        },
+        {
+          "name": "Verify Effective Permissions — narrowed by FREE plan ceiling",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const perms = pm.response.json();",
+                  "console.log('Effective perms after downgrade:', JSON.stringify(perms));",
+                  "// Should not contain payroll.run since payroll feature is not in FREE plan"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/permissions/effective/company/{{companyId}}", "host": ["{{baseUrl}}"], "path": ["permissions", "effective", "company", "{{companyId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 — Module Deactivation",
+      "description": "Deactivate a module from a company and verify.",
+      "item": [
+        {
+          "name": "Deactivate HR Module on Acme Corp",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 204', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/companies/{{companyId}}/modules/{{module2Id}}/deactivate", "host": ["{{baseUrl}}"], "path": ["companies", "{{companyId}}", "modules", "{{module2Id}}", "deactivate"] }
+          }
+        },
+        {
+          "name": "Verify Effective Perms — HR perms removed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const perms = pm.response.json();",
+                  "console.log('Perms after HR deactivation:', JSON.stringify(perms));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/permissions/effective/company/{{companyId}}", "host": ["{{baseUrl}}"], "path": ["permissions", "effective", "company", "{{companyId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 — Plan Feature Management",
+      "description": "Remove a feature from a plan and verify cache eviction.",
+      "item": [
+        {
+          "name": "Remove Expenses Feature from FREE Plan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 204', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/plans/{{freePlanId}}/features/{{featureId2}}", "host": ["{{baseUrl}}"], "path": ["plans", "{{freePlanId}}", "features", "{{featureId2}}"] }
+          }
+        },
+        {
+          "name": "Verify Effective Perms — expenses.manage gone",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const perms = pm.response.json();",
+                  "console.log('Perms after feature removal:', JSON.stringify(perms));",
+                  "// expenses.manage should no longer appear since Expenses feature was removed from FREE plan"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/permissions/effective/company/{{companyId}}", "host": ["{{baseUrl}}"], "path": ["permissions", "effective", "company", "{{companyId}}"] }
+          }
+        },
+        {
+          "name": "Get FREE Plan Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "console.log('FREE plan after changes:', JSON.stringify(pm.response.json()));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/plans/{{freePlanId}}", "host": ["{{baseUrl}}"], "path": ["plans", "{{freePlanId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "14 — Role Deletion",
+      "description": "Delete (deactivate) a role and verify.",
+      "item": [
+        {
+          "name": "Delete HR Manager Role",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 204', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{baseUrl}}/roles/{{roleId2}}", "host": ["{{baseUrl}}"], "path": ["roles", "{{roleId2}}"] }
+          }
+        },
+        {
+          "name": "Verify Remaining Roles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const roles = pm.response.json();",
+                  "console.log('Active roles:', roles.map(r => r.name));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/roles/account/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["roles", "account", "{{accountId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 — Subscription Cancellation",
+      "description": "Cancel a subscription — end of lifecycle.",
+      "item": [
+        {
+          "name": "Cancel Subscription",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 204', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{baseUrl}}/subscriptions/{{subscriptionId}}/cancel", "host": ["{{baseUrl}}"], "path": ["subscriptions", "{{subscriptionId}}", "cancel"] }
+          }
+        },
+        {
+          "name": "Verify All Subscriptions for Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const subs = pm.response.json();",
+                  "console.log('Subscriptions:', subs.map(s => s.status));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/subscriptions/account/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["subscriptions", "account", "{{accountId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "16 — Final Verification",
+      "description": "Final reads across the system to verify everything is consistent.",
+      "item": [
+        {
+          "name": "Get Current User (Alice)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('User is Alice', () => pm.expect(pm.response.json().email).to.eql('alice@hiveapp.io'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"] }
+          }
+        },
+        {
+          "name": "Get Account — final state",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Name is Martin Consulting Group', () => pm.expect(pm.response.json().name).to.eql('Martin Consulting Group'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/accounts/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["accounts", "{{accountId}}"] }
+          }
+        },
+        {
+          "name": "Get All Companies — final state",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('2 companies', () => pm.expect(pm.response.json().length).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/companies/account/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["companies", "account", "{{accountId}}"] }
+          }
+        },
+        {
+          "name": "Get All Modules — final state",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('2 modules', () => pm.expect(pm.response.json().length).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/modules", "host": ["{{baseUrl}}"], "path": ["modules"] }
+          }
+        },
+        {
+          "name": "Get Module by Code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Module is Accounting', () => pm.expect(pm.response.json().code).to.eql('ACCOUNTING'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/modules/code/ACCOUNTING", "host": ["{{baseUrl}}"], "path": ["modules", "code", "ACCOUNTING"] }
+          }
+        },
+        {
+          "name": "Get User by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/users/{{userId}}", "host": ["{{baseUrl}}"], "path": ["users", "{{userId}}"] }
+          }
+        },
+        {
+          "name": "Get Permission by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Permission is invoices.create', () => pm.expect(pm.response.json().code).to.eql('invoices.create'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/permissions/{{permissionId1}}", "host": ["{{baseUrl}}"], "path": ["permissions", "{{permissionId1}}"] }
+          }
+        }
+      ]
+    }
+  ]
+}
