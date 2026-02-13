@@ -1,0 +1,228 @@
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Hexagon, Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { useAuthStore } from '@/stores/auth.store';
+import toast from 'react-hot-toast';
+
+export function LoginPage() {
+  const navigate = useNavigate();
+  const { login, isLoading } = useAuthStore();
+  const [showPassword, setShowPassword] = useState(false);
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+    
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = 'Invalid email format';
+    }
+    
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!validateForm()) return;
+    
+    try {
+      await login(formData.email, formData.password);
+      toast.success('Welcome back!');
+      navigate('/dashboard');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Login failed';
+      toast.error(message);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex">
+      {/* Left side - Branding */}
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary-600 via-primary-700 to-accent-700 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItSDI0di0yaDEyek0zNiAyNHYySDI0di0yaDEyeiIvPjwvZz48L2c+PC9zdmc+')] opacity-30" />
+        
+        <div className="relative z-10 flex flex-col justify-center px-12 xl:px-20">
+          <div className="flex items-center gap-4 mb-8">
+            <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-xl flex items-center justify-center">
+              <Hexagon className="w-10 h-10 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-white">HiveApp</h1>
+              <p className="text-white/70">Multi-tenant ERP Platform</p>
+            </div>
+          </div>
+          
+          <div className="max-w-md">
+            <h2 className="text-4xl font-bold text-white mb-4">
+              Manage your enterprise with confidence
+            </h2>
+            <p className="text-lg text-white/80 mb-8">
+              A powerful, flexible platform for managing accounts, companies, members, and permissions across multiple tenants.
+            </p>
+            
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 text-white/90">
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <span>Multi-tenant architecture</span>
+              </div>
+              <div className="flex items-center gap-3 text-white/90">
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <span>Flexible permission system</span>
+              </div>
+              <div className="flex items-center gap-3 text-white/90">
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <span>B2B collaboration support</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Right side - Login Form */}
+      <div className="flex-1 flex items-center justify-center px-6 py-12 lg:px-8 bg-white dark:bg-surface-950">
+        <div className="w-full max-w-md">
+          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
+              <Hexagon className="w-7 h-7 text-white" />
+            </div>
+            <span className="text-2xl font-bold text-gradient">HiveApp</span>
+          </div>
+
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold text-surface-900 dark:text-surface-100">
+              Welcome back
+            </h2>
+            <p className="mt-2 text-surface-600 dark:text-surface-400">
+              Sign in to your account to continue
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Email Field */}
+            <div>
+              <label htmlFor="email" className="label">
+                Email address
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-surface-400" />
+                <input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className={`input pl-10 ${errors.email ? 'input-error' : ''}`}
+                  placeholder="you@example.com"
+                />
+              </div>
+              {errors.email && <p className="error-text">{errors.email}</p>}
+            </div>
+
+            {/* Password Field */}
+            <div>
+              <label htmlFor="password" className="label">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-surface-400" />
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className={`input pl-10 pr-10 ${errors.password ? 'input-error' : ''}`}
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+              {errors.password && <p className="error-text">{errors.password}</p>}
+            </div>
+
+            {/* Remember & Forgot */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 rounded border-surface-300 text-primary-500 focus:ring-primary-500"
+                />
+                <span className="text-sm text-surface-600 dark:text-surface-400">Remember me</span>
+              </label>
+              <Link
+                to="/forgot-password"
+                className="text-sm font-medium text-primary-600 hover:text-primary-500"
+              >
+                Forgot password?
+              </Link>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="btn-primary w-full py-3"
+            >
+              {isLoading ? (
+                <span className="spinner-md" />
+              ) : (
+                <>
+                  Sign in
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Divider */}
+          <div className="relative my-8">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-surface-200 dark:border-surface-700" />
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-4 bg-white dark:bg-surface-950 text-surface-500">
+                New to HiveApp?
+              </span>
+            </div>
+          </div>
+
+          {/* Register Link */}
+          <Link
+            to="/register"
+            className="btn-outline w-full py-3"
+          >
+            Create an account
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
