@@ -15,7 +15,7 @@ classDiagram
         -applyCeiling(permissions: PermissionSet, ceiling: PermissionSet) PermissionSet
         -mergeRolePermissions(roles: Role[]) PermissionSet
         -resolveCollaborationCeiling(collaboration: Collaboration) PermissionSet
-        -resolvePlanCeiling(account: Account) PermissionSet
+        -resolvePlanCeiling(subscription: Subscription) PermissionSet
     }
 
     class PermissionContext {
@@ -68,11 +68,6 @@ classDiagram
         -isActive: Boolean
         -createdAt: DateTime
         -updatedAt: DateTime
-        +authenticate(credentials: Credentials) AuthResult
-        +getOwnedAccount() Account?
-        +getMemberships() Member[]
-        +getAdminUser() AdminUser?
-        +isOwnerOf(account: Account) Boolean
         +deactivate() void
     }
 
@@ -83,7 +78,7 @@ classDiagram
     class AdminUser {
         <<entity>>
         -id: UUID
-        -user: User
+        -userId: UUID
         -isSuperAdmin: Boolean
         -isActive: Boolean
         -createdAt: DateTime
@@ -100,7 +95,6 @@ classDiagram
         -name: String
         -description: String
         -isActive: Boolean
-        -permissions: AdminPermission[]
         -createdAt: DateTime
         +addPermission(permission: AdminPermission) void
         +removePermission(permission: AdminPermission) void
@@ -110,11 +104,13 @@ classDiagram
 
     class AdminPermission {
         <<entity>>
+        %% Seeded by code — platform operations only
+        %% e.g. admin.plans.create, admin.accounts.suspend
+        %% NOT linked to ERP modules
         -id: UUID
         -code: String
         -name: String
         -description: String
-        -module: Module
         -action: String
         -resource: String
         +matches(action: String, resource: String) Boolean
@@ -122,10 +118,13 @@ classDiagram
 
     %% ──────────────────────────────────────────
     %% MODULE & FEATURE REGISTRY
+    %% Seeded by code at deploy time — immutable via API
+    %% These are artifacts of the ERP codebase, not user-created data
     %% ──────────────────────────────────────────
 
     class Module {
         <<entity>>
+        <<seeded>>
         -id: UUID
         -code: String
         -name: String
@@ -133,30 +132,46 @@ classDiagram
         -icon: String
         -isActive: Boolean
         -sortOrder: Int
-        -features: Feature[]
         +getFeatures() Feature[]
         +getActiveFeatures() Feature[]
         +getPermissions() Permission[]
-        +activate() void
-        +deactivate() void
     }
 
     class Feature {
         <<entity>>
+        <<seeded>>
         -id: UUID
-        -module: Module
+        -moduleId: UUID
         -code: String
         -name: String
         -description: String
         -isActive: Boolean
         -sortOrder: Int
-        -permissions: Permission[]
         +getPermissions() Permission[]
-        +belongsToModule() Module
+        +getModule() Module
+    }
+
+    class Permission {
+        <<entity>>
+        <<seeded>>
+        %% Defined by ERP feature code — immutable.
+        %% e.g. contacts.read, invoices.create, hr.employees.approve
+        %% No Account creates or deletes Permissions — they only USE them via Roles.
+        -id: UUID
+        -featureId: UUID
+        -code: String
+        -name: String
+        -description: String
+        -action: String
+        -resource: String
+        +getFeature() Feature
+        +getModule() Module
+        +matches(action: String, resource: String) Boolean
     }
 
     %% ──────────────────────────────────────────
     %% PLAN SYSTEM
+    %% Admin composes Plans from the Feature registry
     %% ──────────────────────────────────────────
 
     class Plan {
@@ -170,7 +185,6 @@ classDiagram
         -maxCompanies: Int
         -maxMembers: Int
         -isActive: Boolean
-        -features: PlanFeature[]
         +getFeatures() Feature[]
         +getPermissionCeiling() PermissionSet
         +includesFeature(feature: Feature) Boolean
@@ -181,11 +195,41 @@ classDiagram
     class PlanFeature {
         <<entity>>
         -id: UUID
-        -plan: Plan
-        -feature: Feature
+        -planId: UUID
+        -featureId: UUID
         -config: JSON
         +getFeature() Feature
         +getConfig() JSON
+    }
+
+    %% ──────────────────────────────────────────
+    %% BILLING
+    %% Subscription is the SINGLE source of truth for Account's active Plan.
+    %% Account has NO plan_id field.
+    %% ──────────────────────────────────────────
+
+    class Subscription {
+        <<entity>>
+        -id: UUID
+        -accountId: UUID
+        -planId: UUID
+        -status: SubscriptionStatus
+        -currentPeriodStart: DateTime
+        -currentPeriodEnd: DateTime
+        -cancelledAt: DateTime
+        +isActive() Boolean
+        +isTrialing() Boolean
+        +cancel() void
+        +changePlan(newPlan: Plan) void
+        +getActivePlan() Plan
+    }
+
+    class SubscriptionStatus {
+        <<enumeration>>
+        ACTIVE
+        TRIALING
+        PAST_DUE
+        CANCELLED
     }
 
     %% ──────────────────────────────────────────
@@ -194,25 +238,21 @@ classDiagram
 
     class Account {
         <<entity>>
+        %% No plan_id — plan is resolved via the active Subscription
         -id: UUID
-        -owner: User
-        -plan: Plan
+        -ownerId: UUID
         -name: String
         -slug: String
         -isActive: Boolean
         -createdAt: DateTime
         +getOwner() User
-        +getPlan() Plan
+        +getActiveSubscription() Subscription
+        +getActivePlan() Plan
         +getCompanies() Company[]
         +getMembers() Member[]
         +getRoles() Role[]
-        +getPermissionCeiling() PermissionSet
-        +createCompany(data: CompanyData) Company
-        +createMember(user: User, roles: Role[]) Member
-        +createRole(name: String, permissions: Permission[]) Role
         +getCollaborationsAsClient() Collaboration[]
         +getCollaborationsAsProvider() Collaboration[]
-        +changePlan(plan: Plan) void
         +suspend() void
         +activate() void
     }
@@ -220,7 +260,7 @@ classDiagram
     class Company {
         <<entity>>
         -id: UUID
-        -account: Account
+        -accountId: UUID
         -name: String
         -legalName: String
         -taxId: String
@@ -229,20 +269,19 @@ classDiagram
         -address: String
         -logoUrl: String
         -isActive: Boolean
-        -activeModules: CompanyModule[]
         +getAccount() Account
         +activateModule(module: Module) CompanyModule
         +deactivateModule(module: Module) void
         +getActiveModules() Module[]
         +hasModule(module: Module) Boolean
-        +getMembers() Member[]
     }
 
     class CompanyModule {
         <<entity>>
+        %% Can only activate Modules covered by the Account's active Plan
         -id: UUID
-        -company: Company
-        -module: Module
+        -companyId: UUID
+        -moduleId: UUID
         -isActive: Boolean
         -activatedAt: DateTime
         -deactivatedAt: DateTime
@@ -257,20 +296,18 @@ classDiagram
     class Member {
         <<entity>>
         -id: UUID
-        -user: User
-        -account: Account
+        -userId: UUID
+        -accountId: UUID
         -displayName: String
         -isOwner: Boolean
         -isActive: Boolean
         -joinedAt: DateTime
-        -memberRoles: MemberRole[]
         +getUser() User
         +getAccount() Account
         +getRolesForCompany(company: Company) Role[]
         +getAccountWideRoles() Role[]
         +getAllRoles() Role[]
         +getAccessibleCompanies() Company[]
-        +hasAccessToCompany(company: Company) Boolean
         +hasPermission(permissionCode: String, context: PermissionContext) Boolean
         +getEffectivePermissions(context: PermissionContext) PermissionSet
         +assignRole(role: Role, company: Company?) MemberRole
@@ -279,18 +316,18 @@ classDiagram
     }
 
     %% ──────────────────────────────────────────
-    %% CLIENT PLATFORM - PERMISSION SYSTEM
+    %% CLIENT PLATFORM - ROLES
     %% ──────────────────────────────────────────
 
     class Role {
         <<entity>>
+        %% Roles only contain Permissions whose Feature is in the Account's active Plan
         -id: UUID
-        -account: Account
+        -accountId: UUID
         -name: String
         -description: String
         -isSystemRole: Boolean
         -isActive: Boolean
-        -permissions: RolePermission[]
         +getPermissions() Permission[]
         +addPermission(permission: Permission) void
         +removePermission(permission: Permission) void
@@ -298,34 +335,23 @@ classDiagram
         +getPermissionSet() PermissionSet
     }
 
-    class Permission {
-        <<entity>>
-        -id: UUID
-        -feature: Feature
-        -code: String
-        -name: String
-        -description: String
-        -action: String
-        -resource: String
-        +getFeature() Feature
-        +getModule() Module
-        +matches(action: String, resource: String) Boolean
-    }
-
     class RolePermission {
         <<entity>>
         -id: UUID
-        -role: Role
-        -permission: Permission
+        -roleId: UUID
+        -permissionId: UUID
         -grantedAt: DateTime
     }
 
     class MemberRole {
         <<entity>>
+        %% company is nullable:
+        %% null  = role applies account-wide (all companies)
+        %% value = role applies to this specific company only
         -id: UUID
-        -member: Member
-        -role: Role
-        -company: Company?
+        -memberId: UUID
+        -roleId: UUID
+        -companyId: UUID?
         -assignedAt: DateTime
         +isAccountWide() Boolean
         +isCompanyScoped() Boolean
@@ -333,24 +359,22 @@ classDiagram
     }
 
     %% ──────────────────────────────────────────
-    %% CLIENT PLATFORM - COLLABORATION SYSTEM
+    %% CLIENT PLATFORM - COLLABORATION
     %% ──────────────────────────────────────────
 
     class Collaboration {
         <<entity>>
         -id: UUID
-        -clientAccount: Account
-        -providerAccount: Account
-        -company: Company
-        -status: String
+        -clientAccountId: UUID
+        -providerAccountId: UUID
+        -companyId: UUID
+        -status: CollaborationStatus
         -requestedAt: DateTime
         -acceptedAt: DateTime
         -revokedAt: DateTime
-        -grantedPermissions: CollaborationPermission[]
         +getClientAccount() Account
         +getProviderAccount() Account
         +getCompany() Company
-        +getGrantedPermissions() Permission[]
         +getPermissionCeiling() PermissionSet
         +grantPermission(permission: Permission) void
         +revokePermission(permission: Permission) void
@@ -360,32 +384,22 @@ classDiagram
         +isActive() Boolean
     }
 
-    class CollaborationPermission {
-        <<entity>>
-        -id: UUID
-        -collaboration: Collaboration
-        -permission: Permission
-        -grantedAt: DateTime
+    class CollaborationStatus {
+        <<enumeration>>
+        PENDING
+        ACTIVE
+        SUSPENDED
+        REVOKED
     }
 
-    %% ──────────────────────────────────────────
-    %% BILLING
-    %% ──────────────────────────────────────────
-
-    class Subscription {
+    class CollaborationPermission {
         <<entity>>
+        %% Defines the ceiling for the provider account.
+        %% Provider effective perms = role perms ∩ this ceiling ∩ active company modules
         -id: UUID
-        -account: Account
-        -plan: Plan
-        -status: String
-        -currentPeriodStart: DateTime
-        -currentPeriodEnd: DateTime
-        -cancelledAt: DateTime
-        +isActive() Boolean
-        +isTrialing() Boolean
-        +cancel() void
-        +renew() void
-        +changePlan(newPlan: Plan) void
+        -collaborationId: UUID
+        -permissionId: UUID
+        -grantedAt: DateTime
     }
 
     %% ============================================
@@ -400,6 +414,7 @@ classDiagram
     PermissionEngine --> IPermissionActor : resolves for
     PermissionEngine --> PermissionContext : uses
     PermissionEngine --> PermissionSet : produces
+    PermissionEngine --> Subscription : reads plan ceiling from
     PermissionContext --> ContextType : has
 
     %% Identity
@@ -410,24 +425,26 @@ classDiagram
     %% Admin Platform
     AdminUser "1" --> "0..*" AdminRole : has
     AdminRole "1" --> "0..*" AdminPermission : contains
-    AdminPermission "0..*" --> "1" Module : scoped to
 
-    %% Module Registry
+    %% Module Registry (seeded — no owner)
     Module "1" --> "0..*" Feature : contains
     Feature "1" --> "0..*" Permission : defines
 
-    %% Plan
+    %% Plan (admin composes from registry)
     Plan "1" --> "0..*" PlanFeature : includes
     PlanFeature "0..*" --> "1" Feature : references
 
-    %% Account
-    Account "1" --> "1" Plan : subscribed to
+    %% Billing (Subscription = source of truth for Account's plan)
+    Account "1" --> "0..*" Subscription : billed via
+    Subscription "0..*" --> "1" Plan : subscribes to
+    Subscription --> SubscriptionStatus : has
+
+    %% Account structure
     Account "1" --> "0..*" Company : contains
     Account "1" --> "0..*" Member : has
     Account "1" --> "0..*" Role : defines
-    Account "1" --> "0..1" Subscription : billed via
 
-    %% Company
+    %% Company Modules (constrained to Plan)
     Company "1" --> "0..*" CompanyModule : activates
     CompanyModule "0..*" --> "1" Module : references
 
@@ -443,7 +460,5 @@ classDiagram
     Account "1" --> "0..*" Collaboration : receives as provider
     Collaboration "0..*" --> "1" Company : shares
     Collaboration "1" --> "0..*" CollaborationPermission : defines ceiling
+    Collaboration --> CollaborationStatus : has
     CollaborationPermission "0..*" --> "1" Permission : references
-
-    %% Billing
-    Subscription "0..*" --> "1" Plan : subscribes to
