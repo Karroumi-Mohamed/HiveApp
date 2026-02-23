@@ -1,7 +1,6 @@
 package com.hiveapp.shared.security;
 
 import java.nio.charset.StandardCharsets;
-import java.security.Key;
 import java.util.Date;
 import java.util.Map;
 import java.util.UUID;
