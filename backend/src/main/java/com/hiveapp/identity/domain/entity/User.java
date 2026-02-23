@@ -1,47 +1,49 @@
 package com.hiveapp.identity.domain.entity;
 
 import com.hiveapp.shared.domain.BaseEntity;
-import jakarta.persistence.*;
-import lombok.*;
 
-@Entity
-@Table(name = "users")
-@Getter @Setter
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@Entity
+@Table(name = "users")
 public class User extends BaseEntity {
-
     @Column(nullable = false, unique = true)
     private String email;
 
-    @Column(name = "password_hash", nullable = false)
+    @Column(nullable = false)
     private String passwordHash;
 
-    @Column(name = "first_name", nullable = false)
+    @Column(nullable = false)
     private String firstName;
 
-    @Column(name = "last_name", nullable = false)
+    @Column(nullable = false)
     private String lastName;
 
     private String phone;
 
-    @Column(name = "avatar_url")
     private String avatarUrl;
 
-    @Column(name = "is_active", nullable = false)
+    @Column(nullable = false)
     @Builder.Default
     private boolean isActive = true;
-
-    public String getFullName() {
-        return firstName + " " + lastName;
-    }
 
     public void deactivate() {
         this.isActive = false;
     }
 
-    public void activate() {
-        this.isActive = true;
+    public String getFullName() {
+        return firstName + " " + lastName;
     }
 }

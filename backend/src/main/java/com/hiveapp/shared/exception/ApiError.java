@@ -1,20 +1,24 @@
 package com.hiveapp.shared.exception;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import lombok.Builder;
-import lombok.Getter;
-
 import java.time.Instant;
-import java.util.Map;
+import java.util.List;
 
-@Getter
-@Builder
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class ApiError {
+public record ApiError(
+    int status,
+    String error,
+    String message,
+    Instant timestamp,
+    List<String> details
+) {
 
-    private final Instant timestamp;
-    private final int status;
-    private final String error;
-    private final String message;
-    private final Map<String, String> validationErrors;
+    public static ApiError of(int status, String error, String message) {
+        return new ApiError(status, error, message, Instant.now(), null);
+    }
+
+    public static ApiError of(int status, String error, String message, List<String> details) {
+        return new ApiError(status, error, message, Instant.now(), details);
+    }
 }
