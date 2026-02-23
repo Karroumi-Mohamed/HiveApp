@@ -21,10 +21,12 @@ classDiagram
     class PermissionContext {
         <<valueobject>>
         +contextType: ContextType
+        +tokenType: TokenType
         +accountId: UUID
         +companyId: UUID?
         +collaborationId: UUID?
         +getContextType() ContextType
+        +getTokenType() TokenType
     }
 
     class ContextType {
@@ -32,6 +34,12 @@ classDiagram
         ADMIN_PLATFORM
         CLIENT_OWN_ACCOUNT
         CLIENT_COLLABORATION
+    }
+
+    class TokenType {
+        <<enumeration>>
+        CLIENT
+        ADMIN
     }
 
     class PermissionSet {
@@ -416,6 +424,7 @@ classDiagram
     PermissionEngine --> PermissionSet : produces
     PermissionEngine --> Subscription : reads plan ceiling from
     PermissionContext --> ContextType : has
+    PermissionContext --> TokenType : validated by
 
     %% Identity
     User "1" --> "0..1" AdminUser : can be
