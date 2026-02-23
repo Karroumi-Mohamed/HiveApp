@@ -1,5 +1,4 @@
 @org.springframework.modulith.ApplicationModule(
-    displayName = "Identity",
-    allowedDependencies = {"shared"}
+    allowedDependencies = {"shared::security", "shared::domain"}
 )
 package com.hiveapp.identity;

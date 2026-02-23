@@ -94,6 +94,14 @@ Un AdminUser est un User ayant accès à la plateforme d'administration.
 - Possède un flag `is_super_admin` pour les opérations critiques
 - Peut se voir attribuer des AdminRoles dynamiques
 
+**Authentification :**
+
+- La plateforme d'administration possède son **propre flux d'authentification**, entièrement séparé du flux client
+- Endpoint dédié : `POST /api/admin/auth/login`
+- Émet un **token JWT admin distinct** (`tokenType: ADMIN`) — jamais mélangé avec un token client
+- Le token client (`tokenType: CLIENT`) ne donne **aucun accès** à la plateforme d'administration, même si le User est également AdminUser
+- Avantages : frontière de sécurité claire, auditabilité complète des actions admin, aucun risque de confusion de contexte
+
 ### 4.2 AdminRole
 
 Les rôles administrateurs sont **entièrement dynamiques** — créés, modifiés, supprimés à volonté.
@@ -192,6 +200,12 @@ Une Company représente une entité juridique ou organisationnelle gérée au se
 - Le nombre de Companies est limité par le Plan
 - Une Company ne peut activer que des Modules inclus dans le Plan de l'Account
 - Chaque Company peut activer des modules différents
+
+**Visibilité vs Accès :**
+
+- **Visibilité** — Un Member voit tous les Modules inclus dans le Plan de l'Account (même non activés sur la Company) — permet de savoir ce qui est disponible
+- **Accès** — Un Member accède uniquement aux Modules activés sur la Company ET couverts par ses Roles
+- `CompanyModule` est un toggle d'activation géré par le Owner — ce n'est pas un mécanisme de permission
 
 ### 5.3 Member (Membre)
 
@@ -375,11 +389,18 @@ Le moteur de permissions est un **service partagé** utilisé par les deux plate
 
 Le contexte détermine comment le moteur calcule les permissions :
 
-| Contexte | Plafond | Acteur |
-|----------|---------|--------|
-| `ADMIN_PLATFORM` | Toutes les AdminPermissions | AdminUser |
-| `CLIENT_OWN_ACCOUNT` | Plan de l'Account | Member |
-| `CLIENT_COLLABORATION` | CollaborationPermissions | Member (côté Provider) |
+| Contexte | Plafond | Acteur | Token requis |
+|----------|---------|--------|--------------|
+| `ADMIN_PLATFORM` | Toutes les AdminPermissions | AdminUser | `ADMIN` |
+| `CLIENT_OWN_ACCOUNT` | Plan de l'Account | Member | `CLIENT` |
+| `CLIENT_COLLABORATION` | CollaborationPermissions | Member (côté Provider) | `CLIENT` |
+
+**Types de tokens :**
+
+- `CLIENT` — émis par `POST /api/v1/auth/login` — accès à la plateforme client uniquement
+- `ADMIN` — émis par `POST /api/admin/auth/login` — accès à la plateforme d'administration uniquement
+- Le type de token est encodé dans le claim JWT (`tokenType`) et vérifié à chaque requête
+- Un token `CLIENT` présenté sur un endpoint admin est rejeté avec `403 Forbidden`, et vice-versa
 
 ### 7.3 PermissionSet
 

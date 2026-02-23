@@ -1,42 +1,33 @@
-# ════════════════════════════════════════════════
-# HiveApp — Git Ignore
-# ════════════════════════════════════════════════
-
-# ── Build ────────────────────────────────────
+HELP.md
 target/
-build/
-*.class
-*.jar
-*.war
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
 
-# ── IDE ──────────────────────────────────────
-.idea/
-*.iml
-*.iws
-*.ipr
-.vscode/
-.settings/
-.project
+### STS ###
+.apt_generated
 .classpath
-*.swp
-*.swo
-*~
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
 
-# ── Environment ──────────────────────────────
-.env
-*.env.local
-*.env.*.local
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
 
-# ── Logs ─────────────────────────────────────
-logs/
-*.log
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
 
-# ── OS ───────────────────────────────────────
-.DS_Store
-Thumbs.db
-
-# ── Docker ───────────────────────────────────
-docker/data/
-
-# ── Coverage ─────────────────────────────────
-jacoco.exec
+### VS Code ###
+.vscode/

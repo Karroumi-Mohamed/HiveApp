@@ -44,14 +44,15 @@ erDiagram
 
     AdminPermission {
         uuid id PK
-        string code UK
+        string code UK           "e.g. admin.plans.create"
         string name
         string description
-        uuid module_id FK
-        string action
-        string resource
+        string action            "create | read | update | delete | manage"
+        string resource          "plans | accounts | modules | features | users"
         datetime created_at
     }
+    %% NOTE: AdminPermissions are about platform operations,
+    %% NOT scoped to ERP modules. They are seeded by code.
 
     AdminRolePermission {
         uuid id PK
@@ -67,9 +68,14 @@ erDiagram
         datetime assigned_at
     }
 
+    %% ──────────────────────────────────────────
+    %% MODULE & FEATURE REGISTRY
+    %% SEEDED BY CODE — not created via API
+    %% ──────────────────────────────────────────
+
     Module {
         uuid id PK
-        string code UK
+        string code UK           "e.g. CRM, HR, INVOICING"
         string name
         string description
         string icon
@@ -82,7 +88,7 @@ erDiagram
     Feature {
         uuid id PK
         uuid module_id FK
-        string code UK
+        string code UK           "e.g. CRM_CONTACTS, HR_LEAVE"
         string name
         string description
         boolean is_active
@@ -90,6 +96,25 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
+
+    Permission {
+        uuid id PK
+        uuid feature_id FK
+        string code UK           "e.g. contacts.read, invoices.create"
+        string name
+        string description
+        string action            "READ | CREATE | UPDATE | DELETE | EXPORT | APPROVE"
+        string resource
+        datetime created_at
+    }
+    %% NOTE: Permissions are immutable artifacts defined by the codebase.
+    %% They are seeded at deploy time from the ERP module registry.
+    %% No API can create or delete them.
+
+    %% ──────────────────────────────────────────
+    %% PLAN SYSTEM
+    %% Plans are composed by Admin from the Feature registry
+    %% ──────────────────────────────────────────
 
     Plan {
         uuid id PK
@@ -109,7 +134,7 @@ erDiagram
         uuid id PK
         uuid plan_id FK
         uuid feature_id FK
-        jsonb config
+        jsonb config             "optional quotas / limits per feature"
         datetime created_at
     }
 
@@ -119,14 +144,15 @@ erDiagram
 
     Account {
         uuid id PK
-        uuid owner_id FK
-        uuid plan_id FK
+        uuid owner_id FK         "references users.id"
         string name
         string slug UK
         boolean is_active
         datetime created_at
         datetime updated_at
     }
+    %% NOTE: Account has NO plan_id column.
+    %% The effective plan is always resolved from the active Subscription.
 
     Company {
         uuid id PK
@@ -151,6 +177,8 @@ erDiagram
         datetime activated_at
         datetime deactivated_at
     }
+    %% NOTE: A Company can only activate Modules that are covered
+    %% by the Plan of the Account (via its active Subscription).
 
     %% ──────────────────────────────────────────
     %% CLIENT PLATFORM - MEMBERS
@@ -183,42 +211,33 @@ erDiagram
         datetime updated_at
     }
 
-    Permission {
-        uuid id PK
-        uuid feature_id FK
-        string code UK
-        string name
-        string description
-        string action
-        string resource
-        datetime created_at
-    }
-
     RolePermission {
         uuid id PK
         uuid role_id FK
         uuid permission_id FK
         datetime granted_at
     }
+    %% NOTE: A Role can only include Permissions whose Feature
+    %% is covered by the Account's active Plan.
 
     MemberRole {
         uuid id PK
         uuid member_id FK
         uuid role_id FK
-        uuid company_id FK "nullable - null means account-wide"
+        uuid company_id FK       "nullable — null = account-wide scope"
         datetime assigned_at
     }
 
     %% ──────────────────────────────────────────
-    %% CLIENT PLATFORM - COLLABORATION SYSTEM
+    %% CLIENT PLATFORM - COLLABORATION
     %% ──────────────────────────────────────────
 
     Collaboration {
         uuid id PK
-        uuid client_account_id FK "account granting access"
+        uuid client_account_id FK   "account granting access"
         uuid provider_account_id FK "account receiving access"
-        uuid company_id FK "specific company being shared"
-        string status "pending, active, suspended, revoked"
+        uuid company_id FK          "specific company being shared"
+        string status               "pending | active | suspended | revoked"
         datetime requested_at
         datetime accepted_at
         datetime revoked_at
@@ -232,6 +251,8 @@ erDiagram
         uuid permission_id FK
         datetime granted_at
     }
+    %% NOTE: CollaborationPermissions define the ceiling for the provider.
+    %% Provider member effective perms = their role perms ∩ this ceiling ∩ active company modules.
 
     %% ──────────────────────────────────────────
     %% BILLING
@@ -241,13 +262,15 @@ erDiagram
         uuid id PK
         uuid account_id FK
         uuid plan_id FK
-        string status "active, past_due, cancelled, trialing"
+        string status               "active | past_due | cancelled | trialing"
         datetime current_period_start
         datetime current_period_end
         datetime cancelled_at
         datetime created_at
         datetime updated_at
     }
+    %% NOTE: Subscription is the SINGLE source of truth for which Plan
+    %% an Account is on. There is no plan_id on Account.
 
     %% ============================================
     %% RELATIONSHIPS
@@ -256,32 +279,30 @@ erDiagram
     %% Identity
     User ||--o{ AdminUser : "can be"
     User ||--o{ Member : "identity of"
+    User ||--|| Account : "owns"
 
     %% Admin Platform
     AdminUser ||--o{ AdminUserRole : "has"
     AdminRole ||--o{ AdminUserRole : "assigned via"
     AdminRole ||--o{ AdminRolePermission : "contains"
     AdminPermission ||--o{ AdminRolePermission : "granted through"
-    Module ||--o{ AdminPermission : "scoped to"
 
-    %% Module & Feature Registry
+    %% Module & Feature Registry (seeded by code)
     Module ||--o{ Feature : "contains"
     Feature ||--o{ Permission : "defines"
 
-    %% Plan Composition
+    %% Plan Composition (admin composes plans from the registry)
     Plan ||--o{ PlanFeature : "includes"
     Feature ||--o{ PlanFeature : "available in"
 
-    %% Account Structure
-    User ||--|| Account : "owns"
-    Account ||--o| Subscription : "billed via"
-    Plan ||--o{ Subscription : "subscribed to"
-    Plan ||--o{ Account : "current plan"
+    %% Account Structure (plan derived via Subscription, not stored on Account)
     Account ||--o{ Company : "contains"
     Account ||--o{ Member : "has"
     Account ||--o{ Role : "defines"
+    Account ||--o{ Subscription : "billed via"
+    Subscription }o--|| Plan : "subscribes to"
 
-    %% Company Modules
+    %% Company Modules (constrained to Plan features)
     Company ||--o{ CompanyModule : "activates"
     Module ||--o{ CompanyModule : "activated in"
 
@@ -290,11 +311,11 @@ erDiagram
     Permission ||--o{ RolePermission : "granted through"
     Member ||--o{ MemberRole : "assigned"
     Role ||--o{ MemberRole : "assigned via"
-    Company ||--o{ MemberRole : "scoped to"
+    Company |o--o{ MemberRole : "scoped to"
 
     %% Collaboration
     Account ||--o{ Collaboration : "grants access as client"
     Account ||--o{ Collaboration : "receives access as provider"
     Company ||--o{ Collaboration : "shared company"
-    Collaboration ||--o{ CollaborationPermission : "defines"
+    Collaboration ||--o{ CollaborationPermission : "defines ceiling"
     Permission ||--o{ CollaborationPermission : "granted in collab"
