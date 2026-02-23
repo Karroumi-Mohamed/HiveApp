@@ -18,7 +18,7 @@ import lombok.Getter;
 @Getter
 @MappedSuperclass
 @EntityListeners(AuditingEntityListener.class)
-public class BaseEnity {
+public class BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
