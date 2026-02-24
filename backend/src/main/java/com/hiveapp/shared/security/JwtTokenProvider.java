@@ -29,7 +29,7 @@ public class JwtTokenProvider {
                 jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateAccessToken(UUID userId, Map<String, Object> extraClaims){
+    public String generateAccessToken(UUID userId, Map<String, Object> extraClaims) {
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(userId.toString())
@@ -40,7 +40,7 @@ public class JwtTokenProvider {
                 .compact();
     }
 
-    public String generateRefreshToken(UUID userId){
+    public String generateRefreshToken(UUID userId) {
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(userId.toString())
@@ -50,12 +50,12 @@ public class JwtTokenProvider {
                 .compact();
     }
 
-    public boolean validateToken(String token){
+    public boolean validateToken(String token) {
         try {
             Jwts.parser()
-                .verifyWith(getSigningKey())
-                .build()
-                .parseSignedClaims(token);
+                    .verifyWith(getSigningKey())
+                    .build()
+                    .parseSignedClaims(token);
             return true;
         } catch (JwtException | IllegalArgumentException ex) {
             log.warn("Invalid JWT token: {}", ex.getMessage());
@@ -63,22 +63,34 @@ public class JwtTokenProvider {
         }
     }
 
-    public UUID getUserIdFromToken(String token){
+    public UUID getUserIdFromToken(String token) {
         String subject = Jwts.parser()
                 .verifyWith(getSigningKey())
                 .build()
                 .parseSignedClaims(token)
                 .getPayload()
                 .getSubject();
-        
-        return UUID.fromString(subject);        
+
+        return UUID.fromString(subject);
     }
 
-    public Claims getClaimsFromToken(String token){
+    public Claims getClaimsFromToken(String token) {
         return Jwts.parser()
                 .verifyWith(getSigningKey())
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
+    }
+
+    public long getAccessTokenExpiration(String token) {
+        return Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload().getExpiration().getTime();
+    }
+
+    public long getAccessTokenExpiration(){
+        return jwtProperties.getAccessTokenExpiration();
     }
 }
