@@ -18,8 +18,8 @@ import com.hiveapp.identity.dto.RefreshTokenRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.identity.event.UserRegisteredEvent;
 import com.hiveapp.identity.service.AuthService;
-import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.DuplicateResourceException;
+import com.hiveapp.shared.exception.UnauthorizedException;
 import com.hiveapp.shared.security.JwtTokenProvider;
 
 import lombok.RequiredArgsConstructor;
@@ -62,13 +62,13 @@ public class AuthServiceImpl implements AuthService {
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new BusinessException("Invalid email or password"));
+                .orElseThrow(() -> new UnauthorizedException("Invalid email or password"));
 
         try {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(user.getId().toString(), request.password()));
         } catch (BadCredentialsException ex) {
-            throw new BusinessException("Invalid email or password");
+            throw new UnauthorizedException("Invalid email or password");
         }
 
         log.info("User logged in: {}", user.getEmail());
@@ -79,12 +79,12 @@ public class AuthServiceImpl implements AuthService {
     @Transactional(readOnly = true)
     public AuthResponse refresh(RefreshTokenRequest request) {
         if (!jwtTokenProvider.validateToken(request.refreshToken())) {
-            throw new BusinessException("Invalid or expired refresh token");
+            throw new UnauthorizedException("Invalid or expired refresh token");
         }
 
         var userId = jwtTokenProvider.getUserIdFromToken(request.refreshToken());
                 var user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException("User not found"));
+                .orElseThrow(() -> new UnauthorizedException("User not found"));
 
         log.info("Token refreshed for user: {}", user.getEmail());
         return issueTokens(user);

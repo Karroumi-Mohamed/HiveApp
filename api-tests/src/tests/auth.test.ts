@@ -29,12 +29,12 @@ const loginRes = await post("/api/v1/auth/login", {
 });
 log("POST /api/v1/auth/login", loginRes);
 
-// 4. Login wrong password (should 400)
+// 4. Login wrong password (should 401)
 const badLoginRes = await post("/api/v1/auth/login", {
   email: testUser.email,
   password: "wrongpassword",
 });
-log("POST /api/v1/auth/login (wrong password — expect 400)", badLoginRes);
+log("POST /api/v1/auth/login (wrong password — expect 401)", badLoginRes);
 
 // 5. Refresh token
 if (refreshToken) {
