@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: hiveapp-postgres
+    environment:
+      POSTGRES_DB: hiveapp
+      POSTGRES_USER: hiveapp
+      POSTGRES_PASSWORD: hiveapp123
+    ports:
+      - "5432:5432"
+    volumes:
+      - hiveapp_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  hiveapp_postgres_data:
+  
