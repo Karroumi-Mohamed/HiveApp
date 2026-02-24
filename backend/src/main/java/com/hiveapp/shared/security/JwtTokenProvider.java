@@ -1,27 +1,25 @@
 package com.hiveapp.shared.security;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Date;
-import java.util.Map;
-import java.util.UUID;
-
-import javax.crypto.SecretKey;
-
-import org.springframework.stereotype.Component;
-
 import com.hiveapp.shared.config.JwtProperties;
-
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.Date;
+import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class JwtTokenProvider {
+
     private final JwtProperties jwtProperties;
 
     private SecretKey getSigningKey() {
@@ -34,9 +32,9 @@ public class JwtTokenProvider {
         return Jwts.builder()
                 .subject(userId.toString())
                 .claims(extraClaims)
-                .signWith(getSigningKey())
-                .expiration(new Date(now + jwtProperties.getAccessTokenExpiration()))
                 .issuedAt(new Date(now))
+                .expiration(new Date(now + jwtProperties.getAccessTokenExpiration().toMillis()))
+                .signWith(getSigningKey())
                 .compact();
     }
 
@@ -45,7 +43,7 @@ public class JwtTokenProvider {
         return Jwts.builder()
                 .subject(userId.toString())
                 .issuedAt(new Date(now))
-                .expiration(new Date(now + jwtProperties.getRefreshTockenExpiration()))
+                .expiration(new Date(now + jwtProperties.getRefreshTokenExpiration().toMillis()))
                 .signWith(getSigningKey())
                 .compact();
     }
@@ -70,7 +68,6 @@ public class JwtTokenProvider {
                 .parseSignedClaims(token)
                 .getPayload()
                 .getSubject();
-
         return UUID.fromString(subject);
     }
 
@@ -82,15 +79,7 @@ public class JwtTokenProvider {
                 .getPayload();
     }
 
-    public long getAccessTokenExpiration(String token) {
-        return Jwts.parser()
-                .verifyWith(getSigningKey())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload().getExpiration().getTime();
-    }
-
-    public long getAccessTokenExpiration(){
-        return jwtProperties.getAccessTokenExpiration();
+    public long getAccessTokenExpiration() {
+        return jwtProperties.getAccessTokenExpiration().toSeconds();
     }
 }
