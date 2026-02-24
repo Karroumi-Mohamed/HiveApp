@@ -4,6 +4,7 @@ import java.util.Map;
 
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -60,11 +61,15 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.email(), request.password()));
-
         User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new BusinessException("Invalid credentials"));
+                .orElseThrow(() -> new BusinessException("Invalid email or password"));
+
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(user.getId().toString(), request.password()));
+        } catch (BadCredentialsException ex) {
+            throw new BusinessException("Invalid email or password");
+        }
 
         log.info("User logged in: {}", user.getEmail());
         return issueTokens(user);
