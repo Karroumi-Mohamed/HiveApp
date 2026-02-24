@@ -44,7 +44,7 @@ public class GlobalExceptionHandler {
                 .toList();
 
         return ResponseEntity
-                .status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .status(HttpStatus.UNPROCESSABLE_ENTITY)
                 .body(ApiError.of(422, "Validation Failed", "Request validation failed", details));
     }
 
