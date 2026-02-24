@@ -22,7 +22,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(DuplicateResourceException.class)
-    public ResponseEntity<ApiError> handeDuplicate(DuplicateResourceException ex) {
+    public ResponseEntity<ApiError> handleDuplicate(DuplicateResourceException ex) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(ApiError.of(409, "Conflict", ex.getMessage()));
@@ -44,7 +44,7 @@ public class GlobalExceptionHandler {
                 .toList();
 
         return ResponseEntity
-                .status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .status(HttpStatus.UNPROCESSABLE_CONTENT)
                 .body(ApiError.of(422, "Validation Failed", "Request validation failed", details));
     }
 
@@ -54,6 +54,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiError.of(500, "Internal Server Error", "An unexpected error occurred"));
-    };
+    }
 
 }
