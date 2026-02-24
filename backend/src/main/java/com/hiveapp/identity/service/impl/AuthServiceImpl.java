@@ -15,6 +15,7 @@ import com.hiveapp.identity.dto.AuthResponse;
 import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
+import com.hiveapp.identity.event.UserRegisteredEvent;
 import com.hiveapp.identity.service.AuthService;
 import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.DuplicateResourceException;
