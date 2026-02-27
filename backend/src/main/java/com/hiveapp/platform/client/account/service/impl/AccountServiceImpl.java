@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.account.service.impl;
 
 import java.util.UUID;
 
+import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +24,8 @@ public class AccountServiceImpl implements AccountService {
     private final AccountRepository accountRepository;
     private final AccountMapper accountMapper;
 
+    @ApplicationModuleListener
+    @Transactional
     public void onUserRegistered(UserRegisteredEvent event) {
         if (accountRepository.existsByUserId(event.userId())) {
             log.warn("Account already exists for user: {}", event.userId());
