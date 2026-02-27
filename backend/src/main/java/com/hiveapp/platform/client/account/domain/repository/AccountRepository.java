@@ -11,5 +11,5 @@ import com.hiveapp.platform.client.account.domain.entity.Account;
 @Repository
 public interface AccountRepository extends JpaRepository<Account, UUID>{
     Optional<Account> findByUserId(UUID userId);
-    boolean exisexistsByUserId(UUID userId);
+    boolean existsByUserId(UUID userId);
 }
