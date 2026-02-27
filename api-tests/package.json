@@ -3,7 +3,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test:auth": "bun run src/tests/auth.test.ts"
+    "test:auth": "bun run src/tests/auth.test.ts",
+    "test:account": "bun run src/tests/account.test.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.9"
