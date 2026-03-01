@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hiveapp.identity.event.UserRegisteredEvent;
@@ -25,7 +26,7 @@ public class AccountServiceImpl implements AccountService {
     private final AccountMapper accountMapper;
 
     @ApplicationModuleListener
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onUserRegistered(UserRegisteredEvent event) {
         if (accountRepository.existsByUserId(event.userId())) {
             log.warn("Account already exists for user: {}", event.userId());
