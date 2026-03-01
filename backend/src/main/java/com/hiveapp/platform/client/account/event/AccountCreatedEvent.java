@@ -17,3 +17,4 @@ public record AccountCreatedEvent(
 
     @Override public UUID getEventId() { return eventId; }
     @Override public Instant getOccurredAt() { return occurredAt; }
+}
