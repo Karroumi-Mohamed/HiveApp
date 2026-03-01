@@ -15,6 +15,9 @@ import com.hiveapp.platform.client.account.mapper.AccountMapper;
 import com.hiveapp.platform.client.account.service.AccountService;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 
+import com.hiveapp.platform.client.account.event.AccountCreatedEvent;
+import com.hiveapp.shared.event.EventPublisher;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -24,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 public class AccountServiceImpl implements AccountService {
     private final AccountRepository accountRepository;
     private final AccountMapper accountMapper;
+    private final EventPublisher eventPublisher;
 
     @ApplicationModuleListener
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -40,6 +44,7 @@ public class AccountServiceImpl implements AccountService {
         
         accountRepository.save(account);
         log.info("Created account for user: {}", event.userId());
+        eventPublisher.publish(new AccountCreatedEvent(account.getId(), event.userId()));
     }
 
     @Override
