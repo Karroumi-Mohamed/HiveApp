@@ -60,6 +60,14 @@ Thumbs.db
 *.env.local
 
 # ──────────────────────────────────────────
+# Spring Boot Config (contains secrets)
+# ──────────────────────────────────────────
+backend/src/main/resources/application.yml
+backend/src/main/resources/application.yaml
+backend/src/main/resources/application-*.yml
+backend/src/main/resources/application-*.yaml
+
+# ──────────────────────────────────────────
 # Debug / Logs
 # ──────────────────────────────────────────
 *.log
