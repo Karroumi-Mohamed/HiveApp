@@ -1,4 +1,5 @@
 package com.hiveapp.permission.processor;
+
 import com.hiveapp.permission.Permission;
 
 import javax.annotation.processing.*;
@@ -15,25 +16,6 @@ import java.io.PrintWriter;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/**
- * Compile-time annotation processor for {@link Permission}.
- *
- * <p>Performs four phases:</p>
- * <ol>
- *   <li>Register all {@code @Permission}-annotated elements</li>
- *   <li>Resolve parent hierarchy and build dot-paths for each node</li>
- *   <li>Validate no duplicate sibling keys exist</li>
- *   <li>Generate companion classes with {@code public static final String} constants</li>
- * </ol>
- *
- * <p>Parent resolution follows a strict priority chain:</p>
- * <ol>
- *   <li>Explicit {@code parent} attribute on the annotation</li>
- *   <li>Enclosing class's {@code @Permission} (for method-level annotations)</li>
- *   <li>Walk up the package hierarchy until an annotated {@code package-info.java} is found</li>
- *   <li>Compile error if no parent can be resolved (except root nodes)</li>
- * </ol>
- */
 @SupportedAnnotationTypes("com.hiveapp.permission.Permission")
 @SupportedSourceVersion(SourceVersion.RELEASE_21)
 public class PermissionAnnotationProcessor extends AbstractProcessor {
@@ -91,8 +73,8 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         // Phase 3: Validate no duplicate siblings
         validateNoDuplicateSiblings();
 
-        // Phase 4: Generate companion classes
-        generateCompanionClasses(annotatedElements);
+        // Phase 4: Generate nested permission tree classes
+        generatePermissionTrees();
 
         return true;
     }
@@ -103,10 +85,7 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
 
     private void registerElement(Element element) {
         switch (element.getKind()) {
-            case PACKAGE, CLASS, INTERFACE, METHOD -> {
-                // Valid targets — nothing to do beyond confirming the kind.
-                // Resolution happens in Phase 2.
-            }
+            case PACKAGE, CLASS, INTERFACE, METHOD -> {}
             default -> messager.printMessage(Diagnostic.Kind.ERROR,
                     "@Permission is not supported on " + element.getKind(), element);
         }
@@ -119,7 +98,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     private String resolveNode(Element element) {
         String elementKey = getElementKey(element);
 
-        // Already resolved — return cached path
         if (resolvedNodes.containsKey(elementKey)) {
             return resolvedNodes.get(elementKey).dotPath();
         }
@@ -145,7 +123,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 return dotPath;
             }
 
-            // Enclosing class has no @Permission — walk up packages from the class
             return resolveViaPackageWalk(element, enclosingClass, elementKey, key, description);
         }
 
@@ -165,7 +142,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 return dotPath;
             }
 
-            // No parent package found — this is a root node
             resolvedNodes.put(elementKey, new ResolvedNode(key, description, key, null, element));
             return key;
         }
@@ -217,15 +193,9 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         return dotPath;
     }
 
-    /**
-     * Walks up the package hierarchy starting from the given package.
-     * Returns the resolved dot-path of the first ancestor package that carries @Permission,
-     * or null if no annotated ancestor is found.
-     */
     private String walkUpPackages(PackageElement startPackage) {
         String packageName = startPackage.getQualifiedName().toString();
 
-        // Also check the start package itself (for classes inside an annotated package)
         if (startPackage.getAnnotation(Permission.class) != null) {
             return resolveNode(startPackage);
         }
@@ -272,146 +242,112 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     }
 
     // ──────────────────────────────────────────────
-    // Phase 4: Code Generation
+    // Phase 4: Code Generation — Nested Tree
     // ──────────────────────────────────────────────
 
-    private void generateCompanionClasses(Set<? extends Element> annotatedElements) {
-        // Group method-level permissions by their enclosing class
-        Map<TypeElement, List<ResolvedNode>> methodsByClass = new LinkedHashMap<>();
+    private void generatePermissionTrees() {
+        // Build a tree structure from the flat resolved nodes
+        Map<String, TreeNode> treeNodes = new LinkedHashMap<>();
 
-        // Collect class-level and package-level nodes
-        Set<TypeElement> classesWithPermission = new LinkedHashSet<>();
-        List<ResolvedNode> packageNodes = new ArrayList<>();
+        // Create tree nodes for every resolved permission
+        for (ResolvedNode resolved : resolvedNodes.values()) {
+            treeNodes.put(resolved.dotPath(), new TreeNode(resolved));
+        }
 
-        for (Element element : annotatedElements) {
-            String elementKey = getElementKey(element);
-            ResolvedNode node = resolvedNodes.get(elementKey);
-            if (node == null) continue;
-
-            switch (element.getKind()) {
-                case METHOD -> {
-                    TypeElement enclosing = (TypeElement) element.getEnclosingElement();
-                    methodsByClass.computeIfAbsent(enclosing, k -> new ArrayList<>()).add(node);
-                }
-                case CLASS, INTERFACE -> classesWithPermission.add((TypeElement) element);
-                case PACKAGE -> packageNodes.add(node);
-                default -> {}
+        // Link children to parents
+        for (TreeNode treeNode : treeNodes.values()) {
+            String parentPath = treeNode.resolved.parentDotPath();
+            if (parentPath != null && treeNodes.containsKey(parentPath)) {
+                treeNodes.get(parentPath).children.add(treeNode);
             }
         }
 
-        // Generate companion classes for classes that have method-level permissions
-        for (var entry : methodsByClass.entrySet()) {
-            TypeElement clazz = entry.getKey();
-            List<ResolvedNode> methods = entry.getValue();
-
-            // Check if the class itself also has @Permission
-            ResolvedNode classNode = null;
-            if (classesWithPermission.contains(clazz)) {
-                String classKey = clazz.getQualifiedName().toString();
-                classNode = resolvedNodes.get(classKey);
-                classesWithPermission.remove(clazz); // handled here, don't generate twice
+        // Find roots (nodes with no parent) and generate one class per root
+        for (TreeNode treeNode : treeNodes.values()) {
+            if (treeNode.resolved.parentDotPath() == null) {
+                generateRootClass(treeNode);
             }
-
-            generateClassCompanion(clazz, classNode, methods);
-        }
-
-        // Generate for class-level permissions that had no method-level children
-        for (TypeElement clazz : classesWithPermission) {
-            String classKey = clazz.getQualifiedName().toString();
-            ResolvedNode classNode = resolvedNodes.get(classKey);
-            if (classNode != null) {
-                generateClassCompanion(clazz, classNode, List.of());
-            }
-        }
-
-        // Generate for package-level permissions
-        for (ResolvedNode node : packageNodes) {
-            generatePackageCompanion((PackageElement) node.element(), node);
         }
     }
 
-    private void generateClassCompanion(TypeElement clazz, ResolvedNode classNode,
-                                        List<ResolvedNode> methodNodes) {
-        String className = clazz.getSimpleName().toString();
-        String packageName = elementUtils.getPackageOf(clazz).getQualifiedName().toString();
-        String companionName = className + "Permissions";
-        String qualifiedCompanionName = packageName + "." + companionName;
+    private static final class TreeNode {
+        final ResolvedNode resolved;
+        final List<TreeNode> children = new ArrayList<>();
+
+        TreeNode(ResolvedNode resolved) {
+            this.resolved = resolved;
+        }
+    }
+
+    private void generateRootClass(TreeNode root) {
+        // Determine output package — use the permission library's generated subpackage
+        String outputPackage = "com.hiveapp.permission.generated";
+        String className = capitalize(root.resolved.key()) + "Permissions";
 
         try {
-            JavaFileObject file = filer.createSourceFile(qualifiedCompanionName, clazz);
+            JavaFileObject file = filer.createSourceFile(outputPackage + "." + className);
             try (PrintWriter out = new PrintWriter(file.openWriter())) {
-                out.println("package " + packageName + ";");
+                out.println("package " + outputPackage + ";");
                 out.println();
                 out.println("import javax.annotation.processing.Generated;");
                 out.println();
                 out.println("/**");
-                out.println(" * Generated permission constants for {@link " + className + "}.");
+                out.println(" * Generated permission tree rooted at {@code \"" + root.resolved.dotPath() + "\"}.");
                 out.println(" *");
                 out.println(" * <p>Do not edit manually. Regenerated on every compilation.</p>");
                 out.println(" */");
                 out.println("@Generated(\"" + PermissionAnnotationProcessor.class.getName() + "\")");
-                out.println("public final class " + companionName + " {");
+                out.println("public final class " + className + " {");
                 out.println();
 
-                // Class-level constant
-                if (classNode != null) {
-                    writeConstant(out, classNode);
+                // Root's own path
+                writeDescription(out, root.resolved, 1);
+                out.println("    public static final String $ = \"" + root.resolved.dotPath() + "\";");
+                out.println();
+
+                // Generate nested children
+                for (TreeNode child : root.children) {
+                    writeNestedClass(out, child, 1);
                 }
 
-                // Method-level constants
-                for (ResolvedNode node : methodNodes) {
-                    writeConstant(out, node);
-                }
-
-                out.println("    private " + companionName + "() {}");
+                out.println("    private " + className + "() {}");
                 out.println("}");
             }
         } catch (IOException e) {
             messager.printMessage(Diagnostic.Kind.ERROR,
-                    "Failed to generate " + companionName + ": " + e.getMessage(), clazz);
+                    "Failed to generate " + className + ": " + e.getMessage());
         }
     }
 
-    private void generatePackageCompanion(PackageElement pkg, ResolvedNode node) {
-        String packageName = pkg.getQualifiedName().toString();
-        String lastSegment = packageName.substring(packageName.lastIndexOf('.') + 1);
-        String companionName = capitalize(lastSegment) + "Permissions";
-        String qualifiedCompanionName = packageName + "." + companionName;
+    private void writeNestedClass(PrintWriter out, TreeNode node, int depth) {
+        String indent = "    ".repeat(depth);
+        String innerIndent = "    ".repeat(depth + 1);
+        String className = capitalize(node.resolved.key());
 
-        try {
-            JavaFileObject file = filer.createSourceFile(qualifiedCompanionName, pkg);
-            try (PrintWriter out = new PrintWriter(file.openWriter())) {
-                out.println("package " + packageName + ";");
-                out.println();
-                out.println("import javax.annotation.processing.Generated;");
-                out.println();
-                out.println("/**");
-                out.println(" * Generated permission constant for package {@code " + packageName + "}.");
-                out.println(" *");
-                out.println(" * <p>Do not edit manually. Regenerated on every compilation.</p>");
-                out.println(" */");
-                out.println("@Generated(\"" + PermissionAnnotationProcessor.class.getName() + "\")");
-                out.println("public final class " + companionName + " {");
-                out.println();
-                writeConstant(out, node);
-                out.println("    private " + companionName + "() {}");
-                out.println("}");
-            }
-        } catch (IOException e) {
-            messager.printMessage(Diagnostic.Kind.ERROR,
-                    "Failed to generate " + companionName + ": " + e.getMessage(), pkg);
-        }
-    }
+        out.println(indent + "public static final class " + className + " {");
 
-    private void writeConstant(PrintWriter out, ResolvedNode node) {
-        if (!node.description().isEmpty()) {
-            out.println("    /** " + node.description() + " — {@code \"" + node.dotPath() + "\"} */");
-        } else {
-            out.println("    /** {@code \"" + node.dotPath() + "\"} */");
-        }
-        out.println("    public static final String " +
-                toConstantName(node.key()) + " = \"" + node.dotPath() + "\";");
+        // The path constant
+        writeDescription(out, node.resolved, depth + 1);
+        out.println(innerIndent + "public static final String $ = \"" + node.resolved.dotPath() + "\";");
         out.println();
+
+        // Recurse into children
+        for (TreeNode child : node.children) {
+            writeNestedClass(out, child, depth + 1);
+        }
+
+        out.println(innerIndent + "private " + className + "() {}");
+        out.println(indent + "}");
+        out.println();
+    }
+
+    private void writeDescription(PrintWriter out, ResolvedNode node, int depth) {
+        String indent = "    ".repeat(depth);
+        if (!node.description().isEmpty()) {
+            out.println(indent + "/** " + node.description() + " — {@code \"" + node.dotPath() + "\"} */");
+        } else {
+            out.println(indent + "/** {@code \"" + node.dotPath() + "\"} */");
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -430,10 +366,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         };
     }
 
-    /**
-     * Getting a Class value from an annotation at compile time throws MirroredTypeException.
-     * This is the standard approach to obtain the TypeMirror representation.
-     */
     private TypeMirror getParentMirror(Permission annotation) {
         try {
             annotation.parent();
@@ -445,10 +377,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
 
     private boolean isVoidType(TypeMirror mirror) {
         return mirror.toString().equals("java.lang.Void");
-    }
-
-    private static String toConstantName(String key) {
-        return key.toUpperCase().replace('-', '_').replace('.', '_');
     }
 
     private static String capitalize(String s) {
