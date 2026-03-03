@@ -9,7 +9,7 @@ import org.springframework.stereotype.Repository;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 
 @Repository
-public interface AccountRepository extends JpaRepository<Account, UUID>{
-    Optional<Account> findByUserId(UUID userId);
-    boolean existsByUserId(UUID userId);
+public interface AccountRepository extends JpaRepository<Account, UUID> {
+    Optional<Account> findByOwnerId(UUID ownerId);
+    boolean existsByOwnerId(UUID ownerId);
 }

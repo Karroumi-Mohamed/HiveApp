@@ -6,8 +6,6 @@ import com.hiveapp.shared.domain.BaseEntity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -24,30 +22,16 @@ import lombok.Setter;
 @Builder
 public class Account extends BaseEntity {
 
+    @Column(name = "owner_id", nullable = false, unique = true)
+    private UUID ownerId;
+
+    @Column(nullable = false)
+    private String name;
+
     @Column(nullable = false, unique = true)
-    private UUID userId;
+    private String slug;
 
-    @Column(nullable = false)
-    private String accountName;
-
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default
-    private AccountStatus status = AccountStatus.ACTIVE;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    @Builder.Default
-    private AccountType accountType = AccountType.PERSONAL;
-    
-    public enum AccountStatus {
-        ACTIVE,
-        SUSPENDED,
-        CLOSED
-    }
-
-    public enum AccountType {
-        PERSONAL,
-        BUSINESS
-    }
+    private boolean isActive = true;
 }
