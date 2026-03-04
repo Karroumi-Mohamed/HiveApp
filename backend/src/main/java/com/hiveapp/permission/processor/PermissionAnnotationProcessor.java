@@ -268,7 +268,23 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 generateRootClass(treeNode);
             }
         }
+
+        // Find roots and generate
+        List<String> rootClassNames = new ArrayList<>();
+
+        for (TreeNode treeNode : treeNodes.values()) {
+            if (treeNode.resolved.parentDotPath() == null) {
+                String className = generateRootClass(treeNode);
+                if (className != null) {
+                    rootClassNames.add(className);
+                }
+            }
+        }
+
+        // NEW: write the index file
+        writeRootIndex(rootClassNames);
     }
+
 
     private static final class TreeNode {
         final ResolvedNode resolved;
@@ -279,13 +295,13 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         }
     }
 
-    private void generateRootClass(TreeNode root) {
-        // Determine output package — use the permission library's generated subpackage
+    private String generateRootClass(TreeNode root) {
         String outputPackage = "com.hiveapp.permission.generated";
         String className = capitalize(root.resolved.key()) + "Permissions";
+        String qualifiedName = outputPackage + "." + className;
 
         try {
-            JavaFileObject file = filer.createSourceFile(outputPackage + "." + className);
+            JavaFileObject file = filer.createSourceFile(qualifiedName);
             try (PrintWriter out = new PrintWriter(file.openWriter())) {
                 out.println("package " + outputPackage + ";");
                 out.println();
@@ -300,12 +316,10 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 out.println("public final class " + className + " {");
                 out.println();
 
-                // Root's own path
                 writeDescription(out, root.resolved, 1);
                 out.println("    public static final String $ = \"" + root.resolved.dotPath() + "\";");
                 out.println();
 
-                // Generate nested children
                 for (TreeNode child : root.children) {
                     writeNestedClass(out, child, 1);
                 }
@@ -313,9 +327,29 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 out.println("    private " + className + "() {}");
                 out.println("}");
             }
+            return qualifiedName;
         } catch (IOException e) {
             messager.printMessage(Diagnostic.Kind.ERROR,
                     "Failed to generate " + className + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void writeRootIndex(List<String> rootClassNames) {
+        try {
+            var indexFile = filer.createResource(
+                    javax.tools.StandardLocation.CLASS_OUTPUT,
+                    "",
+                    "META-INF/permission-roots.idx"
+            );
+            try (PrintWriter out = new PrintWriter(indexFile.openWriter())) {
+                for (String className : rootClassNames) {
+                    out.println(className);
+                }
+            }
+        } catch (IOException e) {
+            messager.printMessage(Diagnostic.Kind.ERROR,
+                    "Failed to write permission-roots.idx: " + e.getMessage());
         }
     }
 
