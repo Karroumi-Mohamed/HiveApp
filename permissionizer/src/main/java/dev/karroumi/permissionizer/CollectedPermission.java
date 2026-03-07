@@ -1,14 +1,15 @@
-package com.hiveapp.permission;
+package dev.karroumi.permissionizer;
 
 /**
- * Represents a single node in the permission tree.
- * Returned by {@link PermissionCollector} after scanning generated companion classes.
+ * Represents a single permission node collected from generated classes.
+ * Returned by {@link PermissionCollector} for use in database seeding,
+ * admin UI rendering, orphan detection, or documentation generation.
  *
- * @param path       the full dot-path (e.g., "erp.hr.payroll.export")
- * @param description human-readable description for admin UI
+ * @param path       the full dot-path (e.g., "platform.client.account.operations.create")
+ * @param description human-readable description for admin UI, may be empty
  * @param parentPath  the parent's dot-path, or null for root nodes
  */
-public record PermissionNode(
+public record CollectedPermission(
         String path,
         String description,
         String parentPath
@@ -32,7 +33,7 @@ public record PermissionNode(
 
     /**
      * Returns the depth of this node in the tree.
-     * Root nodes have depth 0.
+     * Root nodes have depth 0. "a.b.c" has depth 2.
      */
     public int depth() {
         if (path == null || path.isEmpty()) return 0;

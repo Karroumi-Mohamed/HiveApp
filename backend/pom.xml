@@ -156,6 +156,11 @@
 			<artifactId>spring-modulith-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+    <groupId>dev.karroumi.permissionizer</groupId>
+    <artifactId>permissionizer</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+</dependency>
 	</dependencies>
 	<dependencyManagement>
 		<dependencies>
@@ -190,6 +195,11 @@
 							<artifactId>lombok-mapstruct-binding</artifactId>
 							<version>0.2.0</version>
 						</path>
+						<path>
+    <groupId>dev.karroumi.permissionizer</groupId>
+    <artifactId>permissionizer</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+</path>
 					</annotationProcessorPaths>
 				</configuration>
 			</plugin>

@@ -111,7 +111,7 @@ The annotation processor runs during the Java compilation phase and performs two
 
 For validation, the processor ensures every `@Permission` on a method or class has a resolvable parent through the resolution chain. If no parent can be found, it emits a compile error. It also validates that the tree has no duplicate keys at the same level (two siblings with the same key would produce identical dot-paths).
 
-For code generation, the processor generates companion Java classes containing the fully resolved dot-paths as `public static final String` constants. For a service class `PayrollService` with method-level permissions `export` and `run`, the processor generates `PayrollServicePermissions` with fields `EXPORT` and `RUN`. This allows developers to reference permissions programmatically without relying on fragile string literals, entirely eliminating typo-related authorization bugs.
+For code generation, the processor generates centralized, nested permission tree classes inside a dedicated generated package (e.g., `com.hiveapp.permission.generated`). Every root node gets its own top-level class, and every child node is represented as a nested static class. The exact dot-path string is accessed via a special `$` constant on any node. This ensures an exact structural match in code, entirely eliminating typo-related authorization bugs. It also generates an index file (`META-INF/permission-roots.idx`) containing the root class names to power runtime reflection.
 
 ```java
 // Source: PayrollService.java
@@ -126,27 +126,30 @@ public class PayrollService {
     public void processPayroll() {}
 }
 
-// Generated: PayrollServicePermissions.java
-public final class PayrollServicePermissions {
-    public static final String EXPORT = "erp.hr.payroll.export";
-    public static final String RUN = "erp.hr.payroll.run";
+// Generated: ErpPermissions.java (Assuming 'erp' root with 'hr' -> 'payroll' children)
+package com.hiveapp.permission.generated;
 
-    private PayrollServicePermissions() {}
-}
-```
+public final class ErpPermissions {
+    public static final String $ = "erp";
 
-For class-level and package-level permissions, the processor also generates companion classes so their paths can be referenced as string constants by the host application's business logic.
-
-```java
-// Source: package-info.java
-@Permission(key = "hr", description = "Human Resources")
-package com.erp.hr;
-
-// Generated: HrPermissions.java
-public final class HrPermissions {
-    public static final String HR = "erp.hr";
-
-    private HrPermissions() {}
+    public static final class Hr {
+        public static final String $ = "erp.hr";
+        
+        public static final class Payroll {
+            public static final String $ = "erp.hr.payroll";
+            
+            public static final class Export {
+                public static final String $ = "erp.hr.payroll.export";
+                private Export() {}
+            }
+            
+            public static final class Run {
+                public static final String $ = "erp.hr.payroll.run";
+                private Run() {}
+            }
+            // ... constructors omitted for brevity
+        }
+    }
 }
 ```
 
@@ -157,15 +160,23 @@ public final class HrPermissions {
 
 The `PermissionCollector` is a utility class that reflects over the generated companion classes and returns a structured list of all permission paths that exist in the current build. It is the bridge between the compile-time generated code and whatever the host application wants to do with the data at runtime.
 
-The collector scans for generated companion classes (by naming convention, marker annotation, or a configured base package), reads their `public static final String` fields, and returns a list of `PermissionNode` objects containing the path, description, and parent path.
+The collector does not perform fragile classpath scanning. Instead, it reads a strict index file (`META-INF/permission-roots.idx`) that the annotation processor generates at compile time. This index file lists all the fully-qualified root classes of the generated permission trees.
+
+The collector reads the index file, loads each root class, and recursively reads the nested static inner classes and their `$` string fields to reconstruct a flat list of `PermissionNode` objects containing the path, description, and parent path.
 
 ```java
 public class PermissionCollector {
 
-    public static List<PermissionNode> collect(String basePackage) {
-        // scans for *Permissions classes in the given package tree
-        // reads static final String fields
+    public static List<PermissionNode> collect() {
+        // reads META-INF/permission-roots.idx
+        // loads the declared root classes
+        // recursively reads static final String $ fields from nested children
         // returns list of PermissionNode(path, description, parentPath)
+    }
+    
+    // Explicit overload for manual usage without the index file
+    public static List<PermissionNode> collect(Class<?>... rootClasses) {
+        // ...
     }
 }
 ```
@@ -273,10 +284,10 @@ public class PayrollService {
     @Permission(key = "export", description = "Export to CSV")
     public void exportPayroll(String format, int employeeCount) {
         // Permission check (library)
-        PermissionGuard.check(PayrollServicePermissions.EXPORT);
+        PermissionGuard.check(ErpPermissions.Hr.Payroll.Export.$);
 
         // Business logic (host application)
-        quotaService.consume(PayrollServicePermissions.EXPORT, employeeCount);
+        quotaService.consume(ErpPermissions.Hr.Payroll.Export.$, employeeCount);
 
         // Domain logic
         // ...
@@ -284,13 +295,13 @@ public class PayrollService {
 
     @Permission(key = "run", description = "Execute payroll")
     public void processPayroll() {
-        PermissionGuard.check(PayrollServicePermissions.RUN);
+        PermissionGuard.check(ErpPermissions.Hr.Payroll.Run.$);
         // ...
     }
 
     @Permission(key = "rollback", description = "Rollback payroll")
     public void rollbackPayroll() {
-        PermissionGuard.check(PayrollServicePermissions.ROLLBACK);
+        PermissionGuard.check(ErpPermissions.Hr.Payroll.Rollback.$);
         // ...
     }
 }
@@ -364,20 +375,20 @@ public class PayrollService {
 
     @Permission(key = "export", description = "Export to CSV")
     public void exportPayroll(String format, int employeeCount) {
-        PermissionGuard.check(PayrollServicePermissions.EXPORT);
-        quotaService.consume(PayrollServicePermissions.EXPORT, employeeCount);
+        PermissionGuard.check(ErpPermissions.Hr.Payroll.Export.$);
+        quotaService.consume(ErpPermissions.Hr.Payroll.Export.$, employeeCount);
         // domain logic...
     }
 
     @Permission(key = "run", description = "Execute payroll")
     public void processPayroll() {
-        PermissionGuard.check(PayrollServicePermissions.RUN);
+        PermissionGuard.check(ErpPermissions.Hr.Payroll.Run.$);
         // domain logic...
     }
 
     @Permission(key = "rollback", description = "Rollback payroll")
     public void rollbackPayroll() {
-        PermissionGuard.check(PayrollServicePermissions.ROLLBACK);
+        PermissionGuard.check(ErpPermissions.Hr.Payroll.Rollback.$);
         // domain logic...
     }
 }
@@ -386,12 +397,36 @@ public class PayrollService {
 Generated at compile time:
 
 ```java
-public final class PayrollServicePermissions {
-    public static final String EXPORT = "erp.hr.payroll.export";
-    public static final String RUN = "erp.hr.payroll.run";
-    public static final String ROLLBACK = "erp.hr.payroll.rollback";
+package com.hiveapp.permission.generated;
 
-    private PayrollServicePermissions() {}
+public final class ErpPermissions {
+    public static final String $ = "erp";
+
+    public static final class Hr {
+        public static final String $ = "erp.hr";
+
+        public static final class Payroll {
+            public static final String $ = "erp.hr.payroll";
+
+            public static final class Export {
+                public static final String $ = "erp.hr.payroll.export";
+                private Export() {}
+            }
+
+            public static final class Run {
+                public static final String $ = "erp.hr.payroll.run";
+                private Run() {}
+            }
+
+            public static final class Rollback {
+                public static final String $ = "erp.hr.payroll.rollback";
+                private Rollback() {}
+            }
+            private Payroll() {}
+        }
+        private Hr() {}
+    }
+    private ErpPermissions() {}
 }
 ```
 
@@ -416,7 +451,7 @@ public class PermissionSeeder implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        List<PermissionNode> codePermissions = PermissionCollector.collect("com.erp");
+        List<PermissionNode> codePermissions = PermissionCollector.collect(); // Uses the index file automatically
         List<String> dbPaths = permissionRepository.findAllPaths();
 
         Set<String> codePaths = codePermissions.stream()
