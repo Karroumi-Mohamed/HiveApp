@@ -1,9 +1,7 @@
 package com.hiveapp.shared.security;
 
-import java.security.Permission;
 import java.util.List;
 
-import org.springframework.boot.actuate.endpoint.SecurityContext;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
