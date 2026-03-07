@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import lombok.Getter;
@@ -25,7 +26,8 @@ public class HiveAppUserDetails implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities(){
-        return List.of();
+        // FIXME: This is a placeholder. In a real application, authorities should be loaded from the database or another source.
+        return List.of(new SimpleGrantedAuthority("platform.other"));
     }
 
      @Override
