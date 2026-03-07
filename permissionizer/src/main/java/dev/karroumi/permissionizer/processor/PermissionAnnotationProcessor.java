@@ -23,20 +23,18 @@ import java.util.stream.Collectors;
  * <p>Processes all {@code @PermissionNode} annotations, resolves the hierarchical
  * parent chain for each, validates the tree structure, and generates:</p>
  * <ul>
- *   <li>One nested class tree per root permission with {@code $} constants</li>
- *   <li>A {@code META-INF/permission-roots.idx} index file listing all root classes</li>
+ *   <li>Permission classes with {@code $} constants (nested or flat style)</li>
+ *   <li>A {@code descriptions()} method on each root for runtime access</li>
+ *   <li>A {@code META-INF/permission-roots.idx} index file listing all roots</li>
  * </ul>
  *
- * <p>Parent resolution follows a strict priority chain:</p>
- * <ol>
- *   <li>Explicit {@code parent} attribute on the annotation</li>
- *   <li>Enclosing class's {@code @PermissionNode} (for method-level annotations)</li>
- *   <li>Walk up the package hierarchy until an annotated {@code package-info.java} is found</li>
- *   <li>Compile error if no parent can be resolved (except root nodes)</li>
- * </ol>
+ * <p>Output style is controlled by the compiler argument
+ * {@code -Apermissionizer.style=nested} (default) or
+ * {@code -Apermissionizer.style=flat}.</p>
  */
 @SupportedAnnotationTypes("dev.karroumi.permissionizer.PermissionNode")
 @SupportedSourceVersion(SourceVersion.RELEASE_21)
+@SupportedOptions("permissionizer.style")
 public class PermissionAnnotationProcessor extends AbstractProcessor {
 
     private Elements elementUtils;
@@ -46,9 +44,8 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
 
     private final Map<String, ResolvedNode> resolvedNodes = new LinkedHashMap<>();
 
-    /**
-     * Internal representation of a fully resolved permission node.
-     */
+    private enum OutputStyle { NESTED, FLAT }
+
     private record ResolvedNode(
             String key,
             String description,
@@ -96,10 +93,23 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         // Phase 3: Validate no duplicate siblings
         validateNoDuplicateSiblings();
 
-        // Phase 4: Generate nested permission tree classes and index file
-        generatePermissionTrees();
+        // Phase 4: Generate permission classes and index file
+        OutputStyle style = readOutputStyle();
+        generatePermissionTrees(style);
 
         return true;
+    }
+
+    /**
+     * Reads the output style from compiler arguments.
+     * Defaults to NESTED if not specified or unrecognized.
+     */
+    private OutputStyle readOutputStyle() {
+        String value = processingEnv.getOptions().get("permissionizer.style");
+        if ("flat".equalsIgnoreCase(value)) {
+            return OutputStyle.FLAT;
+        }
+        return OutputStyle.NESTED;
     }
 
     // ──────────────────────────────────────────────
@@ -119,16 +129,9 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     // Phase 2: Resolution
     // ──────────────────────────────────────────────
 
-    /**
-     * Resolves the full dot-path for an annotated element by walking
-     * the parent chain. Results are cached in {@code resolvedNodes}.
-     *
-     * @return the fully resolved dot-path for this element
-     */
     private String resolveNode(Element element) {
         String elementKey = getElementKey(element);
 
-        // Already resolved — return cached path
         if (resolvedNodes.containsKey(elementKey)) {
             return resolvedNodes.get(elementKey).dotPath();
         }
@@ -179,7 +182,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 return dotPath;
             }
 
-            // No parent found — this is a root node
             resolvedNodes.put(elementKey,
                     new ResolvedNode(key, description, key, null, element));
             return key;
@@ -191,10 +193,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         return key;
     }
 
-    /**
-     * Resolves a node whose annotation specifies an explicit parent class.
-     * The parent class must itself carry @PermissionNode.
-     */
     private String resolveWithExplicitParent(Element element, String elementKey,
                                               String key, String description,
                                               TypeMirror parentMirror) {
@@ -221,10 +219,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         return dotPath;
     }
 
-    /**
-     * Resolves a node by walking up the package hierarchy from the given class
-     * to find the nearest annotated package-info.java.
-     */
     private String resolveViaPackageWalk(Element errorElement, TypeElement classElement,
                                           String elementKey, String key, String description) {
         PackageElement pkg = elementUtils.getPackageOf(classElement);
@@ -245,16 +239,9 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         return dotPath;
     }
 
-    /**
-     * Walks up the package hierarchy starting from the given package.
-     * Checks the start package first, then each ancestor.
-     *
-     * @return the resolved dot-path of the nearest annotated ancestor, or null
-     */
     private String walkUpPackages(PackageElement startPackage) {
         String packageName = startPackage.getQualifiedName().toString();
 
-        // Only check ancestors, not the start package itself
         while (packageName.contains(".")) {
             int lastDot = packageName.lastIndexOf('.');
             packageName = packageName.substring(0, lastDot);
@@ -273,10 +260,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     // Phase 3: Sibling validation
     // ──────────────────────────────────────────────
 
-    /**
-     * Validates that no two nodes share the same key under the same parent.
-     * Duplicate siblings would produce identical dot-paths.
-     */
     private void validateNoDuplicateSiblings() {
         Map<String, List<ResolvedNode>> byParent = resolvedNodes.values().stream()
                 .collect(Collectors.groupingBy(
@@ -306,11 +289,7 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     // Phase 4: Code generation
     // ──────────────────────────────────────────────
 
-    /**
-     * Builds a tree from the flat resolved nodes, finds all roots,
-     * generates a nested class file per root, and writes the index file.
-     */
-    private void generatePermissionTrees() {
+    private void generatePermissionTrees(OutputStyle style) {
         // Build tree structure
         Map<String, TreeNode> treeNodes = new LinkedHashMap<>();
 
@@ -318,7 +297,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             treeNodes.put(resolved.dotPath(), new TreeNode(resolved));
         }
 
-        // Link children to parents
         for (TreeNode treeNode : treeNodes.values()) {
             String parentPath = treeNode.resolved.parentDotPath();
             if (parentPath != null && treeNodes.containsKey(parentPath)) {
@@ -326,25 +304,25 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             }
         }
 
-        // Find roots and generate
         List<String> rootClassNames = new ArrayList<>();
 
         for (TreeNode treeNode : treeNodes.values()) {
             if (treeNode.resolved.parentDotPath() == null) {
-                String className = generateRootClass(treeNode);
-                if (className != null) {
-                    rootClassNames.add(className);
+                if (style == OutputStyle.NESTED) {
+                    String className = generateNestedRootClass(treeNode);
+                    if (className != null) {
+                        rootClassNames.add(className);
+                    }
+                } else {
+                    List<String> classNames = generateFlatClasses(treeNode);
+                    rootClassNames.addAll(classNames);
                 }
             }
         }
 
-        // Write index file
         writeRootIndex(rootClassNames);
     }
 
-    /**
-     * Internal tree node linking a resolved permission to its children.
-     */
     private static final class TreeNode {
         final ResolvedNode resolved;
         final List<TreeNode> children = new ArrayList<>();
@@ -354,17 +332,18 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         }
     }
 
-    /**
-     * Generates a single root permission class with nested static classes
-     * mirroring the permission tree. The class is generated in the same
-     * package as the root element.
-     *
-     * @return the fully qualified class name, or null on failure
-     */
-    private String generateRootClass(TreeNode root) {
+    // ──────────────────────────────────────────────
+    // Nested style generation
+    // ──────────────────────────────────────────────
+
+    private String generateNestedRootClass(TreeNode root) {
         String outputPackage = getOutputPackage(root.resolved.element());
         String className = capitalize(root.resolved.key()) + "Permissions";
         String qualifiedName = outputPackage + "." + className;
+
+        // Collect all descriptions for the descriptions() method
+        Map<String, String> allDescriptions = new LinkedHashMap<>();
+        collectDescriptions(root, allDescriptions);
 
         try {
             JavaFileObject file = filer.createSourceFile(qualifiedName);
@@ -372,6 +351,7 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 out.println("package " + outputPackage + ";");
                 out.println();
                 out.println("import javax.annotation.processing.Generated;");
+                out.println("import java.util.Map;");
                 out.println();
                 out.println("/**");
                 out.println(" * Generated permission tree rooted at"
@@ -395,6 +375,9 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                     writeNestedClass(out, child, 1);
                 }
 
+                // descriptions() method
+                writeDescriptionsMethod(out, allDescriptions, 1);
+
                 // Private constructor
                 out.println("    private " + className + "() {}");
                 out.println("}");
@@ -407,9 +390,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         }
     }
 
-    /**
-     * Recursively writes a nested static class for a tree node and its children.
-     */
     private void writeNestedClass(PrintWriter out, TreeNode node, int depth) {
         String indent = "    ".repeat(depth);
         String innerIndent = "    ".repeat(depth + 1);
@@ -417,26 +397,96 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
 
         out.println(indent + "public static final class " + className + " {");
 
-        // Path constant
         writeDescription(out, node.resolved, depth + 1);
         out.println(innerIndent + "public static final String $ = \""
                 + node.resolved.dotPath() + "\";");
         out.println();
 
-        // Recurse into children
         for (TreeNode child : node.children) {
             writeNestedClass(out, child, depth + 1);
         }
 
-        // Private constructor
         out.println(innerIndent + "private " + className + "() {}");
         out.println(indent + "}");
         out.println();
     }
 
-    /**
-     * Writes a javadoc comment with the node's description and path.
-     */
+    // ──────────────────────────────────────────────
+    // Flat style generation
+    // ──────────────────────────────────────────────
+
+    private List<String> generateFlatClasses(TreeNode root) {
+        List<String> generatedClassNames = new ArrayList<>();
+
+        // Collect all nodes in the tree
+        List<TreeNode> allNodes = new ArrayList<>();
+        collectAllNodes(root, allNodes);
+
+        // Collect all descriptions for the root's descriptions() method
+        Map<String, String> allDescriptions = new LinkedHashMap<>();
+        collectDescriptions(root, allDescriptions);
+
+        String outputPackage = getOutputPackage(root.resolved.element());
+
+        for (TreeNode node : allNodes) {
+            boolean hasChildren = !node.children.isEmpty();
+            String className = capitalize(node.resolved.key())
+                    + (hasChildren ? "Permissions" : "Permission");
+            String qualifiedName = outputPackage + "." + className;
+
+            try {
+                JavaFileObject file = filer.createSourceFile(qualifiedName);
+                try (PrintWriter out = new PrintWriter(file.openWriter())) {
+                    out.println("package " + outputPackage + ";");
+                    out.println();
+                    out.println("import javax.annotation.processing.Generated;");
+
+                    // Only root gets descriptions() and Map import
+                    boolean isRoot = node.resolved.parentDotPath() == null;
+                    if (isRoot) {
+                        out.println("import java.util.Map;");
+                    }
+
+                    out.println();
+                    out.println("@Generated(\""
+                            + PermissionAnnotationProcessor.class.getName() + "\")");
+                    out.println("public final class " + className + " {");
+                    out.println();
+
+                    writeDescription(out, node.resolved, 1);
+                    out.println("    public static final String $ = \""
+                            + node.resolved.dotPath() + "\";");
+                    out.println();
+
+                    // Only root gets descriptions()
+                    if (isRoot) {
+                        writeDescriptionsMethod(out, allDescriptions, 1);
+                    }
+
+                    out.println("    private " + className + "() {}");
+                    out.println("}");
+                }
+                generatedClassNames.add(qualifiedName);
+            } catch (IOException e) {
+                messager.printMessage(Diagnostic.Kind.ERROR,
+                        "Failed to generate " + className + ": " + e.getMessage());
+            }
+        }
+
+        return generatedClassNames;
+    }
+
+    private void collectAllNodes(TreeNode node, List<TreeNode> result) {
+        result.add(node);
+        for (TreeNode child : node.children) {
+            collectAllNodes(child, result);
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Shared generation helpers
+    // ──────────────────────────────────────────────
+
     private void writeDescription(PrintWriter out, ResolvedNode node, int depth) {
         String indent = "    ".repeat(depth);
         if (!node.description().isEmpty()) {
@@ -448,8 +498,67 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     }
 
     /**
+     * Generates a static descriptions() method that returns a Map
+     * of all permission paths to their descriptions.
+     */
+    private void writeDescriptionsMethod(PrintWriter out,
+                                          Map<String, String> descriptions,
+                                          int depth) {
+        String indent = "    ".repeat(depth);
+
+        out.println(indent + "/**");
+        out.println(indent + " * Returns all permission paths and their descriptions.");
+        out.println(indent + " * Used by the collector for database seeding.");
+        out.println(indent + " */");
+        out.println(indent + "public static Map<String, String> descriptions() {");
+
+        if (descriptions.size() <= 10) {
+            // Map.of() supports up to 10 entries
+            out.print(indent + "    return Map.of(");
+            boolean first = true;
+            for (var entry : descriptions.entrySet()) {
+                if (!first) {
+                    out.print(",");
+                }
+                out.println();
+                out.print(indent + "        \"" + entry.getKey() + "\", \""
+                        + escapeJava(entry.getValue()) + "\"");
+                first = false;
+            }
+            out.println();
+            out.println(indent + "    );");
+        } else {
+            // Map.ofEntries() for more than 10
+            out.println(indent + "    return Map.ofEntries(");
+            boolean first = true;
+            for (var entry : descriptions.entrySet()) {
+                if (!first) {
+                    out.println(",");
+                }
+                out.print(indent + "        Map.entry(\"" + entry.getKey()
+                        + "\", \"" + escapeJava(entry.getValue()) + "\")");
+                first = false;
+            }
+            out.println();
+            out.println(indent + "    );");
+        }
+
+        out.println(indent + "}");
+        out.println();
+    }
+
+    /**
+     * Recursively collects all path-description pairs from a tree.
+     */
+    private void collectDescriptions(TreeNode node, Map<String, String> descriptions) {
+        descriptions.put(node.resolved.dotPath(), node.resolved.description());
+        for (TreeNode child : node.children) {
+            collectDescriptions(child, descriptions);
+        }
+    }
+
+    /**
      * Writes the index file listing all generated root class names.
-     * The PermissionCollector reads this at runtime to discover roots.
      */
     private void writeRootIndex(List<String> rootClassNames) {
         try {
@@ -473,11 +582,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     // Utilities
     // ──────────────────────────────────────────────
 
-    /**
-     * Determines the output package for a generated class.
-     * Uses the element's own package so the generated class lives
-     * alongside the annotated code. Works for any consumer project.
-     */
     private String getOutputPackage(Element element) {
         if (element.getKind() == ElementKind.PACKAGE) {
             return ((PackageElement) element).getQualifiedName().toString();
@@ -485,11 +589,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         return elementUtils.getPackageOf(element).getQualifiedName().toString();
     }
 
-    /**
-     * Returns a unique key for any annotated element.
-     * Packages use qualified name. Classes use qualified name.
-     * Methods use enclosing class qualified name + "#" + method name.
-     */
     private String getElementKey(Element element) {
         return switch (element.getKind()) {
             case PACKAGE -> ((PackageElement) element)
@@ -505,13 +604,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         };
     }
 
-    /**
-     * Extracts the parent TypeMirror from a @PermissionNode annotation.
-     *
-     * <p>At compile time, reading a Class value from an annotation throws
-     * MirroredTypeException. This is the standard Java annotation processing
-     * pattern — not a hack. The exception carries the TypeMirror we need.</p>
-     */
     private TypeMirror getParentMirror(PermissionNode annotation) {
         try {
             annotation.parent();
@@ -521,9 +613,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         }
     }
 
-    /**
-     * Checks if a TypeMirror represents java.lang.Void (the "not specified" default).
-     */
     private boolean isVoidType(TypeMirror mirror) {
         return mirror.toString().equals("java.lang.Void");
     }
@@ -531,5 +620,13 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     private static String capitalize(String s) {
         if (s == null || s.isEmpty()) return s;
         return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    private static String escapeJava(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r");
     }
 }
