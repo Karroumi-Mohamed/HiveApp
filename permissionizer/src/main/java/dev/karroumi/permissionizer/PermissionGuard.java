@@ -57,7 +57,7 @@ public final class PermissionGuard {
      * Uses the configured {@link PermissionsProvider}.
      *
      * @param requiredPermission the full dot-path to check
-     * @throws SecurityException if the user lacks the permission
+     * @throws PermissionDeniedException if the user lacks the permission
      * @throws IllegalStateException if no provider has been configured
      */
     public static void check(String requiredPermission) {
@@ -93,11 +93,11 @@ public final class PermissionGuard {
      *
      * @param requiredPermission the full dot-path to check
      * @param authorities the user's granted permission strings
-     * @throws SecurityException if the permission is not granted
+     * @throws PermissionDeniedException if the permission is not granted
      */
     public static void check(String requiredPermission, Collection<String> authorities) {
         if (authorities == null || !matches(requiredPermission, authorities)) {
-            throw new SecurityException("Required permission: " + requiredPermission);
+            throw new PermissionDeniedException(requiredPermission);
         }
     }
 
@@ -142,13 +142,13 @@ public final class PermissionGuard {
         PermissionsProvider p = provider;
         if (p == null) {
             throw new IllegalStateException(
-                "PermissionGuard not configured. " +
-                "Call PermissionGuard.configure(provider) at application startup."
+                    "PermissionGuard not configured. "
+                            + "Call PermissionGuard.configure(provider) at application startup."
             );
         }
         Collection<String> permissions = p.getPermissions();
         if (permissions == null) {
-            throw new SecurityException("PermissionsProvider returned null");
+            throw new PermissionDeniedException("unknown");
         }
         return permissions;
     }
