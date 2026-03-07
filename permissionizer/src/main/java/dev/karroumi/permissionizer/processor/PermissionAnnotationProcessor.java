@@ -254,12 +254,7 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     private String walkUpPackages(PackageElement startPackage) {
         String packageName = startPackage.getQualifiedName().toString();
 
-        // Check the start package itself
-        if (startPackage.getAnnotation(PermissionNode.class) != null) {
-            return resolveNode(startPackage);
-        }
-
-        // Walk up one level at a time
+        // Only check ancestors, not the start package itself
         while (packageName.contains(".")) {
             int lastDot = packageName.lastIndexOf('.');
             packageName = packageName.substring(0, lastDot);
