@@ -90,6 +90,17 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             resolveNode(element);
         }
 
+        // Phase 2b: Auto-discover methods on classes with autoDiscover=true
+        for (Element element : annotatedElements) {
+            if (element.getKind() == ElementKind.CLASS
+                    || element.getKind() == ElementKind.INTERFACE) {
+                PermissionNode annotation = element.getAnnotation(PermissionNode.class);
+                if (annotation.autoDiscover()) {
+                    autoDiscoverMethods((TypeElement) element);
+                }
+            }
+        }
+
         // Phase 3: Validate no duplicate siblings
         validateNoDuplicateSiblings();
 
@@ -254,6 +265,99 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         }
 
         return null;
+    }
+
+    // ──────────────────────────────────────────────
+    // Phase 2b: Auto-discovery
+    // ──────────────────────────────────────────────
+
+    /**
+     * Scans a class for declared public methods that don't have their own
+     * @PermissionNode annotation. Creates resolved nodes for each using
+     * the method name as the key.
+     *
+     * <p>Skips:</p>
+     * <ul>
+     *   <li>Methods already annotated with @PermissionNode</li>
+     *   <li>Non-public methods</li>
+     *   <li>Static methods</li>
+     *   <li>Methods inherited from Object (toString, equals, hashCode, etc.)</li>
+     *   <li>Constructors</li>
+     * </ul>
+     */
+    private void autoDiscoverMethods(TypeElement classElement) {
+        String classKey = classElement.getQualifiedName().toString();
+        ResolvedNode classNode = resolvedNodes.get(classKey);
+        if (classNode == null) {
+            return;
+        }
+
+        String classPath = classNode.dotPath();
+
+        for (Element enclosed : classElement.getEnclosedElements()) {
+            // Only methods
+            if (enclosed.getKind() != ElementKind.METHOD) {
+                continue;
+            }
+
+            ExecutableElement method = (ExecutableElement) enclosed;
+
+            // Skip if already annotated
+            if (method.getAnnotation(PermissionNode.class) != null) {
+                continue;
+            }
+
+            // Skip non-public
+            if (!method.getModifiers().contains(javax.lang.model.element.Modifier.PUBLIC)) {
+                continue;
+            }
+
+            // Skip static
+            if (method.getModifiers().contains(javax.lang.model.element.Modifier.STATIC)) {
+                continue;
+            }
+
+            // Skip Object methods
+            String methodName = method.getSimpleName().toString();
+            if (isObjectMethod(methodName, method)) {
+                continue;
+            }
+
+            // Create a resolved node using method name as key
+            String elementKey = classElement.getQualifiedName().toString()
+                    + "#" + methodName;
+
+            // Skip if already resolved (shouldn't happen but safety check)
+            if (resolvedNodes.containsKey(elementKey)) {
+                continue;
+            }
+
+            String dotPath = classPath + "." + methodName;
+            resolvedNodes.put(elementKey,
+                    new ResolvedNode(methodName, "", dotPath, classPath, method));
+        }
+    }
+
+    /**
+     * Checks if a method is one of the standard Object methods that
+     * should not be auto-discovered as permissions.
+     */
+    private boolean isObjectMethod(String name, ExecutableElement method) {
+        List<? extends javax.lang.model.element.VariableElement> params = method.getParameters();
+        int paramCount = params.size();
+
+        return switch (name) {
+            case "toString" -> paramCount == 0;
+            case "hashCode" -> paramCount == 0;
+            case "equals" -> paramCount == 1;
+            case "clone" -> paramCount == 0;
+            case "finalize" -> paramCount == 0;
+            case "getClass" -> paramCount == 0;
+            case "notify" -> paramCount == 0;
+            case "notifyAll" -> paramCount == 0;
+            case "wait" -> paramCount <= 2;
+            default -> false;
+        };
     }
 
     // ──────────────────────────────────────────────
