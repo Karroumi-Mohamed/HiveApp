@@ -17,6 +17,7 @@ import com.hiveapp.platform.client.account.mapper.AccountMapper;
 import com.hiveapp.platform.client.account.service.AccountService;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 
+import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -54,6 +55,7 @@ public class AccountServiceImpl implements AccountService {
 
     @Override
     @Transactional(readOnly = true)
+    @PermissionNode(key = "read", description = "Read Account")
     public AccountDto getAccountByUserId(UUID userId) {
         Account account = accountRepository.findByOwnerId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "ownerId", userId.toString()));

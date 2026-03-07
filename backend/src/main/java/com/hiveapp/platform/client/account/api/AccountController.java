@@ -3,10 +3,12 @@ package com.hiveapp.platform.client.account.api;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hiveapp.platform.PlatformPermissions;
 import com.hiveapp.platform.client.account.dto.AccountDto;
 import com.hiveapp.platform.client.account.service.AccountService;
 import com.hiveapp.shared.security.HiveAppUserDetails;
 
+import dev.karroumi.permissionizer.PermissionGuard;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.http.ResponseEntity;
@@ -24,6 +26,7 @@ public class AccountController {
     public ResponseEntity<AccountDto> getMyAccount(
         @AuthenticationPrincipal HiveAppUserDetails userDetails
     ) {
+        PermissionGuard.check(PlatformPermissions.Client.Account.Read.$);
         return ResponseEntity.ok(accountService.getAccountByUserId(userDetails.getUserId()));
     }
     

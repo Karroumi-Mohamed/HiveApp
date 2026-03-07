@@ -1,4 +1,4 @@
-@Permission(key = "client", description = "Client Managment")
+@PermissionNode(key = "client", description = "Client Management")
 package com.hiveapp.platform.client;
 
-import com.hiveapp.permission.Permission;
+import dev.karroumi.permissionizer.PermissionNode;
