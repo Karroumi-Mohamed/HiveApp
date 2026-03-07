@@ -1,7 +1,7 @@
 @org.springframework.modulith.ApplicationModule(
     allowedDependencies = {"shared::security", "shared::event", "identity::event", "shared :: exception", "permission"}
 )
-@Permission(key = "account", description = "Account Management")
+@PermissionNode(key = "account", description = "Account Management")
 package com.hiveapp.platform.client.account;
 
-import com.hiveapp.permission.Permission;
+import dev.karroumi.permissionizer.PermissionNode;

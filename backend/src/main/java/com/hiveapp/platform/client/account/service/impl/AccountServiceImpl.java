@@ -2,8 +2,6 @@ package com.hiveapp.platform.client.account.service.impl;
 
 import java.util.UUID;
 
-import com.hiveapp.permission.Permission;
-import com.hiveapp.permission.PermissionGuard;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
@@ -19,6 +17,7 @@ import com.hiveapp.platform.client.account.mapper.AccountMapper;
 import com.hiveapp.platform.client.account.service.AccountService;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 
+import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -56,7 +55,7 @@ public class AccountServiceImpl implements AccountService {
 
     @Override
     @Transactional(readOnly = true)
-    @Permission(key = "read", description = "Read Account")
+    @PermissionNode(key = "read", description = "Read Account")
     public AccountDto getAccountByUserId(UUID userId) {
         Account account = accountRepository.findByOwnerId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "ownerId", userId.toString()));
