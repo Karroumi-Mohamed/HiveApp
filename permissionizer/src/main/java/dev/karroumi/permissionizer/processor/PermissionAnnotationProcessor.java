@@ -20,17 +20,22 @@ import java.util.stream.Collectors;
 /**
  * Compile-time annotation processor for {@link PermissionNode}.
  *
- * <p>Processes all {@code @PermissionNode} annotations, resolves the hierarchical
- * parent chain for each, validates the tree structure, and generates:</p>
+ * <p>
+ * Processes all {@code @PermissionNode} annotations, resolves parent hierarchy,
+ * validates the tree, and generates:
+ * </p>
  * <ul>
- *   <li>Permission classes with {@code $} constants (nested or flat style)</li>
- *   <li>A {@code descriptions()} method on each root for runtime access</li>
- *   <li>A {@code META-INF/permission-roots.idx} index file listing all roots</li>
+ * <li>Permission tree classes with type-safe {@code permission()}
+ * accessors</li>
+ * <li>Branch nodes with {@code all()} and {@code except()} methods</li>
+ * <li>A {@code descriptions()} method on roots for database seeding</li>
+ * <li>A verification class when {@code guard = ON} is detected</li>
+ * <li>A {@code META-INF/permission-roots.idx} index file</li>
  * </ul>
  *
- * <p>Output style is controlled by the compiler argument
- * {@code -Apermissionizer.style=nested} (default) or
- * {@code -Apermissionizer.style=flat}.</p>
+ * <p>
+ * Supports two output styles via {@code -Apermissionizer.style=nested|flat}.
+ * </p>
  */
 @SupportedAnnotationTypes("dev.karroumi.permissionizer.PermissionNode")
 @SupportedSourceVersion(SourceVersion.RELEASE_21)
@@ -43,16 +48,19 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     private Filer filer;
 
     private final Map<String, ResolvedNode> resolvedNodes = new LinkedHashMap<>();
+    private boolean guardOnDetected = false;
 
-    private enum OutputStyle { NESTED, FLAT }
+    private enum OutputStyle {
+        NESTED, FLAT
+    }
 
     private record ResolvedNode(
             String key,
             String description,
             String dotPath,
             String parentDotPath,
-            Element element
-    ) {}
+            Element element) {
+    }
 
     // ──────────────────────────────────────────────
     // Lifecycle
@@ -73,14 +81,13 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             return false;
         }
 
-        Set<? extends Element> annotatedElements =
-                roundEnv.getElementsAnnotatedWith(PermissionNode.class);
+        Set<? extends Element> annotatedElements = roundEnv.getElementsAnnotatedWith(PermissionNode.class);
 
         if (annotatedElements.isEmpty()) {
             return false;
         }
 
-        // Phase 1: Validate element kinds
+        // Phase 1: Validate element kinds and keys
         for (Element element : annotatedElements) {
             validateElement(element);
         }
@@ -101,20 +108,29 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             }
         }
 
+        // Phase 2c: Detect guard=ON for verification class
+        for (Element element : annotatedElements) {
+            PermissionNode annotation = element.getAnnotation(PermissionNode.class);
+            if (annotation.guard() == PermissionNode.Guard.ON) {
+                guardOnDetected = true;
+                break;
+            }
+        }
+
         // Phase 3: Validate no duplicate siblings
         validateNoDuplicateSiblings();
 
-        // Phase 4: Generate permission classes and index file
+        // Phase 4: Generate permission classes, index, and verification
         OutputStyle style = readOutputStyle();
         generatePermissionTrees(style);
+
+        if (guardOnDetected) {
+            generateVerificationClass();
+        }
 
         return true;
     }
 
-    /**
-     * Reads the output style from compiler arguments.
-     * Defaults to NESTED if not specified or unrecognized.
-     */
     private OutputStyle readOutputStyle() {
         String value = processingEnv.getOptions().get("permissionizer.style");
         if ("flat".equalsIgnoreCase(value)) {
@@ -129,9 +145,36 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
 
     private void validateElement(Element element) {
         switch (element.getKind()) {
-            case PACKAGE, CLASS, INTERFACE, METHOD -> {}
-            default -> messager.printMessage(Diagnostic.Kind.ERROR,
-                    "@PermissionNode is not supported on " + element.getKind(),
+            case PACKAGE, CLASS, INTERFACE, METHOD -> {
+            }
+            default -> {
+                messager.printMessage(Diagnostic.Kind.ERROR,
+                        "@PermissionNode is not supported on " + element.getKind(),
+                        element);
+                return;
+            }
+        }
+
+        PermissionNode annotation = element.getAnnotation(PermissionNode.class);
+        String key = annotation.key();
+
+        // Key is required on packages and classes
+        if ((element.getKind() == ElementKind.PACKAGE
+                || element.getKind() == ElementKind.CLASS
+                || element.getKind() == ElementKind.INTERFACE)
+                && (key == null || key.isEmpty())) {
+            messager.printMessage(Diagnostic.Kind.ERROR,
+                    "@PermissionNode on " + element.getKind()
+                            + " requires a non-empty key.",
+                    element);
+        }
+
+        // autoDiscover only on classes
+        if (annotation.autoDiscover()
+                && element.getKind() != ElementKind.CLASS
+                && element.getKind() != ElementKind.INTERFACE) {
+            messager.printMessage(Diagnostic.Kind.ERROR,
+                    "autoDiscover is only supported on classes.",
                     element);
         }
     }
@@ -150,6 +193,11 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         PermissionNode annotation = element.getAnnotation(PermissionNode.class);
         String key = annotation.key();
         String description = annotation.description();
+
+        // Derive key from method name if empty
+        if ((key == null || key.isEmpty()) && element.getKind() == ElementKind.METHOD) {
+            key = element.getSimpleName().toString();
+        }
 
         // Priority 1: Explicit parent
         TypeMirror parentMirror = getParentMirror(annotation);
@@ -205,8 +253,8 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     }
 
     private String resolveWithExplicitParent(Element element, String elementKey,
-                                              String key, String description,
-                                              TypeMirror parentMirror) {
+            String key, String description,
+            TypeMirror parentMirror) {
         Element parentElement = typeUtils.asElement(parentMirror);
 
         if (parentElement == null) {
@@ -231,7 +279,7 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     }
 
     private String resolveViaPackageWalk(Element errorElement, TypeElement classElement,
-                                          String elementKey, String key, String description) {
+            String elementKey, String key, String description) {
         PackageElement pkg = elementUtils.getPackageOf(classElement);
         String parentPath = walkUpPackages(pkg);
 
@@ -271,20 +319,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     // Phase 2b: Auto-discovery
     // ──────────────────────────────────────────────
 
-    /**
-     * Scans a class for declared public methods that don't have their own
-     * @PermissionNode annotation. Creates resolved nodes for each using
-     * the method name as the key.
-     *
-     * <p>Skips:</p>
-     * <ul>
-     *   <li>Methods already annotated with @PermissionNode</li>
-     *   <li>Non-public methods</li>
-     *   <li>Static methods</li>
-     *   <li>Methods inherited from Object (toString, equals, hashCode, etc.)</li>
-     *   <li>Constructors</li>
-     * </ul>
-     */
     private void autoDiscoverMethods(TypeElement classElement) {
         String classKey = classElement.getQualifiedName().toString();
         ResolvedNode classNode = resolvedNodes.get(classKey);
@@ -295,7 +329,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         String classPath = classNode.dotPath();
 
         for (Element enclosed : classElement.getEnclosedElements()) {
-            // Only methods
             if (enclosed.getKind() != ElementKind.METHOD) {
                 continue;
             }
@@ -308,12 +341,12 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             }
 
             // Skip non-public
-            if (!method.getModifiers().contains(javax.lang.model.element.Modifier.PUBLIC)) {
+            if (!method.getModifiers().contains(Modifier.PUBLIC)) {
                 continue;
             }
 
             // Skip static
-            if (method.getModifiers().contains(javax.lang.model.element.Modifier.STATIC)) {
+            if (method.getModifiers().contains(Modifier.STATIC)) {
                 continue;
             }
 
@@ -323,11 +356,9 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 continue;
             }
 
-            // Create a resolved node using method name as key
             String elementKey = classElement.getQualifiedName().toString()
                     + "#" + methodName;
 
-            // Skip if already resolved (shouldn't happen but safety check)
             if (resolvedNodes.containsKey(elementKey)) {
                 continue;
             }
@@ -338,13 +369,8 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         }
     }
 
-    /**
-     * Checks if a method is one of the standard Object methods that
-     * should not be auto-discovered as permissions.
-     */
     private boolean isObjectMethod(String name, ExecutableElement method) {
-        List<? extends javax.lang.model.element.VariableElement> params = method.getParameters();
-        int paramCount = params.size();
+        int paramCount = method.getParameters().size();
 
         return switch (name) {
             case "toString" -> paramCount == 0;
@@ -368,8 +394,8 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         Map<String, List<ResolvedNode>> byParent = resolvedNodes.values().stream()
                 .collect(Collectors.groupingBy(
                         node -> node.parentDotPath() != null
-                                ? node.parentDotPath() : "__ROOT__"
-                ));
+                                ? node.parentDotPath()
+                                : "__ROOT__"));
 
         for (var entry : byParent.entrySet()) {
             Map<String, List<ResolvedNode>> byKey = entry.getValue().stream()
@@ -394,7 +420,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     // ──────────────────────────────────────────────
 
     private void generatePermissionTrees(OutputStyle style) {
-        // Build tree structure
         Map<String, TreeNode> treeNodes = new LinkedHashMap<>();
 
         for (ResolvedNode resolved : resolvedNodes.values()) {
@@ -445,7 +470,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         String className = capitalize(root.resolved.key()) + "Permissions";
         String qualifiedName = outputPackage + "." + className;
 
-        // Collect all descriptions for the descriptions() method
         Map<String, String> allDescriptions = new LinkedHashMap<>();
         collectDescriptions(root, allDescriptions);
 
@@ -455,7 +479,11 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 out.println("package " + outputPackage + ";");
                 out.println();
                 out.println("import javax.annotation.processing.Generated;");
+                out.println("import dev.karroumi.permissionizer.Permission;");
+                out.println("import java.util.Arrays;");
                 out.println("import java.util.Map;");
+                out.println("import java.util.Set;");
+                out.println("import java.util.stream.Collectors;");
                 out.println();
                 out.println("/**");
                 out.println(" * Generated permission tree rooted at"
@@ -468,11 +496,14 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 out.println("public final class " + className + " {");
                 out.println();
 
-                // Root's own path constant
-                writeDescription(out, root.resolved, 1);
-                out.println("    public static final String $ = \""
-                        + root.resolved.dotPath() + "\";");
-                out.println();
+                // Root's permission() method
+                writePermissionMethod(out, root.resolved, 1);
+
+                // all() and except() if root has children
+                if (!root.children.isEmpty()) {
+                    writeAllMethod(out, root, 1);
+                    writeExceptMethod(out, 1);
+                }
 
                 // Nested children
                 for (TreeNode child : root.children) {
@@ -482,7 +513,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                 // descriptions() method
                 writeDescriptionsMethod(out, allDescriptions, 1);
 
-                // Private constructor
                 out.println("    private " + className + "() {}");
                 out.println("}");
             }
@@ -498,14 +528,21 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         String indent = "    ".repeat(depth);
         String innerIndent = "    ".repeat(depth + 1);
         String className = capitalize(node.resolved.key());
+        boolean hasChildren = !node.children.isEmpty();
 
         out.println(indent + "public static final class " + className + " {");
-
-        writeDescription(out, node.resolved, depth + 1);
-        out.println(innerIndent + "public static final String $ = \""
-                + node.resolved.dotPath() + "\";");
         out.println();
 
+        // permission() method
+        writePermissionMethod(out, node.resolved, depth + 1);
+
+        // all() and except() if has children
+        if (hasChildren) {
+            writeAllMethod(out, node, depth + 1);
+            writeExceptMethod(out, depth + 1);
+        }
+
+        // Recurse into children
         for (TreeNode child : node.children) {
             writeNestedClass(out, child, depth + 1);
         }
@@ -521,22 +558,26 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
 
     private List<String> generateFlatClasses(TreeNode root) {
         List<String> generatedClassNames = new ArrayList<>();
-
-        // Collect all nodes in the tree
         List<TreeNode> allNodes = new ArrayList<>();
         collectAllNodes(root, allNodes);
 
-        // Collect all descriptions for the root's descriptions() method
         Map<String, String> allDescriptions = new LinkedHashMap<>();
         collectDescriptions(root, allDescriptions);
 
         String outputPackage = getOutputPackage(root.resolved.element());
+        String rootPrefix = capitalize(root.resolved.key()) + "Permissions";
 
         for (TreeNode node : allNodes) {
-            boolean hasChildren = !node.children.isEmpty();
-            String className = capitalize(node.resolved.key())
-                    + (hasChildren ? "Permissions" : "Permission");
+            boolean isRoot = node.resolved.parentDotPath() == null;
+            String className;
+            if (isRoot) {
+                className = rootPrefix;
+            } else {
+                className = rootPrefix + buildFlatClassName(node, root);
+            }
             String qualifiedName = outputPackage + "." + className;
+
+            boolean hasChildren = !node.children.isEmpty();
 
             try {
                 JavaFileObject file = filer.createSourceFile(qualifiedName);
@@ -544,11 +585,13 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                     out.println("package " + outputPackage + ";");
                     out.println();
                     out.println("import javax.annotation.processing.Generated;");
+                    out.println("import dev.karroumi.permissionizer.Permission;");
 
-                    // Only root gets descriptions() and Map import
-                    boolean isRoot = node.resolved.parentDotPath() == null;
-                    if (isRoot) {
+                    if (hasChildren || isRoot) {
+                        out.println("import java.util.Arrays;");
                         out.println("import java.util.Map;");
+                        out.println("import java.util.Set;");
+                        out.println("import java.util.stream.Collectors;");
                     }
 
                     out.println();
@@ -557,12 +600,13 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
                     out.println("public final class " + className + " {");
                     out.println();
 
-                    writeDescription(out, node.resolved, 1);
-                    out.println("    public static final String $ = \""
-                            + node.resolved.dotPath() + "\";");
-                    out.println();
+                    writePermissionMethod(out, node.resolved, 1);
 
-                    // Only root gets descriptions()
+                    if (hasChildren) {
+                        writeFlatAllMethod(out, node, root, rootPrefix, outputPackage, 1);
+                        writeExceptMethod(out, 1);
+                    }
+
                     if (isRoot) {
                         writeDescriptionsMethod(out, allDescriptions, 1);
                     }
@@ -580,6 +624,24 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         return generatedClassNames;
     }
 
+    private String buildFlatClassName(TreeNode node, TreeNode root) {
+        List<String> segments = new ArrayList<>();
+        String path = node.resolved.dotPath();
+        String rootPath = root.resolved.dotPath();
+
+        // Strip root prefix to get remaining segments
+        String remaining = path.substring(rootPath.length());
+        if (remaining.startsWith(".")) {
+            remaining = remaining.substring(1);
+        }
+
+        for (String segment : remaining.split("\\.")) {
+            segments.add(capitalize(segment));
+        }
+
+        return String.join("", segments);
+    }
+
     private void collectAllNodes(TreeNode node, List<TreeNode> result) {
         result.add(node);
         for (TreeNode child : node.children) {
@@ -591,23 +653,136 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     // Shared generation helpers
     // ──────────────────────────────────────────────
 
-    private void writeDescription(PrintWriter out, ResolvedNode node, int depth) {
+    private void writePermissionMethod(PrintWriter out, ResolvedNode node, int depth) {
         String indent = "    ".repeat(depth);
+
         if (!node.description().isEmpty()) {
             out.println(indent + "/** " + node.description()
                     + " — {@code \"" + node.dotPath() + "\"} */");
         } else {
             out.println(indent + "/** {@code \"" + node.dotPath() + "\"} */");
         }
+
+        out.println(indent + "private static final Permission PERMISSION = new Permission(\""
+                + node.dotPath() + "\");");
+        out.println();
+        out.println(indent + "public static Permission permission() { return PERMISSION; }");
+        out.println();
+    }
+
+    private void writeAllMethod(PrintWriter out, TreeNode node, int depth) {
+        String indent = "    ".repeat(depth);
+
+        // Collect all leaf descendants
+        List<TreeNode> leaves = new ArrayList<>();
+        collectLeaves(node, leaves);
+
+        out.println(indent + "private static final Permission[] ALL = {");
+        for (int i = 0; i < leaves.size(); i++) {
+            TreeNode leaf = leaves.get(i);
+            String accessor = buildNestedAccessor(leaf, node);
+            out.print(indent + "    " + accessor + ".permission()");
+            if (i < leaves.size() - 1) {
+                out.println(",");
+            } else {
+                out.println();
+            }
+        }
+        out.println(indent + "};");
+        out.println();
+        out.println(indent + "/** Returns all leaf permissions under this group. */");
+        out.println(indent + "public static Permission[] all() { return ALL.clone(); }");
+        out.println();
+    }
+
+    private void writeFlatAllMethod(PrintWriter out, TreeNode node, TreeNode root,
+            String rootPrefix, String outputPackage, int depth) {
+        String indent = "    ".repeat(depth);
+
+        List<TreeNode> leaves = new ArrayList<>();
+        collectLeaves(node, leaves);
+
+        out.println(indent + "private static final Permission[] ALL = {");
+        for (int i = 0; i < leaves.size(); i++) {
+            TreeNode leaf = leaves.get(i);
+            String flatClassName;
+            if (leaf.resolved.parentDotPath() == null) {
+                flatClassName = rootPrefix;
+            } else {
+                flatClassName = rootPrefix + buildFlatClassName(leaf, root);
+            }
+            out.print(indent + "    " + flatClassName + ".permission()");
+            if (i < leaves.size() - 1) {
+                out.println(",");
+            } else {
+                out.println();
+            }
+        }
+        out.println(indent + "};");
+        out.println();
+        out.println(indent + "/** Returns all leaf permissions under this group. */");
+        out.println(indent + "public static Permission[] all() { return ALL.clone(); }");
+        out.println();
+    }
+
+    private void writeExceptMethod(PrintWriter out, int depth) {
+        String indent = "    ".repeat(depth);
+
+        out.println(indent + "/**");
+        out.println(indent + " * Returns all leaf permissions except the excluded ones.");
+        out.println(indent + " *");
+        out.println(indent + " * @param excluded permissions to exclude");
+        out.println(indent + " * @return filtered permission array");
+        out.println(indent + " */");
+        out.println(indent + "public static Permission[] except(Permission... excluded) {");
+        out.println(indent + "    Set<String> excludePaths = Arrays.stream(excluded)");
+        out.println(indent + "        .map(Permission::path)");
+        out.println(indent + "        .collect(Collectors.toSet());");
+        out.println(indent + "    return Arrays.stream(ALL)");
+        out.println(indent + "        .filter(p -> !excludePaths.contains(p.path()))");
+        out.println(indent + "        .toArray(Permission[]::new);");
+        out.println(indent + "}");
+        out.println();
     }
 
     /**
-     * Generates a static descriptions() method that returns a Map
-     * of all permission paths to their descriptions.
+     * Collects all leaf nodes (nodes with no children) under a given node.
      */
+    private void collectLeaves(TreeNode node, List<TreeNode> leaves) {
+        if (node.children.isEmpty()) {
+            leaves.add(node);
+        } else {
+            for (TreeNode child : node.children) {
+                collectLeaves(child, leaves);
+            }
+        }
+    }
+
+    /**
+     * Builds a nested accessor path from a leaf back to a given ancestor.
+     * For leaf "create" under "operations" under the ancestor, returns
+     * "Operations.Create".
+     */
+    private String buildNestedAccessor(TreeNode target, TreeNode ancestor) {
+        List<String> segments = new ArrayList<>();
+        String targetPath = target.resolved.dotPath();
+        String ancestorPath = ancestor.resolved.dotPath();
+
+        String remaining = targetPath.substring(ancestorPath.length());
+        if (remaining.startsWith(".")) {
+            remaining = remaining.substring(1);
+        }
+
+        for (String segment : remaining.split("\\.")) {
+            segments.add(capitalize(segment));
+        }
+
+        return String.join(".", segments);
+    }
+
     private void writeDescriptionsMethod(PrintWriter out,
-                                          Map<String, String> descriptions,
-                                          int depth) {
+            Map<String, String> descriptions,
+            int depth) {
         String indent = "    ".repeat(depth);
 
         out.println(indent + "/**");
@@ -617,7 +792,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         out.println(indent + "public static Map<String, String> descriptions() {");
 
         if (descriptions.size() <= 10) {
-            // Map.of() supports up to 10 entries
             out.print(indent + "    return Map.of(");
             boolean first = true;
             for (var entry : descriptions.entrySet()) {
@@ -632,7 +806,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             out.println();
             out.println(indent + "    );");
         } else {
-            // Map.ofEntries() for more than 10
             out.println(indent + "    return Map.ofEntries(");
             boolean first = true;
             for (var entry : descriptions.entrySet()) {
@@ -651,9 +824,6 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         out.println();
     }
 
-    /**
-     * Recursively collects all path-description pairs from a tree.
-     */
     private void collectDescriptions(TreeNode node, Map<String, String> descriptions) {
         descriptions.put(node.resolved.dotPath(), node.resolved.description());
         for (TreeNode child : node.children) {
@@ -661,16 +831,52 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         }
     }
 
-    /**
-     * Writes the index file listing all generated root class names.
-     */
+    // ──────────────────────────────────────────────
+    // Verification class generation
+    // ──────────────────────────────────────────────
+
+    private void generateVerificationClass() {
+        String qualifiedName = "dev.karroumi.permissionizer.generated.PermissionizerVerification";
+
+        try {
+            JavaFileObject file = filer.createSourceFile(qualifiedName);
+            try (PrintWriter out = new PrintWriter(file.openWriter())) {
+                out.println("package dev.karroumi.permissionizer.generated;");
+                out.println();
+                out.println("import javax.annotation.processing.Generated;");
+                out.println();
+                out.println("/**");
+                out.println(" * Generated verification class indicating that guard=ON");
+                out.println(" * exists in the codebase. Read by PermissionGuard at startup");
+                out.println(" * to verify enforcement is active.");
+                out.println(" *");
+                out.println(" * <p>Do not edit. Regenerated on every compilation.</p>");
+                out.println(" */");
+                out.println("@Generated(\""
+                        + PermissionAnnotationProcessor.class.getName() + "\")");
+                out.println("public final class PermissionizerVerification {");
+                out.println();
+                out.println("    public static final boolean GUARD_ENABLED = true;");
+                out.println();
+                out.println("    private PermissionizerVerification() {}");
+                out.println("}");
+            }
+        } catch (IOException e) {
+            messager.printMessage(Diagnostic.Kind.ERROR,
+                    "Failed to generate PermissionizerVerification: " + e.getMessage());
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Index file
+    // ──────────────────────────────────────────────
+
     private void writeRootIndex(List<String> rootClassNames) {
         try {
             var indexFile = filer.createResource(
                     StandardLocation.CLASS_OUTPUT,
                     "",
-                    "META-INF/permission-roots.idx"
-            );
+                    "META-INF/permission-roots.idx");
             try (PrintWriter out = new PrintWriter(indexFile.openWriter())) {
                 for (String className : rootClassNames) {
                     out.println(className);
@@ -722,12 +928,14 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     }
 
     private static String capitalize(String s) {
-        if (s == null || s.isEmpty()) return s;
+        if (s == null || s.isEmpty())
+            return s;
         return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
     private static String escapeJava(String s) {
-        if (s == null) return "";
+        if (s == null)
+            return "";
         return s.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")
