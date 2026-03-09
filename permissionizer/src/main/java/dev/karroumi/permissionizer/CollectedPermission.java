@@ -5,15 +5,21 @@ package dev.karroumi.permissionizer;
  * Returned by {@link PermissionCollector} for use in database seeding,
  * admin UI rendering, orphan detection, or documentation generation.
  *
- * @param path       the full dot-path (e.g., "platform.client.account.operations.create")
+ * <p>
+ * This is a data transfer record — it carries the raw path, description,
+ * and parent relationship. For runtime permission checking, use
+ * {@link Permission} instead.
+ * </p>
+ *
+ * @param path        the full dot-path (e.g.,
+ *                    "platform.client.account.operations.create")
  * @param description human-readable description for admin UI, may be empty
  * @param parentPath  the parent's dot-path, or null for root nodes
  */
 public record CollectedPermission(
         String path,
         String description,
-        String parentPath
-) {
+        String parentPath) {
 
     /**
      * Returns the key (last segment) of this node's path.
@@ -36,7 +42,18 @@ public record CollectedPermission(
      * Root nodes have depth 0. "a.b.c" has depth 2.
      */
     public int depth() {
-        if (path == null || path.isEmpty()) return 0;
+        if (path == null || path.isEmpty())
+            return 0;
         return (int) path.chars().filter(c -> c == '.').count();
+    }
+
+    /**
+     * Converts this collected permission to a runtime {@link Permission} object.
+     * Useful when the seeder needs to pass collected data to guard methods.
+     *
+     * @return a Permission with this node's path
+     */
+    public Permission toPermission() {
+        return new Permission(path);
     }
 }
