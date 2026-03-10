@@ -284,11 +284,8 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         String parentPath = walkUpPackages(pkg);
 
         if (parentPath == null) {
-            messager.printMessage(Diagnostic.Kind.ERROR,
-                    "@PermissionNode on '" + key + "' cannot resolve a parent. "
-                            + "Add @PermissionNode to a parent package-info.java "
-                            + "or specify parent explicitly.",
-                    errorElement);
+            resolvedNodes.put(elementKey,
+                    new ResolvedNode(key, description, key, null, errorElement));
             return key;
         }
 
@@ -466,7 +463,8 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     // ──────────────────────────────────────────────
 
     private String generateNestedRootClass(TreeNode root) {
-        String outputPackage = getOutputPackage(root.resolved.element());
+        String basePackage = getOutputPackage(root.resolved.element());
+        String outputPackage = basePackage + ".generated";
         String className = capitalize(root.resolved.key()) + "Permissions";
         String qualifiedName = outputPackage + "." + className;
 
@@ -564,10 +562,12 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
         Map<String, String> allDescriptions = new LinkedHashMap<>();
         collectDescriptions(root, allDescriptions);
 
-        String outputPackage = getOutputPackage(root.resolved.element());
         String rootPrefix = capitalize(root.resolved.key()) + "Permissions";
 
         for (TreeNode node : allNodes) {
+            String nodeBasePackage = getOutputPackage(node.resolved.element());
+            String outputPackage = nodeBasePackage + ".generated";
+            
             boolean isRoot = node.resolved.parentDotPath() == null;
             String className;
             if (isRoot) {
@@ -663,7 +663,7 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             out.println(indent + "/** {@code \"" + node.dotPath() + "\"} */");
         }
 
-        out.println(indent + "private static final Permission PERMISSION = new Permission(\""
+        out.println(indent + "public static final Permission PERMISSION = new Permission(\""
                 + node.dotPath() + "\");");
         out.println();
         out.println(indent + "public static Permission permission() { return PERMISSION; }");
@@ -711,7 +711,12 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             } else {
                 flatClassName = rootPrefix + buildFlatClassName(leaf, root);
             }
-            out.print(indent + "    " + flatClassName + ".permission()");
+            
+            String nodeBasePackage = getOutputPackage(leaf.resolved.element());
+            String nodeOutputPackage = nodeBasePackage + ".generated";
+            String fullAccessor = nodeOutputPackage + "." + flatClassName;
+            
+            out.print(indent + "    " + fullAccessor + ".permission()");
             if (i < leaves.size() - 1) {
                 out.println(",");
             } else {
