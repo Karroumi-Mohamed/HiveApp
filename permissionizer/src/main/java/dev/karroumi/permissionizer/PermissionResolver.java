@@ -197,7 +197,7 @@ public final class PermissionResolver {
         Class<?> parentClass = annotation.parent();
         if (parentClass != Void.class) {
             String parentPath = resolveClassPath(parentClass);
-            return parentPath != null ? parentPath + "." + key : null;
+            return parentPath != null ? parentPath + "." + key : key;
         }
 
         // Try enclosing class
@@ -205,12 +205,12 @@ public final class PermissionResolver {
         PermissionNode classAnnotation = enclosingClass.getAnnotation(PermissionNode.class);
         if (classAnnotation != null) {
             String parentPath = resolveClassPath(enclosingClass);
-            return parentPath != null ? parentPath + "." + key : null;
+            return parentPath != null ? parentPath + "." + key : key;
         }
 
         // Walk up packages
         String parentPath = resolvePackagePath(enclosingClass.getPackage());
-        return parentPath != null ? parentPath + "." + key : null;
+        return parentPath != null ? parentPath + "." + key : key;
     }
 
     /**
@@ -234,12 +234,12 @@ public final class PermissionResolver {
         Class<?> parentClass = annotation.parent();
         if (parentClass != Void.class) {
             String parentPath = resolveClassPath(parentClass);
-            return parentPath != null ? parentPath + "." + key : null;
+            return parentPath != null ? parentPath + "." + key : key;
         }
 
         // Walk up packages
         String parentPath = resolvePackagePath(clazz.getPackage());
-        return parentPath != null ? parentPath + "." + key : null;
+        return parentPath != null ? parentPath + "." + key : key;
     }
 
     /**
