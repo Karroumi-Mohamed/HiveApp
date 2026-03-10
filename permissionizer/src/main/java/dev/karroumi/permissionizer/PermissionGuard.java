@@ -146,6 +146,17 @@ public final class PermissionGuard {
             return this;
         }
 
+        private boolean skipVerify = false;
+
+        /**
+         * Skips the startup verification check.
+         * Only for use in tests where full enforcement is not needed.
+         */
+        public Builder skipVerification() {
+            this.skipVerify = true;
+            return this;
+        }
+
         /**
          * Finalizes configuration. After this call, the guard is active
          * and no further configuration is allowed.
@@ -174,7 +185,9 @@ public final class PermissionGuard {
                 PermissionGuard.autoGuardActive = true;
             }
 
-            verifyGuardAlignment();
+            if (!skipVerify) {
+                verifyGuardAlignment();
+            }
 
             LOG.info("PermissionGuard initialized"
                     + (autoGuard ? " with auto-guard" : " in manual mode")
