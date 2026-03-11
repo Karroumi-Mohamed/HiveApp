@@ -72,7 +72,11 @@ public final class PermissionResolver {
      * @return the resolution result
      */
     public static Result resolve(Method method) {
-        return cache.computeIfAbsent(method, PermissionResolver::doResolve);
+        Result r = cache.computeIfAbsent(method, PermissionResolver::doResolve);
+        if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+            LOG.fine("[Permissionizer] Resolved " + method.getName() + " -> " + r);
+        }
+        return r;
     }
 
     /**
@@ -252,43 +256,38 @@ public final class PermissionResolver {
             return null;
         }
 
-        PermissionNode annotation = pkg.getAnnotation(PermissionNode.class);
+        PermissionNode annotation = getPackageAnnotation(pkg.getName());
         if (annotation != null) {
             String key = annotation.key();
             if (key == null || key.isEmpty()) {
                 return null;
             }
-            String parentPath = resolveParentPackagePath(pkg);
+            String parentPath = resolveParentPackagePath(pkg.getName());
             return parentPath != null ? parentPath + "." + key : key;
         }
 
-        return resolveParentPackagePath(pkg);
+        return resolveParentPackagePath(pkg.getName());
     }
 
     /**
-     * Walks up from a package to find the nearest annotated ancestor
+     * Walks up from a package name to find the nearest annotated ancestor
      * and resolves its full path recursively.
      */
-    private static String resolveParentPackagePath(Package startPackage) {
-        String packageName = startPackage.getName();
-
+    private static String resolveParentPackagePath(String packageName) {
         while (packageName.contains(".")) {
             int lastDot = packageName.lastIndexOf('.');
             packageName = packageName.substring(0, lastDot);
 
-            Package parentPkg = Package.getPackage(packageName);
-            if (parentPkg != null) {
-                PermissionNode annotation = parentPkg.getAnnotation(PermissionNode.class);
-                if (annotation != null) {
-                    String key = annotation.key();
-                    if (key == null || key.isEmpty()) {
-                        continue;
-                    }
-                    String grandParentPath = resolveParentPackagePath(parentPkg);
-                    return grandParentPath != null
-                            ? grandParentPath + "." + key
-                            : key;
+            PermissionNode annotation = getPackageAnnotation(packageName);
+            if (annotation != null) {
+                String key = annotation.key();
+                if (key == null || key.isEmpty()) {
+                    continue;
                 }
+                String grandParentPath = resolveParentPackagePath(packageName);
+                return grandParentPath != null
+                        ? grandParentPath + "." + key
+                        : key;
             }
         }
 
@@ -306,13 +305,21 @@ public final class PermissionResolver {
     private static boolean isGuardActiveForClass(Class<?> clazz) {
         PermissionNode annotation = clazz.getAnnotation(PermissionNode.class);
         if (annotation != null) {
-            if (annotation.guard() == PermissionNode.Guard.ON)
+            if (annotation.guard() == PermissionNode.Guard.ON) {
+                if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+                    LOG.fine("[Permissionizer] Guard ON via class annotation: " + clazz.getName());
+                }
                 return true;
+            }
             if (annotation.guard() == PermissionNode.Guard.OFF)
                 return false;
         }
 
-        return isGuardActiveInPackages(clazz.getPackage());
+        boolean active = isGuardActiveInPackages(clazz.getPackage());
+        if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+            LOG.fine("[Permissionizer] Guard for " + clazz.getName() + " active: " + active);
+        }
+        return active;
     }
 
     /**
@@ -323,24 +330,33 @@ public final class PermissionResolver {
         if (pkg == null)
             return false;
 
-        PermissionNode annotation = pkg.getAnnotation(PermissionNode.class);
-        if (annotation != null) {
-            if (annotation.guard() == PermissionNode.Guard.ON)
-                return true;
-            if (annotation.guard() == PermissionNode.Guard.OFF)
-                return false;
-        }
-
         String name = pkg.getName();
-        if (name.contains(".")) {
-            String parentName = name.substring(0, name.lastIndexOf('.'));
-            Package parentPkg = Package.getPackage(parentName);
-            if (parentPkg != null) {
-                return isGuardActiveInPackages(parentPkg);
+        while (name != null) {
+            PermissionNode annotation = getPackageAnnotation(name);
+            if (annotation != null) {
+                if (annotation.guard() == PermissionNode.Guard.ON)
+                    return true;
+                if (annotation.guard() == PermissionNode.Guard.OFF)
+                    return false;
             }
+
+            if (!name.contains(".")) {
+                break;
+            }
+            name = name.substring(0, name.lastIndexOf('.'));
         }
 
         return false;
+    }
+
+    private static PermissionNode getPackageAnnotation(String packageName) {
+        try {
+            ClassLoader loader = Thread.currentThread().getContextClassLoader();
+            Class<?> pkgInfo = Class.forName(packageName + ".package-info", false, loader);
+            return pkgInfo.getAnnotation(PermissionNode.class);
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
     }
 
     // ──────────────────────────────────────────────
