@@ -61,6 +61,7 @@ public final class PermissionGuard {
     private static volatile boolean autoGuardActive = false;
     private static volatile boolean springInterceptorActive = false;
     private static volatile boolean dryRun = false;
+    private static volatile boolean exactMatching = false;
     private static volatile BiConsumer<Permission, Collection<String>> denialListener;
     private static final AtomicBoolean initialized = new AtomicBoolean(false);
 
@@ -101,7 +102,7 @@ public final class PermissionGuard {
 
         private final PermissionsProvider provider;
         private boolean autoGuard = false;
-        private boolean dryRunFlag = false;
+        private boolean dryRunFlag = false; private boolean exactMatchFlag = false;
         private BiConsumer<Permission, Collection<String>> listener;
 
         private Builder(PermissionsProvider provider) {
@@ -130,6 +131,17 @@ public final class PermissionGuard {
          */
         public Builder dryRun(boolean enabled) {
             this.dryRunFlag = enabled;
+            return this;
+        }
+
+        /**
+         * Enables exact matching. If true, holding a parent permission (e.g., "a.b")
+         * does NOT grant access to children (e.g., "a.b.c").
+         *
+         * @return this builder
+         */
+        public Builder withExactMatching() {
+            this.exactMatchFlag = true;
             return this;
         }
 
@@ -178,6 +190,7 @@ public final class PermissionGuard {
 
             PermissionGuard.provider = provider;
             PermissionGuard.dryRun = dryRunFlag;
+            PermissionGuard.exactMatching = exactMatchFlag;
             PermissionGuard.denialListener = listener;
 
             if (autoGuard) {
@@ -477,7 +490,7 @@ public final class PermissionGuard {
             if (required.equals(granted)) {
                 return true;
             }
-            if (required.startsWith(granted + ".")) {
+            if (!exactMatching && required.startsWith(granted + ".")) {
                 return true;
             }
         }
