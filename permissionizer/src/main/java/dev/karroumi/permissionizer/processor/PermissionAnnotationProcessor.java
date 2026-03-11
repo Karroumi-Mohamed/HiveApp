@@ -281,7 +281,13 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     private String resolveViaPackageWalk(Element errorElement, TypeElement classElement,
             String elementKey, String key, String description) {
         PackageElement pkg = elementUtils.getPackageOf(classElement);
-        String parentPath = walkUpPackages(pkg);
+        
+        String parentPath;
+        if (pkg.getAnnotation(PermissionNode.class) != null) {
+            parentPath = resolveNode(pkg);
+        } else {
+            parentPath = walkUpPackages(pkg);
+        }
 
         if (parentPath == null) {
             resolvedNodes.put(elementKey,
@@ -830,7 +836,10 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     }
 
     private void collectDescriptions(TreeNode node, Map<String, String> descriptions) {
-        descriptions.put(node.resolved.dotPath(), node.resolved.description());
+        String desc = node.resolved.description();
+        if (desc != null && !desc.isEmpty()) {
+            descriptions.put(node.resolved.dotPath(), desc);
+        }
         for (TreeNode child : node.children) {
             collectDescriptions(child, descriptions);
         }
