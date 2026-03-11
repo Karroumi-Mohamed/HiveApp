@@ -39,11 +39,16 @@ public final class AutoGuardActivator {
     private AutoGuardActivator() {
     }
 
+    private static final java.util.concurrent.atomic.AtomicBoolean active = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     /**
      * Installs the Byte Buddy agent and instruments all @PermissionNode
      * annotated classes. Called reflectively by PermissionGuard.
      */
     public static void activate() {
+        if (!active.compareAndSet(false, true)) {
+            return;
+        }
         // Self-attach the agent to the current JVM
         ByteBuddyAgent.install();
 
@@ -71,24 +76,25 @@ public final class AutoGuardActivator {
         };
 
         new AgentBuilder.Default()
-                // Retransformation allows modifying already-loaded classes
+                .with(AgentBuilder.InjectionStrategy.UsingUnsafe.INSTANCE)
                 .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
-                // Log what we touch
+                .with(AgentBuilder.TypeStrategy.Default.REDEFINE)
+                .with(AgentBuilder.InitializationStrategy.NoOp.INSTANCE)
+                .disableClassFormatChanges()
+                .ignore(ElementMatchers.nameStartsWith("net.bytebuddy."))
                 .with(listener)
                 // Target classes annotated with @PermissionNode
                 .type(ElementMatchers.isAnnotatedWith(PermissionNode.class))
                 .transform((builder, typeDescription, classLoader, module, domain) -> builder
-                        .method(ElementMatchers.isPublic()
+                        .visit(Advice.to(GuardAdvice.class).on(ElementMatchers.isPublic()
                                 .and(ElementMatchers.not(ElementMatchers.isStatic()))
-                                .and(ElementMatchers.not(ElementMatchers.isConstructor())))
-                        .intercept(Advice.to(GuardAdvice.class)))
+                                .and(ElementMatchers.not(ElementMatchers.isConstructor())))))
                 // Also target methods directly annotated with @PermissionNode
                 // in classes that are NOT annotated (method-only annotation)
                 .type(ElementMatchers.declaresMethod(
                         ElementMatchers.isAnnotatedWith(PermissionNode.class)))
                 .transform((builder, typeDescription, classLoader, module, domain) -> builder
-                        .method(ElementMatchers.isAnnotatedWith(PermissionNode.class))
-                        .intercept(Advice.to(GuardAdvice.class)))
+                        .visit(Advice.to(GuardAdvice.class).on(ElementMatchers.isAnnotatedWith(PermissionNode.class))))
                 .installOnByteBuddyAgent();
 
         LOG.info("[Permissionizer] Auto-guard activated");
