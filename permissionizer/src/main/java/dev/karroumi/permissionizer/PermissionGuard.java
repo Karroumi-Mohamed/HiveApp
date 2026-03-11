@@ -593,8 +593,8 @@ public final class PermissionGuard {
             LOG.info("Auto-guard activated via Byte Buddy");
         } catch (ClassNotFoundException e) {
             throw new IllegalStateException(
-                    "withAutoGuard() requires Byte Buddy on the classpath. "
-                            + "Add byte-buddy and byte-buddy-agent dependencies.");
+                    "Failed to load Byte Buddy components. "
+                            + "This is an internal error as Byte Buddy should be present.");
         } catch (Exception e) {
             throw new IllegalStateException(
                     "Failed to activate auto-guard: " + e.getMessage(), e);
