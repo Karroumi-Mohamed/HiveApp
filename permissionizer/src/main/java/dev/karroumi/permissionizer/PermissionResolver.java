@@ -159,32 +159,41 @@ public final class PermissionResolver {
         }
 
         Class<?> clazz = method.getDeclaringClass();
-        PermissionNode classAnnotation = clazz.getAnnotation(PermissionNode.class);
+        PermissionNode annotation = clazz.getAnnotation(PermissionNode.class);
 
-        if (classAnnotation == null) {
-            return Result.SKIP;
-        }
+        if (annotation != null) {
+            // Class has annotation — check if guard is active
+            if (!isGuardActiveForClass(clazz)) {
+                return Result.SKIP;
+            }
 
-        // Class has annotation — check if guard is active
-        if (!isGuardActiveForClass(clazz)) {
-            return Result.SKIP;
-        }
+            // Guard is active — resolve class path
+            String classPath = resolveClassPath(clazz);
+            if (classPath == null) {
+                return Result.SKIP;
+            }
 
-        // Guard is active — resolve class path
-        String classPath = resolveClassPath(clazz);
-        if (classPath == null) {
-            return Result.SKIP;
-        }
+            // If autoDiscover, use method name as leaf key
+            if (annotation.autoDiscover()) {
+                Permission permission = new Permission(classPath + "." + method.getName());
+                return new Result(permission, true);
+            }
 
-        // If autoDiscover, use method name as leaf key
-        if (classAnnotation.autoDiscover()) {
-            Permission permission = new Permission(classPath + "." + method.getName());
+            // No autoDiscover — check at class level
+            Permission permission = new Permission(classPath);
             return new Result(permission, true);
         }
 
-        // No autoDiscover — check at class level
-        Permission permission = new Permission(classPath);
-        return new Result(permission, true);
+        // No class annotation — check if package has guard ON
+        if (isGuardActiveInPackages(clazz.getPackage())) {
+            String pkgPath = resolvePackagePath(clazz.getPackage());
+            if (pkgPath != null) {
+                Permission permission = new Permission(pkgPath + "." + method.getName());
+                return new Result(permission, true);
+            }
+        }
+
+        return Result.SKIP;
     }
 
     // ──────────────────────────────────────────────
@@ -311,8 +320,9 @@ public final class PermissionResolver {
                 }
                 return true;
             }
-            if (annotation.guard() == PermissionNode.Guard.OFF)
+            if (annotation.guard() == PermissionNode.Guard.OFF) {
                 return false;
+            }
         }
 
         boolean active = isGuardActiveInPackages(clazz.getPackage());
