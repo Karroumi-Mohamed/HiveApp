@@ -48,6 +48,7 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
     private Filer filer;
 
     private final Map<String, ResolvedNode> resolvedNodes = new LinkedHashMap<>();
+    private final Set<String> activeResolutions = new LinkedHashSet<>();
     private boolean guardOnDetected = false;
 
     private enum OutputStyle {
@@ -94,6 +95,7 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
 
         // Phase 2: Resolve all parents and build dot-paths
         for (Element element : annotatedElements) {
+            activeResolutions.clear();
             resolveNode(element);
         }
 
@@ -190,66 +192,83 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             return resolvedNodes.get(elementKey).dotPath();
         }
 
-        PermissionNode annotation = element.getAnnotation(PermissionNode.class);
-        String key = annotation.key();
-        String description = annotation.description();
-
-        // Derive key from method name if empty
-        if ((key == null || key.isEmpty()) && element.getKind() == ElementKind.METHOD) {
-            key = element.getSimpleName().toString();
+        if (activeResolutions.contains(elementKey)) {
+            List<String> chain = new ArrayList<>(activeResolutions);
+            int start = chain.indexOf(elementKey);
+            List<String> cycle = chain.subList(start, chain.size());
+            String path = String.join(" -> ", cycle) + " -> " + elementKey;
+            
+            messager.printMessage(Diagnostic.Kind.ERROR,
+                    "Circular parent reference detected: " + path,
+                    element);
+            return "__ERROR__";
         }
 
-        // Priority 1: Explicit parent
-        TypeMirror parentMirror = getParentMirror(annotation);
-        if (parentMirror != null && !isVoidType(parentMirror)) {
-            return resolveWithExplicitParent(
-                    element, elementKey, key, description, parentMirror);
-        }
+        activeResolutions.add(elementKey);
+        try {
+            PermissionNode annotation = element.getAnnotation(PermissionNode.class);
+            String key = annotation.key();
+            String description = annotation.description();
 
-        // Priority 2: Method — try enclosing class, then package walk
-        if (element.getKind() == ElementKind.METHOD) {
-            TypeElement enclosingClass = (TypeElement) element.getEnclosingElement();
-
-            if (enclosingClass.getAnnotation(PermissionNode.class) != null) {
-                String parentPath = resolveNode(enclosingClass);
-                String dotPath = parentPath + "." + key;
-                resolvedNodes.put(elementKey,
-                        new ResolvedNode(key, description, dotPath, parentPath, element));
-                return dotPath;
+            // Derive key from method name if empty
+            if ((key == null || key.isEmpty()) && element.getKind() == ElementKind.METHOD) {
+                key = element.getSimpleName().toString();
             }
 
-            return resolveViaPackageWalk(
-                    element, enclosingClass, elementKey, key, description);
-        }
-
-        // Priority 3: Class — walk up packages
-        if (element.getKind() == ElementKind.CLASS
-                || element.getKind() == ElementKind.INTERFACE) {
-            return resolveViaPackageWalk(
-                    element, (TypeElement) element, elementKey, key, description);
-        }
-
-        // Priority 4: Package — walk up parent packages
-        if (element.getKind() == ElementKind.PACKAGE) {
-            PackageElement pkg = (PackageElement) element;
-            String parentPath = walkUpPackages(pkg);
-
-            if (parentPath != null) {
-                String dotPath = parentPath + "." + key;
-                resolvedNodes.put(elementKey,
-                        new ResolvedNode(key, description, dotPath, parentPath, element));
-                return dotPath;
+            // Priority 1: Explicit parent
+            TypeMirror parentMirror = getParentMirror(annotation);
+            if (parentMirror != null && !isVoidType(parentMirror)) {
+                return resolveWithExplicitParent(
+                        element, elementKey, key, description, parentMirror);
             }
 
-            resolvedNodes.put(elementKey,
-                    new ResolvedNode(key, description, key, null, element));
+            // Priority 2: Method — try enclosing class, then package walk
+            if (element.getKind() == ElementKind.METHOD) {
+                TypeElement enclosingClass = (TypeElement) element.getEnclosingElement();
+
+                if (enclosingClass.getAnnotation(PermissionNode.class) != null) {
+                    String parentPath = resolveNode(enclosingClass);
+                    String dotPath = parentPath + "." + key;
+                    resolvedNodes.put(elementKey,
+                            new ResolvedNode(key, description, dotPath, parentPath, element));
+                    return dotPath;
+                }
+
+                return resolveViaPackageWalk(
+                        element, enclosingClass, elementKey, key, description);
+            }
+
+            // Priority 3: Class — walk up packages
+            if (element.getKind() == ElementKind.CLASS
+                    || element.getKind() == ElementKind.INTERFACE) {
+                return resolveViaPackageWalk(
+                        element, (TypeElement) element, elementKey, key, description);
+            }
+
+            // Priority 4: Package — walk up parent packages
+            if (element.getKind() == ElementKind.PACKAGE) {
+                PackageElement pkg = (PackageElement) element;
+                String parentPath = walkUpPackages(pkg);
+
+                if (parentPath != null) {
+                    String dotPath = parentPath + "." + key;
+                    resolvedNodes.put(elementKey,
+                            new ResolvedNode(key, description, dotPath, parentPath, element));
+                    return dotPath;
+                }
+
+                resolvedNodes.put(elementKey,
+                        new ResolvedNode(key, description, key, null, element));
+                return key;
+            }
+
+            messager.printMessage(Diagnostic.Kind.ERROR,
+                    "Cannot resolve parent for @PermissionNode on: " + elementKey,
+                    element);
             return key;
+        } finally {
+            activeResolutions.remove(elementKey);
         }
-
-        messager.printMessage(Diagnostic.Kind.ERROR,
-                "Cannot resolve parent for @PermissionNode on: " + elementKey,
-                element);
-        return key;
     }
 
     private String resolveWithExplicitParent(Element element, String elementKey,
