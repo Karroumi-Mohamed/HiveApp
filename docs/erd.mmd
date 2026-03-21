@@ -22,6 +22,21 @@ erDiagram
     Permission ||--o{ MemberPermissionOverride : "targeted"
     Company ||--o{ MemberPermissionOverride : "scoped to"
 
+    % Subscription & Quotas
+    Subscription ||--|| Account : "billed to"
+    Subscription {
+        uuid id PK
+        uuid plan_id FK
+        jsonb custom_overrides "Polymorphic Quota objects"
+        string status
+    }
+    Plan ||--o{ PlanFeature : "includes"
+    PlanFeature {
+        uuid id PK
+        uuid feature_id FK
+        jsonb config "Base Quota objects"
+    }
+
     % B2B Collaboration
     Account ||--o{ Collaboration : "client"
     Account ||--o{ Collaboration : "provider"
