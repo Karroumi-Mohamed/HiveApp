@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.member.domain.entity;
 
 import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -19,9 +20,10 @@ public class MemberPermissionOverride extends BaseEntity {
     @JoinColumn(name = "company_id", nullable = false)
     private Company company;
 
-    @Column(name = "permission_code", nullable = false)
-    private String permissionCode;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "permission_id", nullable = false)
+    private Permission permission;
 
     @Column(nullable = false)
-    private boolean decision; // true = ALLOW, false = DENY
+    private boolean decision;
 }

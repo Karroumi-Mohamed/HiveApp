@@ -2,11 +2,11 @@ package com.hiveapp.platform.client.collaboration.domain.entity;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.collaboration.domain.constant.CollaborationStatus;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
-
 import java.time.LocalDateTime;
 
 @Entity
@@ -26,8 +26,9 @@ public class Collaboration extends BaseEntity {
     @JoinColumn(name = "company_id", nullable = false)
     private Company company;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String status; // PENDING, ACTIVE, SUSPENDED, REVOKED
+    private CollaborationStatus status;
 
     @Column(name = "requested_at")
     private LocalDateTime requestedAt;
