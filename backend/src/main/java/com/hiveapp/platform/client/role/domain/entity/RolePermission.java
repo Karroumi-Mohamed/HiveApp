@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.role.domain.entity;
 
+import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -14,6 +15,7 @@ public class RolePermission extends BaseEntity {
     @JoinColumn(name = "role_id", nullable = false)
     private Role role;
 
-    @Column(name = "permission_code", nullable = false)
-    private String permissionCode;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "permission_id", nullable = false)
+    private Permission permission;
 }

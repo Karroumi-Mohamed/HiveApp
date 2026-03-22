@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.plan.domain.entity;
 
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -16,8 +17,9 @@ public class Plan extends BaseEntity {
     private String name;
     private String description;
     private BigDecimal price;
+    @Enumerated(EnumType.STRING)
     @Column(name = "billing_cycle")
-    private String billingCycle;
+    private BillingCycle billingCycle;
     @Column(name = "max_companies")
     private int maxCompanies;
     @Column(name = "max_members")
