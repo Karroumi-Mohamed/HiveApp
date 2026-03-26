@@ -2,8 +2,8 @@
 
 ## Système de Permissions et Entités Fondamentales
 
-**Version :** 1.0
-**Date :** 2026-02-06
+**Version :** 1.1
+**Date :** 2026-04-02
 **Statut :** Brouillon
 
 ---
@@ -121,7 +121,15 @@ Les permissions administratives définissent les actions possibles au sein de la
 - `code` : identifiant unique (ex: `admin.plans.create`, `admin.accounts.suspend`)
 - `action` : type d'opération (create, read, update, delete, manage)
 - `resource` : ressource cible (plans, accounts, modules, features)
-- `module` : rattachement optionnel à un module du registre
+
+**Règle fondamentale — Séparation stricte des espaces de nommage :**
+
+Les AdminPermissions sont un espace de nommage **entièrement distinct** des Permissions du registre ERP.
+
+- Une AdminPermission gouverne des opérations sur la **plateforme** (ex: `admin.plans.create`, `admin.accounts.suspend`)
+- Une Permission ERP gouverne des opérations sur les **données métier** (ex: `hr.employees.read`, `finance.invoices.create`)
+- Ces deux types ne sont **jamais mélangés** — un AdminRole ne contient que des AdminPermissions, jamais des Permissions ERP
+- Il n'existe aucune relation entre les deux entités
 
 ### 4.4 Registre des Modules et Fonctionnalités
 
@@ -163,6 +171,13 @@ Un Plan définit le **plafond de permissions** d'un Account.
 - Définit également des limites structurelles : nombre max d'entreprises, nombre max de membres
 
 **Règle fondamentale :** Un Account ne peut **jamais** dépasser les permissions définies par son Plan. Le Plan est le plafond absolu pour les opérations en contexte propre.
+
+**Plan FREE :**
+
+- Il existe un plan spécial **FREE** attribué automatiquement à tout nouveau Account lors de sa création
+- Le plan FREE a un cycle de facturation **FOREVER** — il n'a pas de période de renouvellement et ne génère aucune facture
+- Il constitue le point d'entrée de la plateforme avant tout abonnement payant
+- FOREVER est une valeur réservée exclusivement au plan FREE — aucun autre plan ne peut l'utiliser
 
 ---
 
@@ -207,7 +222,36 @@ Une Company représente une entité juridique ou organisationnelle gérée au se
 - **Accès** — Un Member accède uniquement aux Modules activés sur la Company ET couverts par ses Roles
 - `CompanyModule` est un toggle d'activation géré par le Owner — ce n'est pas un mécanisme de permission
 
-### 5.3 Member (Membre)
+### 5.3 Department (Département)
+
+Un Department est une structure organisationnelle au sein d'une Company, utilisée **uniquement à des fins d'information et de navigation**.
+
+**Caractéristiques :**
+
+- Appartient à une Company
+- Peut être imbriqué — un Department peut avoir un Department parent, sans limite de profondeur
+- Possède un responsable (manager) optionnel
+
+**Règles :**
+
+- Appartenir à un Department ne modifie **aucune permission** — c'est une structure purement informative
+- Le manager d'un Department doit être un **Member du même Account** — pas simplement un User de la plateforme. Un User extérieur à l'Account ne peut pas être désigné responsable.
+- La suppression d'un Department ne supprime pas les Members qui y sont rattachés
+- Les Departments n'ont aucun rôle dans le calcul des permissions effectives
+
+---
+
+### 5.4 Équipes (Teams) — Hors périmètre fondation
+
+Les équipes n'existent **pas** au niveau de la couche fondation de HiveApp.
+
+Chaque module métier (CRM, Helpdesk, Projets, etc.) définit ses propres structures d'équipes en fonction de ses besoins spécifiques. Une équipe CRM, une équipe Helpdesk et une équipe Projet sont des concepts différents avec des logiques différentes — il n'y a pas d'entité Team globale partagée entre les modules.
+
+Les équipes n'ont aucun impact sur le moteur de permissions fondation.
+
+---
+
+### 5.5 Member (Membre)
 
 Un Member est la représentation d'un User au sein d'un Account.
 
@@ -225,7 +269,7 @@ Un Member est la représentation d'un User au sein d'un Account.
 - Un Member accède aux Companies via ses Roles — pas d'accès direct
 - La désactivation d'un Member révoque tous ses accès sans supprimer l'historique
 
-### 5.4 Système de Rôles et Permissions
+### 5.6 Système de Rôles et Permissions
 
 #### Permission
 
@@ -277,7 +321,7 @@ Liaison entre un Member, un Role et optionnellement une Company.
 - Les permissions effectives = union de tous les rôles applicables au contexte
 - Un même Role peut être attribué à un Member à l'échelle de l'Account ET à l'échelle d'une Company spécifique
 
-### 5.5 Calcul des Permissions Effectives
+### 5.7 Calcul des Permissions Effectives
 
 Le calcul des permissions effectives d'un Member suit cette logique :
 
@@ -506,3 +550,6 @@ Objet valeur immuable représentant un ensemble de permissions calculées.
 | **PermissionSet** | Ensemble calculé de permissions effectives |
 | **Plafond (Ceiling)** | Limite maximale de permissions applicable |
 | **Moteur de Permissions** | Service partagé de résolution des permissions |
+| **Department** | Structure organisationnelle informative au sein d'une Company — aucun impact sur les permissions |
+| **AdminPermission** | Permission de la plateforme d'administration — espace de nommage distinct des Permissions ERP |
+| **Plan FREE** | Plan d'entrée attribué automatiquement à tout nouveau Account, cycle de facturation FOREVER |
