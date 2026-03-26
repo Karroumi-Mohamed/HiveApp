@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.company.domain.entity;
 
-import com.hiveapp.identity.domain.entity.User;
+import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
@@ -27,5 +27,5 @@ public class Department extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "manager_id")
-    private User manager;
+    private Member manager; // Corrected: Must be a Member of the Account
 }

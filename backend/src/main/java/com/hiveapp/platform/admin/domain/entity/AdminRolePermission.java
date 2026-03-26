@@ -1,6 +1,5 @@
 package com.hiveapp.platform.admin.domain.entity;
 
-import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -16,6 +15,6 @@ public class AdminRolePermission extends BaseEntity {
     private AdminRole adminRole;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "permission_id", nullable = false)
-    private Permission permission;
+    @JoinColumn(name = "admin_permission_id", nullable = false)
+    private AdminPermission adminPermission; // Corrected: Links to AdminPermission
 }
