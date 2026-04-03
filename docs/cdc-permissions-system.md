@@ -2,7 +2,7 @@
 
 ## Système de Permissions et Entités Fondamentales
 
-**Version :** 1.1
+**Version :** 1.2
 **Date :** 2026-04-02
 **Statut :** Brouillon
 
@@ -18,33 +18,27 @@ Ce cahier des charges définit les spécifications fonctionnelles et techniques 
 
 Le périmètre couvre :
 
-- Le modèle d'identité (User)
-- La plateforme d'administration HiveApp
+- Le modèle d'''identité (User)
+- La plateforme d'''administration HiveApp
 - La plateforme client HiveApp
 - Le moteur de permissions partagé
 - Le système de collaboration inter-comptes
 - Le registre des modules et fonctionnalités
 - Le système de plans et abonnements
 
-Hors périmètre :
-- La logique métier des modules ERP
-- Les interfaces utilisateur (UI/UX)
-- L'infrastructure de déploiement
-- Les intégrations tierces
-
 ---
 
 ## 2. Architecture Générale
 
-### 2.1 Vue d'Ensemble
+### 2.1 Vue d'''Ensemble
 
 HiveApp est composé de deux plateformes distinctes partageant un socle commun :
 
 | Composant | Description |
 |-----------|-------------|
-| **Couche d'identité partagée** | Entité User unique, authentification commune |
-| **Moteur de permissions partagé** | Un seul moteur, deux contextes d'exécution |
-| **Plateforme d'administration** | Gestion de la plateforme, plans, modules, supervision |
+| **Couche d'''identité partagée** | Entité User unique, authentification commune |
+| **Moteur de permissions partagé** | Un seul moteur, deux contextes d'''exécution |
+| **Plateforme d'''administration** | Gestion de la plateforme, plans, modules, supervision |
 | **Plateforme client** | Comptes, entreprises, membres, permissions, collaboration |
 
 ### 2.2 Principe Fondamental
@@ -57,127 +51,52 @@ Le moteur de permissions est **unique et partagé**. Il opère de manière ident
 
 ---
 
-## 3. Modèle d'Identité
+## 3. Modèle d'''Identité
 
 ### 3.1 User
 
-L'entité **User** est le socle identitaire de toute personne interagissant avec la plateforme.
-
-**Caractéristiques :**
-
-- Chaque personne sur la plateforme est un User
-- Un User possède un email unique et des identifiants d'authentification
-- Un User peut assumer plusieurs rôles dans le système :
-  - **Propriétaire de compte (Owner)** — un User ayant créé un Account
-  - **Membre (Member)** — un User créé/ajouté au sein d'un Account
-  - **Administrateur plateforme (AdminUser)** — un User avec accès à la plateforme d'administration
+L'''entité **User** est le socle identitaire de toute personne interagissant avec la plateforme.
 
 **Règles :**
-
-- Un User peut posséder au maximum **un seul Account** en tant que propriétaire
-- Un User peut être Member dans **plusieurs Accounts**
-- Un Member **n'existe pas** en dehors du contexte de son Account
-- Un Member ne possède **pas** de compte autonome, pas de tableau de bord indépendant — uniquement un tableau de bord personnalisé au sein de son Account
-- Le Owner est un Member avec un flag `is_owner` — ce n'est pas une entité séparée
+- Un User peut posséder au maximum **un seul Account** en tant que propriétaire.
+- Un User peut être Member dans **plusieurs Accounts**.
+- Le Owner est un Member avec un flag `is_owner` — ce n'''est pas une entité séparée.
 
 ---
 
-## 4. Plateforme d'Administration
+## 4. Plateforme d'''Administration
 
 ### 4.1 AdminUser
 
-Un AdminUser est un User ayant accès à la plateforme d'administration.
-
-**Caractéristiques :**
-
-- Lié à un User existant
-- Possède un flag `is_super_admin` pour les opérations critiques
-- Peut se voir attribuer des AdminRoles dynamiques
-
-**Authentification :**
-
-- La plateforme d'administration possède son **propre flux d'authentification**, entièrement séparé du flux client
-- Endpoint dédié : `POST /api/admin/auth/login`
-- Émet un **token JWT admin distinct** (`tokenType: ADMIN`) — jamais mélangé avec un token client
-- Le token client (`tokenType: CLIENT`) ne donne **aucun accès** à la plateforme d'administration, même si le User est également AdminUser
-- Avantages : frontière de sécurité claire, auditabilité complète des actions admin, aucun risque de confusion de contexte
+Un AdminUser est un User ayant accès à la plateforme d'''administration.
 
 ### 4.2 AdminRole
 
-Les rôles administrateurs sont **entièrement dynamiques** — créés, modifiés, supprimés à volonté.
-
-**Caractéristiques :**
-
-- Chaque AdminRole est composé d'un ensemble d'AdminPermissions
-- Pas de rôles codés en dur (aucun enum)
-- Un AdminUser peut avoir plusieurs AdminRoles
+Les rôles administrateurs sont **entièrement dynamiques**. Chaque AdminRole est composé d'''un ensemble d'''AdminPermissions.
 
 ### 4.3 AdminPermission
 
-Les permissions administratives définissent les actions possibles au sein de la plateforme d'administration.
+**Structure :** `code`, `action`, `resource`.
 
-**Structure :**
-
-- `code` : identifiant unique (ex: `admin.plans.create`, `admin.accounts.suspend`)
-- `action` : type d'opération (create, read, update, delete, manage)
-- `resource` : ressource cible (plans, accounts, modules, features)
-
-**Règle fondamentale — Séparation stricte des espaces de nommage :**
-
-Les AdminPermissions sont un espace de nommage **entièrement distinct** des Permissions du registre ERP.
-
-- Une AdminPermission gouverne des opérations sur la **plateforme** (ex: `admin.plans.create`, `admin.accounts.suspend`)
-- Une Permission ERP gouverne des opérations sur les **données métier** (ex: `hr.employees.read`, `finance.invoices.create`)
-- Ces deux types ne sont **jamais mélangés** — un AdminRole ne contient que des AdminPermissions, jamais des Permissions ERP
-- Il n'existe aucune relation entre les deux entités
+**Règle fondamentale — Séparation stricte :**
+Les AdminPermissions sont un espace de nommage **entièrement distinct** des Permissions du registre ERP. Ils ne sont **jamais mélangés**. Il n'''existe aucune relation entre les deux entités.
 
 ### 4.4 Registre des Modules et Fonctionnalités
 
 Le registre est la **source de vérité** de tout ce que HiveApp propose.
+- **Module** : Domaine fonctionnel (RH, Finance).
+- **Feature** : Sous-ensemble fonctionnel (Gestion des employés).
+- **Permission** : Action atomique (`hr.employees.create`).
 
-#### Module
+### 4.5 Plans (Modèle de Templates)
 
-Un module représente un domaine fonctionnel de l'ERP.
-
-**Exemples :** RH, Finance, Comptabilité, Gestion de Projet, CRM
-
-**Caractéristiques :**
-
-- Défini et géré exclusivement via la plateforme d'administration
-- Possède un code unique, un nom, une description, un ordre d'affichage
-- Peut être activé/désactivé globalement
-
-#### Feature (Fonctionnalité)
-
-Une fonctionnalité est un sous-ensemble d'un module.
-
-**Exemple :** Le module RH contient les fonctionnalités : Gestion des employés, Gestion des congés, Paie
+Un Plan est un **Template (blueprint)** de fonctionnalités et de quotas.
 
 **Caractéristiques :**
-
-- Appartient à un et un seul Module
-- Chaque Feature définit un ensemble de Permissions
-- Granularité fine : c'est à ce niveau que les permissions sont définies
-
-### 4.5 Plans
-
-Un Plan définit le **plafond de permissions** d'un Account.
-
-**Caractéristiques :**
-
-- Composé dynamiquement à partir du registre de fonctionnalités
-- Un Plan sélectionne un sous-ensemble de Features (via PlanFeature)
-- Chaque PlanFeature peut avoir une configuration spécifique (limites, quotas)
-- Définit également des limites structurelles : nombre max d'entreprises, nombre max de membres
-
-**Règle fondamentale :** Un Account ne peut **jamais** dépasser les permissions définies par son Plan. Le Plan est le plafond absolu pour les opérations en contexte propre.
-
-**Plan FREE :**
-
-- Il existe un plan spécial **FREE** attribué automatiquement à tout nouveau Account lors de sa création
-- Le plan FREE a un cycle de facturation **FOREVER** — il n'a pas de période de renouvellement et ne génère aucune facture
-- Il constitue le point d'entrée de la plateforme avant tout abonnement payant
-- FOREVER est une valeur réservée exclusivement au plan FREE — aucun autre plan ne peut l'utiliser
+- Défini par les Admins via le registre.
+- Un Plan possède un code unique (ex: `FREE`, `PRO`).
+- **Cycle FOREVER** : Le cycle de facturation `FOREVER` est utilisé pour les plans qui n'''expirent jamais (ex: le plan gratuit).
+- **Attribution automatique** : Le plan identifié par le code `FREE` est attribué par défaut à tout nouvel Account.
 
 ---
 
@@ -185,371 +104,69 @@ Un Plan définit le **plafond de permissions** d'un Account.
 
 ### 5.1 Account
 
-L'Account est l'entité racine côté client.
-
-**Caractéristiques :**
-
-- Créé par un User (qui devient le Owner)
-- Lié à un Plan (via Subscription)
-- Contient des Companies, des Members et des Roles
-- Possède un slug unique pour l'identification
-
-**Règles :**
-
-- Un User ne peut créer qu'un seul Account
-- L'Account est le périmètre de facturation
-- La suppression d'un Account entraîne la suppression de toutes les entités liées
+L'''entité racine côté client. Lié à un Plan via une **Subscription**.
 
 ### 5.2 Company (Entreprise)
 
-Une Company représente une entité juridique ou organisationnelle gérée au sein d'un Account.
-
-**Caractéristiques :**
-
-- Appartient à un seul Account
-- Possède ses propres informations légales (raison sociale, numéro fiscal, adresse)
-- Active un sous-ensemble de Modules disponibles dans le Plan (via CompanyModule)
-
-**Règles :**
-
-- Le nombre de Companies est limité par le Plan
-- Une Company ne peut activer que des Modules inclus dans le Plan de l'Account
-- Chaque Company peut activer des modules différents
-
-**Visibilité vs Accès :**
-
-- **Visibilité** — Un Member voit tous les Modules inclus dans le Plan de l'Account (même non activés sur la Company) — permet de savoir ce qui est disponible
-- **Accès** — Un Member accède uniquement aux Modules activés sur la Company ET couverts par ses Roles
-- `CompanyModule` est un toggle d'activation géré par le Owner — ce n'est pas un mécanisme de permission
+Entité organisationnelle au sein d'''un Account. Le nombre de Companies est limité par le Plan.
 
 ### 5.3 Department (Département)
 
-Un Department est une structure organisationnelle au sein d'une Company, utilisée **uniquement à des fins d'information et de navigation**.
-
-**Caractéristiques :**
-
-- Appartient à une Company
-- Peut être imbriqué — un Department peut avoir un Department parent, sans limite de profondeur
-- Possède un responsable (manager) optionnel
-
-**Règles :**
-
-- Appartenir à un Department ne modifie **aucune permission** — c'est une structure purement informative
-- Le manager d'un Department doit être un **Member du même Account** — pas simplement un User de la plateforme. Un User extérieur à l'Account ne peut pas être désigné responsable.
-- La suppression d'un Department ne supprime pas les Members qui y sont rattachés
-- Les Departments n'ont aucun rôle dans le calcul des permissions effectives
-
----
+Structure organisationnelle **purement informative**.
+- Nestable (parent_id).
+- Manager obligatoire : doit être un **Member du même Account**.
+- Zéro impact sur les permissions.
 
 ### 5.4 Équipes (Teams) — Hors périmètre fondation
 
-Les équipes n'existent **pas** au niveau de la couche fondation de HiveApp.
-
-Chaque module métier (CRM, Helpdesk, Projets, etc.) définit ses propres structures d'équipes en fonction de ses besoins spécifiques. Une équipe CRM, une équipe Helpdesk et une équipe Projet sont des concepts différents avec des logiques différentes — il n'y a pas d'entité Team globale partagée entre les modules.
-
-Les équipes n'ont aucun impact sur le moteur de permissions fondation.
-
----
+Les équipes sont des concepts **spécifiques aux modules métier** (CRM, Projet). Elles n'''existent pas dans la couche fondation et n'''ont aucun impact sur le moteur de permissions global.
 
 ### 5.5 Member (Membre)
 
-Un Member est la représentation d'un User au sein d'un Account.
-
-**Caractéristiques :**
-
-- Lié à un User (identité) et à un Account (contexte)
-- Possède un `display_name` propre au contexte de l'Account
-- Le flag `is_owner` identifie le propriétaire du compte
-- Se voit attribuer des Roles (via MemberRole)
-
-**Règles :**
-
-- Un Member n'existe que dans le contexte de son Account
-- Le même User peut être Member dans plusieurs Accounts (memberships multiples)
-- Un Member accède aux Companies via ses Roles — pas d'accès direct
-- La désactivation d'un Member révoque tous ses accès sans supprimer l'historique
+Représentation d'''un User au sein d'''un Account. Accède aux ressources via ses Roles.
 
 ### 5.6 Système de Rôles et Permissions
 
-#### Permission
+- **Role** : Ensemble de permissions **scopé à une Company**.
+- **MemberRole** : Pivot (Member + Role + Company). Le scope Company peut être `NULL` (Account-wide).
+- **MemberPermissionOverride** : Trio (Member + Permission + Company) pour un `ALLOW/DENY` explicite.
 
-Entité atomique représentant une action sur une ressource dans le contexte d'une fonctionnalité.
+### 5.7 Calcul des Permissions Effectives (Le Sieve)
 
-**Structure :**
-
-- `code` : identifiant unique (ex: `hr.employees.create`, `finance.invoices.read`)
-- `feature` : rattachement à une Feature du registre
-- `action` : opération (create, read, update, delete, export, approve, etc.)
-- `resource` : ressource cible
-
-**Règles :**
-
-- Les Permissions sont définies par les Features du registre
-- Elles sont **globales** — non spécifiques à un Account
-- Un Account n'a pas la capacité de créer des Permissions — il ne peut que les utiliser via les Roles
-
-#### Role
-
-Ensemble nommé de Permissions, défini au niveau de l'Account.
-
-**Caractéristiques :**
-
-- Créé, modifié, supprimé par le Owner ou un Member ayant la permission appropriée
-- Composé d'un ensemble de Permissions (via RolePermission)
-- Flag `is_system_role` pour les rôles générés automatiquement (ex: rôle Owner par défaut)
-- Dynamique — aucun rôle codé en dur
-
-**Règles :**
-
-- Un Role ne peut contenir que des Permissions **couvertes par le Plan** de l'Account
-- Si un Plan est rétrogradé, les Roles existants doivent être recalculés
-- Un Role appartient à un et un seul Account
-
-#### MemberRole (Attribution de Rôle)
-
-Liaison entre un Member, un Role et optionnellement une Company.
-
-**Caractéristiques :**
-
-- `company` nullable :
-  - **Si null** → le rôle s'applique à **tout l'Account** (toutes les Companies)
-  - **Si défini** → le rôle s'applique uniquement à **cette Company spécifique**
-
-**Règles :**
-
-- Un Member peut avoir plusieurs MemberRoles
-- Les permissions effectives = union de tous les rôles applicables au contexte
-- Un même Role peut être attribué à un Member à l'échelle de l'Account ET à l'échelle d'une Company spécifique
-
-### 5.7 Calcul des Permissions Effectives
-
-Le calcul des permissions effectives d'un Member suit cette logique :
-
-#### En contexte propre (Account du Member)
-
-```
-Permissions du Plan (plafond)
-    ∩
-Union des Permissions de tous les Roles du Member (au niveau Account + Company)
-    ∩
-Modules actifs de la Company (si contexte Company)
-    =
-Permissions Effectives
-```
-
-**Étapes :**
-
-1. Récupérer le plafond du Plan de l'Account
-2. Récupérer tous les MemberRoles du Member (account-wide + company-scoped)
-3. Calculer l'union de toutes les Permissions des Roles
-4. Appliquer l'intersection avec le plafond du Plan
-5. Si contexte Company : filtrer par les Modules actifs de la Company
-6. Résultat = Permissions Effectives
-
-#### En contexte collaboration
-
-```
-Permissions accordées par le Client (plafond collaboration)
-    ∩
-Union des Permissions de tous les Roles du Member (côté Provider)
-    ∩
-Modules actifs de la Company partagée
-    =
-Permissions Effectives en Collaboration
-```
-
-**Étapes :**
-
-1. Récupérer les CollaborationPermissions (le plafond défini par le client)
-2. Récupérer les Roles du Member côté Provider
-3. Calculer l'union des Permissions des Roles
-4. Appliquer l'intersection avec le plafond collaboration (remplace le plafond Plan)
-5. Filtrer par les Modules actifs de la Company partagée
-6. Résultat = Permissions Effectives en Collaboration
+Le calcul suit une cascade de filtres (Sieve) :
+1. **Collaboration** : Si contexte B2B, le plafond est défini par le client.
+2. **Plan** : Le plafond est défini par le Plan + les Overrides de la Subscription.
+3. **User** : Union des Roles + Overrides directs.
 
 ---
 
-## 6. Système de Collaboration
+## 6. Système de Collaboration (B2B)
 
-### 6.1 Concept
-
-La collaboration permet à un Account (Client) d'accorder un accès contrôlé à un autre Account (Prestataire/Provider) sur une Company spécifique.
-
-### 6.2 Collaboration
-
-**Caractéristiques :**
-
-- Lie un Account client à un Account prestataire
-- Porte sur une **Company spécifique** (pas sur l'Account entier)
-- Possède un cycle de vie : pending → active → suspended → revoked
-- Définit un ensemble de permissions accordées (via CollaborationPermission)
-
-### 6.3 CollaborationPermission
-
-**Caractéristiques :**
-
-- Sous-ensemble de Permissions que le Client accorde au Prestataire
-- Constitue le **plafond** pour toute opération du Prestataire sur cette Company
-- Le Client peut modifier ces permissions à tout moment
-
-### 6.4 Scénarios
-
-#### Scénario A — Le Prestataire gère en interne
-
-Le prestataire crée une Company dans son propre Account pour le client. Aucune collaboration nécessaire — tout fonctionne sous le Plan du prestataire.
-
-#### Scénario B — Le Client accorde l'accès
-
-1. Le Client initie une Collaboration depuis son Account
-2. Il sélectionne la Company à partager
-3. Il sélectionne les Permissions à accorder (granulaire)
-4. Le Prestataire accepte la Collaboration
-5. Le Prestataire attribue des Roles à ses Members pour cette Collaboration
-6. Les permissions des Members du Prestataire sont filtrées par le plafond Collaboration
-
-### 6.5 Règles de Sécurité
-
-- Le Prestataire ne peut **jamais** dépasser les permissions accordées par le Client
-- Le Client peut **révoquer** ou **suspendre** la Collaboration à tout moment
-- Le Client peut **modifier** les permissions en temps réel — les accès sont recalculés immédiatement
-- Un Prestataire ne peut **pas** sous-déléguer l'accès à un tiers
-- Les actions du Prestataire sur la Company du Client sont **auditables**
+Lie un Account client à un Account prestataire sur une **Company spécifique**. Le plafond de permissions est défini par le client via `CollaborationPermission`.
 
 ---
 
 ## 7. Moteur de Permissions
 
-### 7.1 Architecture
-
-Le moteur de permissions est un **service partagé** utilisé par les deux plateformes.
-
-**Interface :**
-
-- `resolvePermissions(actor, context)` → PermissionSet
-- `checkAccess(actor, permission, context)` → Boolean
-- `getEffectivePermissions(actor, context)` → PermissionSet
-
-### 7.2 PermissionContext
-
-Le contexte détermine comment le moteur calcule les permissions :
-
-| Contexte | Plafond | Acteur | Token requis |
-|----------|---------|--------|--------------|
-| `ADMIN_PLATFORM` | Toutes les AdminPermissions | AdminUser | `ADMIN` |
-| `CLIENT_OWN_ACCOUNT` | Plan de l'Account | Member | `CLIENT` |
-| `CLIENT_COLLABORATION` | CollaborationPermissions | Member (côté Provider) | `CLIENT` |
-
-**Types de tokens :**
-
-- `CLIENT` — émis par `POST /api/v1/auth/login` — accès à la plateforme client uniquement
-- `ADMIN` — émis par `POST /api/admin/auth/login` — accès à la plateforme d'administration uniquement
-- Le type de token est encodé dans le claim JWT (`tokenType`) et vérifié à chaque requête
-- Un token `CLIENT` présenté sur un endpoint admin est rejeté avec `403 Forbidden`, et vice-versa
-
-### 7.3 PermissionSet
-
-Objet valeur immuable représentant un ensemble de permissions calculées.
-
-**Opérations :**
-
-- `intersect(other)` — intersection (utilisé pour appliquer les plafonds)
-- `union(other)` — union (utilisé pour fusionner les rôles)
-- `subtract(other)` — soustraction
-- `has(code)` — vérification d'une permission spécifique
-
-### 7.4 Flux de Résolution
-
-```
-1. Identifier l'acteur (IPermissionActor)
-2. Déterminer le contexte (PermissionContext)
-3. Récupérer les rôles de l'acteur pour ce contexte
-4. Calculer l'union des permissions de tous les rôles
-5. Déterminer le plafond applicable :
-   - Admin → pas de plafond (ou plafond système)
-   - Client propre → Plan
-   - Collaboration → CollaborationPermissions
-6. Appliquer l'intersection : permissions ∩ plafond
-7. Retourner le PermissionSet effectif
-```
+Service partagé qui résout les `PermissionSet` en appliquant les intersections : `Roles ∩ Plafond (Plan ou Collab)`.
 
 ---
 
 ## 8. Plans et Abonnements
 
-### 8.1 Plan
+### 8.1 Subscription (L'''Instance)
 
-**Caractéristiques :**
-
-- Défini via la plateforme d'administration
-- Composé de Features sélectionnées depuis le registre
-- Chaque association Plan-Feature peut avoir une configuration (quotas, limites)
-- Définit les limites structurelles (max Companies, max Members)
-
-### 8.2 Subscription
-
-**Caractéristiques :**
-
-- Lie un Account à un Plan
-- Gère le cycle de facturation
-- Statuts : active, past_due, cancelled, trialing
-
-### 8.3 Impact du Changement de Plan
-
-**Upgrade :**
-
-- Nouvelles Features/Permissions deviennent disponibles immédiatement
-- Les Roles existants ne changent pas — de nouvelles permissions sont simplement disponibles pour attribution
-
-**Downgrade :**
-
-- Les Features retirées ne sont plus accessibles
-- Les Roles contenant des Permissions hors-plan sont **recalculés**
-- Les Members perdent l'accès aux fonctionnalités retirées immédiatement
-- Les CompanyModules liés aux Modules retirés sont désactivés
-- **Aucune donnée n'est supprimée** — les données restent accessibles en lecture seule ou après re-upgrade
+La Subscription lie un Account à un Plan Template.
+- **Custom Overrides (JSONB)** : Permet d'''ajouter des permissions ou de modifier des quotas pour un compte spécifique sans créer de nouveau Plan Template.
 
 ---
 
-## 9. Règles Transversales
-
-### 9.1 Suppression et Désactivation
-
-- La suppression d'un Account entraîne la suppression en cascade de toutes les entités liées
-- La désactivation est toujours préférée à la suppression (soft delete)
-- La désactivation d'un Member préserve l'historique
-
-### 9.2 Audit
-
-- Toute modification de permission est journalisée
-- Les actions en contexte collaboration sont traçables
-- L'historique des attributions de rôles est conservé
-
-### 9.3 Performance
-
-- Les permissions effectives doivent être **cachées** et recalculées uniquement lors de modifications
-- Le calcul de permissions doit être optimisé pour ne pas impacter les temps de réponse
-- Les plafonds (Plan, Collaboration) doivent être pré-calculés
-
----
-
-## 10. Glossaire
+## 9. Glossaire
 
 | Terme | Définition |
 |-------|------------|
-| **User** | Entité identitaire de base — toute personne sur la plateforme |
-| **Account** | Entité racine côté client, créée par un User (Owner) |
-| **Owner** | Le User propriétaire d'un Account (Member avec flag is_owner) |
-| **Member** | Représentation d'un User au sein d'un Account |
-| **Company** | Entité juridique/organisationnelle gérée dans un Account |
-| **Module** | Domaine fonctionnel de l'ERP (RH, Finance, etc.) |
-| **Feature** | Sous-ensemble fonctionnel d'un Module |
-| **Permission** | Action atomique sur une ressource dans une Feature |
-| **Role** | Ensemble nommé de Permissions, défini par Account |
-| **Plan** | Plafond de fonctionnalités lié à l'abonnement |
-| **Collaboration** | Accès inter-comptes à une Company spécifique |
-| **PermissionSet** | Ensemble calculé de permissions effectives |
-| **Plafond (Ceiling)** | Limite maximale de permissions applicable |
-| **Moteur de Permissions** | Service partagé de résolution des permissions |
-| **Department** | Structure organisationnelle informative au sein d'une Company — aucun impact sur les permissions |
-| **AdminPermission** | Permission de la plateforme d'administration — espace de nommage distinct des Permissions ERP |
-| **Plan FREE** | Plan d'entrée attribué automatiquement à tout nouveau Account, cycle de facturation FOREVER |
+| **Plan Template** | Blueprint global définissant un ensemble de fonctionnalités (ex: FREE, PRO). |
+| **Subscription** | Instance d'''abonnement d'''un Account à un Plan, avec overrides possibles. |
+| **FOREVER** | Cycle de facturation pour les plans sans expiration. |
+| **Department** | Structure purement informative au sein d'''une Company. |
+| **AdminPermission** | Namespace distinct pour les opérations de plateforme. |
