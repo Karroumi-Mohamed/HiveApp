@@ -21,7 +21,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     public AdminUser getAdminUser(UUID id) {
         return adminUserRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("AdminUser not found"));
+            .orElseThrow(() -> new ResourceNotFoundException("AdminUser", "id", id));
     }
 
     @Override
@@ -33,7 +33,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Transactional
     public AdminUser createAdminUser(UUID userId, boolean isSuperAdmin) {
         var user = userRepository.findById(userId)
-            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+            .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
             
         AdminUser adminUser = new AdminUser();
         adminUser.setUser(user);
