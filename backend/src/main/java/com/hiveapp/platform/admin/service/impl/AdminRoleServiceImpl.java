@@ -19,7 +19,7 @@ public class AdminRoleServiceImpl implements AdminRoleService {
     @Override
     public AdminRole getAdminRole(UUID id) {
         return adminRoleRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("AdminRole not found"));
+            .orElseThrow(() -> new ResourceNotFoundException("AdminRole", "id", id));
     }
 
     @Override
