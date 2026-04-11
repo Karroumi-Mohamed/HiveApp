@@ -26,7 +26,7 @@ public class AccountController {
     public ResponseEntity<AccountDto> getMyAccount(
         @AuthenticationPrincipal HiveAppUserDetails userDetails
     ) {
-        PermissionGuard.check(PlatformPermissions.Client.Account.Read.$);
+        PermissionGuard.check(PlatformPermissions.Client.Account.Read.permission());
         return ResponseEntity.ok(accountService.getAccountByUserId(userDetails.getUserId()));
     }
     
