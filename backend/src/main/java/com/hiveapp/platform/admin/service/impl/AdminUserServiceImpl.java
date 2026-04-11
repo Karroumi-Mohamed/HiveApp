@@ -3,7 +3,7 @@ package com.hiveapp.platform.admin.service.impl;
 import com.hiveapp.platform.admin.domain.entity.AdminUser;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.service.AdminUserService;
-import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,7 +16,7 @@ import java.util.UUID;
 public class AdminUserServiceImpl implements AdminUserService {
 
     private final AdminUserRepository adminUserRepository;
-    private final UserRepository userRepository;
+    private final IdentityService identityService;
 
     @Override
     public AdminUser getAdminUser(UUID id) {
@@ -32,7 +32,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     @Transactional
     public AdminUser createAdminUser(UUID userId, boolean isSuperAdmin) {
-        var user = userRepository.findById(userId)
+        var user = identityService.getUserById(userId)
             .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
             
         AdminUser adminUser = new AdminUser();
