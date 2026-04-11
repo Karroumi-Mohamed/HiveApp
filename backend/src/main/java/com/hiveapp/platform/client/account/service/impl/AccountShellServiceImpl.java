@@ -32,11 +32,12 @@ public class AccountShellServiceImpl implements AccountShellService {
     @Override
     @Transactional
     public Account createAccount(UUID ownerId, String name, String slug) {
-        var owner = identityService.getUserById(ownerId)
+        // Verify user exists
+        identityService.getUserById(ownerId)
             .orElseThrow(() -> new ResourceNotFoundException("User", "id", ownerId));
             
         Account account = new Account();
-        account.setOwner(owner);
+        account.setOwnerId(ownerId); // Corrected: Set UUID directly
         account.setName(name);
         account.setSlug(slug);
         account.setActive(true);
