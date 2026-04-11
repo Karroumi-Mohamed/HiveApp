@@ -3,7 +3,7 @@ package com.hiveapp.platform.client.account.api;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.hiveapp.platform.PlatformPermissions;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import com.hiveapp.platform.client.account.dto.AccountDto;
 import com.hiveapp.platform.client.account.service.AccountService;
 import com.hiveapp.shared.security.HiveAppUserDetails;

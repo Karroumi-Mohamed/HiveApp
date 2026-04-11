@@ -3,7 +3,7 @@ package com.hiveapp.platform.client.account.service.impl;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.service.AccountShellService;
-import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,7 +16,7 @@ import java.util.UUID;
 public class AccountShellServiceImpl implements AccountShellService {
 
     private final AccountRepository accountRepository;
-    private final UserRepository userRepository;
+    private final IdentityService identityService;
 
     @Override
     public Account getAccount(UUID id) {
@@ -32,7 +32,7 @@ public class AccountShellServiceImpl implements AccountShellService {
     @Override
     @Transactional
     public Account createAccount(UUID ownerId, String name, String slug) {
-        var owner = userRepository.findById(ownerId)
+        var owner = identityService.getUserById(ownerId)
             .orElseThrow(() -> new ResourceNotFoundException("User", "id", ownerId));
             
         Account account = new Account();
