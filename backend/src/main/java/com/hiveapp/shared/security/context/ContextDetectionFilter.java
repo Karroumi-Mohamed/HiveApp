@@ -1,37 +1,45 @@
 package com.hiveapp.shared.security.context;
 
+import com.hiveapp.shared.security.HiveAppUserDetails;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.UUID;
 
 @Component
+@RequiredArgsConstructor
 public class ContextDetectionFilter extends OncePerRequestFilter {
+
+    private final SecurityContextService securityContextService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         try {
             String companyIdHeader = request.getHeader("X-Company-ID");
-            String accountIdHeader = request.getHeader("X-Account-ID");
             String isB2BHeader = request.getHeader("X-Is-B2B");
 
-            if (accountIdHeader != null) {
-                UUID accountId = UUID.fromString(accountIdHeader);
-                UUID companyId = companyIdHeader != null ? UUID.fromString(companyIdHeader) : null;
-                boolean isB2b = Boolean.parseBoolean(isB2BHeader);
+            UUID userId = null;
+            var auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.getPrincipal() instanceof HiveAppUserDetails details) {
+                userId = details.getUserId();
+            }
 
-                // TODO: Normally the Actor UserId comes from Spring Security Context
-                // Here we simplify by passing a null or deriving it later
-                HiveAppContextHolder.setContext(new HiveAppPermissionContext(
-                        null, accountId, companyId, isB2b));
+            if (userId != null) {
+                HiveAppPermissionContext context = securityContextService.validateAndBuild(userId, companyIdHeader, isB2BHeader);
+                HiveAppContextHolder.setContext(context);
             }
 
             filterChain.doFilter(request, response);
+        } catch (Exception e) {
+            // In a filter, we must manually trigger the error response or rethrow for GlobalExceptionHandler
+            throw e;
         } finally {
             HiveAppContextHolder.clearContext();
         }
