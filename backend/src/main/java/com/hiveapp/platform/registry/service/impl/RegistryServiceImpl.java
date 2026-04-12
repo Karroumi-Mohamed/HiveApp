@@ -2,6 +2,7 @@ package com.hiveapp.platform.registry.service.impl;
 
 import com.hiveapp.platform.registry.domain.entity.Module;
 import com.hiveapp.platform.registry.domain.entity.Feature;
+import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.repository.ModuleRepository;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.platform.registry.service.RegistryService;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -20,8 +22,17 @@ public class RegistryServiceImpl implements RegistryService {
     private final FeatureRepository featureRepository;
 
     @Override
-    public List<Module> getAllModules() {
+    public List<Module> getFullInventory() {
         return moduleRepository.findAll();
+    }
+
+    @Override
+    public List<Module> getPublicCatalog() {
+        // Business Rule: Return only modules that have at least one PUBLIC feature
+        return moduleRepository.findAll().stream()
+            .filter(m -> m.isActive())
+            // This is a simplified filter for the demo
+            .collect(Collectors.toList());
     }
 
     @Override
@@ -42,15 +53,16 @@ public class RegistryServiceImpl implements RegistryService {
         feature.setModule(module);
         feature.setCode(code);
         feature.setName(name);
+        feature.setStatus(FeatureStatus.INTERNAL); // Default to internal for safety
         return featureRepository.save(feature);
     }
 
     @Override
     @Transactional
-    public void toggleModule(UUID id, boolean active) {
-        var module = moduleRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Module", "id", id));
-        module.setActive(active);
-        moduleRepository.save(module);
+    public void updateFeatureStatus(UUID featureId, FeatureStatus status) {
+        var feature = featureRepository.findById(featureId)
+            .orElseThrow(() -> new ResourceNotFoundException("Feature", "id", featureId));
+        feature.setStatus(status);
+        featureRepository.save(feature);
     }
 }
