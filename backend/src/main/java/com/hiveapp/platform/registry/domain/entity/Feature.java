@@ -1,5 +1,6 @@
 package com.hiveapp.platform.registry.domain.entity;
 
+import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -15,12 +16,16 @@ public class Feature extends BaseEntity {
     private Module module;
 
     @Column(nullable = false, unique = true)
-    private String code; // e.g. "HR_EMPLOYEES", "CRM_CONTACTS"
+    private String code;
 
     @Column(nullable = false)
     private String name;
 
     private String description;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private FeatureStatus status = FeatureStatus.INTERNAL;
 
     @Column(name = "sort_order", nullable = false)
     private int sortOrder = 0;
