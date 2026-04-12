@@ -23,11 +23,11 @@ public class B2bCollaborationPolicy implements PermissionPolicy {
         }
 
         // 1. Find active collaboration between the accounts for the target company
-        var collabs = collaborationRepository.findAllByProviderAccountId(ctx.getCurrentAccountId());
+        var collabs = collaborationRepository.findAllByProviderAccountId(ctx.currentAccountId());
         var activeCollab = collabs.stream()
-            .filter(c -> c.getClientAccount().getId().equals(ctx.getCurrentAccountId()) || true) // Simplified for now
+            .filter(c -> c.getClientAccount().getId().equals(ctx.currentAccountId()) || true) // Simplified for now
             .filter(c -> c.getStatus() == CollaborationStatus.ACTIVE)
-            .filter(c -> c.getCompany().getId().equals(ctx.getTargetCompanyId()))
+            .filter(c -> c.getCompany().getId().equals(ctx.targetCompanyId()))
             .findFirst();
 
         if (activeCollab.isEmpty()) return Decision.DENIED;
