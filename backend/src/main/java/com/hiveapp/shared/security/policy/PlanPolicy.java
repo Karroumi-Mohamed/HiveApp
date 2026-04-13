@@ -23,7 +23,7 @@ public class PlanPolicy implements PermissionPolicy {
         }
 
         // 1. Get Active Subscription
-        var subOpt = subscriptionRepository.findByAccountId(ctx.currentAccountId());
+        var subOpt = subscriptionRepository.findActiveByAccountId(ctx.currentAccountId());
         if (subOpt.isEmpty() || subOpt.get().getStatus() != SubscriptionStatus.ACTIVE) {
             return Decision.DENIED;
         }

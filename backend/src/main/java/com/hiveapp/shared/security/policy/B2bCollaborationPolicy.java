@@ -22,20 +22,18 @@ public class B2bCollaborationPolicy implements PermissionPolicy {
             return Decision.ABSTAIN;
         }
 
-        // 1. Find active collaboration between the accounts for the target company
-        var collabs = collaborationRepository.findAllByProviderAccountId(ctx.currentAccountId());
-        var activeCollab = collabs.stream()
-            .filter(c -> c.getClientAccount().getId().equals(ctx.currentAccountId()) || true) // Simplified for now
+        // VITAL: Only look for collaborations where the CURRENT account is the PROVIDER
+        // and the target company matches the intention.
+        var activeCollab = collaborationRepository.findAllByProviderAccountId(ctx.currentAccountId()).stream()
             .filter(c -> c.getStatus() == CollaborationStatus.ACTIVE)
             .filter(c -> c.getCompany().getId().equals(ctx.targetCompanyId()))
             .findFirst();
 
         if (activeCollab.isEmpty()) return Decision.DENIED;
 
-        // 2. Check if the specific permission is granted in this collaboration
-        var granted = collaborationPermissionRepository.findAllByCollaborationId(activeCollab.get().getId());
-        boolean isGranted = granted.stream()
-            .anyMatch(p -> p.getPermission().getCode().equals(requested.path()));
+        // Check if this specific permission brick was delegated
+        boolean isGranted = collaborationPermissionRepository.existsByCollaborationIdAndPermissionCode(
+            activeCollab.get().getId(), requested.path());
 
         return isGranted ? Decision.GRANTED : Decision.DENIED;
     }

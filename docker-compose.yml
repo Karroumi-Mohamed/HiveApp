@@ -1,7 +1,7 @@
 services:
-  postgres:
-    image: postgres:16
-    container_name: hiveapp-postgres
+  db:
+    image: postgres:16-alpine
+    container_name: hiveapp-db
     environment:
       POSTGRES_DB: hiveapp
       POSTGRES_USER: hiveapp
@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - hiveapp_postgres_data:/var/lib/postgresql/data
+      - hiveapp-db-data:/var/lib/postgresql/data
 
 volumes:
-  hiveapp_postgres_data:
+  hiveapp-db-data:

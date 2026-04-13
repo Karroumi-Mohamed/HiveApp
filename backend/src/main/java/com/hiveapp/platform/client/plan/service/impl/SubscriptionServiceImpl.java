@@ -23,7 +23,7 @@ public class SubscriptionServiceImpl implements SubscriptionService {
 
     @Override
     public Subscription getSubscription(UUID accountId) {
-        return subscriptionRepository.findByAccountId(accountId)
+        return subscriptionRepository.findActiveByAccountId(accountId)
             .orElseThrow(() -> new ResourceNotFoundException("Subscription", "accountId", accountId));
     }
 
