@@ -9,8 +9,8 @@ import java.util.List;
 public interface MemberRoleRepository extends JpaRepository<MemberRole, UUID> {
     List<MemberRole> findAllByMemberId(UUID memberId);
 
-    @Query("SELECT COUNT(mr) > 0 FROM MemberRole mr JOIN mr.role r JOIN RolePermission rp ON rp.role = r " +
-           "WHERE mr.member.id = :memberId AND rp.permission.code = :permissionCode " +
+    @Query("SELECT COUNT(mr) > 0 FROM MemberRole mr JOIN mr.role r JOIN r.permissions rp JOIN rp.permission p " +
+           "WHERE mr.member.id = :memberId AND p.code = :permissionCode " +
            "AND (mr.company.id = :companyId OR mr.company IS NULL)")
     boolean existsByMemberIdAndPermissionCode(UUID memberId, String permissionCode, UUID companyId);
 }
