@@ -5,6 +5,8 @@ import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import java.util.List;
+import java.util.ArrayList;
 
 @Entity
 @Table(name = "features")
@@ -14,6 +16,9 @@ public class Feature extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "module_id", nullable = false)
     private Module module;
+
+    @OneToMany(mappedBy = "feature", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Permission> permissions = new ArrayList<>();
 
     @Column(nullable = false, unique = true)
     private String code;

@@ -6,6 +6,8 @@ import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import java.util.List;
+import java.util.ArrayList;
 
 @Entity
 @Table(name = "roles")
@@ -19,6 +21,9 @@ public class Role extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id")
     private Company company;
+
+    @OneToMany(mappedBy = "role", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<RolePermission> permissions = new ArrayList<>();
 
     @Column(nullable = false)
     private String name;
