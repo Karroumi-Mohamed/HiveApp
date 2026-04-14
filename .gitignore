@@ -91,3 +91,4 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+hiveapp-admins/

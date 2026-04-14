@@ -2,6 +2,7 @@ package com.hiveapp.platform.registry.api;
 
 import com.hiveapp.platform.registry.domain.entity.Module;
 import com.hiveapp.platform.registry.domain.entity.Feature;
+import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.service.RegistryService;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
@@ -35,5 +36,12 @@ public class RegistryController {
     @PermissionNode(key = "create_feature", description = "Create a feature in a module")
     public ResponseEntity<Feature> createFeature(@PathVariable UUID id, @RequestParam String code, @RequestParam String name) {
         return ResponseEntity.ok(registryService.createFeature(id, code, name));
+    }
+
+    @PatchMapping("/features/{id}/status")
+    @PermissionNode(key = "update_status", description = "Update feature visibility status")
+    public ResponseEntity<Void> updateStatus(@PathVariable UUID id, @RequestParam FeatureStatus status) {
+        registryService.updateFeatureStatus(id, status);
+        return ResponseEntity.noContent().build();
     }
 }
