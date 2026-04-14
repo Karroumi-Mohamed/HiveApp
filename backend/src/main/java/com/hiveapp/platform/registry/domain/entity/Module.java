@@ -4,6 +4,8 @@ import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import java.util.List;
+import java.util.ArrayList;
 
 @Entity
 @Table(name = "modules")
@@ -15,6 +17,9 @@ public class Module extends BaseEntity {
 
     @Column(nullable = false)
     private String name;
+
+    @OneToMany(mappedBy = "module", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Feature> features = new ArrayList<>();
 
     private String description;
     private String icon;
