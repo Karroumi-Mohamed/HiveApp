@@ -2,12 +2,12 @@ package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
+import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api/admin/subscriptions")
@@ -29,10 +29,13 @@ public class SubscriptionAdminController {
     @PatchMapping("/account/{accountId}/overrides")
     public ResponseEntity<Void> updateOverrides(
         @PathVariable UUID accountId, 
-        @RequestParam(required = false) Set<String> featureCodes,
-        @RequestParam(required = false) Set<String> moduleCodes
+        @RequestBody UpdateSubscriptionOverridesRequest request
     ) {
-        subscriptionService.updateOverridesWithExpansion(accountId, featureCodes, moduleCodes);
+        subscriptionService.updateOverridesWithExpansion(
+            accountId, 
+            request.featureCodes(), 
+            request.moduleCodes()
+        );
         return ResponseEntity.noContent().build();
     }
 }
