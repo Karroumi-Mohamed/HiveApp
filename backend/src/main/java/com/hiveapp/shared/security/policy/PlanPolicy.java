@@ -11,7 +11,6 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
@@ -44,27 +43,21 @@ public class PlanPolicy implements PermissionPolicy {
         boolean inPlan = planFeatureRepository.existsByPlanIdAndPermissionCode(sub.getPlan().getId(), requested.path());
         if (inPlan) return Decision.GRANTED;
 
-        // 3. Check Custom Overrides (JSONB)
+        // 3. Check Custom Overrides (Expanded Feature Snapshot)
         if (sub.getCustomOverrides() != null) {
             try {
                 SubscriptionOverrides overrides = objectMapper.convertValue(sub.getCustomOverrides(), SubscriptionOverrides.class);
                 
-                // Check explicitly added features
+                // Get the Feature Code for this Permission Brick
                 var permissionOpt = permissionRepository.findByCode(requested.path());
                 if (permissionOpt.isPresent()) {
                     String featureCode = permissionOpt.get().getFeature().getCode();
-                    String moduleCode = permissionOpt.get().getFeature().getModule().getCode();
-                    
                     if (overrides.addedFeatures() != null && overrides.addedFeatures().contains(featureCode)) {
-                        return Decision.GRANTED;
-                    }
-                    
-                    if (overrides.addedModules() != null && overrides.addedModules().contains(moduleCode)) {
                         return Decision.GRANTED;
                     }
                 }
             } catch (Exception e) {
-                // Log error and continue
+                // Sieve continues on error
             }
         }
         
