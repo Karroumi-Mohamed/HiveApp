@@ -3,8 +3,11 @@ package com.hiveapp.platform.client.account.service.impl;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.service.AccountShellService;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
+
+import dev.karroumi.permissionizer.Permission;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,7 +24,7 @@ public class AccountShellServiceImpl implements AccountShellService {
     @Override
     public Account getAccount(UUID id) {
         return accountRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Account", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Account", "id", id));
     }
 
     @Override
@@ -34,8 +37,8 @@ public class AccountShellServiceImpl implements AccountShellService {
     public Account createAccount(UUID ownerId, String name, String slug) {
         // Verify user exists
         identityService.getUserById(ownerId)
-            .orElseThrow(() -> new ResourceNotFoundException("User", "id", ownerId));
-            
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", ownerId));
+
         Account account = new Account();
         account.setOwnerId(ownerId); // Corrected: Set UUID directly
         account.setName(name);
