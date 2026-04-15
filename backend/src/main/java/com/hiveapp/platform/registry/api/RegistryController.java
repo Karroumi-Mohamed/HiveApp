@@ -1,8 +1,7 @@
 package com.hiveapp.platform.registry.api;
 
-import com.hiveapp.platform.registry.domain.entity.Module;
-import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
+import com.hiveapp.platform.registry.domain.entity.Module;
 import com.hiveapp.platform.registry.service.RegistryService;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
@@ -21,21 +20,15 @@ public class RegistryController {
     private final RegistryService registryService;
 
     @GetMapping("/inventory")
-    @PermissionNode(key = "read", description = "View full registry inventory")
+    @PermissionNode(key = "read", description = "View full registry inventory including INTERNAL features")
     public ResponseEntity<List<Module>> getInventory() {
         return ResponseEntity.ok(registryService.getFullInventory());
     }
 
-    @PostMapping("/modules")
-    @PermissionNode(key = "create_module", description = "Create a new module")
-    public ResponseEntity<Module> createModule(@RequestParam String code, @RequestParam String name) {
-        return ResponseEntity.ok(registryService.createModule(code, name));
-    }
-
-    @PostMapping("/modules/{id}/features")
-    @PermissionNode(key = "create_feature", description = "Create a feature in a module")
-    public ResponseEntity<Feature> createFeature(@PathVariable UUID id, @RequestParam String code, @RequestParam String name) {
-        return ResponseEntity.ok(registryService.createFeature(id, code, name));
+    @GetMapping("/catalog")
+    @PermissionNode(key = "catalog", description = "View public catalog of modules and features")
+    public ResponseEntity<List<Module>> getCatalog() {
+        return ResponseEntity.ok(registryService.getPublicCatalog());
     }
 
     @PatchMapping("/features/{id}/status")
