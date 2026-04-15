@@ -11,4 +11,7 @@ public interface CollaborationPermissionRepository extends JpaRepository<Collabo
 
     @Query("SELECT COUNT(cp) > 0 FROM CollaborationPermission cp WHERE cp.collaboration.id = :collaborationId AND cp.permission.code = :permissionCode")
     boolean existsByCollaborationIdAndPermissionCode(UUID collaborationId, String permissionCode);
+    
+    boolean existsByCollaborationIdAndPermissionId(UUID collaborationId, UUID permissionId);
+    java.util.Optional<CollaborationPermission> findByCollaborationIdAndPermissionId(UUID collaborationId, UUID permissionId);
 }

@@ -50,21 +50,11 @@ public class SubscriptionServiceImpl implements SubscriptionService {
 
     @Override
     @Transactional
-    public void updateOverridesWithExpansion(UUID accountId, Set<String> featureCodes, Set<String> moduleCodes) {
+    public void updateOverridesWithExpansion(UUID accountId, Set<String> featureCodes) {
         var sub = getSubscription(accountId);
         
         Set<String> allExpandedFeatures = new HashSet<>();
         if (featureCodes != null) allExpandedFeatures.addAll(featureCodes);
-        
-        if (moduleCodes != null && !moduleCodes.isEmpty()) {
-            var modules = moduleRepository.findAllByCodeIn(moduleCodes);
-            for (var m : modules) {
-                var featureIds = m.getFeatures().stream()
-                    .map(f -> f.getCode())
-                    .collect(Collectors.toSet());
-                allExpandedFeatures.addAll(featureIds);
-            }
-        }
         
         sub.setCustomOverrides(new SubscriptionOverrides(allExpandedFeatures));
         subscriptionRepository.save(sub);
