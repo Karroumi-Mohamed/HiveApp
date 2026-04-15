@@ -8,10 +8,14 @@ import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "subscriptions")
+// Production note: add partial unique index → UNIQUE (account_id) WHERE status = 'ACTIVE'
+// JPA @UniqueConstraint can't express partial index — do it in Flyway migration when moving off H2.
 @Getter @Setter
 public class Subscription extends BaseEntity {
 
@@ -33,4 +37,12 @@ public class Subscription extends BaseEntity {
 
     @Column(name = "current_period_end")
     private LocalDateTime currentPeriodEnd;
+
+    /**
+     * Snapshot of the calculated monthly price at the time overrides were last saved.
+     * = plan.basePrice + sum(addOnPrices) + sum(quotaBumpCosts).
+     * Recalculated by BillingCalculator every time overrides change.
+     */
+    @Column(name = "current_price", precision = 10, scale = 2)
+    private BigDecimal currentPrice;
 }

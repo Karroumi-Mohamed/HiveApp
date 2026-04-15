@@ -6,23 +6,29 @@ import com.hiveapp.shared.quota.QuotaSlot;
 import java.util.List;
 
 /**
- * Platform-level features governing workspace-wide limits.
- * These apply across the entire Account, not per Company or per module.
+ * Platform-level features.
  *
- * WORKSPACE: controls how many Members and Companies an Account can have.
+ * Feature code convention: "platform.[classLevelPermissionNodeKey]"
+ * Must match the @PermissionNode class key on each controller, prefixed by the
+ * root platform node — so PermissionSeeder can join permissions to features automatically.
  *
- * NOTE: Feature codes SHOULD be derived from Permissionizer-generated path() calls
- * once the permission tree for the platform module is declared.
- * Hardcoded strings are used here until that tree exists.
+ * Quota slots only on WORKSPACE — all other platform features are boolean-access (no quotas).
+ * ERP module features live in their own AppFeature enums (e.g. HrFeature, CrmFeature).
  */
 public enum PlatformFeature implements AppFeature {
 
     WORKSPACE("platform.workspace", List.of(
             QuotaSlot.count("members",   "persons"),
             QuotaSlot.count("companies", "companies")
-    ));
+    )),
 
-    // Slot name constants — use these in service code, never raw strings
+    COMPANY("platform.company",      List.of()),
+    STAFF("platform.staff",          List.of()),
+    SUBSCRIPTION("platform.subscription", List.of()),
+    B2B("platform.b2b",              List.of()),
+    RBAC("platform.rbac",            List.of());
+
+    // Quota slot name constants (WORKSPACE only)
     public static final String MEMBERS   = "members";
     public static final String COMPANIES = "companies";
 
@@ -34,6 +40,6 @@ public enum PlatformFeature implements AppFeature {
         this.slots = slots;
     }
 
-    @Override public String code() { return code; }
+    @Override public String code()             { return code; }
     @Override public List<QuotaSlot> quotaSlots() { return slots; }
 }
