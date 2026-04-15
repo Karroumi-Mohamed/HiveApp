@@ -33,8 +33,7 @@ public class SubscriptionAdminController {
     ) {
         subscriptionService.updateOverridesWithExpansion(
             accountId, 
-            request.featureCodes(), 
-            request.moduleCodes()
+            request.featureCodes()
         );
         return ResponseEntity.noContent().build();
     }

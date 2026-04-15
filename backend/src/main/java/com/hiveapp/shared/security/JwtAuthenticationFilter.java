@@ -39,18 +39,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
             try {
-                String userId = jwtTokenProvider.getUserIdFromToken(token).toString();
-                var userDetails = userDetailsService.loadUserByUsername(userId);
+                String tokenType = jwtTokenProvider.getClaimsFromToken(token).get("tokenType", String.class);
+                if (!"CLIENT".equals(tokenType)) {
+                    log.warn("Rejected token with type {} on client endpoint", tokenType);
+                } else {
+                    String userId = jwtTokenProvider.getUserIdFromToken(token).toString();
+                    var userDetails = userDetailsService.loadUserByUsername(userId);
 
-                var authentication = new UsernamePasswordAuthenticationToken(
-                        userDetails, null, userDetails.getAuthorities()
-                );
+                    var authentication = new UsernamePasswordAuthenticationToken(
+                            userDetails, null, userDetails.getAuthorities()
+                    );
 
-                authentication.setDetails(
-                        new WebAuthenticationDetailsSource().buildDetails(request)
-                );
+                    authentication.setDetails(
+                            new WebAuthenticationDetailsSource().buildDetails(request)
+                    );
 
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                }
             } catch (Exception ex) {
                 log.warn("Could not set user authentication: {}", ex.getMessage());
             }

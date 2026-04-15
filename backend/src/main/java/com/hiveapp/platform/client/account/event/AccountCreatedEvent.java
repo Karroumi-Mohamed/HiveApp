@@ -1,20 +1,15 @@
 package com.hiveapp.platform.client.account.event;
 
-import java.time.Instant;
 import java.util.UUID;
+import lombok.Getter;
+import org.springframework.context.ApplicationEvent;
 
-import com.hiveapp.shared.event.DomainEvent;
+@Getter
+public class AccountCreatedEvent extends ApplicationEvent {
+    private final UUID accountId;
 
-public record AccountCreatedEvent(
-    UUID accountId,
-    UUID userId,
-    UUID eventId,
-    Instant occurredAt
-) implements DomainEvent {
-    public AccountCreatedEvent(UUID accountId, UUID userId) {
-        this(accountId, userId, UUID.randomUUID(), Instant.now());
+    public AccountCreatedEvent(Object source, UUID accountId) {
+        super(source);
+        this.accountId = accountId;
     }
-
-    @Override public UUID getEventId() { return eventId; }
-    @Override public Instant getOccurredAt() { return occurredAt; }
 }
