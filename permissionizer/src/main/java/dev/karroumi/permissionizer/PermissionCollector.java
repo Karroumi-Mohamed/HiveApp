@@ -69,27 +69,28 @@ public final class PermissionCollector {
         List<Class<?>> roots = new ArrayList<>();
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
 
-        try (InputStream is = classLoader.getResourceAsStream(INDEX_FILE)) {
-            if (is == null) {
-                return roots;
-            }
-
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    line = line.trim();
-                    if (line.isEmpty() || line.startsWith("#")) {
-                        continue;
-                    }
-                    try {
-                        roots.add(Class.forName(line, false, classLoader));
-                    } catch (ClassNotFoundException e) {
-                        // Class was removed but index not yet regenerated
+        try {
+            Enumeration<java.net.URL> resources = classLoader.getResources(INDEX_FILE);
+            while (resources.hasMoreElements()) {
+                java.net.URL url = resources.nextElement();
+                try (InputStream is = url.openStream();
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        line = line.trim();
+                        if (line.isEmpty() || line.startsWith("#")) {
+                            continue;
+                        }
+                        try {
+                            roots.add(Class.forName(line, false, classLoader));
+                        } catch (ClassNotFoundException e) {
+                            // Class was removed but index not yet regenerated
+                        }
                     }
                 }
             }
         } catch (Exception e) {
-            // Index file unreadable
+            // Error reading resources
         }
 
         return roots;

@@ -91,3 +91,6 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+hiveapp-admins/
+docs/technical-cdc-quota-system.md
+docs/TECHNICAL_SPEC_FULL.md

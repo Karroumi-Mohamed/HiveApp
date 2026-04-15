@@ -1,7 +1,6 @@
 package com.hiveapp.shared.exception;
 
-import java.util.List;
-
+import com.hiveapp.shared.quota.QuotaExceededException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -11,6 +10,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.List;
 
 @Slf4j
 @RestControllerAdvice
@@ -34,7 +35,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleBusiness(BusinessException ex) {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiError.of(400, "Bad request", ex.getMessage()));
+                .body(ApiError.of(400, "Bad Request", ex.getMessage()));
     }
 
     @ExceptionHandler(UnauthorizedException.class)
@@ -42,6 +43,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(ApiError.of(401, "Unauthorized", ex.getMessage()));
+    }
+
+    @ExceptionHandler(QuotaExceededException.class)
+    public ResponseEntity<ApiError> handleQuotaExceeded(QuotaExceededException ex) {
+        return ResponseEntity
+                .status(HttpStatus.PAYMENT_REQUIRED)
+                .body(ApiError.of(402, "Quota Exceeded", ex.getMessage(),
+                        List.of(
+                                "resource: " + ex.getResource(),
+                                "limit: " + ex.getLimit(),
+                                "current: " + ex.getCurrent(),
+                                "unit: " + ex.getUnit()
+                        )));
     }
 
     @ExceptionHandler(BadCredentialsException.class)
@@ -67,7 +81,7 @@ public class GlobalExceptionHandler {
                 .toList();
 
         return ResponseEntity
-                .status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .status(HttpStatus.UNPROCESSABLE_ENTITY)
                 .body(ApiError.of(422, "Validation Failed", "Request validation failed", details));
     }
 
@@ -78,5 +92,4 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiError.of(500, "Internal Server Error", "An unexpected error occurred"));
     }
-
 }

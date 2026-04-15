@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HiveApp ERP - Use Case Diagram</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f4f9; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        svg { background-color: #fff; }
+        .actor-text { font-size: 14px; font-weight: bold; text-anchor: middle; }
+        .system-box { fill: none; stroke: #333; stroke-width: 2; stroke-dasharray: 5,5; }
+        .system-label { font-size: 18px; font-weight: bold; fill: #333; }
+        .use-case { fill: #f0f7ff; stroke: #007bff; stroke-width: 2; }
+        .uc-text { font-size: 13px; text-anchor: middle; dominant-baseline: middle; fill: #333; }
+        .line { stroke: #666; stroke-width: 1.5; fill: none; }
+        .line-dash { stroke: #666; stroke-width: 1.5; fill: none; stroke-dasharray: 5,5; }
+        .stereotype { font-size: 10px; fill: #666; text-anchor: middle; font-style: italic; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <svg width="1100" height="850" viewBox="0 0 1100 850">
+        <defs>
+            <marker id="gen" markerWidth="12" markerHeight="12" refX="11" refY="6" orient="auto">
+                <path d="M 0 0 L 12 6 L 0 12 Z" fill="white" stroke="#666"/>
+            </marker>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10" fill="none" stroke="#666"/>
+            </marker>
+        </defs>
+
+        <rect x="250" y="50" width="300" height="750" class="system-box" rx="10"/>
+        <text x="400" y="80" class="system-label" text-anchor="middle">Platform Admin Tool</text>
+
+        <rect x="600" y="50" width="350" height="750" class="system-box" rx="10"/>
+        <text x="775" y="80" class="system-label" text-anchor="middle">Client ERP Workspace</text>
+
+        <g transform="translate(100, 200)">
+            <circle cx="0" cy="-20" r="15" fill="none" stroke="black" stroke-width="2"/><line x1="0" y1="-5" x2="0" y2="25" stroke="black" stroke-width="2"/><line x1="-15" y1="10" x2="15" y2="10" stroke="black" stroke-width="2"/><line x1="0" y1="25" x2="-15" y2="50" stroke="black" stroke-width="2"/><line x1="0" y1="25" x2="15" y2="50" stroke="black" stroke-width="2"/><text x="0" y="70" class="actor-text">Platform Admin</text>
+        </g>
+
+        <g transform="translate(1020, 200)">
+            <circle cx="0" cy="-20" r="15" fill="none" stroke="black" stroke-width="2"/><line x1="0" y1="-5" x2="0" y2="25" stroke="black" stroke-width="2"/><line x1="-15" y1="10" x2="15" y2="10" stroke="black" stroke-width="2"/><line x1="0" y1="25" x2="-15" y2="50" stroke="black" stroke-width="2"/><line x1="0" y1="25" x2="15" y2="50" stroke="black" stroke-width="2"/><text x="0" y="70" class="actor-text">Account Owner</text>
+        </g>
+
+        <g transform="translate(1020, 500)">
+            <circle cx="0" cy="-20" r="15" fill="none" stroke="black" stroke-width="2"/><line x1="0" y1="-5" x2="0" y2="25" stroke="black" stroke-width="2"/><line x1="-15" y1="10" x2="15" y2="10" stroke="black" stroke-width="2"/><line x1="0" y1="25" x2="-15" y2="50" stroke="black" stroke-width="2"/><line x1="0" y1="25" x2="15" y2="50" stroke="black" stroke-width="2"/><text x="0" y="70" class="actor-text">Employee</text>
+        </g>
+
+        <line x1="1020" y1="280" x2="1020" y2="420" class="line" marker-end="url(#gen)"/>
+
+        <ellipse cx="400" cy="150" rx="80" ry="25" class="use-case"/><text x="400" y="150" class="uc-text">Manage Features</text>
+        <ellipse cx="400" cy="250" rx="80" ry="25" class="use-case"/><text x="400" y="250" class="uc-text">Create Plans</text>
+        <ellipse cx="400" cy="350" rx="80" ry="25" class="use-case"/><text x="400" y="350" class="uc-text">Manage Billing</text>
+
+        <ellipse cx="775" cy="150" rx="90" ry="25" class="use-case"/><text x="775" y="150" class="uc-text">Manage Teams</text>
+        <ellipse cx="775" cy="250" rx="90" ry="25" class="use-case"/><text x="775" y="250" class="uc-text">Start B2B Collab</text>
+        <ellipse cx="775" cy="350" rx="90" ry="25" class="use-case"/><text x="775" y="350" class="uc-text">Setup Roles</text>
+        <ellipse cx="775" cy="480" rx="100" ry="30" class="use-case"/><text x="775" y="470" class="uc-text">Manage Team</text><text x="775" y="490" class="uc-text">Permissions</text>
+        <ellipse cx="775" cy="600" rx="90" ry="25" class="use-case"/><text x="775" y="600" class="uc-text">Use ERP Feature</text>
+        <ellipse cx="775" cy="720" rx="90" ry="25" class="use-case" style="fill: #f8f9fa; stroke: #ccc;"/><text x="775" y="720" class="uc-text" style="fill: #999;">Sieve Check</text>
+
+        <line x1="120" y1="200" x2="320" y2="150" class="line"/>
+        <line x1="120" y1="200" x2="320" y2="250" class="line"/>
+        <line x1="120" y1="200" x2="320" y2="350" class="line"/>
+
+        <line x1="1000" y1="200" x2="865" y2="150" class="line"/>
+        <line x1="1000" y1="200" x2="865" y2="250" class="line"/>
+        <line x1="1000" y1="200" x2="865" y2="350" class="line"/>
+
+        <line x1="1000" y1="500" x2="875" y2="480" class="line"/>
+        <line x1="1000" y1="500" x2="865" y2="600" class="line"/>
+
+        <line x1="775" y1="625" x2="775" y2="690" class="line-dash" marker-end="url(#arrow)"/>
+        <text x="785" y="660" class="stereotype">&lt;&lt;include&gt;&gt;</text>
+
+        <path d="M 480 250 Q 550 250, 685 150" class="line-dash" marker-end="url(#arrow)"/>
+        <text x="560" y="190" class="stereotype">restricts</text>
+    </svg>
+</div>
+</body>
+</html>
