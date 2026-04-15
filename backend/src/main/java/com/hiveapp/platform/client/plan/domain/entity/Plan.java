@@ -11,19 +11,20 @@ import java.math.BigDecimal;
 @Table(name = "plans")
 @Getter @Setter
 public class Plan extends BaseEntity {
+
     @Column(nullable = false, unique = true)
     private String code;
+
     @Column(nullable = false)
     private String name;
+
     private String description;
     private BigDecimal price;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "billing_cycle")
     private BillingCycle billingCycle;
-    @Column(name = "max_companies")
-    private int maxCompanies;
-    @Column(name = "max_members")
-    private int maxMembers;
+
     @Column(name = "is_active")
     private boolean isActive = true;
 }
