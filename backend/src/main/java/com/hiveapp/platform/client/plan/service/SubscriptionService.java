@@ -9,5 +9,5 @@ import java.util.Set;
 public interface SubscriptionService {
     Subscription getSubscription(UUID accountId);
     Subscription createSubscription(UUID accountId, String planCode);
-    void updateOverridesWithExpansion(UUID accountId, Set<String> featureCodes, Set<String> moduleCodes);
+    void updateOverridesWithExpansion(UUID accountId, Set<String> featureCodes);
 }

@@ -24,6 +24,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 import dev.karroumi.permissionizer.PermissionGuard;
 import dev.karroumi.permissionizer.PermissionPolicy;
+import com.hiveapp.shared.security.policy.AdminPermissionPolicy;
 import com.hiveapp.shared.security.policy.B2bCollaborationPolicy;
 import com.hiveapp.shared.security.policy.PlanPolicy;
 import com.hiveapp.shared.security.policy.UserRolePolicy;
@@ -39,9 +40,12 @@ import lombok.RequiredArgsConstructor;
 public class SecurityConfig {
     private final JwtTokenProvider jwtTokenProvider;
     private final UserDetailsService userDetailsService;
+    @org.springframework.beans.factory.annotation.Qualifier("adminUserDetailsService")
+    private final UserDetailsService adminUserDetailsService;
     private final AuthEntryPoint authEntryPoint;
     private final AccessDeniedHandler accessDeniedHandler;
     
+    private final AdminPermissionPolicy adminPermissionPolicy;
     private final B2bCollaborationPolicy b2bPolicy;
     private final PlanPolicy planPolicy;
     private final UserRolePolicy userRolePolicy;
@@ -53,8 +57,20 @@ public class SecurityConfig {
     }
 
     @Bean
+    public AdminJwtAuthenticationFilter adminJwtAuthenticationFilter() {
+        return new AdminJwtAuthenticationFilter(jwtTokenProvider, adminUserDetailsService);
+    }
+
+    @Bean
     public FilterRegistrationBean<JwtAuthenticationFilter> jwtFilterRegistration(JwtAuthenticationFilter filter) {
         FilterRegistrationBean<JwtAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    public FilterRegistrationBean<AdminJwtAuthenticationFilter> adminJwtFilterRegistration(AdminJwtAuthenticationFilter filter) {
+        FilterRegistrationBean<AdminJwtAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setEnabled(false);
         return registration;
     }
@@ -75,7 +91,8 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
-                     "/api/v1/auth/**", 
+                    "/api/v1/auth/**",
+                    "/api/admin/auth/login",
                     "/swagger-ui/**",
                     "/swagger-ui.html",
                     "/v3/api-docs/**",
@@ -89,7 +106,8 @@ public class SecurityConfig {
             )
             .authenticationProvider(authenticationProvider())
             .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class)
-            .addFilterAfter(contextDetectionFilter, JwtAuthenticationFilter.class);
+            .addFilterBefore(adminJwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(contextDetectionFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -118,6 +136,7 @@ public class SecurityConfig {
     @PostConstruct
     public void permissionsLoader() {
         PermissionGuard.builder()
+            .addPolicy(adminPermissionPolicy)   // FIRST — short-circuits for admin actors
             .addPolicy(b2bPolicy)
             .addPolicy(planPolicy)
             .addPolicy(userRolePolicy)

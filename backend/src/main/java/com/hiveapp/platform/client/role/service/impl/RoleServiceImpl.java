@@ -49,6 +49,10 @@ public class RoleServiceImpl implements RoleService {
         var company = companyId != null ? companyRepository.findById(companyId)
             .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId)) : null;
 
+        if (company != null && !company.getAccount().getId().equals(accountId)) {
+            throw new com.hiveapp.shared.exception.UnauthorizedException("Company does not belong to your account");
+        }
+
         Role role = new Role();
         role.setAccount(account);
         role.setCompany(company);
@@ -60,7 +64,17 @@ public class RoleServiceImpl implements RoleService {
     @Override
     @Transactional
     public void addPermissionToRole(UUID roleId, String permissionCode) {
+        UUID accountId = com.hiveapp.shared.security.context.HiveAppContextHolder.getContext().currentAccountId();
         var role = getRole(roleId);
+        
+        if (!role.getAccount().getId().equals(accountId)) {
+            throw new com.hiveapp.shared.exception.UnauthorizedException("Role does not belong to your account");
+        }
+        
+        if (rolePermissionRepository.existsByRoleIdAndPermissionCode(roleId, permissionCode)) {
+            throw new com.hiveapp.shared.exception.DuplicateResourceException("RolePermission", "permissionCode", permissionCode);
+        }
+        
         var permission = permissionRepository.findByCode(permissionCode)
             .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
 
