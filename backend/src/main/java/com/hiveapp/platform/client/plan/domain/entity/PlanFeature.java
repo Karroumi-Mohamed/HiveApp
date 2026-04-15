@@ -8,16 +8,22 @@ import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Links a Feature to a Plan and stores the admin-configured quota limit values for that plan tier.
  *
- * quota_configs: one entry per quota slot declared in Feature.quota_schema.
- *   resource must match a resource name in the Feature's QuotaSlot list.
- *   null limit = explicitly unlimited for this plan tier.
- *   Empty list = feature is included in the plan but has no quota (boolean access).
+ * addOnPrice   — monthly cost to add this feature to a subscription beyond the base plan.
+ *                null = feature is included in the plan (not available as a standalone add-on).
+ *
+ * quotaConfigs — one entry per quota slot declared in Feature.quota_schema.
+ *                resource must match a resource name in the Feature's QuotaSlot list.
+ *                null limit = explicitly unlimited for this plan tier.
+ *                pricePerUnit on each entry = cost per unit if client bumps beyond this limit.
+ *                Empty list = feature has boolean access (no quota).
  */
 @Entity
 @Table(name = "plan_features")
@@ -31,6 +37,9 @@ public class PlanFeature extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "feature_id", nullable = false)
     private Feature feature;
+
+    @Column(name = "add_on_price", precision = 10, scale = 2)
+    private BigDecimal addOnPrice;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "quota_configs")

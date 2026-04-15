@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,6 +15,9 @@ public interface PlanFeatureRepository extends JpaRepository<PlanFeature, UUID> 
            "WHERE pf.plan.id = :planId AND p.code = :permissionCode")
     boolean existsByPlanIdAndPermissionCode(UUID planId, String permissionCode);
 
-    // Used by QuotaEnforcer — loads a plan's quota config for a specific feature
+    // Used by QuotaEnforcer and BillingCalculator
     Optional<PlanFeature> findByPlanIdAndFeature_Code(UUID planId, String featureCode);
+
+    // Used by PlanAdminService
+    List<PlanFeature> findAllByPlanId(UUID planId);
 }
