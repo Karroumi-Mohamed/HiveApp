@@ -92,5 +92,5 @@ lerna-debug.log*
 *.sln
 *.sw?
 hiveapp-admins/
-backend/technical-cdc-quota-system.md
-backend/TECHNICAL_SPEC_FULL.md
+docs/technical-cdc-quota-system.md
+docs/TECHNICAL_SPEC_FULL.md
