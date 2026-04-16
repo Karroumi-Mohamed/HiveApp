@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2600" height="1700" viewBox="0 0 2600 1700" role="img" aria-labelledby="title desc">
+  <title id="title">HiveApp Class Diagram - Readable Architecture View</title>
+  <desc id="desc">Professional class diagram with domain clusters: security runtime, identity/admin, workspace/rbac, registry, plan/billing.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8fbff"/>
+      <stop offset="100%" stop-color="#ecf2fb"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto">
+      <path d="M0,0 L12,4 L0,8 z" fill="#2f4667"/>
+    </marker>
+    <style>
+      .bg { fill: url(#bg); }
+      .title { font: 700 38px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #1e304a; }
+      .subtitle { font: 500 18px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #4b6588; }
+
+      .cluster { fill: #ffffff; stroke: #8198b7; stroke-width: 2; rx: 18; }
+      .clusterHead { fill: #dde8f9; stroke: #8198b7; stroke-width: 2; rx: 18; }
+      .clusterText { font: 700 20px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #244061; }
+
+      .classBox { fill: #ffffff; stroke: #7f95b5; stroke-width: 1.5; rx: 10; }
+      .classHead { fill: #edf4ff; stroke: #7f95b5; stroke-width: 1.5; }
+      .className { font: 700 15px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #223b5d; }
+      .classBody { font: 500 13px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #375277; }
+
+      .edge { stroke: #2f4667; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .edgeSoft { stroke: #5a769d; stroke-width: 1.5; fill: none; stroke-dasharray: 7 5; marker-end: url(#arrow); }
+      .label { font: 600 12px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #294466; }
+
+      .legendBox { fill: #fff; stroke: #8ea3c1; stroke-width: 1.4; rx: 10; }
+      .legend { font: 600 13px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #2e4567; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="2600" height="1700"/>
+  <text class="title" x="40" y="58">HiveApp - Professional Class Diagram (Readable Domain Clusters)</text>
+  <text class="subtitle" x="40" y="88">Custom non-grid layout: runtime core centered, bounded contexts arranged around it for fast comprehension and traceability.</text>
+
+  <!-- Central runtime cluster -->
+  <rect class="cluster" x="900" y="150" width="800" height="430"/>
+  <rect class="clusterHead" x="900" y="150" width="800" height="44"/>
+  <text class="clusterText" x="922" y="179">Permission Runtime and Security Pipeline</text>
+
+  <!-- Left top: identity/admin -->
+  <rect class="cluster" x="40" y="220" width="790" height="520"/>
+  <rect class="clusterHead" x="40" y="220" width="790" height="44"/>
+  <text class="clusterText" x="62" y="249">Identity and Admin Context</text>
+
+  <!-- Right top: workspace/rbac -->
+  <rect class="cluster" x="1770" y="220" width="790" height="640"/>
+  <rect class="clusterHead" x="1770" y="220" width="790" height="44"/>
+  <text class="clusterText" x="1792" y="249">Workspace, RBAC, Collaboration</text>
+
+  <!-- Bottom left: registry -->
+  <rect class="cluster" x="40" y="780" width="930" height="530"/>
+  <rect class="clusterHead" x="40" y="780" width="930" height="44"/>
+  <text class="clusterText" x="62" y="809">Registry and Seeding</text>
+
+  <!-- Bottom right: plans/billing -->
+  <rect class="cluster" x="1020" y="930" width="1540" height="620"/>
+  <rect class="clusterHead" x="1020" y="930" width="1540" height="44"/>
+  <text class="clusterText" x="1042" y="959">Plan, Subscription, Quota, Billing</text>
+
+  <!-- ===== Runtime classes ===== -->
+  <g>
+    <rect class="classBox" x="930" y="220" width="230" height="132"/>
+    <rect class="classHead" x="930" y="220" width="230" height="30"/>
+    <text class="className" x="944" y="240">SecurityConfig</text>
+    <text class="classBody" x="944" y="264">+securityFilterChain()</text>
+    <text class="classBody" x="944" y="282">+permissionsLoader()</text>
+    <text class="classBody" x="944" y="300">policy order + auto-guard</text>
+
+    <rect class="classBox" x="1185" y="220" width="230" height="132"/>
+    <rect class="classHead" x="1185" y="220" width="230" height="30"/>
+    <text class="className" x="1199" y="240">ContextDetectionFilter</text>
+    <text class="classBody" x="1199" y="264">reads company + b2b headers</text>
+    <text class="classBody" x="1199" y="282">binds thread context</text>
+    <text class="classBody" x="1199" y="300">clears after request</text>
+
+    <rect class="classBox" x="1440" y="220" width="230" height="132"/>
+    <rect class="classHead" x="1440" y="220" width="230" height="30"/>
+    <text class="className" x="1454" y="240">SecurityContextService</text>
+    <text class="classBody" x="1454" y="264">validateAndBuild(...)</text>
+    <text class="classBody" x="1454" y="282">membership/collab checks</text>
+    <text class="classBody" x="1454" y="300">returns context record</text>
+
+    <rect class="classBox" x="930" y="376" width="230" height="170"/>
+    <rect class="classHead" x="930" y="376" width="230" height="30"/>
+    <text class="className" x="944" y="396">PermissionGuard</text>
+    <text class="classBody" x="944" y="420">+check(permission, context)</text>
+    <text class="classBody" x="944" y="438">+has(permission, context)</text>
+    <text class="classBody" x="944" y="456">+matches(required, authorities)</text>
+    <text class="classBody" x="944" y="474">short-circuit policy chain</text>
+    <text class="classBody" x="944" y="492">denial listener + dry-run mode</text>
+
+    <rect class="classBox" x="1185" y="376" width="230" height="170"/>
+    <rect class="classHead" x="1185" y="376" width="230" height="30"/>
+    <text class="className" x="1199" y="396">PermissionResolver</text>
+    <text class="classBody" x="1199" y="420">resolve(Method) - cached</text>
+    <text class="classBody" x="1199" y="438">derive path from annotations</text>
+    <text class="classBody" x="1199" y="456">guard inheritance resolution</text>
+    <text class="classBody" x="1199" y="474">supports autoDiscover methods</text>
+
+    <rect class="classBox" x="1440" y="376" width="230" height="170"/>
+    <rect class="classHead" x="1440" y="376" width="230" height="30"/>
+    <text class="className" x="1454" y="396">PermissionPolicy</text>
+    <text class="classBody" x="1454" y="420">evaluate(requested, context)</text>
+    <text class="classBody" x="1454" y="438">Decision: GRANTED/DENIED/ABSTAIN</text>
+    <text class="classBody" x="1454" y="456">implemented by 4 domain policies</text>
+    <text class="classBody" x="1454" y="474">+provider fallback adapter</text>
+  </g>
+
+  <!-- ===== Identity/Admin classes ===== -->
+  <g>
+    <rect class="classBox" x="70" y="290" width="220" height="130"/>
+    <rect class="classHead" x="70" y="290" width="220" height="30"/>
+    <text class="className" x="84" y="310">User</text>
+    <text class="classBody" x="84" y="334">email/passwordHash</text>
+    <text class="classBody" x="84" y="352">profile fields + active flag</text>
+    <text class="classBody" x="84" y="370">extends BaseEntity</text>
+
+    <rect class="classBox" x="310" y="290" width="220" height="130"/>
+    <rect class="classHead" x="310" y="290" width="220" height="30"/>
+    <text class="className" x="324" y="310">AuthServiceImpl</text>
+    <text class="classBody" x="324" y="334">register/login/refresh</text>
+    <text class="classBody" x="324" y="352">issues CLIENT tokens</text>
+    <text class="classBody" x="324" y="370">publishes UserRegisteredEvent</text>
+
+    <rect class="classBox" x="550" y="290" width="250" height="130"/>
+    <rect class="classHead" x="550" y="290" width="250" height="30"/>
+    <text class="className" x="564" y="310">JwtTokenProvider</text>
+    <text class="classBody" x="564" y="334">generate access/refresh tokens</text>
+    <text class="classBody" x="564" y="352">validate and parse claims</text>
+    <text class="classBody" x="564" y="370">tokenType claim support</text>
+
+    <rect class="classBox" x="70" y="450" width="220" height="130"/>
+    <rect class="classHead" x="70" y="450" width="220" height="30"/>
+    <text class="className" x="84" y="470">AdminUser</text>
+    <text class="classBody" x="84" y="494">FK user_id</text>
+    <text class="classBody" x="84" y="512">isSuperAdmin + isActive</text>
+    <text class="classBody" x="84" y="530">admin actor representation</text>
+
+    <rect class="classBox" x="310" y="450" width="220" height="130"/>
+    <rect class="classHead" x="310" y="450" width="220" height="30"/>
+    <text class="className" x="324" y="470">AdminRole</text>
+    <text class="classBody" x="324" y="494">name/description</text>
+    <text class="classBody" x="324" y="512">isActive</text>
+    <text class="classBody" x="324" y="530">assigned via AdminUserRole</text>
+
+    <rect class="classBox" x="550" y="450" width="250" height="130"/>
+    <rect class="classHead" x="550" y="450" width="250" height="30"/>
+    <text class="className" x="564" y="470">AdminPermission</text>
+    <text class="classBody" x="564" y="494">code/action/resource</text>
+    <text class="classBody" x="564" y="512">separate from client registry perms</text>
+    <text class="classBody" x="564" y="530">linked by AdminRolePermission</text>
+  </g>
+
+  <!-- ===== Workspace/RBAC classes ===== -->
+  <g>
+    <rect class="classBox" x="1800" y="290" width="220" height="130"/>
+    <rect class="classHead" x="1800" y="290" width="220" height="30"/>
+    <text class="className" x="1814" y="310">Account</text>
+    <text class="classBody" x="1814" y="334">ownerId/name/slug</text>
+    <text class="classBody" x="1814" y="352">isActive</text>
+    <text class="classBody" x="1814" y="370">workspace root aggregate</text>
+
+    <rect class="classBox" x="2040" y="290" width="220" height="130"/>
+    <rect class="classHead" x="2040" y="290" width="220" height="30"/>
+    <text class="className" x="2054" y="310">Company</text>
+    <text class="classBody" x="2054" y="334">FK account_id</text>
+    <text class="classBody" x="2054" y="352">business profile fields</text>
+    <text class="classBody" x="2054" y="370">isActive</text>
+
+    <rect class="classBox" x="2280" y="290" width="250" height="130"/>
+    <rect class="classHead" x="2280" y="290" width="250" height="30"/>
+    <text class="className" x="2294" y="310">Member</text>
+    <text class="classBody" x="2294" y="334">FK user_id + FK account_id</text>
+    <text class="classBody" x="2294" y="352">displayName / isOwner</text>
+    <text class="classBody" x="2294" y="370">isActive</text>
+
+    <rect class="classBox" x="1800" y="450" width="220" height="130"/>
+    <rect class="classHead" x="1800" y="450" width="220" height="30"/>
+    <text class="className" x="1814" y="470">Role</text>
+    <text class="classBody" x="1814" y="494">account/company scope</text>
+    <text class="classBody" x="1814" y="512">name/systemRole</text>
+    <text class="classBody" x="1814" y="530">permissions union</text>
+
+    <rect class="classBox" x="2040" y="450" width="220" height="130"/>
+    <rect class="classHead" x="2040" y="450" width="220" height="30"/>
+    <text class="className" x="2054" y="470">Collaboration</text>
+    <text class="classBody" x="2054" y="494">client/provider accounts</text>
+    <text class="classBody" x="2054" y="512">company + status</text>
+    <text class="classBody" x="2054" y="530">B2B relationship root</text>
+
+    <rect class="classBox" x="2280" y="450" width="250" height="130"/>
+    <rect class="classHead" x="2280" y="450" width="250" height="30"/>
+    <text class="className" x="2294" y="470">MemberPermissionOverride</text>
+    <text class="classBody" x="2294" y="494">member + company + permission</text>
+    <text class="classBody" x="2294" y="512">decision allow/deny</text>
+    <text class="classBody" x="2294" y="530">highest precedence in user role policy</text>
+
+    <rect class="classBox" x="1920" y="610" width="340" height="190"/>
+    <rect class="classHead" x="1920" y="610" width="340" height="30"/>
+    <text class="className" x="1934" y="630">Policy Implementations</text>
+    <text class="classBody" x="1934" y="654">AdminPermissionPolicy</text>
+    <text class="classBody" x="1934" y="672">B2bCollaborationPolicy</text>
+    <text class="classBody" x="1934" y="690">PlanPolicy</text>
+    <text class="classBody" x="1934" y="708">UserRolePolicy</text>
+    <text class="classBody" x="1934" y="726">ordered, short-circuiting sieve</text>
+    <text class="classBody" x="1934" y="744">all implement PermissionPolicy</text>
+  </g>
+
+  <!-- ===== Registry classes ===== -->
+  <g>
+    <rect class="classBox" x="70" y="850" width="250" height="140"/>
+    <rect class="classHead" x="70" y="850" width="250" height="30"/>
+    <text class="className" x="84" y="870">Module</text>
+    <text class="classBody" x="84" y="894">code/sortOrder/isActive</text>
+    <text class="classBody" x="84" y="912">seeded from AppFeature namespace</text>
+    <text class="classBody" x="84" y="930">contains Feature[]</text>
+
+    <rect class="classBox" x="350" y="850" width="260" height="160"/>
+    <rect class="classHead" x="350" y="850" width="260" height="30"/>
+    <text class="className" x="364" y="870">Feature</text>
+    <text class="classBody" x="364" y="894">module ref + code + status</text>
+    <text class="classBody" x="364" y="912">quotaSchema JSON</text>
+    <text class="classBody" x="364" y="930">isActive + sortOrder</text>
+    <text class="classBody" x="364" y="948">contains Permission[]</text>
+
+    <rect class="classBox" x="640" y="850" width="300" height="160"/>
+    <rect class="classHead" x="640" y="850" width="300" height="30"/>
+    <text class="className" x="654" y="870">Permission (Registry)</text>
+    <text class="classBody" x="654" y="894">feature ref + unique code</text>
+    <text class="classBody" x="654" y="912">action/resource + description</text>
+    <text class="classBody" x="654" y="930">used by role/collab/override mappings</text>
+    <text class="classBody" x="654" y="948">seeded from PermissionNode tree</text>
+
+    <rect class="classBox" x="70" y="1030" width="270" height="140"/>
+    <rect class="classHead" x="70" y="1030" width="270" height="30"/>
+    <text class="className" x="84" y="1050">FeatureSeeder</text>
+    <text class="classBody" x="84" y="1074">Order 1 startup seeder</text>
+    <text class="classBody" x="84" y="1092">syncs modules/features/quotaSchema</text>
+    <text class="classBody" x="84" y="1110">from FeatureProvider enums</text>
+
+    <rect class="classBox" x="370" y="1030" width="270" height="140"/>
+    <rect class="classHead" x="370" y="1030" width="270" height="30"/>
+    <text class="className" x="384" y="1050">PermissionSeeder</text>
+    <text class="classBody" x="384" y="1074">Order 2 startup seeder</text>
+    <text class="classBody" x="384" y="1092">collector output -> permission rows</text>
+    <text class="classBody" x="384" y="1110">links by feature code convention</text>
+
+    <rect class="classBox" x="670" y="1030" width="270" height="140"/>
+    <rect class="classHead" x="670" y="1030" width="270" height="30"/>
+    <text class="className" x="684" y="1050">RegistryServiceImpl</text>
+    <text class="classBody" x="684" y="1074">inventory/catalog read models</text>
+    <text class="classBody" x="684" y="1092">feature visibility status updates</text>
+    <text class="classBody" x="684" y="1110">used by admin registry API</text>
+  </g>
+
+  <!-- ===== Plan/Billing classes ===== -->
+  <g>
+    <rect class="classBox" x="1050" y="1000" width="230" height="140"/>
+    <rect class="classHead" x="1050" y="1000" width="230" height="30"/>
+    <text class="className" x="1064" y="1020">Plan</text>
+    <text class="classBody" x="1064" y="1044">code/name/price</text>
+    <text class="classBody" x="1064" y="1062">billingCycle/isActive</text>
+    <text class="classBody" x="1064" y="1080">base commercial template</text>
+
+    <rect class="classBox" x="1310" y="1000" width="260" height="160"/>
+    <rect class="classHead" x="1310" y="1000" width="260" height="30"/>
+    <text class="className" x="1324" y="1020">PlanFeature</text>
+    <text class="classBody" x="1324" y="1044">plan ref + feature ref</text>
+    <text class="classBody" x="1324" y="1062">addOnPrice</text>
+    <text class="classBody" x="1324" y="1080">quotaConfigs JSON</text>
+    <text class="classBody" x="1324" y="1098">plan-specific quota limits</text>
+
+    <rect class="classBox" x="1600" y="1000" width="280" height="180"/>
+    <rect class="classHead" x="1600" y="1000" width="280" height="30"/>
+    <text class="className" x="1614" y="1020">Subscription</text>
+    <text class="classBody" x="1614" y="1044">account ref + plan ref</text>
+    <text class="classBody" x="1614" y="1062">status/currentPeriodEnd</text>
+    <text class="classBody" x="1614" y="1080">customOverrides JSON</text>
+    <text class="classBody" x="1614" y="1098">currentPrice snapshot</text>
+    <text class="classBody" x="1614" y="1116">source of effective entitlements</text>
+
+    <rect class="classBox" x="1910" y="1000" width="300" height="180"/>
+    <rect class="classHead" x="1910" y="1000" width="300" height="30"/>
+    <text class="className" x="1924" y="1020">SubscriptionServiceImpl</text>
+    <text class="classBody" x="1924" y="1044">get/create subscription</text>
+    <text class="classBody" x="1924" y="1062">updateOverrides(feature + quota)</text>
+    <text class="classBody" x="1924" y="1080">persists customOverrides</text>
+    <text class="classBody" x="1924" y="1098">triggers billing recalculation</text>
+    <text class="classBody" x="1924" y="1116">saves currentPrice</text>
+
+    <rect class="classBox" x="2240" y="1000" width="290" height="180"/>
+    <rect class="classHead" x="2240" y="1000" width="290" height="30"/>
+    <text class="className" x="2254" y="1020">BillingCalculator</text>
+    <text class="classBody" x="2254" y="1044">price = base + add-ons + bumps</text>
+    <text class="classBody" x="2254" y="1062">reads plan feature configs</text>
+    <text class="classBody" x="2254" y="1080">handles null/unlimited limits</text>
+    <text class="classBody" x="2254" y="1098">returns deterministic monthly price</text>
+    <text class="classBody" x="2254" y="1116">for subscription snapshot</text>
+
+    <rect class="classBox" x="1150" y="1210" width="340" height="170"/>
+    <rect class="classHead" x="1150" y="1210" width="340" height="30"/>
+    <text class="className" x="1164" y="1230">QuotaEnforcer</text>
+    <text class="classBody" x="1164" y="1254">check(feature, slot, account, currentUsage)</text>
+    <text class="classBody" x="1164" y="1272">override-first then plan fallback</text>
+    <text class="classBody" x="1164" y="1290">throws QuotaExceededException</text>
+    <text class="classBody" x="1164" y="1308">used by company/member controllers</text>
+
+    <rect class="classBox" x="1530" y="1210" width="360" height="170"/>
+    <rect class="classHead" x="1530" y="1210" width="360" height="30"/>
+    <text class="className" x="1544" y="1230">PlanAdminServiceImpl + PlanSeeder</text>
+    <text class="classBody" x="1544" y="1254">creates plan templates and plan-feature composition</text>
+    <text class="classBody" x="1544" y="1272">maintains quota configs and addOn pricing</text>
+    <text class="classBody" x="1544" y="1290">startup defaults: FREE/PRO/ENTERPRISE</text>
+    <text class="classBody" x="1544" y="1308">feeds subscription and policy behavior</text>
+  </g>
+
+  <!-- Key relationships -->
+  <g>
+    <!-- Runtime internal -->
+    <path class="edge" d="M1045 352 L1045 376"/>
+    <path class="edge" d="M1300 352 L1300 376"/>
+    <path class="edge" d="M1555 352 L1555 376"/>
+    <path class="edge" d="M1160 460 L1185 460"/>
+    <path class="edge" d="M1415 460 L1440 460"/>
+
+    <!-- Security to policies -->
+    <path class="edgeSoft" d="M1050 546 C1050 650, 2050 650, 2050 610"/>
+    <text class="label" x="1360" y="650">PermissionGuard invokes ordered policy implementations</text>
+
+    <!-- Identity/admin links -->
+    <path class="edge" d="M290 350 L310 350"/>
+    <path class="edge" d="M530 350 L550 350"/>
+    <path class="edgeSoft" d="M180 420 C180 500, 180 500, 180 450"/>
+    <path class="edge" d="M180 420 C290 440, 410 440, 550 450"/>
+
+    <!-- Runtime to identity -->
+    <path class="edgeSoft" d="M930 300 C820 300, 780 360, 680 360"/>
+    <text class="label" x="736" y="292">token issue/validation path</text>
+
+    <!-- Runtime to workspace -->
+    <path class="edge" d="M1700 300 C1760 300, 1760 300, 1800 300"/>
+    <text class="label" x="1714" y="288">secured request enters domain</text>
+
+    <!-- Workspace entity relations -->
+    <path class="edge" d="M2020 350 L2040 350"/>
+    <path class="edge" d="M2260 350 L2280 350"/>
+    <path class="edge" d="M2020 510 L2040 510"/>
+    <path class="edgeSoft" d="M2390 580 C2390 640, 2200 660, 2090 660"/>
+
+    <!-- Workspace to registry permission model -->
+    <path class="edgeSoft" d="M2390 530 C1800 760, 1120 900, 790 920"/>
+    <text class="label" x="1430" y="760">RBAC and collaboration reference registry permission codes</text>
+
+    <!-- Registry internal -->
+    <path class="edge" d="M320 920 L350 920"/>
+    <path class="edge" d="M610 920 L640 920"/>
+    <path class="edge" d="M205 990 L205 1030"/>
+    <path class="edge" d="M490 1010 L490 1030"/>
+
+    <!-- Registry to plan -->
+    <path class="edgeSoft" d="M940 940 C1100 940, 1300 940, 1440 1000"/>
+    <text class="label" x="1040" y="928">features and permissions drive plan composition</text>
+
+    <!-- Plan internal -->
+    <path class="edge" d="M1280 1070 L1310 1070"/>
+    <path class="edge" d="M1570 1070 L1600 1070"/>
+    <path class="edge" d="M1880 1090 L1910 1090"/>
+    <path class="edge" d="M2210 1090 L2240 1090"/>
+
+    <!-- Plan to quota -->
+    <path class="edge" d="M1400 1160 C1400 1210, 1320 1210, 1320 1210"/>
+    <path class="edge" d="M1740 1180 C1740 1220, 1700 1220, 1700 1210"/>
+
+    <!-- Runtime to plan policy -->
+    <path class="edgeSoft" d="M1865 546 C1865 700, 2050 700, 2050 610"/>
+  </g>
+
+  <!-- Legend -->
+  <rect class="legendBox" x="2010" y="1320" width="550" height="210"/>
+  <text class="legend" x="2030" y="1346">Legend</text>
+  <line x1="2030" y1="1368" x2="2140" y2="1368" class="edge"/>
+  <text class="legend" x="2150" y="1372">Primary association / invocation</text>
+  <line x1="2030" y1="1400" x2="2140" y2="1400" class="edgeSoft"/>
+  <text class="legend" x="2150" y="1404">Cross-cluster or dynamic dependency</text>
+  <text class="legend" x="2030" y="1436">This view prioritizes readability: key classes and relationships only.</text>
+  <text class="legend" x="2030" y="1458">Detailed file-level coverage is preserved in the supporting diagrams in this folder.</text>
+
+  <text class="subtitle" x="40" y="1668">Generated for architecture communication and implementation reviews; designed for legibility on standard laptop screens.</text>
+</svg>

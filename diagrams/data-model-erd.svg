@@ -1,0 +1,334 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="3200" height="2000" viewBox="0 0 3200 2000" role="img" aria-labelledby="title desc">
+  <title id="title">HiveApp ERD - Constellation Layout</title>
+  <desc id="desc">Readable non-grid entity relationship diagram showing identity, workspace, collaboration, plan-subscription, and registry domains with cardinalities.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f9fcff"/>
+      <stop offset="100%" stop-color="#edf3fb"/>
+    </linearGradient>
+
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#9ab0cd" flood-opacity="0.26"/>
+    </filter>
+
+    <marker id="arrow" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto">
+      <path d="M0,0 L12,4 L0,8 z" fill="#2f4667"/>
+    </marker>
+
+    <style>
+      .bg { fill: url(#bg); }
+      .title { font:700 36px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#1f3553; }
+      .subtitle { font:500 17px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#4a6489; }
+
+      .blobIdentity { fill:#e8f0ff; stroke:#92a9ca; stroke-width:1.8; }
+      .blobWorkspace { fill:#eef8f0; stroke:#8ebaa0; stroke-width:1.8; }
+      .blobPlan { fill:#fff2e8; stroke:#d5a786; stroke-width:1.8; }
+      .blobCollab { fill:#f6ecff; stroke:#b49aca; stroke-width:1.8; }
+      .blobRegistry { fill:#e8f7f8; stroke:#8db9be; stroke-width:1.8; }
+      .blobLabel { font:700 18px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#294365; }
+
+      .card { fill:#fff; stroke:#7f97b8; stroke-width:1.5; rx:12; filter:url(#softShadow); }
+      .cardHead { fill:#edf4ff; stroke:#7f97b8; stroke-width:1.5; rx:12; }
+      .cardName { font:700 14px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#233b5d; }
+      .cardBody { font:500 12px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#355176; }
+
+      .edge { stroke:#2f4667; stroke-width:1.7; fill:none; marker-end:url(#arrow); }
+      .edgeDash { stroke:#5a769d; stroke-width:1.6; fill:none; stroke-dasharray:8 6; marker-end:url(#arrow); }
+      .label { font:700 11.5px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#2d4568; }
+
+      .legendBox { fill:#fff; stroke:#8aa3c4; stroke-width:1.4; rx:12; }
+      .legendTitle { font:700 16px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#294365; }
+      .legendText { font:600 12px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#355176; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="3200" height="2000"/>
+  <text class="title" x="38" y="56">HiveApp Data Model ERD</text>
+  <text class="subtitle" x="38" y="84">Constellation map: each domain is clustered organically, with curved links for relationship tracing and easier audit reading.</text>
+
+  <!-- Domain blobs (non-grid grouping) -->
+  <path class="blobIdentity" d="M120,170 C80,340 90,780 330,900 C560,1010 910,930 980,740 C1050,560 940,250 690,180 C450,110 170,90 120,170 Z"/>
+  <text class="blobLabel" x="210" y="212">Identity + Admin Domain</text>
+
+  <path class="blobWorkspace" d="M1020,170 C930,350 960,910 1230,1080 C1540,1270 2060,1180 2140,900 C2230,590 2200,280 1930,180 C1650,80 1130,70 1020,170 Z"/>
+  <text class="blobLabel" x="1130" y="212">Workspace + RBAC Domain</text>
+
+  <path class="blobPlan" d="M2240,170 C2150,330 2170,820 2370,940 C2600,1070 3000,1030 3070,820 C3140,600 3140,290 2970,190 C2800,90 2310,80 2240,170 Z"/>
+  <text class="blobLabel" x="2360" y="212">Plan + Subscription Domain</text>
+
+  <path class="blobCollab" d="M2120,980 C2040,1120 2050,1470 2210,1570 C2400,1690 2840,1700 3000,1560 C3150,1420 3130,1130 2970,1020 C2800,910 2200,860 2120,980 Z"/>
+  <text class="blobLabel" x="2240" y="1026">Collaboration Domain</text>
+
+  <path class="blobRegistry" d="M860,1180 C730,1320 770,1750 980,1860 C1260,2010 1980,2010 2230,1870 C2420,1760 2460,1370 2320,1240 C2170,1090 1050,1040 860,1180 Z"/>
+  <text class="blobLabel" x="1010" y="1228">Registry Domain</text>
+
+  <!-- Identity/Admin entities -->
+  <g>
+    <rect class="card" x="170" y="280" width="250" height="162"/>
+    <rect class="cardHead" x="170" y="280" width="250" height="34"/>
+    <text class="cardName" x="184" y="302">users</text>
+    <text class="cardBody" x="184" y="326">PK id</text>
+    <text class="cardBody" x="184" y="346">email (unique), password_hash</text>
+    <text class="cardBody" x="184" y="366">is_active</text>
+    <text class="cardBody" x="184" y="386">created_at, updated_at</text>
+
+    <rect class="card" x="470" y="240" width="250" height="146"/>
+    <rect class="cardHead" x="470" y="240" width="250" height="34"/>
+    <text class="cardName" x="484" y="262">admin_users</text>
+    <text class="cardBody" x="484" y="286">PK id</text>
+    <text class="cardBody" x="484" y="306">FK user_id -> users.id</text>
+    <text class="cardBody" x="484" y="326">is_super_admin, is_active</text>
+
+    <rect class="card" x="430" y="500" width="250" height="140"/>
+    <rect class="cardHead" x="430" y="500" width="250" height="34"/>
+    <text class="cardName" x="444" y="522">admin_roles</text>
+    <text class="cardBody" x="444" y="546">PK id</text>
+    <text class="cardBody" x="444" y="566">name (unique), description</text>
+    <text class="cardBody" x="444" y="586">is_active</text>
+
+    <rect class="card" x="740" y="420" width="260" height="150"/>
+    <rect class="cardHead" x="740" y="420" width="260" height="34"/>
+    <text class="cardName" x="754" y="442">admin_permissions</text>
+    <text class="cardBody" x="754" y="466">PK id</text>
+    <text class="cardBody" x="754" y="486">code (unique), action, resource</text>
+    <text class="cardBody" x="754" y="506">name, description</text>
+
+    <rect class="card" x="190" y="560" width="250" height="126"/>
+    <rect class="cardHead" x="190" y="560" width="250" height="34"/>
+    <text class="cardName" x="204" y="582">admin_user_roles</text>
+    <text class="cardBody" x="204" y="606">PK id</text>
+    <text class="cardBody" x="204" y="626">FK admin_user_id, admin_role_id</text>
+
+    <rect class="card" x="710" y="640" width="270" height="126"/>
+    <rect class="cardHead" x="710" y="640" width="270" height="34"/>
+    <text class="cardName" x="724" y="662">admin_role_permissions</text>
+    <text class="cardBody" x="724" y="686">PK id</text>
+    <text class="cardBody" x="724" y="706">FK admin_role_id, admin_permission_id</text>
+  </g>
+
+  <!-- Workspace/RBAC entities -->
+  <g>
+    <rect class="card" x="1240" y="270" width="260" height="148"/>
+    <rect class="cardHead" x="1240" y="270" width="260" height="34"/>
+    <text class="cardName" x="1254" y="292">accounts</text>
+    <text class="cardBody" x="1254" y="316">PK id</text>
+    <text class="cardBody" x="1254" y="336">owner_id -> users.id</text>
+    <text class="cardBody" x="1254" y="356">name, slug, is_active</text>
+
+    <rect class="card" x="1500" y="510" width="260" height="148"/>
+    <rect class="cardHead" x="1500" y="510" width="260" height="34"/>
+    <text class="cardName" x="1514" y="532">companies</text>
+    <text class="cardBody" x="1514" y="556">PK id</text>
+    <text class="cardBody" x="1514" y="576">FK account_id</text>
+    <text class="cardBody" x="1514" y="596">name, legal_name, country</text>
+
+    <rect class="card" x="1160" y="560" width="270" height="154"/>
+    <rect class="cardHead" x="1160" y="560" width="270" height="34"/>
+    <text class="cardName" x="1174" y="582">members</text>
+    <text class="cardBody" x="1174" y="606">PK id</text>
+    <text class="cardBody" x="1174" y="626">FK user_id, FK account_id</text>
+    <text class="cardBody" x="1174" y="646">display_name, is_owner, is_active</text>
+
+    <rect class="card" x="1740" y="320" width="270" height="160"/>
+    <rect class="cardHead" x="1740" y="320" width="270" height="34"/>
+    <text class="cardName" x="1754" y="342">roles</text>
+    <text class="cardBody" x="1754" y="366">PK id</text>
+    <text class="cardBody" x="1754" y="386">FK account_id, company_id?</text>
+    <text class="cardBody" x="1754" y="406">name, description</text>
+    <text class="cardBody" x="1754" y="426">is_system_role, is_active</text>
+
+    <rect class="card" x="1390" y="770" width="260" height="126"/>
+    <rect class="cardHead" x="1390" y="770" width="260" height="34"/>
+    <text class="cardName" x="1404" y="792">member_roles</text>
+    <text class="cardBody" x="1404" y="816">PK id</text>
+    <text class="cardBody" x="1404" y="836">FK member_id, role_id, company_id?</text>
+
+    <rect class="card" x="1740" y="770" width="280" height="126"/>
+    <rect class="cardHead" x="1740" y="770" width="280" height="34"/>
+    <text class="cardName" x="1754" y="792">role_permissions</text>
+    <text class="cardBody" x="1754" y="816">PK id</text>
+    <text class="cardBody" x="1754" y="836">FK role_id, permission_id</text>
+
+    <rect class="card" x="1080" y="830" width="280" height="130"/>
+    <rect class="cardHead" x="1080" y="830" width="280" height="34"/>
+    <text class="cardName" x="1094" y="852">member_permission_overrides</text>
+    <text class="cardBody" x="1094" y="876">PK id</text>
+    <text class="cardBody" x="1094" y="896">FK member_id, company_id, permission_id</text>
+  </g>
+
+  <!-- Plan entities -->
+  <g>
+    <rect class="card" x="2360" y="270" width="250" height="148"/>
+    <rect class="cardHead" x="2360" y="270" width="250" height="34"/>
+    <text class="cardName" x="2374" y="292">plans</text>
+    <text class="cardBody" x="2374" y="316">PK id</text>
+    <text class="cardBody" x="2374" y="336">code (unique), name</text>
+    <text class="cardBody" x="2374" y="356">price, billing_cycle, is_active</text>
+
+    <rect class="card" x="2620" y="470" width="270" height="154"/>
+    <rect class="cardHead" x="2620" y="470" width="270" height="34"/>
+    <text class="cardName" x="2634" y="492">plan_features</text>
+    <text class="cardBody" x="2634" y="516">PK id</text>
+    <text class="cardBody" x="2634" y="536">FK plan_id, feature_id</text>
+    <text class="cardBody" x="2634" y="556">quota_configs JSON</text>
+    <text class="cardBody" x="2634" y="576">add_on_price</text>
+
+    <rect class="card" x="2840" y="300" width="280" height="178"/>
+    <rect class="cardHead" x="2840" y="300" width="280" height="34"/>
+    <text class="cardName" x="2854" y="322">subscriptions</text>
+    <text class="cardBody" x="2854" y="346">PK id</text>
+    <text class="cardBody" x="2854" y="366">FK account_id, plan_id</text>
+    <text class="cardBody" x="2854" y="386">status, current_price</text>
+    <text class="cardBody" x="2854" y="406">custom_overrides JSON</text>
+    <text class="cardBody" x="2854" y="426">current_period_end</text>
+  </g>
+
+  <!-- Collaboration entities -->
+  <g>
+    <rect class="card" x="2320" y="1060" width="290" height="176"/>
+    <rect class="cardHead" x="2320" y="1060" width="290" height="34"/>
+    <text class="cardName" x="2334" y="1082">collaborations</text>
+    <text class="cardBody" x="2334" y="1106">PK id</text>
+    <text class="cardBody" x="2334" y="1126">client_account_id, provider_account_id</text>
+    <text class="cardBody" x="2334" y="1146">company_id</text>
+    <text class="cardBody" x="2334" y="1166">status + timestamps</text>
+
+    <rect class="card" x="2640" y="1260" width="300" height="130"/>
+    <rect class="cardHead" x="2640" y="1260" width="300" height="34"/>
+    <text class="cardName" x="2654" y="1282">collaboration_permissions</text>
+    <text class="cardBody" x="2654" y="1306">PK id</text>
+    <text class="cardBody" x="2654" y="1326">FK collaboration_id, permission_id</text>
+  </g>
+
+  <!-- Registry entities -->
+  <g>
+    <rect class="card" x="1110" y="1380" width="250" height="148"/>
+    <rect class="cardHead" x="1110" y="1380" width="250" height="34"/>
+    <text class="cardName" x="1124" y="1402">modules</text>
+    <text class="cardBody" x="1124" y="1426">PK id</text>
+    <text class="cardBody" x="1124" y="1446">code (unique), sort_order</text>
+    <text class="cardBody" x="1124" y="1466">is_active</text>
+
+    <rect class="card" x="1440" y="1540" width="270" height="164"/>
+    <rect class="cardHead" x="1440" y="1540" width="270" height="34"/>
+    <text class="cardName" x="1454" y="1562">features</text>
+    <text class="cardBody" x="1454" y="1586">PK id, FK module_id</text>
+    <text class="cardBody" x="1454" y="1606">code (unique), status</text>
+    <text class="cardBody" x="1454" y="1626">quota_schema JSON</text>
+    <text class="cardBody" x="1454" y="1646">sort_order, is_active</text>
+
+    <rect class="card" x="1810" y="1400" width="270" height="154"/>
+    <rect class="cardHead" x="1810" y="1400" width="270" height="34"/>
+    <text class="cardName" x="1824" y="1422">permissions</text>
+    <text class="cardBody" x="1824" y="1446">PK id, FK feature_id</text>
+    <text class="cardBody" x="1824" y="1466">code (unique)</text>
+    <text class="cardBody" x="1824" y="1486">name, action, resource</text>
+    <text class="cardBody" x="1824" y="1506">description</text>
+  </g>
+
+  <!-- Relationships: Identity/Admin -->
+  <path class="edge" d="M420,330 C460,320 470,320 470,315"/>
+  <text class="label" x="438" y="304">1:1</text>
+
+  <path class="edge" d="M590,386 C580,470 420,560 440,590"/>
+  <text class="label" x="540" y="468">1:N</text>
+
+  <path class="edge" d="M550,640 C610,680 690,710 710,710"/>
+  <text class="label" x="620" y="694">1:N</text>
+
+  <path class="edge" d="M680,560 C730,590 740,600 760,640"/>
+  <text class="label" x="714" y="604">1:N</text>
+
+  <path class="edge" d="M870,570 C850,620 850,620 840,640"/>
+  <text class="label" x="880" y="614">1:N</text>
+
+  <!-- Identity to Workspace -->
+  <path class="edge" d="M420,360 C700,420 930,620 1160,620"/>
+  <text class="label" x="820" y="536">users -> members (1:N)</text>
+
+  <!-- Workspace core -->
+  <path class="edge" d="M1500,330 C1540,380 1540,470 1520,510"/>
+  <text class="label" x="1548" y="438">1:N</text>
+
+  <path class="edge" d="M1380,418 C1300,470 1240,530 1230,560"/>
+  <text class="label" x="1304" y="496">1:N</text>
+
+  <path class="edge" d="M1500,360 C1650,360 1700,360 1740,360"/>
+  <text class="label" x="1604" y="348">1:N</text>
+
+  <path class="edge" d="M1300,714 C1380,740 1400,760 1440,770"/>
+  <text class="label" x="1350" y="742">1:N</text>
+
+  <path class="edge" d="M1870,480 C1880,610 1860,700 1860,770"/>
+  <text class="label" x="1882" y="636">1:N</text>
+
+  <path class="edge" d="M1430,896 C1560,940 1710,930 1740,860"/>
+  <text class="label" x="1544" y="950">N:M bridge</text>
+
+  <path class="edge" d="M1280,714 C1230,770 1190,810 1160,830"/>
+  <text class="label" x="1216" y="786">1:N</text>
+
+  <!-- Plan + subscription -->
+  <path class="edge" d="M2610,330 C2640,390 2660,430 2680,470"/>
+  <text class="label" x="2642" y="412">1:N</text>
+
+  <path class="edge" d="M2610,350 C2740,340 2810,330 2840,330"/>
+  <text class="label" x="2718" y="334">1:N</text>
+
+  <path class="edge" d="M1500,300 C2200,180 2820,200 2920,300"/>
+  <text class="label" x="2190" y="196">accounts -> subscriptions (1:N)</text>
+
+  <!-- Collaboration -->
+  <path class="edge" d="M2610,1140 C2640,1210 2660,1240 2680,1260"/>
+  <text class="label" x="2648" y="1218">1:N</text>
+
+  <path class="edge" d="M1760,610 C2030,700 2240,930 2320,1080"/>
+  <text class="label" x="2020" y="786">companies -> collaborations (1:N)</text>
+
+  <path class="edgeDash" d="M1490,340 C1900,240 2200,300 2320,1100"/>
+  <text class="label" x="1970" y="286">accounts referenced as client/provider</text>
+
+  <!-- Registry chain -->
+  <path class="edge" d="M1360,1450 C1400,1490 1420,1510 1440,1560"/>
+  <text class="label" x="1396" y="1512">1:N</text>
+
+  <path class="edge" d="M1710,1620 C1760,1570 1790,1520 1810,1470"/>
+  <text class="label" x="1748" y="1566">1:N</text>
+
+  <!-- Registry usage dependencies -->
+  <path class="edgeDash" d="M2080,1480 C2200,1450 2520,1350 2640,1310"/>
+  <text class="label" x="2280" y="1422">permission_id dependency</text>
+
+  <path class="edgeDash" d="M2080,1460 C2000,1240 1880,980 1880,896"/>
+  <text class="label" x="1910" y="1178">permissions -> role_permissions</text>
+
+  <path class="edgeDash" d="M1810,1500 C1540,1360 1260,1080 1220,960"/>
+  <text class="label" x="1434" y="1182">permissions -> member overrides</text>
+
+  <path class="edgeDash" d="M1570,1540 C1860,1280 2380,670 2620,560"/>
+  <text class="label" x="2060" y="1022">features -> plan_features</text>
+
+  <!-- Legend -->
+  <rect class="legendBox" x="2400" y="1550" width="760" height="390"/>
+  <text class="legendTitle" x="2424" y="1580">Legend</text>
+  <line x1="2420" y1="1594" x2="3144" y2="1594" stroke="#8aa3c4" stroke-width="1"/>
+
+  <line class="edge" x1="2430" y1="1634" x2="2550" y2="1634"/>
+  <text class="legendText" x="2564" y="1638">Solid edge: direct FK relationship</text>
+
+  <line class="edgeDash" x1="2430" y1="1672" x2="2550" y2="1672"/>
+  <text class="legendText" x="2564" y="1676">Dashed edge: cross-domain reference or logical dependency</text>
+
+  <text class="legendText" x="2430" y="1716">Cardinality notes:</text>
+  <text class="legendText" x="2430" y="1738">- 1:N marks parent-child links.</text>
+  <text class="legendText" x="2430" y="1760">- N:M resolved through join tables (member_roles, role_permissions, admin_user_roles).</text>
+
+  <text class="legendText" x="2430" y="1800">Domain behavior notes:</text>
+  <text class="legendText" x="2430" y="1822">1) subscriptions stores custom_overrides JSON for feature/permission adjustments.</text>
+  <text class="legendText" x="2430" y="1844">2) plan_features holds add-on price and quota config by feature.</text>
+  <text class="legendText" x="2430" y="1866">3) permission links drive role grants, member overrides, and collaboration delegation.</text>
+
+  <text class="subtitle" x="38" y="1968">Layout optimized for human scanning: domains first, entity cards second, relations third.</text>
+</svg>

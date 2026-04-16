@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HiveApp Use Case Model - Super Detailed</title>
+  <style>
+    :root {
+      --bg0: #f8fbff;
+      --bg1: #ebf2fc;
+      --ink: #1f324d;
+      --muted: #4d6689;
+      --line: #8fa5c3;
+      --card: #fff;
+      --accent: #2d4669;
+      --auth: #d7e9ff;
+      --workspace: #dff2e5;
+      --rbac: #ffeac9;
+      --collab: #f9dce8;
+      --plan: #dbe5ff;
+      --registry: #e7deff;
+      --runtime: #f6f2cf;
+      --error: #ffd8d8;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, var(--bg0), var(--bg1));
+    }
+
+    header {
+      padding: 28px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.1;
+    }
+
+    .sub {
+      margin-top: 10px;
+      color: var(--muted);
+      max-width: 1100px;
+      font-size: 15px;
+    }
+
+    .nav {
+      padding: 0 28px 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .nav a {
+      text-decoration: none;
+      color: var(--accent);
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    section {
+      margin: 0 20px 18px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.82);
+      box-shadow: 0 10px 28px rgba(47, 71, 106, 0.1);
+      overflow: hidden;
+    }
+
+    .section-head {
+      padding: 16px 18px;
+      background: #f2f7ff;
+      border-bottom: 1px solid var(--line);
+      font-weight: 700;
+      font-size: 20px;
+    }
+
+    .section-sub {
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 14px;
+      margin-top: 6px;
+      max-width: 1100px;
+    }
+
+    .pad { padding: 16px 16px 20px; }
+
+    .svg-wrap {
+      border: 1px solid #9fb2cc;
+      border-radius: 12px;
+      background: #fff;
+      overflow: auto;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      min-width: 1500px;
+      height: auto;
+    }
+
+    .matrix {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+    }
+
+    .matrix th,
+    .matrix td {
+      border: 1px solid #b6c6dc;
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    .matrix th {
+      background: #edf4ff;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #2e4668;
+    }
+
+    .group td {
+      background: #f3f7ff;
+      font-weight: 700;
+      color: #294365;
+      letter-spacing: 0.01em;
+    }
+
+    .ep {
+      display: inline-block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11.5px;
+      border: 1px solid #b7c9e1;
+      background: #eef4ff;
+      color: #233a5b;
+      border-radius: 6px;
+      padding: 2px 7px;
+      white-space: nowrap;
+    }
+
+    .tight {
+      line-height: 1.35;
+    }
+
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid #95abc8;
+      margin-right: 6px;
+      margin-bottom: 6px;
+      background: #fff;
+    }
+
+    .auth { background: var(--auth); }
+    .workspace { background: var(--workspace); }
+    .rbac { background: var(--rbac); }
+    .collab { background: var(--collab); }
+    .plan { background: var(--plan); }
+    .registry { background: var(--registry); }
+    .runtime { background: var(--runtime); }
+    .error { background: var(--error); }
+
+    .footer {
+      padding: 0 28px 28px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>HiveApp Use Case Model (Super Detailed, Readability-First)</h1>
+    <div class="sub">
+      This version replaces dense packed layouts with custom, purpose-specific views and adds full endpoint-derived coverage. The catalog section now maps all currently implemented API user stories in the platform (48 stories across 14 controllers).
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="#map">Actor-Centric Map</a>
+    <a href="#orchestration">Use Case Orchestration</a>
+    <a href="#matrix">Inclusion and Constraints Matrix</a>
+    <a href="#catalog">Complete Story Catalog (48)</a>
+  </nav>
+
+  <section id="map">
+    <div class="section-head">
+      1) Actor-Centric System Use Case Map
+      <div class="section-sub">Overview map for actor-to-domain relationships. Full endpoint-level user story coverage is listed in section 4.</div>
+    </div>
+    <div class="pad">
+      <div class="svg-wrap">
+        <svg viewBox="0 0 1800 920" role="img" aria-label="Actor centric use case map">
+          <defs>
+            <marker id="arr" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <path d="M0,0 L10,3.5 L0,7 z" fill="#2e4567" />
+            </marker>
+            <style>
+              .sys { fill:#fff; stroke:#7f96b6; stroke-width:2; }
+              .actor { stroke:#2f4768; stroke-width:2; fill:none; }
+              .aLbl { font:700 13px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#213a5a; text-anchor:middle; }
+              .uc { fill:#fff; stroke:#6f89ad; stroke-width:1.5; }
+              .ucLbl { font:600 12px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#284466; text-anchor:middle; dominant-baseline:middle; }
+              .line { stroke:#2f4768; stroke-width:1.4; fill:none; marker-end:url(#arr); }
+              .ttl { font:700 18px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#223d5f; }
+            </style>
+          </defs>
+
+          <rect class="sys" x="220" y="70" width="1360" height="760" rx="22" />
+          <text class="ttl" x="250" y="100">HiveApp Backend Boundary</text>
+
+          <!-- Actors -->
+          <g transform="translate(70,180)">
+            <circle class="actor" cx="50" cy="18" r="13"/><line class="actor" x1="50" y1="31" x2="50" y2="75"/><line class="actor" x1="24" y1="48" x2="76" y2="48"/><line class="actor" x1="50" y1="75" x2="26" y2="106"/><line class="actor" x1="50" y1="75" x2="74" y2="106"/>
+            <text class="aLbl" x="50" y="126">Platform Admin</text>
+          </g>
+          <g transform="translate(70,430)">
+            <circle class="actor" cx="50" cy="18" r="13"/><line class="actor" x1="50" y1="31" x2="50" y2="75"/><line class="actor" x1="24" y1="48" x2="76" y2="48"/><line class="actor" x1="50" y1="75" x2="26" y2="106"/><line class="actor" x1="50" y1="75" x2="74" y2="106"/>
+            <text class="aLbl" x="50" y="126">Account Owner</text>
+          </g>
+          <g transform="translate(1680,180)">
+            <circle class="actor" cx="50" cy="18" r="13"/><line class="actor" x1="50" y1="31" x2="50" y2="75"/><line class="actor" x1="24" y1="48" x2="76" y2="48"/><line class="actor" x1="50" y1="75" x2="26" y2="106"/><line class="actor" x1="50" y1="75" x2="74" y2="106"/>
+            <text class="aLbl" x="50" y="126">B2B Client User</text>
+          </g>
+          <g transform="translate(1680,430)">
+            <circle class="actor" cx="50" cy="18" r="13"/><line class="actor" x1="50" y1="31" x2="50" y2="75"/><line class="actor" x1="24" y1="48" x2="76" y2="48"/><line class="actor" x1="50" y1="75" x2="26" y2="106"/><line class="actor" x1="50" y1="75" x2="74" y2="106"/>
+            <text class="aLbl" x="50" y="126">Provider Manager</text>
+          </g>
+
+          <!-- Core use cases -->
+          <ellipse class="uc" cx="620" cy="190" rx="150" ry="34"/><text class="ucLbl" x="620" y="190">Authenticate (CLIENT / ADMIN)</text>
+          <ellipse class="uc" cx="980" cy="190" rx="150" ry="34"/><text class="ucLbl" x="980" y="190">Refresh Access Token</text>
+          <ellipse class="uc" cx="1340" cy="190" rx="150" ry="34"/><text class="ucLbl" x="1340" y="190">Resolve Runtime Context</text>
+
+          <ellipse class="uc" cx="520" cy="350" rx="170" ry="36"/><text class="ucLbl" x="520" y="350">Workspace Ops (account/company/member)</text>
+          <ellipse class="uc" cx="900" cy="350" rx="170" ry="36"/><text class="ucLbl" x="900" y="350">RBAC Ops (roles, grants, overrides)</text>
+          <ellipse class="uc" cx="1280" cy="350" rx="170" ry="36"/><text class="ucLbl" x="1280" y="350">B2B Ops (initiate/accept/grant/revoke)</text>
+
+          <ellipse class="uc" cx="620" cy="530" rx="170" ry="36"/><text class="ucLbl" x="620" y="530">Plan and Subscription Management</text>
+          <ellipse class="uc" cx="980" cy="530" rx="170" ry="36"/><text class="ucLbl" x="980" y="530">Quota and Billing Calculation</text>
+          <ellipse class="uc" cx="1340" cy="530" rx="170" ry="36"/><text class="ucLbl" x="1340" y="530">Registry and Seeder Lifecycle</text>
+
+          <ellipse class="uc" cx="980" cy="700" rx="220" ry="42"/><text class="ucLbl" x="980" y="700">Permission Decision (Admin/B2B/Plan/UserRole + fallback)</text>
+
+          <!-- Associations -->
+          <line class="line" x1="120" y1="255" x2="470" y2="190"/>
+          <line class="line" x1="120" y1="505" x2="350" y2="350"/>
+          <line class="line" x1="120" y1="505" x2="730" y2="350"/>
+          <line class="line" x1="120" y1="505" x2="450" y2="530"/>
+
+          <line class="line" x1="1730" y1="255" x2="1460" y2="350"/>
+          <line class="line" x1="1730" y1="505" x2="1460" y2="350"/>
+          <line class="line" x1="1730" y1="505" x2="1160" y2="530"/>
+
+          <line class="line" x1="620" y1="224" x2="620" y2="314"/>
+          <line class="line" x1="980" y1="224" x2="900" y2="314"/>
+          <line class="line" x1="1340" y1="224" x2="1280" y2="314"/>
+
+          <line class="line" x1="520" y1="386" x2="840" y2="670"/>
+          <line class="line" x1="900" y1="386" x2="940" y2="658"/>
+          <line class="line" x1="1280" y1="386" x2="1070" y2="670"/>
+          <line class="line" x1="620" y1="566" x2="840" y2="690"/>
+          <line class="line" x1="980" y1="566" x2="980" y2="658"/>
+          <line class="line" x1="1340" y1="566" x2="1130" y2="690"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <section id="orchestration">
+    <div class="section-head">
+      2) Use Case Orchestration (Lifecycle View)
+      <div class="section-sub">Custom pipeline layout that shows what includes what, and in which order real requests pass through the system.</div>
+    </div>
+    <div class="pad">
+      <div class="svg-wrap">
+        <svg viewBox="0 0 1800 860" role="img" aria-label="Use case orchestration flow">
+          <defs>
+            <marker id="arr2" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L10,3.5 L0,7 z" fill="#2f4668"/></marker>
+            <style>
+              .lane { fill:#fff; stroke:#85a0bf; stroke-width:1.5; rx:10; }
+              .laneLbl { font:700 14px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#244061; }
+              .n { fill:#fff; stroke:#6f89ad; stroke-width:1.4; rx:8; }
+              .nLbl { font:600 12px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#284466; }
+              .ln { stroke:#2f4668; stroke-width:1.5; fill:none; marker-end:url(#arr2); }
+              .inc { font:700 11px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill:#2b4365; }
+            </style>
+          </defs>
+
+          <rect class="lane" x="40" y="40" width="1720" height="130"/>
+          <text class="laneLbl" x="58" y="68">Ingress and Authentication</text>
+          <rect class="n" x="70" y="90" width="220" height="50"/><text class="nLbl" x="84" y="120">Receive API request</text>
+          <rect class="n" x="330" y="90" width="280" height="50"/><text class="nLbl" x="344" y="120">Validate JWT and tokenType</text>
+          <rect class="n" x="650" y="90" width="280" height="50"/><text class="nLbl" x="664" y="120">Load principal from user details service</text>
+          <rect class="n" x="970" y="90" width="280" height="50"/><text class="nLbl" x="984" y="120">Build permission context</text>
+          <rect class="n" x="1290" y="90" width="430" height="50"/><text class="nLbl" x="1304" y="120">Route to annotated endpoint (PermissionNode)</text>
+
+          <rect class="lane" x="40" y="200" width="1720" height="170"/>
+          <text class="laneLbl" x="58" y="228">Authorization Runtime</text>
+          <rect class="n" x="70" y="250" width="270" height="56"/><text class="nLbl" x="84" y="282">Resolve permission path</text>
+          <rect class="n" x="380" y="250" width="270" height="56"/><text class="nLbl" x="394" y="282">Evaluate Admin policy</text>
+          <rect class="n" x="690" y="250" width="270" height="56"/><text class="nLbl" x="704" y="282">Evaluate B2B policy</text>
+          <rect class="n" x="1000" y="250" width="270" height="56"/><text class="nLbl" x="1014" y="282">Evaluate Plan policy</text>
+          <rect class="n" x="1310" y="250" width="270" height="56"/><text class="nLbl" x="1324" y="282">Evaluate UserRole + fallback</text>
+          <rect class="n" x="1620" y="250" width="120" height="56"/><text class="nLbl" x="1632" y="282">Decision</text>
+
+          <rect class="lane" x="40" y="400" width="1720" height="190"/>
+          <text class="laneLbl" x="58" y="428">Business Execution</text>
+          <rect class="n" x="70" y="450" width="320" height="56"/><text class="nLbl" x="84" y="482">Workspace and company operations</text>
+          <rect class="n" x="430" y="450" width="320" height="56"/><text class="nLbl" x="444" y="482">Member and RBAC operations</text>
+          <rect class="n" x="790" y="450" width="320" height="56"/><text class="nLbl" x="804" y="482">Collaboration operations</text>
+          <rect class="n" x="1150" y="450" width="260" height="56"/><text class="nLbl" x="1164" y="482">Subscription operations</text>
+          <rect class="n" x="1450" y="450" width="290" height="56"/><text class="nLbl" x="1464" y="482">Registry administration</text>
+
+          <rect class="n" x="430" y="520" width="500" height="56"/><text class="nLbl" x="444" y="552">Quota check (override first, plan fallback)</text>
+          <rect class="n" x="970" y="520" width="500" height="56"/><text class="nLbl" x="984" y="552">Billing recalculation on override updates</text>
+
+          <rect class="lane" x="40" y="620" width="1720" height="180"/>
+          <text class="laneLbl" x="58" y="648">Response and Error Contracts</text>
+          <rect class="n" x="70" y="670" width="260" height="56"/><text class="nLbl" x="84" y="702">200/201/204 success</text>
+          <rect class="n" x="360" y="670" width="260" height="56"/><text class="nLbl" x="374" y="702">401 unauthorized</text>
+          <rect class="n" x="650" y="670" width="260" height="56"/><text class="nLbl" x="664" y="702">403 forbidden</text>
+          <rect class="n" x="940" y="670" width="260" height="56"/><text class="nLbl" x="954" y="702">402 quota exceeded</text>
+          <rect class="n" x="1230" y="670" width="260" height="56"/><text class="nLbl" x="1244" y="702">422 validation failed</text>
+          <rect class="n" x="1520" y="670" width="220" height="56"/><text class="nLbl" x="1534" y="702">500 generic fault</text>
+
+          <!-- connectors -->
+          <line class="ln" x1="290" y1="115" x2="330" y2="115"/>
+          <line class="ln" x1="610" y1="115" x2="650" y2="115"/>
+          <line class="ln" x1="930" y1="115" x2="970" y2="115"/>
+          <line class="ln" x1="1250" y1="115" x2="1290" y2="115"/>
+
+          <line class="ln" x1="1505" y1="140" x2="1505" y2="250"/>
+          <text class="inc" x="1514" y="204">include</text>
+
+          <line class="ln" x1="340" y1="278" x2="380" y2="278"/>
+          <line class="ln" x1="650" y1="278" x2="690" y2="278"/>
+          <line class="ln" x1="960" y1="278" x2="1000" y2="278"/>
+          <line class="ln" x1="1270" y1="278" x2="1310" y2="278"/>
+          <line class="ln" x1="1580" y1="278" x2="1620" y2="278"/>
+
+          <line class="ln" x1="1680" y1="306" x2="1680" y2="450"/>
+          <line class="ln" x1="1680" y1="478" x2="1450" y2="478"/>
+          <line class="ln" x1="1150" y1="478" x2="1110" y2="478"/>
+          <line class="ln" x1="790" y1="478" x2="750" y2="478"/>
+          <line class="ln" x1="430" y1="478" x2="390" y2="478"/>
+
+          <line class="ln" x1="590" y1="506" x2="590" y2="520"/>
+          <line class="ln" x1="1230" y1="506" x2="1230" y2="520"/>
+
+          <line class="ln" x1="900" y1="576" x2="900" y2="670"/>
+          <line class="ln" x1="900" y1="698" x2="910" y2="698"/>
+          <text class="inc" x="920" y="686">extend on failure type</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <section id="matrix">
+    <div class="section-head">
+      3) Inclusion, Extension, and Constraints Matrix
+      <div class="section-sub">Domain-level behavioral summary. This matrix is intentionally compact; complete stories are enumerated below.</div>
+    </div>
+    <div class="pad">
+      <table class="matrix" aria-label="use case matrix">
+        <thead>
+          <tr>
+            <th>Use Case Group</th>
+            <th>Primary Actor(s)</th>
+            <th>Includes (mandatory)</th>
+            <th>Extends (conditional)</th>
+            <th>Key Constraints</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="tag auth">Identity/Auth</span> Register, Login, Refresh</td>
+            <td>Account Owner, Platform Admin</td>
+            <td>JWT issue/validate, load user details</td>
+            <td>401 on invalid or wrong tokenType</td>
+            <td>CLIENT token for client routes, ADMIN token for admin routes</td>
+          </tr>
+          <tr>
+            <td><span class="tag runtime">Runtime Context</span> Build permission context</td>
+            <td>Any authenticated actor</td>
+            <td>Resolve actor user, account scope, company scope, B2B flag</td>
+            <td>Unauthorized when actor not eligible for scope</td>
+            <td>Context thread-local must be cleared after request</td>
+          </tr>
+          <tr>
+            <td><span class="tag workspace">Workspace</span> account/company/member operations</td>
+            <td>Account Owner, Account Member</td>
+            <td>Permission decision and ownership checks</td>
+            <td>402 when quota exceeded on create operations</td>
+            <td>Company and member actions bound to current account</td>
+          </tr>
+          <tr>
+            <td><span class="tag rbac">RBAC</span> role create/assign/grant/override</td>
+            <td>Account Owner, privileged member</td>
+            <td>UserRolePolicy evaluation, permission lookup by code</td>
+            <td>403 when role/permission outside account boundary</td>
+            <td>Direct overrides evaluated before role union</td>
+          </tr>
+          <tr>
+            <td><span class="tag collab">B2B Collaboration</span> initiate/accept/revoke/grant/revoke-permission</td>
+            <td>B2B Client User, Provider Manager</td>
+            <td>Active collaboration existence + delegated sliver check</td>
+            <td>403 if provider/client ownership mismatch</td>
+            <td>Provider controls delegated permission sliver</td>
+          </tr>
+          <tr>
+            <td><span class="tag plan">Plan and Subscription</span> plan composition and override updates</td>
+            <td>Platform Admin</td>
+            <td>PlanFeature mapping, override persistence, billing recalculation</td>
+            <td>Denied when subscription not active/trial</td>
+            <td>currentPrice snapshot must be updated after override changes</td>
+          </tr>
+          <tr>
+            <td><span class="tag registry">Registry</span> feature/module/permission catalog</td>
+            <td>Platform Admin, Startup Seeder</td>
+            <td>FeatureSeeder - PermissionSeeder - PlanSeeder ordering</td>
+            <td>Skip/warn when permission has no feature code mapping</td>
+            <td>Seeded structure from code; admin controls visibility, not core creation</td>
+          </tr>
+          <tr>
+            <td><span class="tag error">Error Contracts</span> standardized API failures</td>
+            <td>System</td>
+            <td>GlobalExceptionHandler + AuthEntryPoint + AccessDeniedHandler</td>
+            <td>500 fallback on unhandled exception</td>
+            <td>ApiError payload format must stay consistent across failures</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="catalog">
+    <div class="section-head">
+      4) Complete Implemented User Story Catalog (48 Stories)
+      <div class="section-sub">Every currently implemented platform endpoint is represented as a user story with actor, intent, endpoint, and permission surface.</div>
+    </div>
+    <div class="pad">
+      <table class="matrix" aria-label="complete user story catalog">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Actor(s)</th>
+            <th>User Story</th>
+            <th>Endpoint</th>
+            <th>Permission Surface</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="group"><td colspan="5">Identity and Authentication</td></tr>
+          <tr>
+            <td>US-001</td>
+            <td>Visitor</td>
+            <td class="tight">As a new user, I want to register an account so that I can access client workspace features.</td>
+            <td><span class="ep">POST /api/v1/auth/register</span></td>
+            <td>Public endpoint, validation enforced</td>
+          </tr>
+          <tr>
+            <td>US-002</td>
+            <td>Client User</td>
+            <td class="tight">As a client user, I want to log in so that I can receive client access and refresh tokens.</td>
+            <td><span class="ep">POST /api/v1/auth/login</span></td>
+            <td>Public endpoint, tokenType=CLIENT</td>
+          </tr>
+          <tr>
+            <td>US-003</td>
+            <td>Authenticated Client User</td>
+            <td class="tight">As an authenticated client user, I want to refresh my token so that I can maintain session continuity.</td>
+            <td><span class="ep">POST /api/v1/auth/refresh</span></td>
+            <td>Valid refresh token required</td>
+          </tr>
+          <tr>
+            <td>US-004</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to log in to the admin surface so that I can manage platform-level resources.</td>
+            <td><span class="ep">POST /api/admin/auth/login</span></td>
+            <td>Public endpoint, tokenType=ADMIN</td>
+          </tr>
+
+          <tr class="group"><td colspan="5">Platform Admin - Users and Roles</td></tr>
+          <tr>
+            <td>US-005</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to list admin users so that I can audit access to admin capabilities.</td>
+            <td><span class="ep">GET /api/admin/users</span></td>
+            <td>PermissionNode: users.read</td>
+          </tr>
+          <tr>
+            <td>US-006</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to create an admin user so that I can delegate platform operations.</td>
+            <td><span class="ep">POST /api/admin/users</span></td>
+            <td>PermissionNode: users.create</td>
+          </tr>
+          <tr>
+            <td>US-007</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to list admin roles so that I can review role definitions.</td>
+            <td><span class="ep">GET /api/admin/roles</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-008</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to view a single admin role so that I can inspect role details.</td>
+            <td><span class="ep">GET /api/admin/roles/{id}</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-009</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to create an admin role so that I can model permission bundles.</td>
+            <td><span class="ep">POST /api/admin/roles</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-010</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to deactivate an admin role so that obsolete role definitions are removed from active use.</td>
+            <td><span class="ep">DELETE /api/admin/roles/{id}</span></td>
+            <td>Admin token required</td>
+          </tr>
+
+          <tr class="group"><td colspan="5">Platform Admin - Registry and Catalog</td></tr>
+          <tr>
+            <td>US-011</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want the full registry inventory so that I can inspect internal and public feature states.</td>
+            <td><span class="ep">GET /api/admin/registry/inventory</span></td>
+            <td>PermissionNode: registry.read</td>
+          </tr>
+          <tr>
+            <td>US-012</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want the public catalog view so that I can review what is exposed for plan composition.</td>
+            <td><span class="ep">GET /api/admin/registry/catalog</span></td>
+            <td>PermissionNode: registry.catalog</td>
+          </tr>
+          <tr>
+            <td>US-013</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to change feature status so that I can control visibility and availability.</td>
+            <td><span class="ep">PATCH /api/admin/registry/features/{id}/status</span></td>
+            <td>PermissionNode: registry.update_status</td>
+          </tr>
+
+          <tr class="group"><td colspan="5">Platform Admin - Plans and Subscriptions</td></tr>
+          <tr>
+            <td>US-014</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to list plans so that I can inspect available commercial bundles.</td>
+            <td><span class="ep">GET /api/admin/plans</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-015</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to create a plan so that I can publish a new subscription offer.</td>
+            <td><span class="ep">POST /api/admin/plans</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-016</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to toggle plan active status so that I can open or retire plan sales.</td>
+            <td><span class="ep">PATCH /api/admin/plans/{planId}/active</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-017</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to list features assigned to a plan so that I can validate entitlement design.</td>
+            <td><span class="ep">GET /api/admin/plans/{planId}/features</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-018</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to assign a feature to a plan so that the plan exposes the intended capability.</td>
+            <td><span class="ep">POST /api/admin/plans/{planId}/features</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-019</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to update a plan feature so that quotas or add-on pricing can evolve safely.</td>
+            <td><span class="ep">PUT /api/admin/plans/{planId}/features/{planFeatureId}</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-020</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to remove a feature from a plan so that outdated entitlements are retired.</td>
+            <td><span class="ep">DELETE /api/admin/plans/{planId}/features/{planFeatureId}</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-021</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to read an account subscription so that I can support and audit account entitlements.</td>
+            <td><span class="ep">GET /api/admin/subscriptions/account/{accountId}</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-022</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to create an account subscription so that a customer can start on a selected plan.</td>
+            <td><span class="ep">POST /api/admin/subscriptions/account/{accountId}</span></td>
+            <td>Admin token required</td>
+          </tr>
+          <tr>
+            <td>US-023</td>
+            <td>Platform Admin</td>
+            <td class="tight">As a platform admin, I want to update account subscription overrides so that quotas and commercial terms can be tailored.</td>
+            <td><span class="ep">PATCH /api/admin/subscriptions/account/{accountId}/overrides</span></td>
+            <td>Admin token required</td>
+          </tr>
+
+          <tr class="group"><td colspan="5">Client Workspace - Account and Company</td></tr>
+          <tr>
+            <td>US-024</td>
+            <td>Account Owner, Account Member</td>
+            <td class="tight">As an account user, I want to view my account so that I can verify current workspace metadata.</td>
+            <td><span class="ep">GET /api/v1/accounts/me</span></td>
+            <td>PermissionNode: workspace.read</td>
+          </tr>
+          <tr>
+            <td>US-025</td>
+            <td>Account Owner</td>
+            <td class="tight">As an account owner, I want to deactivate my account so that I can retire a workspace safely.</td>
+            <td><span class="ep">DELETE /api/v1/accounts/me</span></td>
+            <td>PermissionNode: workspace.delete</td>
+          </tr>
+          <tr>
+            <td>US-026</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to create a company so that business units can be modeled.</td>
+            <td><span class="ep">POST /api/v1/companies</span></td>
+            <td>PermissionNode: company.create</td>
+          </tr>
+          <tr>
+            <td>US-027</td>
+            <td>Account Owner, Account Member</td>
+            <td class="tight">As an account user, I want to list companies so that I can navigate organization scope.</td>
+            <td><span class="ep">GET /api/v1/companies</span></td>
+            <td>PermissionNode: company.read_all</td>
+          </tr>
+          <tr>
+            <td>US-028</td>
+            <td>Account Owner, Account Member</td>
+            <td class="tight">As an account user, I want company details so that I can inspect profile and compliance fields.</td>
+            <td><span class="ep">GET /api/v1/companies/{id}</span></td>
+            <td>PermissionNode: company.read_single</td>
+          </tr>
+          <tr>
+            <td>US-029</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to update company details so that records stay current.</td>
+            <td><span class="ep">PATCH /api/v1/companies/{id}</span></td>
+            <td>PermissionNode: company.update</td>
+          </tr>
+          <tr>
+            <td>US-030</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to deactivate a company so that retired entities no longer receive operations.</td>
+            <td><span class="ep">DELETE /api/v1/companies/{id}</span></td>
+            <td>PermissionNode: company.delete</td>
+          </tr>
+
+          <tr class="group"><td colspan="5">Client Workspace - Members and RBAC</td></tr>
+          <tr>
+            <td>US-031</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to list members so that I can manage staffing and access posture.</td>
+            <td><span class="ep">GET /api/v1/members</span></td>
+            <td>PermissionNode: staff.read</td>
+          </tr>
+          <tr>
+            <td>US-032</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to add a member so that I can onboard users to the account.</td>
+            <td><span class="ep">POST /api/v1/members</span></td>
+            <td>PermissionNode: staff.add</td>
+          </tr>
+          <tr>
+            <td>US-033</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to deactivate a member so that access is removed for departing users.</td>
+            <td><span class="ep">DELETE /api/v1/members/{id}</span></td>
+            <td>PermissionNode: staff.delete</td>
+          </tr>
+          <tr>
+            <td>US-034</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to assign roles to a member so that permission bundles can be applied quickly.</td>
+            <td><span class="ep">POST /api/v1/members/{id}/roles</span></td>
+            <td>PermissionNode: staff.assign_role</td>
+          </tr>
+          <tr>
+            <td>US-035</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to grant or deny direct permission overrides so that exceptions can be modeled per member.</td>
+            <td><span class="ep">POST /api/v1/members/{id}/permissions</span></td>
+            <td>PermissionNode: staff.grant_permission</td>
+          </tr>
+          <tr>
+            <td>US-036</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to revoke a direct permission override so that temporary exceptions can be removed.</td>
+            <td><span class="ep">DELETE /api/v1/members/{id}/permissions/{permissionCode}</span></td>
+            <td>PermissionNode: staff.revoke_permission</td>
+          </tr>
+          <tr>
+            <td>US-037</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to view account roles so that I can audit available role templates.</td>
+            <td><span class="ep">GET /api/v1/roles</span></td>
+            <td>PermissionNode: rbac.view</td>
+          </tr>
+          <tr>
+            <td>US-038</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to create a custom role so that company-specific duties can be expressed.</td>
+            <td><span class="ep">POST /api/v1/roles</span></td>
+            <td>PermissionNode: rbac.create</td>
+          </tr>
+          <tr>
+            <td>US-039</td>
+            <td>Account Owner, Privileged Member</td>
+            <td class="tight">As a workspace admin, I want to add permissions to a role so that role capability can evolve over time.</td>
+            <td><span class="ep">POST /api/v1/roles/{id}/permissions</span></td>
+            <td>PermissionNode: rbac.grant</td>
+          </tr>
+
+          <tr class="group"><td colspan="5">B2B Collaboration</td></tr>
+          <tr>
+            <td>US-040</td>
+            <td>B2B Client User</td>
+            <td class="tight">As a client account user, I want to initiate collaboration with a provider so that cross-account services can start.</td>
+            <td><span class="ep">POST /api/v1/collaborations/initiate</span></td>
+            <td>PermissionNode: b2b.request</td>
+          </tr>
+          <tr>
+            <td>US-041</td>
+            <td>Provider Manager</td>
+            <td class="tight">As a provider manager, I want to accept a collaboration request so that client-provider linkage becomes active.</td>
+            <td><span class="ep">PATCH /api/v1/collaborations/{id}/accept</span></td>
+            <td>PermissionNode: b2b.accept</td>
+          </tr>
+          <tr>
+            <td>US-042</td>
+            <td>Provider Manager, Client Manager</td>
+            <td class="tight">As a collaboration stakeholder, I want to revoke a collaboration so that delegated access is terminated.</td>
+            <td><span class="ep">DELETE /api/v1/collaborations/{id}</span></td>
+            <td>PermissionNode: b2b.revoke</td>
+          </tr>
+          <tr>
+            <td>US-043</td>
+            <td>B2B Client User, Provider Manager</td>
+            <td class="tight">As a collaboration participant, I want to list my collaborations so that I can manage active relationships.</td>
+            <td><span class="ep">GET /api/v1/collaborations</span></td>
+            <td>PermissionNode: b2b.view</td>
+          </tr>
+          <tr>
+            <td>US-044</td>
+            <td>Provider Manager</td>
+            <td class="tight">As a provider manager, I want to list incoming collaboration requests so that I can approve or reject quickly.</td>
+            <td><span class="ep">GET /api/v1/collaborations/incoming</span></td>
+            <td>PermissionNode: b2b.view_incoming</td>
+          </tr>
+          <tr>
+            <td>US-045</td>
+            <td>Provider Manager</td>
+            <td class="tight">As a provider manager, I want to grant a delegated permission to a collaboration so that client access is explicitly bounded.</td>
+            <td><span class="ep">POST /api/v1/collaborations/{id}/permissions</span></td>
+            <td>PermissionNode: b2b.grant_permission</td>
+          </tr>
+          <tr>
+            <td>US-046</td>
+            <td>Provider Manager</td>
+            <td class="tight">As a provider manager, I want to revoke a delegated permission so that excess collaboration access is removed.</td>
+            <td><span class="ep">DELETE /api/v1/collaborations/{id}/permissions/{permissionCode}</span></td>
+            <td>PermissionNode: b2b.revoke_permission</td>
+          </tr>
+
+          <tr class="group"><td colspan="5">Client Plan and Subscription Visibility</td></tr>
+          <tr>
+            <td>US-047</td>
+            <td>Client User</td>
+            <td class="tight">As a client user, I want to list active plans so that I can understand available upgrade or downgrade options.</td>
+            <td><span class="ep">GET /api/v1/plans</span></td>
+            <td>Authenticated client request</td>
+          </tr>
+          <tr>
+            <td>US-048</td>
+            <td>Account Owner, Account Member</td>
+            <td class="tight">As an account user, I want to view my subscription so that I can inspect plan, status, and current pricing context.</td>
+            <td><span class="ep">GET /api/v1/subscriptions/me</span></td>
+            <td>PermissionNode: subscription.read</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="footer">
+    This HTML5 diagram set is intentionally split into complementary views to maintain readability while preserving full behavioral coverage, including all currently implemented endpoint-level platform user stories.
+  </div>
+</body>
+</html>
