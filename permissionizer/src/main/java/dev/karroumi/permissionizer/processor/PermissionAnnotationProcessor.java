@@ -688,9 +688,10 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             out.println(indent + "/** {@code \"" + node.dotPath() + "\"} */");
         }
 
-        out.println(indent + "public static final Permission PERMISSION = new Permission(\""
-                + node.dotPath() + "\");");
+        out.println(indent + "public static final String PATH = \"" + node.dotPath() + "\";");
+        out.println(indent + "public static String path() { return PATH; }");
         out.println();
+        out.println(indent + "public static final Permission PERMISSION = new Permission(PATH);");
         out.println(indent + "public static Permission permission() { return PERMISSION; }");
         out.println();
     }

@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1700" viewBox="0 0 2400 1700" role="img" aria-labelledby="title desc">
+  <title id="title">Subscription and Quota Sequence - Readable Version</title>
+  <desc id="desc">Professional sequence showing subscription override updates, billing recalculation and runtime quota enforcement branches.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f9fbff"/>
+      <stop offset="100%" stop-color="#edf3fb"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto">
+      <path d="M0,0 L12,4 L0,8 z" fill="#2c4363"/>
+    </marker>
+    <style>
+      .bg { fill: url(#bg); }
+      .title { font: 700 33px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #1f3350; }
+      .subtitle { font: 500 17px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #4d6689; }
+      .part { fill: #fff; stroke: #8097b6; stroke-width: 1.6; rx: 10; }
+      .partText { font: 700 14px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #223a59; }
+      .life { stroke: #95abca; stroke-width: 1.5; stroke-dasharray: 7 6; }
+      .msg { stroke: #2c4363; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .ret { stroke: #55739c; stroke-width: 1.5; fill: none; stroke-dasharray: 7 5; marker-end: url(#arrow); }
+      .txt { font: 600 12px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #243d5e; }
+      .alt { fill: #f4f8ff; stroke: #8ea5c4; stroke-width: 1.4; rx: 10; }
+      .altText { font: 700 13px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #2b4364; }
+      .note { fill: #fff; stroke: #98aecb; stroke-width: 1.3; rx: 10; }
+      .noteText { font: 500 12px 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif; fill: #365176; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="2400" height="1700"/>
+  <text class="title" x="36" y="52">Subscription Overrides, Billing, and Quota Enforcement Sequence</text>
+  <text class="subtitle" x="36" y="80">Two joined flows: admin override update and runtime quota gate during resource-creating operations.</text>
+
+  <!-- Participants -->
+  <g>
+    <rect class="part" x="40" y="110" width="220" height="52"/><text class="partText" x="58" y="141">Admin API Caller</text>
+    <rect class="part" x="300" y="110" width="240" height="52"/><text class="partText" x="318" y="141">SubscriptionAdminController</text>
+    <rect class="part" x="580" y="110" width="230" height="52"/><text class="partText" x="598" y="141">SubscriptionService</text>
+    <rect class="part" x="850" y="110" width="220" height="52"/><text class="partText" x="868" y="141">SubscriptionRepo</text>
+    <rect class="part" x="1110" y="110" width="210" height="52"/><text class="partText" x="1128" y="141">BillingCalculator</text>
+    <rect class="part" x="1360" y="110" width="220" height="52"/><text class="partText" x="1378" y="141">PlanFeatureRepo</text>
+    <rect class="part" x="1620" y="110" width="190" height="52"/><text class="partText" x="1640" y="141">Database</text>
+    <rect class="part" x="1850" y="110" width="190" height="52"/><text class="partText" x="1870" y="141">Client Request</text>
+    <rect class="part" x="2080" y="110" width="180" height="52"/><text class="partText" x="2104" y="141">QuotaEnforcer</text>
+  </g>
+
+  <!-- Lifelines -->
+  <g>
+    <line class="life" x1="150" y1="162" x2="150" y2="1560"/>
+    <line class="life" x1="420" y1="162" x2="420" y2="1560"/>
+    <line class="life" x1="695" y1="162" x2="695" y2="1560"/>
+    <line class="life" x1="960" y1="162" x2="960" y2="1560"/>
+    <line class="life" x1="1215" y1="162" x2="1215" y2="1560"/>
+    <line class="life" x1="1470" y1="162" x2="1470" y2="1560"/>
+    <line class="life" x1="1715" y1="162" x2="1715" y2="1560"/>
+    <line class="life" x1="1945" y1="162" x2="1945" y2="1560"/>
+    <line class="life" x1="2170" y1="162" x2="2170" y2="1560"/>
+  </g>
+
+  <!-- Flow A -->
+  <text class="txt" x="40" y="208">Flow A - Admin updates subscription overrides</text>
+
+  <line class="msg" x1="150" y1="240" x2="420" y2="240"/>
+  <text class="txt" x="170" y="232">1. PATCH overrides with featureCodes and quotaOverrides</text>
+
+  <line class="msg" x1="420" y1="278" x2="695" y2="278"/>
+  <text class="txt" x="440" y="270">2. updateOverrides(accountId,...)</text>
+
+  <line class="msg" x1="695" y1="316" x2="960" y2="316"/>
+  <text class="txt" x="720" y="308">3. findActiveByAccountId()</text>
+
+  <line class="msg" x1="960" y1="354" x2="1715" y2="354"/>
+  <text class="txt" x="1180" y="346">4. load subscription row</text>
+
+  <line class="ret" x1="1715" y1="392" x2="960" y2="392"/>
+  <line class="ret" x1="960" y1="430" x2="695" y2="430"/>
+  <text class="txt" x="720" y="422">5. active subscription aggregate</text>
+
+  <line class="msg" x1="695" y1="468" x2="1215" y2="468"/>
+  <text class="txt" x="760" y="460">6. calculate(subscription)</text>
+
+  <line class="msg" x1="1215" y1="506" x2="1470" y2="506"/>
+  <text class="txt" x="1238" y="498">7. plan feature lookups per override</text>
+
+  <line class="msg" x1="1470" y1="544" x2="1715" y2="544"/>
+  <text class="txt" x="1492" y="536">8. fetch addOnPrice and quotaConfigs</text>
+
+  <line class="ret" x1="1715" y1="582" x2="1470" y2="582"/>
+  <line class="ret" x1="1470" y1="620" x2="1215" y2="620"/>
+  <text class="txt" x="1240" y="612">9. plan feature data returned</text>
+
+  <line class="ret" x1="1215" y1="658" x2="695" y2="658"/>
+  <text class="txt" x="820" y="650">10. computed currentPrice</text>
+
+  <line class="msg" x1="695" y1="696" x2="960" y2="696"/>
+  <text class="txt" x="720" y="688">11. save(updated subscription)</text>
+
+  <line class="msg" x1="960" y1="734" x2="1715" y2="734"/>
+  <text class="txt" x="1180" y="726">12. persist custom_overrides + current_price</text>
+
+  <line class="ret" x1="1715" y1="772" x2="960" y2="772"/>
+  <line class="ret" x1="960" y1="810" x2="695" y2="810"/>
+  <line class="ret" x1="695" y1="848" x2="420" y2="848"/>
+  <line class="ret" x1="420" y1="886" x2="150" y2="886"/>
+  <text class="txt" x="172" y="878">13. response with updated subscription snapshot</text>
+
+  <!-- Flow B -->
+  <text class="txt" x="40" y="948">Flow B - Runtime quota check for create-company/create-member operations</text>
+
+  <line class="msg" x1="1945" y1="980" x2="2170" y2="980"/>
+  <text class="txt" x="1968" y="972">14. controller asks quotaEnforcer.check(...)</text>
+
+  <line class="msg" x1="2170" y1="1018" x2="960" y2="1018"/>
+  <text class="txt" x="1670" y="1010">15. load active/trial subscription</text>
+
+  <line class="ret" x1="960" y1="1056" x2="2170" y2="1056"/>
+  <text class="txt" x="1680" y="1048">16. subscription context</text>
+
+  <line class="msg" x1="2170" y1="1094" x2="1470" y2="1094"/>
+  <text class="txt" x="1860" y="1086">17. resolve plan feature quota entry for slot</text>
+
+  <line class="ret" x1="1470" y1="1132" x2="2170" y2="1132"/>
+  <text class="txt" x="1860" y="1124">18. effective limit (override first, else plan)</text>
+
+  <line class="msg" x1="2170" y1="1170" x2="1945" y2="1170"/>
+  <text class="txt" x="1980" y="1162">19. evaluate currentUsage supplier</text>
+
+  <line class="ret" x1="1945" y1="1208" x2="2170" y2="1208"/>
+  <text class="txt" x="1980" y="1200">20. usage count returned</text>
+
+  <line class="ret" x1="2170" y1="1246" x2="1945" y2="1246"/>
+  <text class="txt" x="1970" y="1238">21. proceed if usage below limit</text>
+
+  <!-- Alt branches -->
+  <rect class="alt" x="1480" y="1288" width="860" height="118"/>
+  <text class="altText" x="1500" y="1312">ALT A - Quota exceeded</text>
+  <text class="txt" x="1500" y="1336">A1. currentUsage &gt;= effectiveLimit -&gt; QuotaExceededException</text>
+  <text class="txt" x="1500" y="1358">A2. mapped to 402 ApiError with resource/limit/current/unit details</text>
+  <text class="txt" x="1500" y="1380">A3. mutation is blocked before service persistence path</text>
+
+  <rect class="alt" x="480" y="1288" width="940" height="118"/>
+  <text class="altText" x="500" y="1312">ALT B - No active subscription</text>
+  <text class="txt" x="500" y="1336">B1. subscription lookup fails in PlanPolicy/QuotaEnforcer</text>
+  <text class="txt" x="500" y="1358">B2. request denied by policy or not found exception path</text>
+  <text class="txt" x="500" y="1380">B3. API response standardized by GlobalExceptionHandler</text>
+
+  <rect class="note" x="40" y="1450" width="2300" height="190"/>
+  <text class="noteText" x="60" y="1478">Reading notes</text>
+  <text class="noteText" x="60" y="1502">1) currentPrice is a snapshot computed at override update time for deterministic billing state.</text>
+  <text class="noteText" x="60" y="1526">2) Plan entitlement and quota enforcement are separate checks: permission ceiling first, capacity guard second.</text>
+  <text class="noteText" x="60" y="1550">3) Overrides can both unlock extra features and change slot limits; BillingCalculator monetizes both effects.</text>
+  <text class="noteText" x="60" y="1574">4) The same subscription source drives policy authorization, quota decisions, and pricing.</text>
+
+  <text class="subtitle" x="36" y="1670">Readable baseline for product, billing, and platform authorization reviews.</text>
+</svg>
