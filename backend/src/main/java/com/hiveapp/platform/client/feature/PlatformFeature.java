@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.feature;
 
+import com.hiveapp.platform.generated.PlatformPermissions;
 import com.hiveapp.shared.quota.AppFeature;
 import com.hiveapp.shared.quota.QuotaSlot;
 
@@ -8,25 +9,25 @@ import java.util.List;
 /**
  * Platform-level features.
  *
- * Feature code convention: "platform.[classLevelPermissionNodeKey]"
- * Must match the @PermissionNode class key on each controller, prefixed by the
- * root platform node — so PermissionSeeder can join permissions to features automatically.
+ * Feature codes are derived from the Permissionizer-generated PlatformPermissions tree via PATH constants.
+ * If a controller key is renamed, PlatformPermissions.X.PATH will change and this enum
+ * will fail to compile — forcing an intentional update. Never hardcode the path strings.
  *
  * Quota slots only on WORKSPACE — all other platform features are boolean-access (no quotas).
  * ERP module features live in their own AppFeature enums (e.g. HrFeature, CrmFeature).
  */
 public enum PlatformFeature implements AppFeature {
 
-    WORKSPACE("platform.workspace", List.of(
+    WORKSPACE(PlatformPermissions.Workspace.PATH, List.of(
             QuotaSlot.count("members",   "persons"),
             QuotaSlot.count("companies", "companies")
     )),
 
-    COMPANY("platform.company",      List.of()),
-    STAFF("platform.staff",          List.of()),
-    SUBSCRIPTION("platform.subscription", List.of()),
-    B2B("platform.b2b",              List.of()),
-    RBAC("platform.rbac",            List.of());
+    COMPANY(PlatformPermissions.Company.PATH,           List.of()),
+    STAFF(PlatformPermissions.Staff.PATH,               List.of()),
+    SUBSCRIPTION(PlatformPermissions.Subscription.PATH, List.of()),
+    B2B(PlatformPermissions.B2b.PATH,                   List.of()),
+    RBAC(PlatformPermissions.Rbac.PATH,                 List.of());
 
     // Quota slot name constants (WORKSPACE only)
     public static final String MEMBERS   = "members";
