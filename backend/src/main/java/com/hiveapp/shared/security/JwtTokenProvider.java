@@ -7,6 +7,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -61,6 +62,7 @@ public class JwtTokenProvider {
         }
     }
 
+    @NonNull
     public UUID getUserIdFromToken(String token) {
         String subject = Jwts.parser()
                 .verifyWith(getSigningKey())
