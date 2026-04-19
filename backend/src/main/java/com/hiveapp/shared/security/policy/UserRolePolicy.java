@@ -27,6 +27,10 @@ public class UserRolePolicy implements PermissionPolicy {
             .orElse(null);
         if (member == null) return Decision.DENIED;
 
+        // Workspace owner has full access to everything in their workspace.
+        // Overrides and role assignments are irrelevant — owner can always act.
+        if (member.isOwner()) return Decision.GRANTED;
+
         // 1. Check Direct Overrides (Whitelist/Blacklist)
         var overrides = overrideRepository.findAllByMemberIdAndCompanyId(member.getId(), ctx.targetCompanyId());
         for (var o : overrides) {

@@ -40,27 +40,32 @@ public class PlanPolicy implements PermissionPolicy {
         var sub = subOpt.get();
 
         // 2. Check Plan Template Features
+        // ABSTAIN (not GRANTED) — entitlement gate only.
+        // Returning GRANTED here would stop the sieve and skip UserRolePolicy entirely,
+        // meaning any member in the workspace could access any plan feature regardless of role.
+        // Instead: ABSTAIN if entitled → UserRolePolicy decides who specifically can act.
+        //          DENIED if not entitled → account cannot use this feature at all.
         boolean inPlan = planFeatureRepository.existsByPlanIdAndPermissionCode(sub.getPlan().getId(), requested.path());
-        if (inPlan) return Decision.GRANTED;
+        if (inPlan) return Decision.ABSTAIN;
 
         // 3. Check Custom Overrides (Expanded Feature Snapshot)
         if (sub.getCustomOverrides() != null) {
             try {
                 SubscriptionOverrides overrides = objectMapper.convertValue(sub.getCustomOverrides(), SubscriptionOverrides.class);
-                
+
                 // Get the Feature Code for this Permission Brick
                 var permissionOpt = permissionRepository.findByCode(requested.path());
                 if (permissionOpt.isPresent()) {
                     String featureCode = permissionOpt.get().getFeature().getCode();
                     if (overrides.addedFeatures() != null && overrides.addedFeatures().contains(featureCode)) {
-                        return Decision.GRANTED;
+                        return Decision.ABSTAIN;
                     }
                 }
             } catch (Exception e) {
                 // Sieve continues on error
             }
         }
-        
+
         return Decision.DENIED;
     }
 }
