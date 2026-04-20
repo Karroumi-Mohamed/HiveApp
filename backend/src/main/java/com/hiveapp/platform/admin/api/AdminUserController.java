@@ -1,9 +1,12 @@
 package com.hiveapp.platform.admin.api;
 
 import com.hiveapp.platform.admin.domain.entity.AdminUser;
+import com.hiveapp.platform.admin.dto.AssignAdminRoleRequest;
+import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
 import com.hiveapp.platform.admin.service.AdminUserService;
-import dev.karroumi.permissionizer.PermissionNode;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,20 +16,43 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/admin/users")
 @RequiredArgsConstructor
-@PermissionNode(key = "users", description = "Platform User Management")
 public class AdminUserController {
 
     private final AdminUserService adminUserService;
 
     @GetMapping
-    @PermissionNode(key = "read", description = "List admin users")
     public ResponseEntity<List<AdminUser>> getAll() {
         return ResponseEntity.ok(adminUserService.getAllAdminUsers());
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<AdminUser> get(@PathVariable UUID id) {
+        return ResponseEntity.ok(adminUserService.getAdminUser(id));
+    }
+
     @PostMapping
-    @PermissionNode(key = "create", description = "Create admin user")
-    public ResponseEntity<AdminUser> create(@RequestParam UUID userId, @RequestParam boolean isSuperAdmin) {
-        return ResponseEntity.ok(adminUserService.createAdminUser(userId, isSuperAdmin));
+    @ResponseStatus(HttpStatus.CREATED)
+    public AdminUser create(@Valid @RequestBody CreateAdminUserRequest req) {
+        return adminUserService.createAdminUser(req.userId(), req.isSuperAdmin());
+    }
+
+    @PostMapping("/{id}/toggle-active")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void toggleActive(@PathVariable UUID id) {
+        adminUserService.toggleActive(id);
+    }
+
+    // ── Role assignments ──────────────────────────────────────────────────────
+
+    @PostMapping("/{id}/roles")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void assignRole(@PathVariable UUID id, @Valid @RequestBody AssignAdminRoleRequest req) {
+        adminUserService.assignRole(id, req.adminRoleId());
+    }
+
+    @DeleteMapping("/{id}/roles/{roleId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeRole(@PathVariable UUID id, @PathVariable UUID roleId) {
+        adminUserService.removeRole(id, roleId);
     }
 }
