@@ -1,7 +1,6 @@
 package com.hiveapp.platform.client.account.api;
 
 import org.springframework.web.bind.annotation.*;
-import com.hiveapp.platform.generated.PlatformPermissions;
 import com.hiveapp.platform.client.account.dto.AccountDto;
 import com.hiveapp.platform.client.account.mapper.AccountMapper;
 import com.hiveapp.platform.client.account.service.AccountShellService;
