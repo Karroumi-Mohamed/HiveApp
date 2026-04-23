@@ -2,7 +2,10 @@ package com.hiveapp.platform.client.member.domain.repository;
 
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 import java.util.UUID;
 import java.util.List;
 
@@ -13,4 +16,8 @@ public interface MemberRoleRepository extends JpaRepository<MemberRole, UUID> {
            "WHERE mr.member.id = :memberId AND p.code = :permissionCode " +
            "AND (mr.company.id = :companyId OR mr.company IS NULL)")
     boolean existsByMemberIdAndPermissionCode(UUID memberId, String permissionCode, UUID companyId);
+
+    @Modifying
+    @Query("DELETE FROM MemberRole mr WHERE mr.member.id = :memberId AND mr.role.id = :roleId")
+    void deleteByMemberIdAndRoleId(@Param("memberId") UUID memberId, @Param("roleId") UUID roleId);
 }
