@@ -8,5 +8,7 @@ import com.hiveapp.platform.client.member.dto.MemberDto;
 @Mapper(componentModel = "spring")
 public interface MemberMapper {
     @Mapping(source = "user.id", target = "userId")
+    @Mapping(source = "owner",  target = "isOwner")
+    @Mapping(source = "active", target = "isActive")
     MemberDto toDto(Member member);
 }

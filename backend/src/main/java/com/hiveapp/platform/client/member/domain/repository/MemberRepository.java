@@ -8,4 +8,5 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
     List<Member> findAllByAccountId(UUID accountId);
     Optional<Member> findByAccountIdAndUserId(UUID accountId, UUID userId);
     Optional<Member> findFirstByUserId(UUID userId);
+    boolean existsByAccountIdAndUserId(UUID accountId, UUID userId);
 }
