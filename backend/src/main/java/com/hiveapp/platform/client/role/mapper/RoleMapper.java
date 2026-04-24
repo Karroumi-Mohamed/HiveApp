@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 public interface RoleMapper {
     
     @Mapping(source = "permissions", target = "permissionCodes", qualifiedByName = "mapPermissionsToCodes")
+    @Mapping(source = "systemRole", target = "isSystemRole")
     RoleDto toDto(Role role);
 
     @Named("mapPermissionsToCodes")
