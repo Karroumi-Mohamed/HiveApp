@@ -10,7 +10,6 @@ import com.hiveapp.shared.exception.UnauthorizedException;
 
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
 
