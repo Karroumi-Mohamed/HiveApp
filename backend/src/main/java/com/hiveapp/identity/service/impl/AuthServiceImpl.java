@@ -1,8 +1,18 @@
 package com.hiveapp.identity.service.impl;
 
-import java.util.Map;
-
-import org.springframework.context.ApplicationEventPublisher;
+import com.hiveapp.identity.domain.entity.User;
+import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.dto.AuthResponse;
+import com.hiveapp.identity.dto.LoginRequest;
+import com.hiveapp.identity.dto.RefreshTokenRequest;
+import com.hiveapp.identity.dto.RegisterRequest;
+import com.hiveapp.identity.service.AuthService;
+import com.hiveapp.platform.client.account.service.WorkspaceProvisioningService;
+import com.hiveapp.shared.exception.DuplicateResourceException;
+import com.hiveapp.shared.exception.UnauthorizedException;
+import com.hiveapp.shared.security.JwtTokenProvider;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -10,37 +20,24 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.hiveapp.identity.domain.entity.User;
-import com.hiveapp.identity.domain.repository.UserRepository;
-import com.hiveapp.identity.dto.AuthResponse;
-import com.hiveapp.identity.dto.LoginRequest;
-import com.hiveapp.identity.dto.RefreshTokenRequest;
-import com.hiveapp.identity.dto.RegisterRequest;
-import com.hiveapp.identity.event.UserRegisteredEvent;
-import com.hiveapp.identity.service.AuthService;
-import com.hiveapp.shared.exception.DuplicateResourceException;
-import com.hiveapp.shared.exception.UnauthorizedException;
-import com.hiveapp.shared.security.JwtTokenProvider;
-
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.util.Map;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
-    final private UserRepository userRepository;
-    final private PasswordEncoder passwordEncoder;
-    final private JwtTokenProvider jwtTokenProvider;
-    final private AuthenticationManager authenticationManager;
-    final private ApplicationEventPublisher eventPublisher;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtTokenProvider jwtTokenProvider;
+    private final AuthenticationManager authenticationManager;
+    private final WorkspaceProvisioningService workspaceProvisioningService;
 
     @Override
     @Transactional
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
-            throw new DuplicateResourceException("User", "Email", request.email());
+            throw new DuplicateResourceException("User", "email", request.email());
         }
 
         User user = User.builder()
@@ -51,10 +48,12 @@ public class AuthServiceImpl implements AuthService {
                 .phone(request.phone())
                 .build();
 
-        userRepository.save(user);
+        user = userRepository.save(user);
         log.info("Registered new user: {}", user.getEmail());
 
-        eventPublisher.publishEvent(new UserRegisteredEvent(user.getId(), user.getEmail()));
+        // Provision workspace synchronously — no events needed
+        workspaceProvisioningService.provision(user.getId(), user.getEmail());
+
         return issueTokens(user);
     }
 
@@ -63,6 +62,10 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.email())
                 .orElseThrow(() -> new UnauthorizedException("Invalid email or password"));
+
+        if (!user.isActive()) {
+            throw new UnauthorizedException("Account is deactivated");
+        }
 
         try {
             authenticationManager.authenticate(
@@ -83,12 +86,18 @@ public class AuthServiceImpl implements AuthService {
         }
 
         var userId = jwtTokenProvider.getUserIdFromToken(request.refreshToken());
-                var user = userRepository.findById(userId)
+        var user = userRepository.findById(userId)
                 .orElseThrow(() -> new UnauthorizedException("User not found"));
+
+        if (!user.isActive()) {
+            throw new UnauthorizedException("Account is deactivated");
+        }
 
         log.info("Token refreshed for user: {}", user.getEmail());
         return issueTokens(user);
     }
+
+    // ── Internals ─────────────────────────────────────────────────────────────
 
     private AuthResponse issueTokens(User user) {
         var claims = Map.<String, Object>of("tokenType", "CLIENT");
@@ -97,5 +106,4 @@ public class AuthServiceImpl implements AuthService {
         long expiresIn = jwtTokenProvider.getAccessTokenExpiration();
         return AuthResponse.of(accessToken, refreshToken, expiresIn);
     }
-
 }

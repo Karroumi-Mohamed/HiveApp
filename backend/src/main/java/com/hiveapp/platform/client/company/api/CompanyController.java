@@ -1,10 +1,8 @@
 package com.hiveapp.platform.client.company.api;
 
 import org.springframework.web.bind.annotation.*;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 
-import com.hiveapp.platform.generated.PlatformPermissions;
 import com.hiveapp.platform.client.company.dto.CompanyDto;
 import com.hiveapp.platform.client.company.dto.CreateCompanyRequest;
 import com.hiveapp.platform.client.company.dto.UpdateCompanyRequest;
@@ -15,7 +13,6 @@ import com.hiveapp.shared.quota.QuotaEnforcer;
 import com.hiveapp.platform.client.feature.PlatformFeature;
 import com.hiveapp.shared.exception.UnauthorizedException;
 
-import dev.karroumi.permissionizer.PermissionGuard;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import jakarta.validation.Valid;

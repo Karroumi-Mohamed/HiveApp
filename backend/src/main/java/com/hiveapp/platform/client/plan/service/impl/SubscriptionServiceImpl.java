@@ -10,6 +10,7 @@ import com.hiveapp.platform.client.plan.service.BillingCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.quota.QuotaOverride;
+import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@PermissionNode(key = "subscription", description = "Subscription Management")
 public class SubscriptionServiceImpl implements SubscriptionService {
 
     private final SubscriptionRepository subscriptionRepository;
@@ -28,6 +30,7 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     private final BillingCalculator billingCalculator;
 
     @Override
+    @PermissionNode(key = "read", description = "View my subscription")
     public Subscription getSubscription(UUID accountId) {
         return subscriptionRepository.findActiveByAccountId(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Subscription", "accountId", accountId));
@@ -61,10 +64,7 @@ public class SubscriptionServiceImpl implements SubscriptionService {
                 quotaOverrides != null ? quotaOverrides : List.of()
         );
         sub.setCustomOverrides(overrides);
-
-        // Recalculate and snapshot the new price
         sub.setCurrentPrice(billingCalculator.calculate(sub));
-
         return subscriptionRepository.save(sub);
     }
 }
