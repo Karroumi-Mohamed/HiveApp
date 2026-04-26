@@ -10,6 +10,7 @@ import com.hiveapp.platform.client.plan.service.PlanAdminService;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
+import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@PermissionNode(key = "plans", description = "Plan Catalogue Management")
 public class PlanAdminServiceImpl implements PlanAdminService {
 
     private final PlanRepository planRepository;
@@ -27,12 +29,14 @@ public class PlanAdminServiceImpl implements PlanAdminService {
     private final FeatureRepository featureRepository;
 
     @Override
+    @PermissionNode(key = "list", description = "List all plans")
     public List<Plan> listPlans() {
         return planRepository.findAll();
     }
 
     @Override
     @Transactional
+    @PermissionNode(key = "create", description = "Create a new plan")
     public Plan createPlan(CreatePlanRequest request) {
         if (planRepository.findByCode(request.code()).isPresent()) {
             throw new DuplicateResourceException("Plan", "code", request.code());
@@ -48,6 +52,7 @@ public class PlanAdminServiceImpl implements PlanAdminService {
 
     @Override
     @Transactional
+    @PermissionNode(key = "toggle_active", description = "Activate or deactivate a plan")
     public Plan toggleActive(UUID planId, boolean active) {
         var plan = planRepository.findById(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
@@ -56,6 +61,7 @@ public class PlanAdminServiceImpl implements PlanAdminService {
     }
 
     @Override
+    @PermissionNode(key = "list_features", description = "List features assigned to a plan")
     public List<PlanFeature> listPlanFeatures(UUID planId) {
         if (!planRepository.existsById(planId)) {
             throw new ResourceNotFoundException("Plan", "id", planId);
@@ -65,17 +71,16 @@ public class PlanAdminServiceImpl implements PlanAdminService {
 
     @Override
     @Transactional
+    @PermissionNode(key = "assign_feature", description = "Assign a feature to a plan")
     public PlanFeature assignFeature(UUID planId, AssignPlanFeatureRequest request) {
         var plan = planRepository.findById(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         var feature = featureRepository.findByCode(request.featureCode())
                 .orElseThrow(() -> new ResourceNotFoundException("Feature", "code", request.featureCode()));
 
-        // Prevent duplicate assignments
         planFeatureRepository.findByPlanIdAndFeature_Code(planId, request.featureCode())
                 .ifPresent(existing -> {
-                    throw new DuplicateResourceException("PlanFeature",
-                            "featureCode", request.featureCode());
+                    throw new DuplicateResourceException("PlanFeature", "featureCode", request.featureCode());
                 });
 
         PlanFeature pf = new PlanFeature();
@@ -88,6 +93,7 @@ public class PlanAdminServiceImpl implements PlanAdminService {
 
     @Override
     @Transactional
+    @PermissionNode(key = "update_feature", description = "Update a plan's feature quota/price config")
     public PlanFeature updateFeature(UUID planId, UUID planFeatureId, AssignPlanFeatureRequest request) {
         var pf = planFeatureRepository.findById(planFeatureId)
                 .orElseThrow(() -> new ResourceNotFoundException("PlanFeature", "id", planFeatureId));
@@ -101,6 +107,7 @@ public class PlanAdminServiceImpl implements PlanAdminService {
 
     @Override
     @Transactional
+    @PermissionNode(key = "remove_feature", description = "Remove a feature from a plan")
     public void removeFeature(UUID planId, UUID planFeatureId) {
         var pf = planFeatureRepository.findById(planFeatureId)
                 .orElseThrow(() -> new ResourceNotFoundException("PlanFeature", "id", planFeatureId));

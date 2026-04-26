@@ -14,6 +14,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.MappedSuperclass;
 import lombok.Getter;
+import org.springframework.lang.NonNull;
 
 @Getter
 @MappedSuperclass
@@ -22,6 +23,7 @@ public class BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @Getter(onMethod_ = {@NonNull})
     private UUID id;
 
     @CreatedDate
