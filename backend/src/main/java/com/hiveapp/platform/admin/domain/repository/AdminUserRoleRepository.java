@@ -7,8 +7,10 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.UUID;
+import java.util.List;
 
 public interface AdminUserRoleRepository extends JpaRepository<AdminUserRole, UUID> {
+    List<AdminUserRole> findAllByAdminUserId(UUID adminUserId);
 
     boolean existsByAdminUserIdAndAdminRoleId(UUID adminUserId, UUID adminRoleId);
 

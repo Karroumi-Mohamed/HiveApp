@@ -3,6 +3,7 @@ import com.hiveapp.platform.admin.domain.entity.AdminUser;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import java.util.List;
 import java.util.UUID;
 import java.util.Optional;
 
@@ -23,4 +24,9 @@ public interface AdminUserRepository extends JpaRepository<AdminUser, UUID> {
            "AND aur.adminRole.isActive = true")
     boolean hasPermission(@Param("adminUserId") UUID adminUserId,
                           @Param("permissionCode") String permissionCode);
+
+    @Query("SELECT arp.adminPermission.code FROM AdminUserRole aur " +
+           "JOIN AdminRolePermission arp ON arp.adminRole = aur.adminRole " +
+           "WHERE aur.adminUser.id = :adminUserId AND aur.adminRole.isActive = true")
+    List<String> findAllPermissionCodes(@Param("adminUserId") UUID adminUserId);
 }

@@ -10,6 +10,7 @@ public interface MemberService {
     Member getMember(UUID id);
     List<Member> getAccountMembers(UUID accountId);
     Member addMember(UUID accountId, UUID userId, String displayName);
+    com.hiveapp.platform.client.member.dto.MemberPermissionDto getEffectivePermissions(UUID userId, UUID accountId);
     Member updateMember(UUID memberId, String displayName);
     void deactivateMember(UUID id);
 

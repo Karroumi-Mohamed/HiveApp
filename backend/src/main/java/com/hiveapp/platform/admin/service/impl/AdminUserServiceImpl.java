@@ -5,7 +5,9 @@ import com.hiveapp.platform.admin.domain.entity.AdminUserRole;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
+import com.hiveapp.platform.admin.domain.repository.AdminPermissionRepository;
 import com.hiveapp.platform.admin.service.AdminUserService;
+import com.hiveapp.platform.admin.dto.AdminMeDto;
 import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
@@ -14,8 +16,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +30,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     private final AdminUserRepository adminUserRepository;
     private final AdminRoleRepository adminRoleRepository;
     private final AdminUserRoleRepository adminUserRoleRepository;
+    private final AdminPermissionRepository adminPermissionRepository;
     private final IdentityService identityService;
 
     @Override
@@ -85,5 +91,32 @@ public class AdminUserServiceImpl implements AdminUserService {
     @PermissionNode(key = "remove_role", description = "Remove admin role from admin user")
     public void removeRole(UUID adminUserId, UUID adminRoleId) {
         adminUserRoleRepository.deleteByAdminUserIdAndAdminRoleId(adminUserId, adminRoleId);
+    }
+
+    // ── No @PermissionNode — internal bootstrap endpoint, no sieve needed ──
+
+    @Override
+    @Transactional(readOnly = true)
+    public AdminMeDto getAdminDetails(UUID userId) {
+        var admin = adminUserRepository.findByUserId(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("AdminUser", "userId", userId));
+
+        Set<String> permissions;
+        if (admin.isSuperAdmin()) {
+            permissions = adminPermissionRepository.findAll()
+                    .stream()
+                    .map(p -> p.getCode())
+                    .collect(Collectors.toSet());
+        } else {
+            permissions = new HashSet<>(adminUserRepository.findAllPermissionCodes(admin.getId()));
+        }
+
+        return new AdminMeDto(
+                admin.getId(),
+                admin.getUser().getEmail(),
+                admin.isSuperAdmin(),
+                admin.isActive(),
+                permissions
+        );
     }
 }
