@@ -7,8 +7,10 @@ import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
 import com.hiveapp.platform.client.member.service.MemberService;
+import com.hiveapp.platform.client.member.dto.MemberPermissionDto;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.role.domain.entity.RolePermission;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.identity.domain.repository.UserRepository;
@@ -18,8 +20,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -147,5 +152,43 @@ public class MemberServiceImpl implements MemberService {
     @PermissionNode(key = "read_overrides", description = "View member permission overrides")
     public List<MemberPermissionOverride> getMemberOverrides(UUID memberId, UUID companyId) {
         return memberOverrideRepository.findAllByMemberIdAndCompanyId(memberId, companyId);
+    }
+
+    // ── No @PermissionNode — internal bootstrap endpoint, no sieve needed ──
+
+    @Override
+    @Transactional(readOnly = true)
+    public MemberPermissionDto getEffectivePermissions(UUID userId, UUID accountId) {
+        var member = memberRepository.findByAccountIdAndUserId(accountId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member", "userId", userId));
+
+        if (member.isOwner()) {
+            // Owner bypass: return every client permission path
+            var all = permissionRepository.findAll()
+                    .stream()
+                    .map(p -> p.getCode())
+                    .collect(Collectors.toSet());
+            return new MemberPermissionDto(member.getId(), true, all);
+        }
+
+        // 1. Union of all role-granted permissions (all company scopes)
+        Set<String> permissions = new HashSet<>();
+        for (MemberRole mr : memberRoleRepository.findAllByMemberId(member.getId())) {
+            for (RolePermission rp : mr.getRole().getPermissions()) {
+                permissions.add(rp.getPermission().getCode());
+            }
+        }
+
+        // 2. Apply direct overrides across all company scopes
+        //    GRANT overrides add, DENY overrides remove — matches sieve logic
+        for (MemberPermissionOverride o : memberOverrideRepository.findAllByMemberId(member.getId())) {
+            if (o.isDecision()) {
+                permissions.add(o.getPermission().getCode());
+            } else {
+                permissions.remove(o.getPermission().getCode());
+            }
+        }
+
+        return new MemberPermissionDto(member.getId(), false, permissions);
     }
 }
