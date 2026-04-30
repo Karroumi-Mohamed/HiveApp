@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
 
 /**
@@ -31,6 +32,7 @@ public final class PermissionGuard {
     private static volatile boolean dryRun = false;
     private static volatile boolean exactMatching = false;
     private static volatile BiConsumer<Permission, Collection<String>> denialListener;
+    private static volatile Supplier<?> contextSupplier = () -> null;
     private static final AtomicBoolean initialized = new AtomicBoolean(false);
 
     // Thread-local override for testing
@@ -73,6 +75,7 @@ public final class PermissionGuard {
         private boolean dryRunFlag = false;
         private boolean exactMatchFlag = false;
         private BiConsumer<Permission, Collection<String>> listener;
+        private Supplier<?> contextSupplier = () -> null;
         private boolean skipVerify = false;
 
         private Builder() {
@@ -103,6 +106,18 @@ public final class PermissionGuard {
             return this;
         }
 
+        public Builder contextSupplier(Supplier<?> contextSupplier) {
+            if (contextSupplier == null) {
+                throw new IllegalArgumentException("contextSupplier cannot be null");
+            }
+            this.contextSupplier = contextSupplier;
+            return this;
+        }
+
+        public Builder withContextSupplier(Supplier<?> contextSupplier) {
+            return contextSupplier(contextSupplier);
+        }
+
         public Builder skipVerification() {
             this.skipVerify = true;
             return this;
@@ -117,6 +132,7 @@ public final class PermissionGuard {
             PermissionGuard.dryRun = dryRunFlag;
             PermissionGuard.exactMatching = exactMatchFlag;
             PermissionGuard.denialListener = listener;
+            PermissionGuard.contextSupplier = contextSupplier;
 
             if (autoGuard) {
                 activateAutoGuard();
@@ -136,7 +152,7 @@ public final class PermissionGuard {
     // ──────────────────────────────────────────────
 
     public static void check(Permission permission) {
-        check(permission, null);
+        check(permission, currentContext());
     }
 
     public static void check(Permission permission, Object context) {
@@ -155,7 +171,7 @@ public final class PermissionGuard {
     }
 
     public static boolean has(Permission permission) {
-        return has(permission, null);
+        return has(permission, currentContext());
     }
 
     public static boolean has(Permission permission, Object context) {
@@ -173,6 +189,10 @@ public final class PermissionGuard {
             if (decision == PermissionPolicy.Decision.DENIED) return false;
         }
         return false;
+    }
+
+    public static Object currentContext() {
+        return contextSupplier.get();
     }
 
     /**
@@ -260,6 +280,7 @@ public final class PermissionGuard {
         dryRun = false;
         exactMatching = false;
         denialListener = null;
+        contextSupplier = () -> null;
         initialized.set(false);
         testPermissions.remove();
     }
