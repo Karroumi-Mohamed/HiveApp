@@ -1,5 +1,6 @@
 package com.hiveapp.platform.registry.domain.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.quota.QuotaSlot;
@@ -27,6 +28,7 @@ import java.util.ArrayList;
 @Getter @Setter
 public class Feature extends BaseEntity {
 
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "module_id", nullable = false)
     private Module module;

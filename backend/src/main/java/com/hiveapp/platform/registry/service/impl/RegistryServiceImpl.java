@@ -34,7 +34,13 @@ public class RegistryServiceImpl implements RegistryService {
         return moduleRepository.findAll().stream()
                 .filter(Module::isActive)
                 .filter(m -> m.getFeatures().stream()
-                        .anyMatch(f -> f.getStatus() == FeatureStatus.PUBLIC && f.isActive()))
+                        .anyMatch(f -> (f.getStatus() == FeatureStatus.PUBLIC || f.getStatus() == FeatureStatus.BETA) && f.isActive()))
+                .peek(m -> {
+                    // Filter features within the module to only PUBLIC and BETA
+                    m.setFeatures(m.getFeatures().stream()
+                            .filter(f -> (f.getStatus() == FeatureStatus.PUBLIC || f.getStatus() == FeatureStatus.BETA) && f.isActive())
+                            .toList());
+                })
                 .toList();
     }
 

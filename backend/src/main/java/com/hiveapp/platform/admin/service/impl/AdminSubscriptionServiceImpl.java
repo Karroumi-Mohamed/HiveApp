@@ -2,6 +2,7 @@ package com.hiveapp.platform.admin.service.impl;
 
 import com.hiveapp.platform.admin.service.AdminSubscriptionService;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.shared.quota.QuotaOverride;
 import dev.karroumi.permissionizer.PermissionNode;
