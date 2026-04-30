@@ -1,6 +1,7 @@
 package com.hiveapp.shared.security;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -21,6 +22,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import dev.karroumi.permissionizer.PermissionGuard;
 import dev.karroumi.permissionizer.PermissionPolicy;
@@ -29,6 +33,7 @@ import com.hiveapp.shared.security.policy.B2bCollaborationPolicy;
 import com.hiveapp.shared.security.policy.PlanPolicy;
 import com.hiveapp.shared.security.policy.UserRolePolicy;
 import com.hiveapp.shared.security.context.ContextDetectionFilter;
+import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -39,9 +44,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class SecurityConfig {
     private final JwtTokenProvider jwtTokenProvider;
-    private final UserDetailsService userDetailsService;
-    @org.springframework.beans.factory.annotation.Qualifier("adminUserDetailsService")
-    private final UserDetailsService adminUserDetailsService;
+    private final com.hiveapp.identity.infrastructure.security.UserDetailsServiceImpl userDetailsService;
+    private final com.hiveapp.platform.admin.infrastructure.security.AdminUserDetailsServiceImpl adminUserDetailsService;
     private final AuthEntryPoint authEntryPoint;
     private final AccessDeniedHandler accessDeniedHandler;
     
@@ -50,6 +54,7 @@ public class SecurityConfig {
     private final PlanPolicy planPolicy;
     private final UserRolePolicy userRolePolicy;
     private final ContextDetectionFilter contextDetectionFilter;
+    private final Supplier<HiveAppPermissionContext> permissionContextSupplier;
 
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
@@ -85,6 +90,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> 
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
@@ -115,6 +121,19 @@ public class SecurityConfig {
     }
 
     @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:3000"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"));
+        configuration.setExposedHeaders(List.of("Access-Control-Allow-Origin", "Access-Control-Allow-Credentials"));
+        configuration.setAllowCredentials(true);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+
+    @Bean
     public AuthenticationProvider authenticationProvider(){
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
         provider.setUserDetailsService(userDetailsService);
@@ -142,6 +161,7 @@ public class SecurityConfig {
             .addPolicy(b2bPolicy)
             .addPolicy(planPolicy)
             .addPolicy(userRolePolicy)
+            .contextSupplier(permissionContextSupplier)
             .addPolicy(PermissionPolicy.fromProvider(() -> {
                 var auth = SecurityContextHolder.getContext().getAuthentication();
                 if (auth == null || !auth.isAuthenticated()) {
@@ -151,7 +171,6 @@ public class SecurityConfig {
                     .map(GrantedAuthority::getAuthority)
                     .toList();
             }))
-            .withAutoGuard()
             .skipVerification() 
             .initialize();
     }

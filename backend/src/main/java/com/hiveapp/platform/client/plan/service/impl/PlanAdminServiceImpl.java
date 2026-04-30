@@ -8,6 +8,7 @@ import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
+import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import dev.karroumi.permissionizer.PermissionNode;
@@ -77,6 +78,10 @@ public class PlanAdminServiceImpl implements PlanAdminService {
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         var feature = featureRepository.findByCode(request.featureCode())
                 .orElseThrow(() -> new ResourceNotFoundException("Feature", "code", request.featureCode()));
+
+        if (feature.getStatus() == FeatureStatus.INTERNAL || feature.getStatus() == FeatureStatus.DEPRECATED) {
+            throw new IllegalArgumentException("Cannot assign feature with status " + feature.getStatus() + " to a plan.");
+        }
 
         planFeatureRepository.findByPlanIdAndFeature_Code(planId, request.featureCode())
                 .ifPresent(existing -> {

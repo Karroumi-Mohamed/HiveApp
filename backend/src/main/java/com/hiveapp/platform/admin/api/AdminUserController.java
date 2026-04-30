@@ -1,6 +1,7 @@
 package com.hiveapp.platform.admin.api;
 
 import com.hiveapp.platform.admin.domain.entity.AdminUser;
+import com.hiveapp.platform.admin.dto.AdminUserResponseDto;
 import com.hiveapp.platform.admin.dto.AssignAdminRoleRequest;
 import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
 import com.hiveapp.platform.admin.service.AdminUserService;
@@ -21,19 +22,22 @@ public class AdminUserController {
     private final AdminUserService adminUserService;
 
     @GetMapping
-    public ResponseEntity<List<AdminUser>> getAll() {
-        return ResponseEntity.ok(adminUserService.getAllAdminUsers());
+    public ResponseEntity<List<AdminUserResponseDto>> getAll() {
+        var dtos = adminUserService.getAllAdminUsers().stream()
+                .map(this::toDto)
+                .toList();
+        return ResponseEntity.ok(dtos);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<AdminUser> get(@PathVariable UUID id) {
-        return ResponseEntity.ok(adminUserService.getAdminUser(id));
+    public ResponseEntity<AdminUserResponseDto> get(@PathVariable UUID id) {
+        return ResponseEntity.ok(toDto(adminUserService.getAdminUser(id)));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public AdminUser create(@Valid @RequestBody CreateAdminUserRequest req) {
-        return adminUserService.createAdminUser(req.userId(), req.isSuperAdmin());
+    public AdminUserResponseDto create(@Valid @RequestBody CreateAdminUserRequest req) {
+        return toDto(adminUserService.createAdminUser(req.userId(), req.isSuperAdmin()));
     }
 
     @PostMapping("/{id}/toggle-active")
@@ -54,5 +58,9 @@ public class AdminUserController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeRole(@PathVariable UUID id, @PathVariable UUID roleId) {
         adminUserService.removeRole(id, roleId);
+    }
+
+    private AdminUserResponseDto toDto(AdminUser u) {
+        return new AdminUserResponseDto(u.getId(), u.getUser().getId(), u.getUser().getEmail(), u.isSuperAdmin(), u.isActive());
     }
 }

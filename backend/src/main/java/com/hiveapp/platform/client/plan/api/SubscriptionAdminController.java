@@ -9,7 +9,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
+
+import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
+import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 
 @RestController
 @RequestMapping("/api/admin/subscriptions")
@@ -20,8 +24,21 @@ public class SubscriptionAdminController {
     private final SubscriptionMapper subscriptionMapper;
 
     @GetMapping("/account/{accountId}")
-    public SubscriptionDto get(@PathVariable UUID accountId) {
-        return subscriptionMapper.toDto(adminSubscriptionService.getSubscription(accountId));
+    public AdminSubscriptionDto get(@PathVariable UUID accountId) {
+        return toAdminDto(adminSubscriptionService.getSubscription(accountId));
+    }
+
+    private AdminSubscriptionDto toAdminDto(Subscription sub) {
+        return new AdminSubscriptionDto(
+                sub.getId(),
+                sub.getAccount().getId(),
+                sub.getAccount().getName(),
+                sub.getPlan().getCode(),
+                sub.getPlan().getName(),
+                sub.getStatus(),
+                sub.getCurrentPrice(),
+                sub.getCurrentPeriodEnd()
+        );
     }
 
     @PostMapping("/account/{accountId}")

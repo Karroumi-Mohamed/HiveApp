@@ -1,5 +1,6 @@
 package com.hiveapp.platform.registry.domain.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -10,6 +11,7 @@ import lombok.Setter;
 @Getter @Setter
 public class Permission extends BaseEntity {
 
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "feature_id", nullable = false)
     private Feature feature;
