@@ -1,11 +1,11 @@
 package com.hiveapp.shared.quota;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
-import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
+import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
+import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,9 +30,9 @@ public class QuotaEnforcer {
 
     private final PlanFeatureRepository planFeatureRepository;
     private final SubscriptionRepository subscriptionRepository;
-    private final ObjectMapper objectMapper;
+    private final SubscriptionOverrideReader subscriptionOverrideReader;
 
-    public void check(AppFeature feature, String slot, UUID accountId, LongSupplier currentUsage) {
+    public void check(FeatureDefinition feature, String slot, UUID accountId, LongSupplier currentUsage) {
         var subscription = subscriptionRepository
                 .findByAccountIdAndStatus(accountId, SubscriptionStatus.ACTIVE)
                 .or(() -> subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.TRIALING))
@@ -89,7 +89,7 @@ public class QuotaEnforcer {
 
         if (sub.getCustomOverrides() == null) return java.util.Optional.empty();
         try {
-            var overrides = objectMapper.convertValue(sub.getCustomOverrides(), SubscriptionOverrides.class);
+            var overrides = subscriptionOverrideReader.read(sub.getCustomOverrides());
             if (overrides.quotaOverrides() == null) return java.util.Optional.empty();
 
             var match = overrides.quotaOverrides().stream()
