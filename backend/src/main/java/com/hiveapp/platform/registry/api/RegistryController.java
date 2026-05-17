@@ -2,6 +2,9 @@ package com.hiveapp.platform.registry.api;
 
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Module;
+import com.hiveapp.platform.registry.dto.FeatureCatalogAudience;
+import com.hiveapp.platform.registry.dto.PermissionCatalogAudience;
+import com.hiveapp.platform.registry.dto.RegistryModuleReadModelDto;
 import com.hiveapp.platform.registry.service.RegistryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +28,20 @@ public class RegistryController {
     @GetMapping("/catalog")
     public ResponseEntity<List<Module>> getCatalog() {
         return ResponseEntity.ok(registryService.getPublicCatalog());
+    }
+
+    @GetMapping("/feature-catalog")
+    public ResponseEntity<List<RegistryModuleReadModelDto>> getFeatureCatalog(
+            @RequestParam(defaultValue = "ALL") FeatureCatalogAudience audience
+    ) {
+        return ResponseEntity.ok(registryService.getFeatureCatalog(audience));
+    }
+
+    @GetMapping("/permission-catalog")
+    public ResponseEntity<List<RegistryModuleReadModelDto>> getPermissionCatalog(
+            @RequestParam(defaultValue = "ALL") PermissionCatalogAudience audience
+    ) {
+        return ResponseEntity.ok(registryService.getPermissionCatalog(audience));
     }
 
     @PatchMapping("/features/{id}/status")
