@@ -2,6 +2,9 @@ package com.hiveapp.platform.registry.service.impl;
 
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Module;
+import com.hiveapp.platform.registry.definition.FeatureDefinition;
+import com.hiveapp.platform.registry.definition.RegistryFeature;
+import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.platform.registry.domain.repository.ModuleRepository;
 import com.hiveapp.platform.registry.service.RegistryService;
@@ -16,11 +19,16 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = "registry", description = "Platform Registry Management")
-public class RegistryServiceImpl implements RegistryService {
+@PermissionNode(key = RegistryFeature.KEY, description = "Platform Registry Management")
+public class RegistryServiceImpl extends PlatformControlFeatureService implements RegistryService {
 
     private final ModuleRepository moduleRepository;
     private final FeatureRepository featureRepository;
+
+    @Override
+    protected FeatureDefinition featureDefinition() {
+        return RegistryFeature.definition();
+    }
 
     @Override
     @PermissionNode(key = "read", description = "View full registry inventory including INTERNAL features")
