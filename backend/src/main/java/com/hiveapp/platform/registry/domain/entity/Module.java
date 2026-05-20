@@ -11,7 +11,7 @@ import java.util.ArrayList;
  * Namespace and catalog container for Features.
  * Participates in ZERO business logic — no permissions, no quotas, no sieve.
  * Display name and icon are managed by frontend code, not stored in DB.
- * Seeded automatically by FeatureSeeder at startup from AppFeature enums.
+ * Seeded automatically by FeatureSeeder at startup from FeatureDefinition declarations.
  */
 @Entity
 @Table(name = "modules")

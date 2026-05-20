@@ -17,7 +17,7 @@ import java.util.ArrayList;
  * Contains one or more Permissions (Bricks) and optionally a quota schema.
  *
  * quota_schema: defines the SHAPE of quotas for this feature (type + unit per resource).
- *   - Seeded/overwritten at startup by FeatureSeeder from AppFeature enum declarations.
+ *   - Seeded/overwritten at startup by FeatureSeeder from FeatureDefinition declarations.
  *   - Admin never touches this — code is the source of truth.
  *   - The actual limit VALUES live in PlanFeature.quota_configs, set by admin per plan.
  *
