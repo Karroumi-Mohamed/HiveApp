@@ -11,11 +11,12 @@ import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
-@Table(name = "subscriptions")
-// Production note: add partial unique index → UNIQUE (account_id) WHERE status = 'ACTIVE'
-// JPA @UniqueConstraint can't express partial index — do it in Flyway migration when moving off H2.
+@Table(name = "subscriptions", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_subscriptions_usable_account", columnNames = "usable_account_id")
+})
 @Getter @Setter
 public class Subscription extends BaseEntity {
 
@@ -29,11 +30,21 @@ public class Subscription extends BaseEntity {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "custom_overrides")
-    private Object customOverrides;
+    private String customOverrides;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SubscriptionStatus status;
+
+    /**
+     * Non-null only while this subscription can provide entitlement. Its uniqueness enforces
+     * one ACTIVE or TRIALING subscription per account while allowing historical subscriptions.
+     */
+    @Column(name = "usable_account_id", columnDefinition = """
+            uuid check ((status in ('ACTIVE', 'TRIALING') and usable_account_id is not null and usable_account_id = account_id)
+            or (status not in ('ACTIVE', 'TRIALING') and usable_account_id is null))
+            """)
+    private UUID usableAccountId;
 
     @Column(name = "current_period_end")
     private LocalDateTime currentPeriodEnd;
@@ -45,4 +56,11 @@ public class Subscription extends BaseEntity {
      */
     @Column(name = "current_price", precision = 10, scale = 2)
     private BigDecimal currentPrice;
+
+    @PrePersist
+    @PreUpdate
+    void synchronizeUsableAccountSlot() {
+        boolean usable = status == SubscriptionStatus.ACTIVE || status == SubscriptionStatus.TRIALING;
+        usableAccountId = usable && account != null ? account.getId() : null;
+    }
 }
