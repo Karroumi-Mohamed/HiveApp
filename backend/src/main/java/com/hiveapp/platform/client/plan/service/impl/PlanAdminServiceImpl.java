@@ -6,10 +6,13 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
-import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
-import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
+import com.hiveapp.platform.registry.definition.FeatureDefinition;
+import com.hiveapp.platform.registry.definition.PlansFeature;
+import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
 import com.hiveapp.shared.exception.DuplicateResourceException;
+import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
@@ -22,12 +25,17 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = "plans", description = "Plan Catalogue Management")
-public class PlanAdminServiceImpl implements PlanAdminService {
+@PermissionNode(key = PlansFeature.KEY, description = "Plan Catalogue Management")
+public class PlanAdminServiceImpl extends PlatformControlFeatureService implements PlanAdminService {
 
     private final PlanRepository planRepository;
     private final PlanFeatureRepository planFeatureRepository;
-    private final FeatureRepository featureRepository;
+    private final BillingConfigurationValidator billingConfigurationValidator;
+
+    @Override
+    protected FeatureDefinition featureDefinition() {
+        return PlansFeature.definition();
+    }
 
     @Override
     @PermissionNode(key = "list", description = "List all plans")
@@ -76,12 +84,8 @@ public class PlanAdminServiceImpl implements PlanAdminService {
     public PlanFeature assignFeature(UUID planId, AssignPlanFeatureRequest request) {
         var plan = planRepository.findById(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
-        var feature = featureRepository.findByCode(request.featureCode())
-                .orElseThrow(() -> new ResourceNotFoundException("Feature", "code", request.featureCode()));
-
-        if (feature.getStatus() == FeatureStatus.INTERNAL || feature.getStatus() == FeatureStatus.DEPRECATED) {
-            throw new IllegalArgumentException("Cannot assign feature with status " + feature.getStatus() + " to a plan.");
-        }
+        var feature = billingConfigurationValidator.validatePlanFeature(
+                request.featureCode(), request.addOnPrice(), request.quotaConfigs());
 
         planFeatureRepository.findByPlanIdAndFeature_Code(planId, request.featureCode())
                 .ifPresent(existing -> {
@@ -105,6 +109,11 @@ public class PlanAdminServiceImpl implements PlanAdminService {
         if (!pf.getPlan().getId().equals(planId)) {
             throw new ResourceNotFoundException("PlanFeature", "id", planFeatureId);
         }
+        if (!pf.getFeature().getCode().equals(request.featureCode())) {
+            throw new InvalidRequestException("A plan feature update cannot change its feature code.");
+        }
+        billingConfigurationValidator.validatePlanFeature(
+                request.featureCode(), request.addOnPrice(), request.quotaConfigs());
         pf.setAddOnPrice(request.addOnPrice());
         pf.setQuotaConfigs(request.quotaConfigs() != null ? request.quotaConfigs() : new ArrayList<>());
         return planFeatureRepository.save(pf);
