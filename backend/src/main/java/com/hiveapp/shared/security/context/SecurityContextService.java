@@ -5,6 +5,9 @@ import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.collaboration.domain.constant.CollaborationStatus;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
+import com.hiveapp.shared.exception.ForbiddenException;
+import com.hiveapp.shared.exception.InvalidRequestException;
+import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.exception.UnauthorizedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -23,42 +26,57 @@ public class SecurityContextService {
 
         UUID targetCompanyId = null;
         UUID currentAccountId = null;
+        UUID clientAccountId = null;
+        UUID collaborationId = null;
         boolean isB2B = Boolean.parseBoolean(isB2BHeader);
 
         if (companyIdHeader != null && !companyIdHeader.isBlank()) {
             try {
-                targetCompanyId = UUID.fromString(companyIdHeader);
+                UUID requestedCompanyId = UUID.fromString(companyIdHeader);
+                targetCompanyId = requestedCompanyId;
                 
-                Company company = companyRepository.findById(targetCompanyId)
-                    .orElseThrow(() -> new UnauthorizedException("Requested Company does not exist"));
+                Company company = companyRepository.findById(requestedCompanyId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Company", "id", requestedCompanyId));
                 
                 UUID providerAccountId = company.getAccount().getId();
 
                 if (isB2B) {
                     var member = memberRepository.findFirstByUserId(userId)
                         .orElseThrow(() -> new UnauthorizedException("Access Denied: You are not a member of any account"));
-                    UUID clientAccountId = member.getAccount().getId();
+                    requireActiveMember(member);
+                    clientAccountId = member.getAccount().getId();
 
-                    collaborationRepository.findByClientAccountIdAndProviderAccountIdAndCompanyIdAndStatus(
+                    var collaboration = collaborationRepository.findByClientAccountIdAndProviderAccountIdAndCompanyIdAndStatus(
                         clientAccountId, providerAccountId, targetCompanyId, CollaborationStatus.ACTIVE
-                    ).orElseThrow(() -> new UnauthorizedException("Access Denied: No active B2B collaboration found"));
+                    ).orElseThrow(() -> new ForbiddenException("Access Denied: No active B2B collaboration found"));
                     
+                    collaborationId = collaboration.getId();
                     currentAccountId = providerAccountId;
                 } else {
                     currentAccountId = providerAccountId;
-                    memberRepository.findByAccountIdAndUserId(currentAccountId, userId)
-                        .orElseThrow(() -> new UnauthorizedException("Access Denied: You are not a member of this account/company"));
+                    clientAccountId = currentAccountId;
+                    var member = memberRepository.findByAccountIdAndUserId(currentAccountId, userId)
+                        .orElseThrow(() -> new ForbiddenException("Access Denied: You are not a member of this account/company"));
+                    requireActiveMember(member);
                 }
             } catch (IllegalArgumentException e) {
-                throw new UnauthorizedException("Invalid UUID format in headers");
+                throw new InvalidRequestException("Invalid UUID format in X-Company-ID header");
             }
         } else {
             var member = memberRepository.findFirstByUserId(userId).orElse(null);
             if (member != null) {
+                requireActiveMember(member);
                 currentAccountId = member.getAccount().getId();
+                clientAccountId = currentAccountId;
             }
         }
 
-        return new HiveAppPermissionContext(userId, currentAccountId, targetCompanyId, isB2B);
+        return new HiveAppPermissionContext(userId, clientAccountId, currentAccountId, targetCompanyId, collaborationId, isB2B);
+    }
+
+    private void requireActiveMember(com.hiveapp.platform.client.member.domain.entity.Member member) {
+        if (!member.isActive()) {
+            throw new UnauthorizedException("Access Denied: Workspace membership is inactive");
+        }
     }
 }
