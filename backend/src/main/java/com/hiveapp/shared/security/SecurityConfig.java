@@ -58,12 +58,12 @@ public class SecurityConfig {
 
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        return new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService);
+        return new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService, accessDeniedHandler);
     }
 
     @Bean
     public AdminJwtAuthenticationFilter adminJwtAuthenticationFilter() {
-        return new AdminJwtAuthenticationFilter(jwtTokenProvider, adminUserDetailsService);
+        return new AdminJwtAuthenticationFilter(jwtTokenProvider, adminUserDetailsService, accessDeniedHandler);
     }
 
     @Bean
@@ -156,6 +156,7 @@ public class SecurityConfig {
 
     @PostConstruct
     public void permissionsLoader() {
+        PermissionGuard.reset();
         PermissionGuard.builder()
             .addPolicy(adminPermissionPolicy)   // FIRST — short-circuits for admin actors
             .addPolicy(b2bPolicy)
