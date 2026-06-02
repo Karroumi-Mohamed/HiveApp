@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -24,10 +25,11 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserDetailsService adminUserDetailsService;
+    private final AccessDeniedHandler accessDeniedHandler;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getServletPath().startsWith("/api/admin");
+        return !requestPath(request).startsWith("/api/admin");
     }
 
     @Override
@@ -43,9 +45,18 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
                 String tokenType = jwtTokenProvider.getClaimsFromToken(token).get("tokenType", String.class);
                 if (!"ADMIN".equals(tokenType)) {
                     log.warn("Rejected token with type {} on admin endpoint", tokenType);
+                    if (!isPublicPath(request)) {
+                        accessDeniedHandler.handle(request, response,
+                                new AccessDeniedException("Token is not valid for the admin API surface"));
+                        return;
+                    }
                 } else {
                     String userId = jwtTokenProvider.getUserIdFromToken(token).toString();
                     var userDetails = adminUserDetailsService.loadUserByUsername(userId);
+                    if (!userDetails.isEnabled()) {
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
 
                     var authentication = new UsernamePasswordAuthenticationToken(
                             userDetails, null, userDetails.getAuthorities()
@@ -71,5 +82,18 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
             return bearerToken.substring(7);
         }
         return null;
+    }
+
+    private String requestPath(HttpServletRequest request) {
+        String requestUri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (StringUtils.hasText(contextPath) && requestUri.startsWith(contextPath)) {
+            return requestUri.substring(contextPath.length());
+        }
+        return requestUri;
+    }
+
+    private boolean isPublicPath(HttpServletRequest request) {
+        return requestPath(request).equals("/api/admin/auth/login");
     }
 }

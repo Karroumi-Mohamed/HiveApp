@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -24,10 +25,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserDetailsService userDetailsService;
+    private final AccessDeniedHandler accessDeniedHandler;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return request.getServletPath().startsWith("/api/admin");
+        return requestPath(request).startsWith("/api/admin");
     }
 
     @Override
@@ -43,6 +45,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String tokenType = jwtTokenProvider.getClaimsFromToken(token).get("tokenType", String.class);
                 if (!"CLIENT".equals(tokenType)) {
                     log.warn("Rejected token with type {} on client endpoint", tokenType);
+                    if (!isPublicPath(request)) {
+                        accessDeniedHandler.handle(request, response,
+                                new AccessDeniedException("Token is not valid for the client API surface"));
+                        return;
+                    }
                 } else {
                     String userId = jwtTokenProvider.getUserIdFromToken(token).toString();
                     var userDetails = userDetailsService.loadUserByUsername(userId);
@@ -71,5 +78,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return bearerToken.substring(7);
         }
         return null;
+    }
+
+    private String requestPath(HttpServletRequest request) {
+        String requestUri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (StringUtils.hasText(contextPath) && requestUri.startsWith(contextPath)) {
+            return requestUri.substring(contextPath.length());
+        }
+        return requestUri;
+    }
+
+    private boolean isPublicPath(HttpServletRequest request) {
+        String path = requestPath(request);
+        return path.startsWith("/api/v1/auth/")
+                || path.equals("/api/v1/invitations/validate")
+                || path.equals("/api/v1/invitations/accept")
+                || path.startsWith("/swagger-ui/")
+                || path.equals("/swagger-ui.html")
+                || path.startsWith("/v3/api-docs/")
+                || path.equals("/actuator/health");
     }
 }
