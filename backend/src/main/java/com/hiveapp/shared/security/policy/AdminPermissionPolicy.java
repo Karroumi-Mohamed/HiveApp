@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
  * First policy in the sieve — evaluated before all client policies.
  *
  * SuperAdmin → GRANTED unconditionally.
- * Active non-super admin → checked against AdminRole → AdminRolePermission → AdminPermission chain.
+ * Active non-super admin → checked against AdminRole → AdminRolePermission → Permission chain.
  * Not an admin user → ABSTAIN (let client policies continue).
  *
  * This policy intentionally short-circuits the sieve for admin actors so they
@@ -42,7 +42,7 @@ public class AdminPermissionPolicy implements PermissionPolicy {
             return Decision.GRANTED;
         }
 
-        // Non-super admin: check AdminRole → AdminRolePermission → AdminPermission chain
+        // Non-super admin: check AdminRole → AdminRolePermission → Permission chain
         boolean granted = adminUserRepository.hasPermission(adminUser.getId(), requested.path());
         return granted ? Decision.GRANTED : Decision.DENIED;
     }
