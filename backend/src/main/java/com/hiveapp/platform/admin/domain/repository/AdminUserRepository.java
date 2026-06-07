@@ -15,17 +15,17 @@ public interface AdminUserRepository extends JpaRepository<AdminUser, UUID> {
      * Returns true if the admin user has the given permission code via any
      * of their assigned active AdminRoles.
      *
-     * Traversal: AdminUser → AdminUserRole → AdminRole → AdminRolePermission → AdminPermission.code
+     * Traversal: AdminUser → AdminUserRole → AdminRole → AdminRolePermission → Permission.code
      */
     @Query("SELECT COUNT(aur) > 0 FROM AdminUserRole aur, AdminRolePermission arp " +
            "WHERE aur.adminUser.id = :adminUserId " +
            "AND arp.adminRole = aur.adminRole " +
-           "AND arp.adminPermission.code = :permissionCode " +
+           "AND arp.permission.code = :permissionCode " +
            "AND aur.adminRole.isActive = true")
     boolean hasPermission(@Param("adminUserId") UUID adminUserId,
                           @Param("permissionCode") String permissionCode);
 
-    @Query("SELECT arp.adminPermission.code FROM AdminUserRole aur " +
+    @Query("SELECT arp.permission.code FROM AdminUserRole aur " +
            "JOIN AdminRolePermission arp ON arp.adminRole = aur.adminRole " +
            "WHERE aur.adminUser.id = :adminUserId AND aur.adminRole.isActive = true")
     List<String> findAllPermissionCodes(@Param("adminUserId") UUID adminUserId);
