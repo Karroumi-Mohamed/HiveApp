@@ -11,6 +11,6 @@ public interface AdminRoleService {
     AdminRole createAdminRole(String name, String description);
     AdminRole updateAdminRole(UUID id, String name, String description);
     void toggleActive(UUID id);
-    void grantPermission(UUID adminRoleId, UUID adminPermissionId);
-    void revokePermission(UUID adminRoleId, UUID adminPermissionId);
+    void grantPermission(UUID adminRoleId, UUID permissionId);
+    void revokePermission(UUID adminRoleId, UUID permissionId);
 }

@@ -53,7 +53,7 @@ public class AdminRoleController {
     @PostMapping("/{id}/permissions")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void grantPermission(@PathVariable UUID id, @Valid @RequestBody GrantAdminPermissionRequest req) {
-        adminRoleService.grantPermission(id, req.adminPermissionId());
+        adminRoleService.grantPermission(id, req.permissionId());
     }
 
     @DeleteMapping("/{id}/permissions/{permissionId}")
