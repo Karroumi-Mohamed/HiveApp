@@ -7,7 +7,7 @@ import com.hiveapp.platform.client.account.domain.entity.Company;
 public interface CompanyService {
     Company createCompany(UUID accountId, String name, String legalName, String taxId, String industry, String country, String address);
     List<Company> getAccountCompanies(UUID accountId);
-    Company getCompany(UUID id);
-    Company updateCompany(UUID id, String name, String legalName, String industry, String country);
-    void deactivateCompany(UUID id);
+    Company getCompany(UUID accountId, UUID id);
+    Company updateCompany(UUID accountId, UUID id, String name, String legalName, String industry, String country);
+    void deactivateCompany(UUID accountId, UUID id);
 }
