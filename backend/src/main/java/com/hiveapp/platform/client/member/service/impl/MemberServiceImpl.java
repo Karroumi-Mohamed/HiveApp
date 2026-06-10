@@ -7,29 +7,33 @@ import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
 import com.hiveapp.platform.client.member.service.MemberService;
-import com.hiveapp.platform.client.member.dto.MemberPermissionDto;
+import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
-import com.hiveapp.platform.client.role.domain.entity.RolePermission;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
+import com.hiveapp.platform.registry.definition.FeatureDefinition;
+import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
+import com.hiveapp.platform.registry.definition.StaffFeature;
+import com.hiveapp.platform.registry.definition.WorkspaceFeature;
+import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureService;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
+import com.hiveapp.shared.quota.QuotaEnforcer;
+import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = "staff", description = "Member Management")
-public class MemberServiceImpl implements MemberService {
+@PermissionNode(key = StaffFeature.KEY, description = "Member Management")
+public class MemberServiceImpl extends ClientWorkspaceFeatureService implements MemberService {
 
     private final MemberRepository memberRepository;
     private final MemberRoleRepository memberRoleRepository;
@@ -39,6 +43,13 @@ public class MemberServiceImpl implements MemberService {
     private final RoleRepository roleRepository;
     private final CompanyRepository companyRepository;
     private final PermissionRepository permissionRepository;
+    private final PermissionGrantValidator permissionGrantValidator;
+    private final QuotaEnforcer quotaEnforcer;
+
+    @Override
+    protected FeatureDefinition featureDefinition() {
+        return StaffFeature.definition();
+    }
 
     @Override
     public Member getMember(UUID id) {
@@ -49,6 +60,7 @@ public class MemberServiceImpl implements MemberService {
     @Override
     @PermissionNode(key = "read", description = "List account members")
     public List<Member> getAccountMembers(UUID accountId) {
+        requireCurrentAccount(accountId);
         return memberRepository.findAllByAccountId(accountId);
     }
 
@@ -56,10 +68,18 @@ public class MemberServiceImpl implements MemberService {
     @Transactional
     @PermissionNode(key = "add", description = "Add member to account")
     public Member addMember(UUID accountId, UUID userId, String displayName) {
+        requireCurrentAccount(accountId);
         var account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
         var user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+
+        quotaEnforcer.check(
+                WorkspaceFeature.definition(),
+                WorkspaceFeature.MEMBERS,
+                accountId,
+                () -> (long) memberRepository.findAllByAccountId(accountId).size()
+        );
 
         Member member = new Member();
         member.setAccount(account);
@@ -74,6 +94,7 @@ public class MemberServiceImpl implements MemberService {
     @PermissionNode(key = "update", description = "Update member profile")
     public Member updateMember(UUID memberId, String displayName) {
         var member = getMember(memberId);
+        requireCurrentAccount(member);
         if (displayName != null) {
             member.setDisplayName(displayName);
         }
@@ -85,6 +106,11 @@ public class MemberServiceImpl implements MemberService {
     @PermissionNode(key = "delete", description = "Deactivate member")
     public void deactivateMember(UUID id) {
         var member = getMember(id);
+        requireCurrentAccount(member);
+        UUID actorUserId = HiveAppContextHolder.getContext().actorUserId();
+        if (member.getUser().getId().equals(actorUserId)) {
+            throw new ForbiddenException("Members cannot deactivate themselves");
+        }
         member.setActive(false);
         memberRepository.save(member);
     }
@@ -101,6 +127,15 @@ public class MemberServiceImpl implements MemberService {
                         .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId))
                 : null;
 
+        requireCurrentAccount(member);
+        requireSameAccount(member, role);
+        if (company != null) {
+            requireSameAccount(member, company);
+        }
+        if (role.getCompany() != null && (company == null || !role.getCompany().getId().equals(company.getId()))) {
+            throw new ForbiddenException("Company-scoped role can only be assigned inside its company");
+        }
+
         MemberRole mr = new MemberRole();
         mr.setMember(member);
         mr.setRole(role);
@@ -112,6 +147,8 @@ public class MemberServiceImpl implements MemberService {
     @Transactional
     @PermissionNode(key = "remove_role", description = "Remove role from member")
     public void removeRole(UUID memberId, UUID roleId) {
+        var member = getMember(memberId);
+        requireCurrentAccount(member);
         memberRoleRepository.deleteByMemberIdAndRoleId(memberId, roleId);
     }
 
@@ -124,6 +161,9 @@ public class MemberServiceImpl implements MemberService {
                 .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
         var permission = permissionRepository.findByCode(permissionCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
+        permissionGrantValidator.requireClientRoleGrantable(permission);
+        requireCurrentAccount(member);
+        requireSameAccount(member, company);
 
         var override = memberOverrideRepository
                 .findByMemberIdAndCompanyIdAndPermissionId(memberId, companyId, permission.getId())
@@ -140,8 +180,13 @@ public class MemberServiceImpl implements MemberService {
     @Transactional
     @PermissionNode(key = "revoke_permission", description = "Remove direct permission override")
     public void revokePermissionOverride(UUID memberId, String permissionCode, UUID companyId) {
+        var member = getMember(memberId);
+        var company = companyRepository.findById(companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
         var permission = permissionRepository.findByCode(permissionCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
+        requireCurrentAccount(member);
+        requireSameAccount(member, company);
 
         memberOverrideRepository
                 .findByMemberIdAndCompanyIdAndPermissionId(memberId, companyId, permission.getId())
@@ -150,45 +195,42 @@ public class MemberServiceImpl implements MemberService {
 
     @Override
     @PermissionNode(key = "read_overrides", description = "View member permission overrides")
-    public List<MemberPermissionOverride> getMemberOverrides(UUID memberId, UUID companyId) {
-        return memberOverrideRepository.findAllByMemberIdAndCompanyId(memberId, companyId);
+    public List<MemberPermissionOverrideDto> getMemberOverrides(UUID memberId, UUID companyId) {
+        var member = getMember(memberId);
+        var company = companyRepository.findById(companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
+        requireCurrentAccount(member);
+        requireSameAccount(member, company);
+        return memberOverrideRepository.findAllByMemberIdAndCompanyId(memberId, companyId)
+                .stream()
+                .map(override -> new MemberPermissionOverrideDto(
+                        override.getMember().getId(),
+                        override.getCompany().getId(),
+                        override.getPermission().getCode(),
+                        override.isDecision()))
+                .toList();
     }
 
-    // ── No @PermissionNode — internal bootstrap endpoint, no sieve needed ──
+    private void requireCurrentAccount(Member member) {
+        requireCurrentAccount(member.getAccount().getId());
+    }
 
-    @Override
-    @Transactional(readOnly = true)
-    public MemberPermissionDto getEffectivePermissions(UUID userId, UUID accountId) {
-        var member = memberRepository.findByAccountIdAndUserId(accountId, userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Member", "userId", userId));
-
-        if (member.isOwner()) {
-            // Owner bypass: return every client permission path
-            var all = permissionRepository.findAll()
-                    .stream()
-                    .map(p -> p.getCode())
-                    .collect(Collectors.toSet());
-            return new MemberPermissionDto(member.getId(), true, all);
+    private void requireCurrentAccount(UUID accountId) {
+        UUID currentAccountId = HiveAppContextHolder.getContext().currentAccountId();
+        if (!accountId.equals(currentAccountId)) {
+            throw new ForbiddenException("Member does not belong to your account");
         }
+    }
 
-        // 1. Union of all role-granted permissions (all company scopes)
-        Set<String> permissions = new HashSet<>();
-        for (MemberRole mr : memberRoleRepository.findAllByMemberId(member.getId())) {
-            for (RolePermission rp : mr.getRole().getPermissions()) {
-                permissions.add(rp.getPermission().getCode());
-            }
+    private void requireSameAccount(Member member, com.hiveapp.platform.client.role.domain.entity.Role role) {
+        if (!role.getAccount().getId().equals(member.getAccount().getId())) {
+            throw new ForbiddenException("Role does not belong to the member account");
         }
+    }
 
-        // 2. Apply direct overrides across all company scopes
-        //    GRANT overrides add, DENY overrides remove — matches sieve logic
-        for (MemberPermissionOverride o : memberOverrideRepository.findAllByMemberId(member.getId())) {
-            if (o.isDecision()) {
-                permissions.add(o.getPermission().getCode());
-            } else {
-                permissions.remove(o.getPermission().getCode());
-            }
+    private void requireSameAccount(Member member, com.hiveapp.platform.client.account.domain.entity.Company company) {
+        if (!company.getAccount().getId().equals(member.getAccount().getId())) {
+            throw new ForbiddenException("Company does not belong to the member account");
         }
-
-        return new MemberPermissionDto(member.getId(), false, permissions);
     }
 }
