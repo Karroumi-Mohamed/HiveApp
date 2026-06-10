@@ -1,7 +1,7 @@
 package com.hiveapp.platform.client.member.service;
 
 import com.hiveapp.platform.client.member.domain.entity.Member;
-import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
+import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
 
 import java.util.List;
 import java.util.UUID;
@@ -10,7 +10,6 @@ public interface MemberService {
     Member getMember(UUID id);
     List<Member> getAccountMembers(UUID accountId);
     Member addMember(UUID accountId, UUID userId, String displayName);
-    com.hiveapp.platform.client.member.dto.MemberPermissionDto getEffectivePermissions(UUID userId, UUID accountId);
     Member updateMember(UUID memberId, String displayName);
     void deactivateMember(UUID id);
 
@@ -19,5 +18,5 @@ public interface MemberService {
 
     void grantPermissionOverride(UUID memberId, String permissionCode, UUID companyId, boolean decision);
     void revokePermissionOverride(UUID memberId, String permissionCode, UUID companyId);
-    List<MemberPermissionOverride> getMemberOverrides(UUID memberId, UUID companyId);
+    List<MemberPermissionOverrideDto> getMemberOverrides(UUID memberId, UUID companyId);
 }
