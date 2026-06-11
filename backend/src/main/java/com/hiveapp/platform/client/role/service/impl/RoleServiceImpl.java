@@ -7,10 +7,18 @@ import com.hiveapp.platform.client.role.domain.repository.RolePermissionReposito
 import com.hiveapp.platform.client.role.service.RoleService;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.registry.definition.FeatureDefinition;
+import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
+import com.hiveapp.platform.registry.definition.WorkspaceRolesFeature;
+import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureService;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
+import com.hiveapp.platform.registry.dto.PermissionPickerModuleDto;
+import com.hiveapp.platform.registry.service.PermissionPickerCatalogService;
+import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import com.hiveapp.shared.exception.DuplicateResourceException;
+import com.hiveapp.shared.exception.ForbiddenException;
+import com.hiveapp.shared.exception.InvalidPermissionGrantException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
-import com.hiveapp.shared.exception.UnauthorizedException;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
@@ -22,30 +30,45 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = "rbac", description = "Role Management")
-public class RoleServiceImpl implements RoleService {
+@PermissionNode(key = WorkspaceRolesFeature.KEY, description = "Role Management")
+public class RoleServiceImpl extends ClientWorkspaceFeatureService implements RoleService {
 
     private final RoleRepository roleRepository;
     private final RolePermissionRepository rolePermissionRepository;
     private final AccountRepository accountRepository;
     private final CompanyRepository companyRepository;
     private final PermissionRepository permissionRepository;
+    private final PermissionGrantValidator permissionGrantValidator;
+    private final PermissionPickerCatalogService permissionPickerCatalogService;
+    private final PlanEntitlementService planEntitlementService;
 
     @Override
+    protected FeatureDefinition featureDefinition() {
+        return WorkspaceRolesFeature.definition();
+    }
+
+    @Override
+    @PermissionNode(key = "read", description = "View role details")
     public Role getRole(UUID id) {
-        return roleRepository.findById(id)
+        var role = roleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", id));
+        requireRoleInCurrentAccount(role);
+        return role;
     }
 
     @Override
     @PermissionNode(key = "view", description = "View roles")
     public List<Role> getAccountRoles(UUID accountId) {
+        requireCurrentAccount(accountId);
         return roleRepository.findAllByAccountId(accountId);
     }
 
     @Override
     @PermissionNode(key = "view_company", description = "View company-scoped roles")
     public List<Role> getCompanyRoles(UUID companyId) {
+        var company = companyRepository.findById(companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
+        requireCurrentAccount(company.getAccount().getId());
         return roleRepository.findAllByCompanyId(companyId);
     }
 
@@ -53,6 +76,7 @@ public class RoleServiceImpl implements RoleService {
     @Transactional
     @PermissionNode(key = "create", description = "Create custom role")
     public Role createRole(UUID accountId, UUID companyId, String name, String description) {
+        requireCurrentAccount(accountId);
         var account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
         var company = companyId != null
@@ -61,7 +85,7 @@ public class RoleServiceImpl implements RoleService {
                 : null;
 
         if (company != null && !company.getAccount().getId().equals(accountId)) {
-            throw new UnauthorizedException("Company does not belong to your account");
+            throw new ForbiddenException("Company does not belong to your account");
         }
 
         Role role = new Role();
@@ -76,14 +100,10 @@ public class RoleServiceImpl implements RoleService {
     @Transactional
     @PermissionNode(key = "update", description = "Update role metadata")
     public Role updateRole(UUID roleId, String name, String description) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
         var role = getRole(roleId);
 
-        if (!role.getAccount().getId().equals(accountId)) {
-            throw new UnauthorizedException("Role does not belong to your account");
-        }
         if (role.isSystemRole()) {
-            throw new UnauthorizedException("System roles cannot be modified");
+            throw new ForbiddenException("System roles cannot be modified");
         }
 
         role.setName(name);
@@ -95,14 +115,10 @@ public class RoleServiceImpl implements RoleService {
     @Transactional
     @PermissionNode(key = "delete", description = "Delete custom role")
     public void deleteRole(UUID roleId) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
         var role = getRole(roleId);
 
-        if (!role.getAccount().getId().equals(accountId)) {
-            throw new UnauthorizedException("Role does not belong to your account");
-        }
         if (role.isSystemRole()) {
-            throw new UnauthorizedException("System roles cannot be deleted");
+            throw new ForbiddenException("System roles cannot be deleted");
         }
 
         roleRepository.delete(role);
@@ -112,18 +128,19 @@ public class RoleServiceImpl implements RoleService {
     @Transactional
     @PermissionNode(key = "grant", description = "Grant permission brick to role")
     public void addPermissionToRole(UUID roleId, String permissionCode) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
         var role = getRole(roleId);
 
-        if (!role.getAccount().getId().equals(accountId)) {
-            throw new UnauthorizedException("Role does not belong to your account");
-        }
         if (rolePermissionRepository.existsByRoleIdAndPermissionCode(roleId, permissionCode)) {
             throw new DuplicateResourceException("RolePermission", "permissionCode", permissionCode);
         }
 
         var permission = permissionRepository.findByCode(permissionCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
+        permissionGrantValidator.requireClientRoleGrantable(permission);
+        if (!planEntitlementService.isPermissionEntitled(role.getAccount().getId(), permissionCode)) {
+            throw new InvalidPermissionGrantException(
+                    "Permission " + permissionCode + " is not available in the current plan entitlement.");
+        }
 
         RolePermission rp = new RolePermission();
         rp.setRole(role);
@@ -135,13 +152,26 @@ public class RoleServiceImpl implements RoleService {
     @Transactional
     @PermissionNode(key = "revoke", description = "Revoke permission brick from role")
     public void removePermissionFromRole(UUID roleId, String permissionCode) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
         var role = getRole(roleId);
 
-        if (!role.getAccount().getId().equals(accountId)) {
-            throw new UnauthorizedException("Role does not belong to your account");
-        }
-
         rolePermissionRepository.deleteByRoleIdAndPermissionCode(roleId, permissionCode);
+    }
+
+    @Override
+    @PermissionNode(key = "permission_catalog", description = "View grantable role permissions")
+    public List<PermissionPickerModuleDto> getPermissionCatalog(UUID accountId) {
+        requireCurrentAccount(accountId);
+        return permissionPickerCatalogService.clientRoleCatalog(accountId);
+    }
+
+    private void requireRoleInCurrentAccount(Role role) {
+        requireCurrentAccount(role.getAccount().getId());
+    }
+
+    private void requireCurrentAccount(UUID accountId) {
+        UUID currentAccountId = HiveAppContextHolder.getContext().currentAccountId();
+        if (!accountId.equals(currentAccountId)) {
+            throw new ForbiddenException("Role does not belong to your account");
+        }
     }
 }

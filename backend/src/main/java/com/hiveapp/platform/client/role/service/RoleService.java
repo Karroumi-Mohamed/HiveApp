@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.role.service;
 
 import com.hiveapp.platform.client.role.domain.entity.Role;
+import com.hiveapp.platform.registry.dto.PermissionPickerModuleDto;
 
 import java.util.List;
 import java.util.UUID;
@@ -14,4 +15,5 @@ public interface RoleService {
     void deleteRole(UUID roleId);
     void addPermissionToRole(UUID roleId, String permissionCode);
     void removePermissionFromRole(UUID roleId, String permissionCode);
+    List<PermissionPickerModuleDto> getPermissionCatalog(UUID accountId);
 }

@@ -10,6 +10,8 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
+import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +30,7 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
     private final MemberRepository memberRepository;
     private final PlanRepository planRepository;
     private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionOverrideReader subscriptionOverrideReader;
 
     @Override
     @Transactional
@@ -85,6 +88,7 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
         sub.setAccount(account);
         sub.setPlan(freePlan);
         sub.setStatus(SubscriptionStatus.ACTIVE);
+        sub.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
         sub.setCurrentPrice(freePlan.getPrice());
         subscriptionRepository.save(sub);
         log.info("FREE subscription provisioned for account={}", account.getId());
