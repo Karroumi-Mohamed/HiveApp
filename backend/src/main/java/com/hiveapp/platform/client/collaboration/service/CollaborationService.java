@@ -8,12 +8,12 @@ import java.util.UUID;
 public interface CollaborationService {
     Collaboration getCollaboration(UUID id);
     Collaboration initiateCollaboration(UUID clientAccountId, UUID companyId);
-    void acceptCollaboration(UUID id);
-    void revokeCollaboration(UUID id);
+    void acceptCollaboration(UUID providerAccountId, UUID id);
+    void revokeCollaboration(UUID accountId, UUID id);
     List<Collaboration> getClientCollaborations(UUID accountId);
     List<Collaboration> getProviderCollaborations(UUID accountId);
 
-    void grantPermission(UUID collaborationId, String permissionCode);
-    void revokePermission(UUID collaborationId, String permissionCode);
+    void grantPermission(UUID providerAccountId, UUID collaborationId, String permissionCode);
+    void revokePermission(UUID providerAccountId, UUID collaborationId, String permissionCode);
     List<CollaborationPermission> getPermissions(UUID collaborationId);
 }
