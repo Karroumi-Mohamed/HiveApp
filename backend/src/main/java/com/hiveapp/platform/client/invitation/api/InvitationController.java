@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.invitation.dto.InvitationDto;
 import com.hiveapp.platform.client.invitation.dto.InvitationInfoDto;
 import com.hiveapp.platform.client.invitation.dto.SendInvitationRequest;
 import com.hiveapp.platform.client.invitation.service.InvitationService;
+import com.hiveapp.platform.client.invitation.service.PublicInvitationService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ import java.util.UUID;
 public class InvitationController {
 
     private final InvitationService invitationService;
+    private final PublicInvitationService publicInvitationService;
 
     // ── Authenticated ─────────────────────────────────────────────────────────
 
@@ -48,11 +50,11 @@ public class InvitationController {
 
     @GetMapping("/validate")
     public InvitationInfoDto validate(@RequestParam String token) {
-        return invitationService.validate(token);
+        return publicInvitationService.validate(token);
     }
 
     @PostMapping("/accept")
     public AuthResponse accept(@Valid @RequestBody AcceptInvitationRequest request) {
-        return invitationService.accept(request);
+        return publicInvitationService.accept(request);
     }
 }
