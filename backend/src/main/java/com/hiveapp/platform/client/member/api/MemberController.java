@@ -1,14 +1,13 @@
 package com.hiveapp.platform.client.member.api;
 
-import com.hiveapp.platform.client.feature.PlatformFeature;
 import com.hiveapp.platform.client.member.dto.AddMemberRequest;
 import com.hiveapp.platform.client.member.dto.AssignRoleRequest;
 import com.hiveapp.platform.client.member.dto.MemberDto;
+import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
 import com.hiveapp.platform.client.member.dto.OverridePermissionRequest;
 import com.hiveapp.platform.client.member.dto.UpdateMemberRequest;
 import com.hiveapp.platform.client.member.mapper.MemberMapper;
 import com.hiveapp.platform.client.member.service.MemberService;
-import com.hiveapp.shared.quota.QuotaEnforcer;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +25,6 @@ public class MemberController {
 
     private final MemberService memberService;
     private final MemberMapper memberMapper;
-    private final QuotaEnforcer quotaEnforcer;
 
     @GetMapping
     public List<MemberDto> getMembers() {
@@ -40,14 +38,6 @@ public class MemberController {
     @ResponseStatus(HttpStatus.CREATED)
     public MemberDto addMember(@Valid @RequestBody AddMemberRequest req) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-
-        quotaEnforcer.check(
-                PlatformFeature.WORKSPACE,
-                PlatformFeature.MEMBERS,
-                accountId,
-                () -> (long) memberService.getAccountMembers(accountId).size()
-        );
-
         return memberMapper.toDto(memberService.addMember(accountId, req.userId(), req.displayName()));
     }
 
@@ -94,7 +84,7 @@ public class MemberController {
     }
 
     @GetMapping("/{id}/permissions")
-    public List<?> getMemberOverrides(@PathVariable UUID id, @RequestParam UUID companyId) {
+    public List<MemberPermissionOverrideDto> getMemberOverrides(@PathVariable UUID id, @RequestParam UUID companyId) {
         return memberService.getMemberOverrides(id, companyId);
     }
 }

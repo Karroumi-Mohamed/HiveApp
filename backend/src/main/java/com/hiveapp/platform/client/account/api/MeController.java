@@ -1,7 +1,7 @@
 package com.hiveapp.platform.client.account.api;
 
-import com.hiveapp.platform.client.member.service.MemberService;
 import com.hiveapp.platform.client.member.dto.MemberPermissionDto;
+import com.hiveapp.shared.security.EffectivePermissionService;
 import com.hiveapp.shared.security.HiveAppUserDetails;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import lombok.RequiredArgsConstructor;
@@ -18,11 +18,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class MeController {
 
-    private final MemberService memberService;
+    private final EffectivePermissionService effectivePermissionService;
 
     @GetMapping("/permissions")
     public ResponseEntity<MemberPermissionDto> getPermissions(@AuthenticationPrincipal HiveAppUserDetails userDetails) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return ResponseEntity.ok(memberService.getEffectivePermissions(userDetails.getUserId(), accountId));
+        return ResponseEntity.ok(effectivePermissionService.getEffectivePermissions(userDetails.getUserId(), accountId));
     }
 }

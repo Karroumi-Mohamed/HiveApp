@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.role.dto.RoleDto;
 import com.hiveapp.platform.client.role.dto.UpdateRoleRequest;
 import com.hiveapp.platform.client.role.mapper.RoleMapper;
 import com.hiveapp.platform.client.role.service.RoleService;
+import com.hiveapp.platform.registry.dto.PermissionPickerModuleDto;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,12 @@ public class RoleController {
         return roleService.getAccountRoles(accountId).stream()
                 .map(roleMapper::toDto)
                 .collect(Collectors.toList());
+    }
+
+    @GetMapping("/permission-catalog")
+    public List<PermissionPickerModuleDto> getPermissionCatalog() {
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return roleService.getPermissionCatalog(accountId);
     }
 
     @GetMapping("/{id}")
