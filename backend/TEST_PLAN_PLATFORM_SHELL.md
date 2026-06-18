@@ -36,6 +36,10 @@ RoleIsolationIntegrationTest
 InvitationIsolationIntegrationTest
 MemberPermissionSecurityIntegrationTest
 B2bCollaborationSecurityIntegrationTest
+PlanBillingConfigurationIntegrationTest
+PublicFeatureCatalogIntegrationTest
+QuotaEnforcementIntegrationTest
+SubscriptionIntegrityIntegrationTest
 ```
 
 Those tests prove the new direction is working, but they are not enough to close the platform shell. They cover unit-level invariants, critical service/policy boundaries, request-level token/surface separation, the first client resource isolation cases, member override/lifecycle boundaries, and the first complete B2B lifecycle abuse path. The remaining work is broader request-level and abuse-case coverage.
@@ -83,10 +87,11 @@ Required integration tests:
 ```text
 application startup with all current feature contributors produces zero missing-feature action permissions
 registry inventory returns current modules, features, surfaces, quota schema, and permission counts
-registry catalog does not expose platform-control features as client catalog features
+registry catalog does not expose platform-control features as client catalog features. Covered for the public `/api/v1/features/catalog` endpoint at request level.
 changing registry status cannot make a platform-control feature plan-assignable or role-grantable
 admin feature-catalog endpoint requires platform registry access and returns code-owned surface flags. Covered at request level.
 admin permission-catalog endpoint requires platform registry access and returns filtered picker data. Covered at request level.
+public feature-catalog endpoint requires no token, returns only safe metadata, includes PUBLIC/BETA code-visible features, and excludes platform-control features even if registry status is PUBLIC. Covered at request level.
 ```
 
 ## 4. Permissionizer And Context
@@ -173,7 +178,8 @@ company-scoped roles reject companyId from another workspace. Covered for role c
 member list/add/update/deactivate reject members from another workspace. Covered for list/update/delete at request level.
 member role assignment rejects role from another workspace. Covered at request level.
 member role assignment rejects company from another workspace. Covered at request level.
-member role assignment rejects company-scoped role assigned outside its company
+member role assignment rejects company-scoped role assigned outside its company. Covered at request level.
+member role removal rejects role IDs from another workspace. Covered at request level.
 member permission override rejects permission not client-role grantable. Covered at request level.
 member permission override rejects memberId or companyId from another workspace. Covered for grant/read/revoke at request level.
 owner effective permissions include only client-role grantable permissions and only permissions entitled by the account's current subscription. Covered at service level.
@@ -185,7 +191,7 @@ deactivated company cannot be used as a valid company context if that is the int
 invitation list/revoke reject invitations from another workspace. Covered at request level.
 invitation send rejects roleId from another workspace. Covered at request level.
 invitation send rejects companyId from another workspace. Covered at request level.
-invitation send persists and validates company scope so accepted invites cannot bypass company-scoped role rules. Covered for send-time scope validation at request level; acceptance coverage remains required.
+invitation send persists and validates company scope so accepted invites cannot bypass company-scoped role rules. Covered for send-time and accept-time company-scoped role behavior at request level.
 ```
 
 ## 8. Plan, Subscription, And Entitlement
@@ -198,12 +204,13 @@ Required plan tests:
 PlanSeeder seeds only planAssignable feature definitions
 PlanSeeder seeds workspace quota defaults for FREE, PRO, and ENTERPRISE
 FeatureSeeder initializes newly declared public-catalog features as PUBLIC and control-plane features as INTERNAL while preserving later administrator status changes. Covered at unit and request levels through billing configuration behavior.
-plan assignment rejects platform-control features. Covered at service validation level.
-plan assignment rejects INTERNAL and DEPRECATED features. Enforced by BillingConfigurationValidator; request-level coverage remains required.
-plan assignment rejects unknown features. Enforced by BillingConfigurationValidator; request-level coverage remains required.
-plan assignment rejects quota configs for unknown quota resources. Covered at service validation level.
-plan assignment rejects quota configs on features without quota slots. Covered at service validation level.
-plan update validates quota configs the same way as assignment. Covered at service level.
+plan assignment rejects platform-control features. Covered at service and request levels.
+plan assignment rejects INTERNAL and DEPRECATED features. Covered at request level by mutating registry lifecycle status and restoring it after the assertion.
+plan assignment rejects unknown features. Covered at service and request levels.
+plan assignment rejects quota configs for unknown quota resources. Covered at service and request levels.
+plan assignment rejects duplicate quota configs, negative limits, negative quota unit prices, and negative add-on prices. Covered at request level.
+plan assignment rejects quota configs on features without quota slots. Covered at service level.
+plan update rejects feature-code changes and validates quota configs the same way as assignment. Covered at request level.
 inactive plan cannot be assigned to a new subscription. Enforced and covered at service level.
 BillingCycle.FOREVER is allowed only for FREE if that rule is accepted
 ```
@@ -218,10 +225,12 @@ expired subscription denies feature-gated requests. Enforced and covered at poli
 missing subscription denies feature-gated requests. Covered at policy level.
 `PlanPolicy` and `/api/v1/me/permissions` share the same `PlanEntitlementService`, so frontend effective permissions do not include plan-denied actions. Covered at unit/service and request level.
 plan feature removal semantics are explicit and tested: either existing subscriptions lose the feature dynamically, or subscription snapshots preserve it
-subscription addedFeatures cannot add platform-control features. Covered at service validation level.
-subscription addedFeatures cannot add unknown features. Covered at service validation level.
-subscription quotaOverrides cannot reference unknown quota resources. Covered at service validation level.
-subscription quotaOverrides cannot reference non-quota features. Enforced by BillingConfigurationValidator; request-level coverage remains required.
+subscription addedFeatures cannot add platform-control features. Covered at service and request levels.
+subscription addedFeatures cannot add unknown features. Covered at service and request levels.
+subscription addedFeatures cannot add INTERNAL features. Covered at request level.
+subscription quotaOverrides cannot reference unknown quota resources. Covered at service and request levels.
+subscription quotaOverrides cannot reference non-quota features. Covered at request level.
+subscription quotaOverrides cannot duplicate a feature/resource pair or set negative limits. Covered at request level.
 subscription override writes persist a valid declared workspace quota increase only after validation. Covered at service level.
 subscription restrictive overrides, if supported, deny a feature even when plan includes it
 administrator plan replacement cancels existing ACTIVE/TRIALING subscriptions before storing the new ACTIVE entitlement. Covered at service and request levels.
@@ -294,7 +303,7 @@ B2bCollaborationPolicy checks permission against exact collaborationId
 permission delegated to collaboration A does not authorize collaboration B with same provider/company
 revoked collaboration denies immediately. Covered at request level.
 pending collaboration denies delegated access and permission grants. Covered at request level.
-provider's plan entitlement is checked for delegated feature if that rule is accepted
+provider's plan entitlement is checked for delegated feature. Covered at request level for both the B2B permission picker and B2B grant write path.
 client's plan entitlement is checked for B2B shell feature if that rule is accepted
 B2B delegation rejects platform-control permissions. Covered at request level.
 B2B delegation rejects client-workspace features not marked b2bDelegatable
@@ -319,7 +328,7 @@ accepted invitation cannot create duplicate member
 accepting invitation with existing user joins correct workspace
 accepting invitation with new user creates User and Member for correct workspace
 invitation token cannot be used to join a different workspace
-role preassignment on accept respects workspace ownership
+role preassignment on accept respects workspace ownership and company scope. Covered at request level for company-scoped role access.
 ```
 
 ## 13. Request-Level Abuse Matrix

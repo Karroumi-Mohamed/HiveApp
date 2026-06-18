@@ -171,6 +171,45 @@ class InvitationIsolationIntegrationTest extends PlatformShellIntegrationTestSup
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void acceptedInvitationPreservesCompanyScopedRoleAssignment() throws Exception {
+        String ownerToken = registerClientAndGetToken();
+        assignPlan(ownerToken, "PRO");
+        UUID companyOneId = UUID.fromString(createCompany(ownerToken, "Company One").get("id").asText());
+        UUID companyTwoId = UUID.fromString(createCompany(ownerToken, "Company Two").get("id").asText());
+        UUID roleId = createRole(ownerToken, companyOneId, "Company One Viewer");
+        grantRolePermission(ownerToken, roleId, "platform.company.read_single");
+
+        UUID invitationId = sendInvitation(
+                ownerToken,
+                "scoped-invite-" + UUID.randomUUID() + "@example.com",
+                roleId,
+                companyOneId);
+        String invitationToken = invitationRepository.findById(invitationId).orElseThrow().getToken();
+
+        AcceptInvitationRequest request = new AcceptInvitationRequest(
+                invitationToken, "Scoped", "Member", CLIENT_PASSWORD);
+        String response = mockMvc.perform(post("/api/v1/invitations/accept")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String invitedToken = objectMapper.readTree(response).get("accessToken").asText();
+
+        mockMvc.perform(get("/api/v1/companies/{id}", companyOneId)
+                        .header("Authorization", bearer(invitedToken))
+                        .header("X-Company-ID", companyOneId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(companyOneId.toString()));
+
+        mockMvc.perform(get("/api/v1/companies/{id}", companyTwoId)
+                        .header("Authorization", bearer(invitedToken))
+                        .header("X-Company-ID", companyTwoId.toString()))
+                .andExpect(status().isForbidden());
+    }
+
     private UUID sendInvitation(String token, String email, UUID roleId, UUID companyId) throws Exception {
         SendInvitationRequest request = new SendInvitationRequest(email, roleId, companyId);
         String response = mockMvc.perform(post("/api/v1/invitations")
@@ -191,6 +230,32 @@ class InvitationIsolationIntegrationTest extends PlatformShellIntegrationTestSup
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return UUID.fromString(objectMapper.readTree(response).get("id").asText());
+    }
+
+    private void grantRolePermission(String token, UUID roleId, String permissionCode) throws Exception {
+        mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
+                        .header("Authorization", bearer(token))
+                        .param("permissionCode", permissionCode))
+                .andExpect(status().isNoContent());
+    }
+
+    private void assignPlan(String clientToken, String planCode) throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", currentAccountId(clientToken))
+                        .param("planCode", planCode)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plan.code").value(planCode));
+    }
+
+    private UUID currentAccountId(String token) throws Exception {
+        String response = mockMvc.perform(get("/api/v1/accounts/me")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();

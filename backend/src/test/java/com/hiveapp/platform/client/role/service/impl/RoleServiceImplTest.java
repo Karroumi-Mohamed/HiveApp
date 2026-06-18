@@ -7,9 +7,11 @@ import com.hiveapp.platform.client.role.domain.entity.Role;
 import com.hiveapp.platform.client.role.domain.entity.RolePermission;
 import com.hiveapp.platform.client.role.domain.repository.RolePermissionRepository;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
+import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
+import com.hiveapp.platform.registry.service.PermissionPickerCatalogService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
@@ -38,6 +40,8 @@ class RoleServiceImplTest {
     @Mock private CompanyRepository companyRepository;
     @Mock private PermissionRepository permissionRepository;
     @Mock private PermissionGrantValidator permissionGrantValidator;
+    @Mock private PermissionPickerCatalogService permissionPickerCatalogService;
+    @Mock private PlanEntitlementService planEntitlementService;
 
     @InjectMocks
     private RoleServiceImpl roleService;
@@ -65,6 +69,27 @@ class RoleServiceImplTest {
         assertThatThrownBy(() -> roleService.addPermissionToRole(roleId, permissionCode))
                 .isInstanceOf(InvalidPermissionGrantException.class)
                 .hasMessageContaining("client role");
+
+        verify(rolePermissionRepository, never()).save(org.mockito.ArgumentMatchers.any(RolePermission.class));
+    }
+
+    @Test
+    void addPermissionToRoleRejectsPermissionsThatAreNotEntitledByCurrentPlan() {
+        UUID accountId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        String permissionCode = "platform.company.create";
+        setContext(accountId);
+
+        Role role = role(roleId, accountId);
+        Permission permission = permission(permissionCode);
+        when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
+        when(rolePermissionRepository.existsByRoleIdAndPermissionCode(roleId, permissionCode)).thenReturn(false);
+        when(permissionRepository.findByCode(permissionCode)).thenReturn(Optional.of(permission));
+        when(planEntitlementService.isPermissionEntitled(accountId, permissionCode)).thenReturn(false);
+
+        assertThatThrownBy(() -> roleService.addPermissionToRole(roleId, permissionCode))
+                .isInstanceOf(InvalidPermissionGrantException.class)
+                .hasMessageContaining("current plan entitlement");
 
         verify(rolePermissionRepository, never()).save(org.mockito.ArgumentMatchers.any(RolePermission.class));
     }

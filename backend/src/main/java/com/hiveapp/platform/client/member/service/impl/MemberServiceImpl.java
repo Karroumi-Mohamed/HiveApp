@@ -148,7 +148,10 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @PermissionNode(key = "remove_role", description = "Remove role from member")
     public void removeRole(UUID memberId, UUID roleId) {
         var member = getMember(memberId);
+        var role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
         requireCurrentAccount(member);
+        requireSameAccount(member, role);
         memberRoleRepository.deleteByMemberIdAndRoleId(memberId, roleId);
     }
 

@@ -2,20 +2,34 @@ package com.hiveapp.platform.security;
 
 import com.hiveapp.platform.client.collaboration.dto.B2BPermissionRequest;
 import com.hiveapp.platform.client.collaboration.dto.InitiateCollaborationRequest;
+import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
+import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTestSupport {
+
+    @Autowired
+    private PlanRepository planRepository;
+
+    @Autowired
+    private PlanFeatureRepository planFeatureRepository;
 
     @Test
     void clientCannotRequestCollaborationWithOwnCompany() throws Exception {
@@ -76,6 +90,71 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isBadRequest());
         grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.delete")
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void b2bPermissionCatalogOnlyShowsExplicitDelegatableActions() throws Exception {
+        B2bSetup setup = setupActiveCollaboration();
+
+        mockMvc.perform(get("/api/v1/collaborations/{id}/permission-catalog", setup.collaborationId())
+                        .header("Authorization", bearer(setup.providerToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].features[*].permissions[*].code",
+                        hasItem("platform.company.read_single")))
+                .andExpect(jsonPath("$[*].features[*].permissions[*].code",
+                        everyItem(not("platform.company.create"))))
+                .andExpect(jsonPath("$[*].features[*].permissions[*].code",
+                        everyItem(not("platform.company.read_all"))))
+                .andExpect(jsonPath("$[*].features[*].permissions[*].code",
+                        everyItem(not("platform.company.update"))))
+                .andExpect(jsonPath("$[*].features[*].permissions[*].code",
+                        everyItem(not("platform.company.delete"))))
+                .andExpect(jsonPath("$[*].features[*].permissions[*].code",
+                        everyItem(not("platform.plans.create"))));
+    }
+
+    @Test
+    void clientCannotViewProviderB2bPermissionCatalog() throws Exception {
+        B2bSetup setup = setupActiveCollaboration();
+
+        mockMvc.perform(get("/api/v1/collaborations/{id}/permission-catalog", setup.collaborationId())
+                        .header("Authorization", bearer(setup.clientToken())))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void providerPlanDenialHidesAndRejectsB2bDelegationPermission() throws Exception {
+        B2bSetup setup = setupActiveCollaboration();
+        var freePlan = planRepository.findByCode("FREE").orElseThrow();
+        var companyPlanFeature = planFeatureRepository
+                .findByPlanIdAndFeature_Code(freePlan.getId(), "platform.company")
+                .orElseThrow();
+
+        planFeatureRepository.delete(companyPlanFeature);
+        planFeatureRepository.flush();
+
+        try {
+            mockMvc.perform(get("/api/v1/collaborations/{id}/permission-catalog", setup.collaborationId())
+                            .header("Authorization", bearer(setup.providerToken())))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(not(containsString("platform.company.read_single"))));
+
+            grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.read_single")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message")
+                            .value("Permission platform.company.read_single is not available in the provider's current plan entitlement."));
+        } finally {
+            planFeatureRepository.saveAndFlush(companyPlanFeature);
+        }
+    }
+
+    @Test
+    void pendingCollaborationCannotExposeB2bPermissionCatalog() throws Exception {
+        B2bSetup setup = setupPendingCollaboration();
+
+        mockMvc.perform(get("/api/v1/collaborations/{id}/permission-catalog", setup.collaborationId())
+                        .header("Authorization", bearer(setup.providerToken())))
+                .andExpect(status().isConflict());
     }
 
     @Test

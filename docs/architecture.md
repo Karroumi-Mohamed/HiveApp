@@ -260,6 +260,10 @@ The current backend exposes code-owned registry read models for UI composition. 
 
 `GET /api/admin/registry/permission-catalog` accepts a `PermissionCatalogAudience` query value and returns modules with features and filtered permissions for permission picker screens. `CLIENT_ROLE_GRANTABLE` exposes only client workspace permissions, `PLATFORM_ADMIN_ROLE_GRANTABLE` exposes only platform control-plane permissions, and `B2B_DELEGATABLE` exposes only explicitly listed B2B actions such as `platform.company.read_single`. These read models are UX helpers. The write services still enforce the same rules through `PermissionGrantValidator` and billing validators, so hiding a permission in the picker is not treated as the authorization boundary.
 
+Client-facing grant screens have their own smaller picker endpoints. `GET /api/v1/roles/permission-catalog` returns only permissions that the current account may grant to client workspace roles: the feature must be client-role grantable in code and currently entitled by the account's active subscription. `GET /api/v1/collaborations/{id}/permission-catalog` returns only permissions that the provider may delegate for that exact active collaboration: the caller must be the provider, the collaboration must be active, the feature must be entitled for the provider account, and the action must be explicitly listed as B2B-delegatable in the feature definition. These endpoints exist for good UX and safer API composition; they do not replace write-side validation.
+
+The public/client feature catalog is exposed separately at `GET /api/v1/features/catalog`. It is safe for unauthenticated plan-comparison and product-catalog views. The response contains only module code, feature code, display name, description, lifecycle status, and quota schema. It intentionally excludes registry ids, permissions, grant flags, and feature surfaces. A feature appears only when code marks it `publicCatalogVisible`, the registry row is active, and the registry status is `PUBLIC` or `BETA`. A database status change cannot make a platform control-plane feature appear there because the code-owned feature definition remains the first filter.
+
 ## 13. Status And Lifecycle
 
 Status is not the security boundary. Feature type and surface are the security boundary.
@@ -282,6 +286,8 @@ For example, `platform.plans` remains a platform control-plane feature even if a
 Role grant screens and services must filter permissions by feature surface and grant context.
 
 The current backend has a `PermissionGrantValidator` for this boundary. Client role grants and direct member permission overrides must be owned by client-role-grantable `CLIENT_WORKSPACE` features. Platform admin role grants must be owned by platform-admin-role-grantable `PLATFORM_CONTROL` features. B2B grants must be owned by explicitly B2B-delegatable client workspace features. This validator is used by the role, member, admin-role, and collaboration services so the decision is not left to frontend filtering or editable database state.
+
+Role and B2B permission writes also enforce subscription entitlement. A permission that is valid for the grant surface is still rejected when the corresponding feature is not enabled by the current account's plan. The picker endpoints use the same entitlement rule so the UI normally never offers denied grants, but the backend write path remains the final authority.
 
 Admin role grants now use the unified registry `Permission` table through `AdminRolePermission`. The old separate `AdminPermission` entity is no longer the desired model.
 
@@ -382,13 +388,15 @@ Feature availability controls broad capability areas. If `platform.b2b` is not e
 
 Frontend feature visibility is UX, not authorization. Backend policies remain the authority. The frontend should never assume that hiding a navigation item or button is sufficient security.
 
+Public feature catalog data comes from `GET /api/v1/features/catalog`. Authenticated workspace capability data still comes from effective permissions and entitlement-aware APIs such as `/api/v1/me/permissions`. The public catalog answers "what capabilities may be shown or marketed?" It does not answer "what can this actor do right now?"
+
 ## 20. Tests And Validation
 
 The architecture requires tests and startup validation that prove the registry is coherent.
 
 There must be validation that every collected Permissionizer permission maps to a declared feature, that every permission follows `<module>.<feature>.<action>`, that every feature maps to a declared module, and that every feature service's class-level Permissionizer root matches its feature definition code.
 
-Plan tests must prove that `PlanSeeder` and plan admin management use only client-plan-eligible features, and that all quota configs use declared quota keys. Subscription override tests must prove that overrides cannot reference unknown features, unknown quota keys, control-plane features, or invalid beta/deprecated states.
+Plan tests must prove that `PlanSeeder` and plan admin management use only client-plan-eligible features, and that all quota configs use declared quota keys. These checks must be covered both where the billing validator is unit-tested and where the administrator HTTP API receives real plan-feature assignment and update requests. Subscription override tests must prove that overrides cannot reference unknown features, unknown quota keys, duplicate quota keys, non-quota features, control-plane features, unavailable lifecycle states, or negative limits.
 
 Role tests must prove that client roles cannot grant control-plane permissions. Admin role tests must prove that platform admin permission management uses the platform-control grant surface intentionally. B2B tests must prove that non-delegatable and control-plane permissions cannot be delegated.
 

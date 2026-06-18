@@ -92,6 +92,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private boolean isPublicPath(HttpServletRequest request) {
         String path = requestPath(request);
         return path.startsWith("/api/v1/auth/")
+                || path.equals("/api/v1/features/catalog")
                 || path.equals("/api/v1/invitations/validate")
                 || path.equals("/api/v1/invitations/accept")
                 || path.startsWith("/swagger-ui/")

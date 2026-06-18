@@ -2,6 +2,8 @@
 
 All stories are scoped to the **Client Panel** (`/app`). Every protected story maps to a real backend endpoint and a Permissionizer-discovered permission persisted in the unified registry `permissions` table. The client permission sieve runs after the admin sieve and is ordered as: B2B collaboration ceiling when the request is B2B, plan entitlement, then user role/override resolution.
 
+The public feature catalog is available before workspace authorization at `GET /api/v1/features/catalog`. It is intentionally not an authorization endpoint. It gives the frontend safe feature metadata for plan comparison, onboarding, and catalog views, while `/api/v1/me/permissions` and guarded feature APIs remain the runtime authority for a signed-in actor.
+
 ---
 
 ## Actors
@@ -109,9 +111,10 @@ The current implementation keeps client workspace role management on `platform.r
 | RBAC-06 | As an owner or authorized member, I can delete a role | `DELETE /api/v1/roles/:id` | `platform.rbac.delete` |
 | RBAC-07 | As an owner or authorized member, I can grant a permission brick to a role | `POST /api/v1/roles/:id/permissions` | `platform.rbac.grant` |
 | RBAC-08 | As an owner or authorized member, I can revoke a permission brick from a role | `DELETE /api/v1/roles/:id/permissions/:permissionCode` | `platform.rbac.revoke` |
+| RBAC-09 | As an owner or authorized member, I can view the permission bricks that are safe and available to grant to client roles | `GET /api/v1/roles/permission-catalog` | `platform.rbac.permission_catalog` |
 
 **Constraints:**
-- Permission bricks available to assign are filtered by `PermissionGrantValidator`: client role management can grant only permissions owned by `CLIENT_WORKSPACE` features that are marked client-role grantable. Only features on the account's active plan are accessible at runtime through `PlanPolicy`.
+- Permission bricks available to assign are filtered by `PermissionGrantValidator`: client role management can grant only permissions owned by `CLIENT_WORKSPACE` features that are marked client-role grantable. The permission catalog and grant write path also enforce the account's active plan entitlement, so a role cannot receive permissions for a feature that is not currently enabled.
 - Deleting a role removes all member-role assignments for that role — members lose those permissions immediately
 - A member who has `rbac.grant` but not `rbac.revoke` can add permissions to a role but cannot remove them
 - Roles are workspace-scoped — they cannot be shared across workspaces
@@ -151,12 +154,14 @@ The current implementation keeps client workspace role management on `platform.r
 | B2B-05 | As an owner or authorized member, I can view all incoming collaboration requests targeting my workspace | `GET /api/v1/collaborations/incoming` | `platform.b2b.view_incoming` |
 | B2B-06 | As a provider, I can grant a specific permission brick to an active collaboration, allowing the partner's members to act on my resources | `POST /api/v1/collaborations/:id/permissions` | `platform.b2b.grant_permission` |
 | B2B-07 | As a provider, I can revoke a previously granted permission from a collaboration | `DELETE /api/v1/collaborations/:id/permissions/:permissionCode` | `platform.b2b.revoke_permission` |
+| B2B-08 | As a provider, I can view the permission bricks that are safe and available to delegate for an active collaboration | `GET /api/v1/collaborations/:id/permission-catalog` | `platform.b2b.permission_catalog` |
 
 **Constraints:**
 - B2B collaboration requires the `platform.b2b` feature to be on the account's active plan — blocked by PlanPolicy if not entitled
 - Collaboration is always between two workspaces for a specific company — not a blanket workspace-to-workspace trust
 - B2B permissions are checked by `B2bCollaborationPolicy`, which uses the exact active `collaborationId` resolved into `HiveAppPermissionContext`; a permission delegated to one collaboration must not authorize a different collaboration between the same provider and company.
-- B2B delegation is intentionally narrow right now. The only explicitly B2B-delegatable feature is `platform.company`, so this must be revisited before broader B2B product flows are exposed.
+- The B2B permission catalog is provider-only and active-collaboration-only. It returns only permissions whose feature is enabled for the provider account and whose action is explicitly listed as B2B-delegatable in code.
+- B2B delegation is intentionally narrow right now. The only explicitly B2B-delegatable feature is `platform.company`, and the only action currently exposed is `platform.company.read_single`, so this must be revisited before broader B2B product flows are exposed.
 - A partner member's access is entirely determined by the granted collaboration permissions — their own roles in their home workspace are irrelevant here
 - Revoking a collaboration immediately removes all partner access — no grace period
 
