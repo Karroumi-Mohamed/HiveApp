@@ -71,6 +71,30 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
+    void clientPlanWithoutB2bCannotInitiateCollaboration() throws Exception {
+        String providerToken = registerClientAndGetToken();
+        String clientToken = registerClientAndGetToken();
+        UUID companyId = UUID.fromString(createCompany(providerToken, "Provider Company").get("id").asText());
+        var freePlan = planRepository.findByCode("FREE").orElseThrow();
+        var b2bPlanFeature = planFeatureRepository
+                .findByPlanIdAndFeature_Code(freePlan.getId(), "platform.b2b")
+                .orElseThrow();
+
+        planFeatureRepository.delete(b2bPlanFeature);
+        planFeatureRepository.flush();
+
+        try {
+            mockMvc.perform(post("/api/v1/collaborations/initiate")
+                            .header("Authorization", bearer(clientToken))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new InitiateCollaborationRequest(companyId))))
+                    .andExpect(status().isForbidden());
+        } finally {
+            planFeatureRepository.saveAndFlush(b2bPlanFeature);
+        }
+    }
+
+    @Test
     void providerCannotDelegatePlatformControlPermission() throws Exception {
         B2bSetup setup = setupActiveCollaboration();
 
@@ -143,6 +167,49 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message")
                             .value("Permission platform.company.read_single is not available in the provider's current plan entitlement."));
+        } finally {
+            planFeatureRepository.saveAndFlush(companyPlanFeature);
+        }
+    }
+
+    @Test
+    void clientPlanWithoutB2bStillAllowsProviderGrantedDelegatedAccess() throws Exception {
+        B2bSetup setup = setupActiveCollaboration();
+        grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.read_single")
+                .andExpect(status().isNoContent());
+        var freePlan = planRepository.findByCode("FREE").orElseThrow();
+        var b2bPlanFeature = planFeatureRepository
+                .findByPlanIdAndFeature_Code(freePlan.getId(), "platform.b2b")
+                .orElseThrow();
+
+        planFeatureRepository.delete(b2bPlanFeature);
+        planFeatureRepository.flush();
+
+        try {
+            b2bCompanyRead(setup)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(setup.companyId().toString()));
+        } finally {
+            planFeatureRepository.saveAndFlush(b2bPlanFeature);
+        }
+    }
+
+    @Test
+    void existingB2bDelegatedAccessStopsWhenProviderLosesFeatureEntitlement() throws Exception {
+        B2bSetup setup = setupActiveCollaboration();
+        grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.read_single")
+                .andExpect(status().isNoContent());
+        var freePlan = planRepository.findByCode("FREE").orElseThrow();
+        var companyPlanFeature = planFeatureRepository
+                .findByPlanIdAndFeature_Code(freePlan.getId(), "platform.company")
+                .orElseThrow();
+
+        planFeatureRepository.delete(companyPlanFeature);
+        planFeatureRepository.flush();
+
+        try {
+            b2bCompanyRead(setup)
+                    .andExpect(status().isForbidden());
         } finally {
             planFeatureRepository.saveAndFlush(companyPlanFeature);
         }

@@ -303,8 +303,8 @@ B2bCollaborationPolicy checks permission against exact collaborationId
 permission delegated to collaboration A does not authorize collaboration B with same provider/company
 revoked collaboration denies immediately. Covered at request level.
 pending collaboration denies delegated access and permission grants. Covered at request level.
-provider's plan entitlement is checked for delegated feature. Covered at request level for both the B2B permission picker and B2B grant write path.
-client's plan entitlement is checked for B2B shell feature if that rule is accepted
+provider's plan entitlement is checked for delegated feature. Covered at unit and request level for the B2B permission picker, grant write path, and runtime delegated resource access.
+client's plan entitlement is checked for B2B management endpoints, but not passive delegated resource access. Covered at request level for initiate denial and provider-granted resource access.
 B2B delegation rejects platform-control permissions. Covered at request level.
 B2B delegation rejects client-workspace features not marked b2bDelegatable
 B2B action set is explicit; broad platform.company.* delegation is rejected. Covered for company create/read_all/update/delete at request level.

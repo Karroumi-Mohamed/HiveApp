@@ -157,9 +157,11 @@ The current implementation keeps client workspace role management on `platform.r
 | B2B-08 | As a provider, I can view the permission bricks that are safe and available to delegate for an active collaboration | `GET /api/v1/collaborations/:id/permission-catalog` | `platform.b2b.permission_catalog` |
 
 **Constraints:**
-- B2B collaboration requires the `platform.b2b` feature to be on the account's active plan — blocked by PlanPolicy if not entitled
+- B2B management requires the `platform.b2b` feature to be on the actor account's active plan. This includes initiating, accepting, revoking, listing, granting, revoking delegated permissions, and viewing the B2B permission catalog.
+- Passive B2B delegated resource access does not require `platform.b2b` on the client account. A partner member may use a provider-granted resource permission even when their home workspace cannot manage B2B flows.
 - Collaboration is always between two workspaces for a specific company — not a blanket workspace-to-workspace trust
 - B2B permissions are checked by `B2bCollaborationPolicy`, which uses the exact active `collaborationId` resolved into `HiveAppPermissionContext`; a permission delegated to one collaboration must not authorize a different collaboration between the same provider and company.
+- Runtime B2B resource access also checks the provider account's current entitlement to the delegated permission. If the provider loses the feature, existing delegated access stops.
 - The B2B permission catalog is provider-only and active-collaboration-only. It returns only permissions whose feature is enabled for the provider account and whose action is explicitly listed as B2B-delegatable in code.
 - B2B delegation is intentionally narrow right now. The only explicitly B2B-delegatable feature is `platform.company`, and the only action currently exposed is `platform.company.read_single`, so this must be revisited before broader B2B product flows are exposed.
 - A partner member's access is entirely determined by the granted collaboration permissions — their own roles in their home workspace are irrelevant here
@@ -208,7 +210,9 @@ Request arrives with CLIENT JWT
 1. B2bCollaborationPolicy
    ├─ Non-B2B request? → ABSTAIN
    ├─ Missing active collaborationId? → DENIED
-   ├─ Exact collaboration grants requested permission? → GRANTED
+   ├─ Exact collaboration does not grant requested permission? → DENIED
+   ├─ Provider account not entitled to requested permission? → DENIED
+   ├─ Exact collaboration grants requested permission and provider is entitled? → GRANTED
    └─ No delegated permission? → DENIED
         │
         ▼
@@ -226,7 +230,7 @@ Request arrives with CLIENT JWT
    └─ No grant found → ABSTAIN → 403
 ```
 
-B2bCollaborationPolicy only fires when `isB2B = true` in the request context, meaning a partner member is acting on provider resources.
+B2bCollaborationPolicy only fires when `isB2B = true` in the request context, meaning a partner member is acting on provider resources. For that path, the provider account is the entitlement owner. The client account still needs `platform.b2b` for B2B management endpoints, but not for passive delegated resource reads/actions.
 
 ---
 

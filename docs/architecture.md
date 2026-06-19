@@ -334,6 +334,10 @@ B2B collaboration is a delegated permission ceiling between accounts. A provider
 
 The provider account must have the feature enabled. The delegated permission must belong to a client workspace feature, and the specific action must be listed as B2B-delegatable in code. The provider actor must be authorized to delegate that permission. The client actor then receives only the delegated scope.
 
+HiveApp uses a provider-owned billing model for delegated resource access. The provider pays for and controls the exposed resource capability. The client account needs `platform.b2b` for its own B2B management surface, such as initiating collaborations, accepting incoming requests, revoking collaborations, listing collaborations, and managing delegated permissions. The client account does not need `platform.b2b` merely to consume a resource permission that a provider explicitly granted through an active collaboration.
+
+Provider entitlement is checked twice. Grant and picker endpoints check it so the provider cannot offer permissions from features it does not currently have. Runtime B2B resource access checks it again so old collaboration grants stop working automatically when the provider downgrades or otherwise loses the delegated feature.
+
 Platform control-plane permissions are never B2B-delegatable. It must be impossible to delegate plan catalog management, registry management, admin-user management, or other control-plane capabilities to a client through B2B.
 
 B2B grants are scoped to an exact active collaboration, not globally to the provider account. A collaboration is bound to one provider company. If the same client collaborates with the same provider on two companies, each collaboration has its own permission set:
@@ -343,7 +347,7 @@ Provider / Company 1 / Client X -> permissions A, B, C
 Provider / Company 2 / Client X -> permissions D, E, F
 ```
 
-A permission granted through the Company 1 collaboration must not authorize Company 2, even if the permission code is the same. Runtime checks must resolve the active B2B context, verify the exact collaboration id, verify the exact delegated permission, and verify the requested resource belongs to the collaboration's target company.
+A permission granted through the Company 1 collaboration must not authorize Company 2, even if the permission code is the same. Runtime checks must resolve the active B2B context, verify the exact collaboration id, verify the exact delegated permission, verify the provider is still entitled to the permission, and verify the requested resource belongs to the collaboration's target company.
 
 The current conservative company rule is:
 
