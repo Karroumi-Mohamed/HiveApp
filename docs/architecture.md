@@ -239,6 +239,8 @@ Overrides must be validated against code-owned feature and quota definitions. Th
 
 The subscription layer should not treat all features as equivalent strings. It must understand the feature surface and the feature's allowed use in client subscriptions.
 
+Client subscription self-service is planned but not implemented yet. The intended direction is documented in `docs/PLAN_CLIENT_SUBSCRIPTION_SELF_SERVICE.md`: admins edit plan templates, while clients edit only their own active account subscription through preview and confirmation flows. The target model is snapshot-based so a mutable plan template does not silently change existing customer entitlements, quotas, or prices.
+
 ## 12. Feature Management And Registry
 
 Feature management is itself a control-plane capability. In the current platform namespace, it should be represented by a feature such as `platform.registry`.

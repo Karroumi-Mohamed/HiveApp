@@ -180,6 +180,7 @@ The current implementation keeps client workspace role management on `platform.r
 
 **Constraints:**
 - Subscription management (upgrades, downgrades, overrides) is admin-only — clients can only view their subscription
+- Client subscription self-service is planned in `docs/PLAN_CLIENT_SUBSCRIPTION_SELF_SERVICE.md`, but the backend endpoints for previewing, confirming, and applying client-owned plan changes do not exist yet
 - Quota usage is derived from live counts (member count, company count) vs. plan limits
 - A TRIALING subscription grants the same feature access as the plan it is trialing
 - An EXPIRED or CANCELLED subscription results in PlanPolicy denying all feature-gated requests

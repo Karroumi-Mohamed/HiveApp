@@ -82,7 +82,7 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 - `BillingCycle.FOREVER` is reserved exclusively for the FREE plan — any other plan must use MONTHLY or YEARLY
 - Deactivating a plan does not affect existing active subscriptions on that plan
 - Only features with status `PUBLIC` or `BETA` should be assignable to plans (INTERNAL features are platform-internal only)
-- Removing a feature from a plan does not retroactively revoke it from existing active subscriptions
+- Client subscription self-service will move active subscriptions toward an explicit snapshot model, documented in `docs/PLAN_CLIENT_SUBSCRIPTION_SELF_SERVICE.md`. Until that model is implemented, plan-feature edits should be treated carefully because runtime entitlement still reads the active subscription's plan composition.
 
 ---
 
@@ -98,8 +98,8 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 
 **Constraints:**
 - Subscription lookup is by `accountId` — the admin must know the account ID (sourced from the Subscriptions search page)
-- Custom overrides stack on top of the plan — they do not replace the plan's features
-- An override can also restrict (remove) a feature that the plan grants, for punitive or compliance reasons
+- Custom overrides stack on top of the plan — they do not replace the plan's features in the current backend
+- Restrictive overrides are planned but not implemented as an enforced entitlement rule yet
 - Reassigning a plan (`S-02`) creates a new subscription record, the previous one is superseded
 
 ---

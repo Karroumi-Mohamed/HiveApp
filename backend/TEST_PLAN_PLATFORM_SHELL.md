@@ -245,6 +245,8 @@ Accepted runtime rule: a subscription in `ACTIVE` or `TRIALING` state grants ent
 
 Known semantic gap: the docs previously said removing a feature from a plan does not retroactively revoke it from existing subscriptions. The current dynamic plan policy may not behave that way unless subscriptions snapshot features or overrides preserve access. This must be decided and tested.
 
+Client subscription self-service is planned in `docs/PLAN_CLIENT_SUBSCRIPTION_SELF_SERVICE.md`. The required future coverage includes plan catalog read models, preview/apply consistency, downgrade conflict handling, add-on and quota selection validation, concurrency protection, and proving that effective permissions, quota enforcement, role pickers, and B2B runtime entitlement all resolve from the same active subscription state.
+
 ## 9. Quotas
 
 Quota checks must happen inside services, not only in controllers, because service methods are the business boundary.
