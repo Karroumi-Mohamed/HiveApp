@@ -17,7 +17,7 @@ HiveApp is a multi-tenant, collaborative Enterprise Resource Planning (ERP) ecos
 ### 2.1 Platform Administration (The Governance Layer)
 Admins never create structural entities. They **refine** what the code provides.
 *   **The "Trio" of Admin Decisions**:
-    1.  **Visibility Control**: Toggling features through their lifecycle (`INTERNAL` -> `BETA` -> `PUBLIC`).
+    1.  **Activation Control**: Activating or deactivating code-declared catalog features for new UI, catalog, and plan usage.
     2.  **Plan Composition**: Bundling code-spawned Features into marketable subscription tiers.
     3.  **Quota Value Management**: Setting the numeric limits (e.g., "5 Users" vs "50 Users") for each feature within a plan.
 *   **Zero Data Entry**: Because existence is defined in code, admins never click "New Module" or "New Feature." They only manage the business properties of discovered entities.
@@ -49,9 +49,11 @@ Quotas are linked to Permissions. Code defines the **Type** (e.g., `MaxStorage`)
 ## 4. Lifecycle & Performance
 
 ### 4.1 Feature Visibility
-*   **INTERNAL**: Default state. Hidden from clients, used for dev/testing.
-*   **PUBLIC**: Market-ready. Visible in the client catalog.
-*   **BETA**: Restricted access for invited accounts.
+Lifecycle is declared in code and synced by the seeder. Admins do not promote beta features, deprecate features, or make internal features public from the UI.
+*   **INTERNAL**: Code-owned internal/control/non-catalog lifecycle.
+*   **PUBLIC**: Market-ready when the feature is active.
+*   **BETA**: Code-owned beta lifecycle when the feature is active.
+*   **DEPRECATED**: Code-owned legacy lifecycle, not newly assignable.
 
 ### 4.2 Expansion Logic & Snapshots
 When an Admin composes a Plan, the system snapshots the specific **Feature IDs** into the database. This ensures that if a Module grows in the code later, existing plans remain stable and do not "leak" new features to customers who haven't paid for them.

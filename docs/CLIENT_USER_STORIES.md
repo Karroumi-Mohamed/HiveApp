@@ -176,11 +176,18 @@ The current implementation keeps client workspace role management on `platform.r
 | # | Story | Endpoint | Permission |
 |---|-------|----------|------------|
 | SUB-01 | As any member, I can view my workspace's current subscription — plan name, status, price, billing cycle, features, and quota usage | `GET /api/v1/subscriptions/me` | `platform.subscription.read` |
-| SUB-02 | As any member, I can browse the public plan catalog to understand available upgrade options | `GET /api/v1/plans` | — (authenticated, no specific perm) |
+| SUB-02 | As any member, I can browse the self-service plan catalog with safe feature metadata, included features, add-ons, quota limits, selected overrides, and current usage | `GET /api/v1/subscriptions/catalog` | `platform.subscription.catalog` |
+| SUB-03 | As any member with subscription access, I can preview a plan/add-on/quota change and see price plus conflicts before anything mutates | `POST /api/v1/subscriptions/preview` | `platform.subscription.preview` |
+| SUB-04 | As any member with subscription access, I can apply an immediately valid plan/add-on/quota change to my own workspace subscription | `POST /api/v1/subscriptions/apply` | `platform.subscription.apply` |
 
 **Constraints:**
-- Subscription management (upgrades, downgrades, overrides) is admin-only — clients can only view their subscription
-- Client subscription self-service is planned in `docs/PLAN_CLIENT_SUBSCRIPTION_SELF_SERVICE.md`, but the backend endpoints for previewing, confirming, and applying client-owned plan changes do not exist yet
+- Client subscription self-service never edits `Plan` or `PlanFeature` rows. Admins manage plan templates; clients manage only their own active account subscription.
+- Catalog/preview/apply derive `accountId` from request context. A client cannot choose another account id for these flows.
+- Catalog exposes only active, plan-assignable client workspace features whose code-owned lifecycle is `PUBLIC` or `BETA`; platform-control, inactive, internal, and deprecated features are hidden.
+- Preview and apply share the same validator, usage-conflict checks, snapshot creation, and billing calculation. Apply revalidates under an account lock.
+- Downgrades or add-on removals that would leave current usage outside the selected entitlement are rejected until usage is reduced.
+- Applying a change cancels the previous usable `ACTIVE`/`TRIALING` subscription and creates a new active entitlement snapshot.
+- External checkout/payment confirmation, proration, invoices, cancellation scheduling, and scheduled downgrades are not implemented yet.
 - Quota usage is derived from live counts (member count, company count) vs. plan limits
 - A TRIALING subscription grants the same feature access as the plan it is trialing
 - An EXPIRED or CANCELLED subscription results in PlanPolicy denying all feature-gated requests
@@ -195,7 +202,8 @@ The current implementation keeps client workspace role management on `platform.r
 | Reset forgotten password | No password reset flow — not implemented |
 | Email verification on register | No verification gate — not implemented |
 | Switch between multiple workspaces | `ContextDetectionFilter` uses `findFirstByUserId` — multi-workspace switching is broken by design (known limitation) |
-| Upgrade/downgrade subscription | Client-side — subscription changes are admin-only |
+| External checkout, invoices, or proration | Subscription self-service currently applies internally without a payment provider |
+| Scheduled subscription downgrade | Immediate changes exist; future effective-at-renewal changes are not modeled yet |
 | Transfer workspace ownership | No `PATCH /api/v1/accounts/me/owner` endpoint |
 | Leave workspace (member self-removal) | No self-removal endpoint — only owner can deactivate a member |
 | Delete account permanently | `DELETE /api/v1/accounts/me` deactivates, does not hard-delete |

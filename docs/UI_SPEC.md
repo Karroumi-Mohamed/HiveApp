@@ -1,5 +1,5 @@
 # HiveApp — Enterprise UI/UX Specification
-> Version 2.0 — updated to match backend v2 (62 permission bricks, invitation flow, /me endpoints)
+> Version 2.1 — updated for the Bootstrap 5 admin shell, 68 discovered permissions, invitation flow, and /me endpoints
 
 ---
 
@@ -14,6 +14,8 @@
 4. **One source of truth for permissions.** On login, immediately fetch `GET /api/v1/me/permissions` (client) or `GET /api/admin/me` (admin). Flatten into a `Set<string>` stored in Zustand. Re-fetch only on token refresh or after a 403.
 5. **Optimistic UI + server validation.** Mutations are optimistic. On 403 the UI rolls back and shows a toast: *"You no longer have permission for this action."*
 6. **Invite-only member addition.** Members join via email invitation, not direct creation. The "Add Member" flow opens an invite drawer, not a user-creation form.
+7. **French and Arabic first.** All visible UI copy must be available in French and Arabic. Arabic switches the document to RTL and layouts must use logical start/end spacing where direction matters.
+8. **Low-density operational UI.** Do not fill pages with explanatory paragraphs. Prefer concise labels, filters, status chips, compact metrics, detail panels, and action controls. Long explanations belong in docs, not on repeated admin screens.
 
 ---
 
@@ -22,17 +24,17 @@
 | Concern | Choice | Why |
 |---|---|---|
 | Framework | React 19 + TypeScript | Concurrent features, strict typing |
-| Routing | TanStack Router | File-based, type-safe params, beforeLoad guards |
-| Server state | TanStack Query v5 | Stale-while-revalidate, optimistic mutations |
-| Client state | Zustand | Auth slice, permission set slice |
-| Component primitives | shadcn/ui (Radix UI + Tailwind) | Accessible, unstyled-first, composable |
-| Forms | React Hook Form + Zod | Schema-driven, zero re-renders |
-| Table | TanStack Table v8 | Virtual, sortable, filterable, server-side |
-| Notifications | Sonner | Toast stack |
-| Icons | Lucide React | Consistent, tree-shakeable |
+| Routing | React Router | Simple guarded admin routes for the current shell |
+| Server state | Route-local API loaders first; TanStack Query only when repeated cache/invalidation complexity appears | Avoid framework weight before the flows need it |
+| Client state | React context + session storage for auth; introduce Zustand only for broader app-wide state | Keeps the first admin shell small and explicit |
+| Component primitives | Bootstrap 5 | Stable operational components, tables, forms, alerts, RTL-compatible layout rules |
+| Forms | Native controlled forms first; React Hook Form + Zod for complex create/edit flows | Match form complexity to risk |
+| Table | Bootstrap tables for current feature/admin lists; TanStack Table only when sorting/virtualization/server filtering is required | Keep list UIs readable without premature abstraction |
+| Notifications | Bootstrap alerts/toasts | No additional dependency needed yet |
+| Icons | Bootstrap Icons | Matches Bootstrap 5 visual language |
 | Date | date-fns | Lightweight |
-| Charts | Recharts | Composable, Tailwind-friendly |
-| HTTP client | ky | Tiny fetch wrapper with interceptors |
+| Charts | Recharts when charts are introduced | Use only for real analytics screens |
+| HTTP client | Axios | Interceptors for admin/client JWTs and consistent API errors |
 
 ---
 
@@ -187,21 +189,26 @@ export const P = {
 
   // ── Subscription (client) ────────────────────────────────
   SUB_READ:                    "platform.subscription.read",
+  SUB_CATALOG:                 "platform.subscription.catalog",
+  SUB_PREVIEW:                 "platform.subscription.preview",
+  SUB_APPLY:                   "platform.subscription.apply",
 
   // ── Admin: Users ─────────────────────────────────────────
-  ADMIN_USERS_READ:            "platform.admin.users.read",
-  ADMIN_USERS_CREATE:          "platform.admin.users.create",
-  ADMIN_USERS_TOGGLE:          "platform.admin.users.toggle_active",
-  ADMIN_USERS_ASSIGN_ROLE:     "platform.admin.users.assign_role",
-  ADMIN_USERS_REMOVE_ROLE:     "platform.admin.users.remove_role",
+  ADMIN_USERS_READ:            "platform.admin_users.read",
+  ADMIN_USERS_READ_DETAIL:     "platform.admin_users.read_detail",
+  ADMIN_USERS_CREATE:          "platform.admin_users.create",
+  ADMIN_USERS_TOGGLE:          "platform.admin_users.toggle_active",
+  ADMIN_USERS_ASSIGN_ROLE:     "platform.admin_users.assign_role",
+  ADMIN_USERS_REMOVE_ROLE:     "platform.admin_users.remove_role",
 
   // ── Admin: Roles ─────────────────────────────────────────
-  ADMIN_ROLES_READ:            "platform.admin.roles.read",
-  ADMIN_ROLES_CREATE:          "platform.admin.roles.create",
-  ADMIN_ROLES_UPDATE:          "platform.admin.roles.update",
-  ADMIN_ROLES_TOGGLE:          "platform.admin.roles.toggle_active",
-  ADMIN_ROLES_GRANT_PERM:      "platform.admin.roles.grant_permission",
-  ADMIN_ROLES_REVOKE_PERM:     "platform.admin.roles.revoke_permission",
+  ADMIN_ROLES_READ:            "platform.roles.read",
+  ADMIN_ROLES_READ_DETAIL:     "platform.roles.read_detail",
+  ADMIN_ROLES_CREATE:          "platform.roles.create",
+  ADMIN_ROLES_UPDATE:          "platform.roles.update",
+  ADMIN_ROLES_TOGGLE:          "platform.roles.toggle_active",
+  ADMIN_ROLES_GRANT_PERM:      "platform.roles.grant_permission",
+  ADMIN_ROLES_REVOKE_PERM:     "platform.roles.revoke_permission",
 
   // ── Admin: Subscriptions ─────────────────────────────────
   ADMIN_SUBS_READ:             "platform.admin.subscriptions.read",
@@ -220,7 +227,9 @@ export const P = {
   // ── Registry ─────────────────────────────────────────────
   REGISTRY_READ:               "platform.registry.read",
   REGISTRY_CATALOG:            "platform.registry.catalog",
-  REGISTRY_UPDATE_STATUS:      "platform.registry.update_status",
+  REGISTRY_FEATURE_CATALOG:    "platform.registry.feature_catalog",
+  REGISTRY_PERMISSION_CATALOG: "platform.registry.permission_catalog",
+  REGISTRY_UPDATE_ACTIVE:      "platform.registry.update_active",
 
 } as const
 
@@ -247,7 +256,7 @@ export type PermissionPath = typeof P[keyof typeof P]
 | GET | `/api/v1/me/permissions` | CLIENT JWT | `{ memberId, isOwner, permissions: string[] }` |
 | GET | `/api/admin/me` | ADMIN JWT | `{ id, email, isSuperAdmin, isActive, permissions: string[] }` |
 
-> ⚠️ These two endpoints are **not yet implemented** in the backend. They must be built before the UI auth flow works. See Section 8.
+The admin shell now depends on `POST /api/admin/auth/login` and `GET /api/admin/me`; both are part of the current backend admin flow. Client screens must use the client login and client `/me/permissions` flow separately.
 
 ### 3.3 Client endpoints
 
@@ -257,6 +266,9 @@ export type PermissionPath = typeof P[keyof typeof P]
 | DELETE | `/api/v1/accounts/me` | `platform.workspace.delete` |
 | GET | `/api/v1/plans` | — (public) |
 | GET | `/api/v1/subscriptions/me` | `platform.subscription.read` |
+| GET | `/api/v1/subscriptions/catalog` | `platform.subscription.catalog` |
+| POST | `/api/v1/subscriptions/preview` | `platform.subscription.preview` |
+| POST | `/api/v1/subscriptions/apply` | `platform.subscription.apply` |
 | POST | `/api/v1/companies` | `platform.company.create` |
 | GET | `/api/v1/companies` | `platform.company.read_all` |
 | GET | `/api/v1/companies/:id` | `platform.company.read_single` |
@@ -295,19 +307,19 @@ export type PermissionPath = typeof P[keyof typeof P]
 
 | Method | Path | Permission required |
 |--------|------|---------------------|
-| GET | `/api/admin/users` | `platform.admin.users.read` |
-| GET | `/api/admin/users/:id` | `platform.admin.users.read` |
-| POST | `/api/admin/users` | `platform.admin.users.create` |
-| POST | `/api/admin/users/:id/toggle-active` | `platform.admin.users.toggle_active` |
-| POST | `/api/admin/users/:id/roles` | `platform.admin.users.assign_role` |
-| DELETE | `/api/admin/users/:id/roles/:roleId` | `platform.admin.users.remove_role` |
-| GET | `/api/admin/roles` | `platform.admin.roles.read` |
-| GET | `/api/admin/roles/:id` | `platform.admin.roles.read` |
-| POST | `/api/admin/roles` | `platform.admin.roles.create` |
-| PUT | `/api/admin/roles/:id` | `platform.admin.roles.update` |
-| POST | `/api/admin/roles/:id/toggle-active` | `platform.admin.roles.toggle_active` |
-| POST | `/api/admin/roles/:id/permissions` | `platform.admin.roles.grant_permission` |
-| DELETE | `/api/admin/roles/:id/permissions/:permId` | `platform.admin.roles.revoke_permission` |
+| GET | `/api/admin/users` | `platform.admin_users.read` |
+| GET | `/api/admin/users/:id` | `platform.admin_users.read_detail` |
+| POST | `/api/admin/users` | `platform.admin_users.create` |
+| POST | `/api/admin/users/:id/toggle-active` | `platform.admin_users.toggle_active` |
+| POST | `/api/admin/users/:id/roles` | `platform.admin_users.assign_role` |
+| DELETE | `/api/admin/users/:id/roles/:roleId` | `platform.admin_users.remove_role` |
+| GET | `/api/admin/roles` | `platform.roles.read` |
+| GET | `/api/admin/roles/:id` | `platform.roles.read_detail` |
+| POST | `/api/admin/roles` | `platform.roles.create` |
+| PUT | `/api/admin/roles/:id` | `platform.roles.update` |
+| POST | `/api/admin/roles/:id/toggle-active` | `platform.roles.toggle_active` |
+| POST | `/api/admin/roles/:id/permissions` | `platform.roles.grant_permission` |
+| DELETE | `/api/admin/roles/:id/permissions/:permId` | `platform.roles.revoke_permission` |
 | GET | `/api/admin/plans` | `platform.plans.list` |
 | POST | `/api/admin/plans` | `platform.plans.create` |
 | PATCH | `/api/admin/plans/:id/active` | `platform.plans.toggle_active` |
@@ -318,9 +330,11 @@ export type PermissionPath = typeof P[keyof typeof P]
 | GET | `/api/admin/subscriptions/account/:id` | `platform.admin.subscriptions.read` |
 | POST | `/api/admin/subscriptions/account/:id` | `platform.admin.subscriptions.create` |
 | PATCH | `/api/admin/subscriptions/account/:id/overrides` | `platform.admin.subscriptions.update_overrides` |
+| GET | `/api/admin/registry/feature-catalog` | `platform.registry.feature_catalog` |
+| GET | `/api/admin/registry/permission-catalog` | `platform.registry.permission_catalog` |
 | GET | `/api/admin/registry/inventory` | `platform.registry.read` |
 | GET | `/api/admin/registry/catalog` | `platform.registry.catalog` |
-| PATCH | `/api/admin/registry/features/:id/status` | `platform.registry.update_status` |
+| PATCH | `/api/admin/registry/features/:id/active` | `platform.registry.update_active` |
 
 ---
 
@@ -342,11 +356,14 @@ Nav items hide entirely if user has zero permissions in that namespace.
 │  on mobile)   │                                              │
 │               │                                              │
 │ ○ Dashboard   │                                              │
-│ ○ Users       │  — only if has platform.admin.users.*        │
-│ ○ Roles       │  — only if has platform.admin.roles.*        │
-│ ○ Plans       │  — only if has platform.plans.*              │
+│ ▼ Admin Access│ — expands if has admin user or role access   │
+│   ○ Members   │ — platform admin operators                   │
+│   ○ Roles     │ — platform admin permission roles            │
+│ ▼ Plans       │  — expands only if has platform.plans.*      │
+│   ○ Templates │  — plan templates and active state           │
+│   ○ Features  │  — plan-feature inclusion matrix             │
 │ ○ Subscriptions│ — only if has platform.admin.subscriptions.*│
-│ ○ Registry    │  — only if has platform.registry.*           │
+│ ○ Features    │  — only if has platform.registry.*           │
 │               │                                              │
 │ ───────────── │                                              │
 │ ○ My Access   │  — non-SuperAdmin only                       │
@@ -383,198 +400,207 @@ Stat cards render only if user can see the relevant data.
 
 ---
 
-### 4.3 Admin Users `/admin/users`
+### 4.3 Admin Access Group `/admin/access/*`
 
-**Requires:** `platform.admin.users.read`
+The admin-access group manages people who can operate the platform control plane. It is not client member management and it is not workspace RBAC. Client members remain under the client workspace surface; platform admin members are backed by `AdminUser`, `AdminRole`, and `AdminRolePermission`.
+
+`/admin/access` redirects to `/admin/access/members`. The sidebar exposes the group only when the current admin is a SuperAdmin or has at least one of `platform.admin_users.read` or `platform.roles.read`.
+
+| Route | Purpose | Required read permission |
+|-------|---------|--------------------------|
+| `/admin/access/members` | Platform admin operators, status, SuperAdmin flag, assigned admin roles | `platform.admin_users.read` |
+| `/admin/access/roles` | Platform admin roles and their platform-control permission matrix | `platform.roles.read` |
+
+### 4.4 Admin Members `/admin/access/members`
+
+This page answers who can enter the admin control plane and which platform admin roles they carry. It must not present client accounts, workspace members, or B2B collaborators.
+
+Primary data sources:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/admin/users` | Lists admin users with email, active state, SuperAdmin flag, and assigned admin role summaries |
+| GET | `/api/admin/roles` | Lists active/inactive admin roles so assign-role controls can avoid already assigned roles |
+| POST | `/api/admin/users` | Promotes an existing platform user to admin |
+| POST | `/api/admin/users/:id/toggle-active` | Activates or deactivates another admin user |
+| POST | `/api/admin/users/:id/roles` | Assigns an active admin role to an admin user |
+| DELETE | `/api/admin/users/:id/roles/:roleId` | Removes an admin role from an admin user |
+
+Current UX contract:
 
 ```
-Admin Users                              [+ Promote User] ←CanDo(P.ADMIN_USERS_CREATE)
-─────────────────────────────────────────────────────────────────────────
-Search: [______________]   Status: [All ▼]
+Admin Access / Members
+--------------------------------------------------------------
+[New Admin Member] [Refresh]
 
-┌──────┬──────────────────┬──────────┬───────────────────┬───────┬────────┐
-│ Name │ Email            │ Status   │ Roles             │ Super │ Actions│
-├──────┼──────────────────┼──────────┼───────────────────┼───────┼────────┤
-│ Ali  │ ali@hiveapp.com  │ ● Active │ [Billing][Support]│       │ ···    │
-│ Sara │ sara@hive.com    │ ○ Inactive│ [Super Admin]    │ ★     │ ···    │
-└──────┴──────────────────┴──────────┴───────────────────┴───────┴────────┘
+[metric: members] [metric: active] [metric: super admins] [metric: roles]
+
+Search by email, user id, or assigned role
+
+Operator row:
+  avatar initial | email | user id | active/inactive | SuperAdmin | current session
+  assigned roles as removable chips
+  action buttons: assign role, toggle active
 ```
 
-**Row action menu (···):**
-- View details — always
-- Toggle Active/Inactive — `CanDo(P.ADMIN_USERS_TOGGLE, fallback="disable")`
-- Assign Role — `CanDo(P.ADMIN_USERS_ASSIGN_ROLE, fallback="disable")`
-- Remove Role (inline per role) — `CanDo(P.ADMIN_USERS_REMOVE_ROLE, fallback="disable")`
+| Action | UI permission gate | Backend rule |
+|--------|--------------------|--------------|
+| Create admin member | SuperAdmin or `platform.admin_users.create` | Non-SuperAdmin cannot create a SuperAdmin; duplicate admin-user records are rejected |
+| Toggle active | SuperAdmin or `platform.admin_users.toggle_active` | An admin cannot deactivate their own admin user |
+| Assign role | SuperAdmin or `platform.admin_users.assign_role` | Target role must be active; non-SuperAdmin can assign only roles whose permissions are already within their own active-role permission ceiling |
+| Remove role | SuperAdmin or `platform.admin_users.remove_role` | Backend remains authoritative even if a button is hidden or disabled |
 
-**"Promote User" drawer:**
+The current create dialog accepts an existing `userId` because the backend create endpoint is `POST /api/admin/users { userId, isSuperAdmin }`. A later email search or invite flow may improve UX, but it must still resolve to an existing user and keep the same backend promotion rules.
+
+### 4.5 Admin Roles `/admin/access/roles`
+
+This page manages platform-admin roles. It is the permission-delegation screen for the admin control plane and must source available permissions from the registry permission catalog, not from hard-coded strings or broad namespace guesses.
+
+Primary data sources:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/admin/roles` | Lists roles with assigned permission summaries |
+| GET | `/api/admin/registry/permission-catalog?audience=PLATFORM_ADMIN_ROLE_GRANTABLE` | Returns only platform-control permissions grantable to admin roles |
+| POST | `/api/admin/roles` | Creates an admin role |
+| PUT | `/api/admin/roles/:id` | Updates admin-role name and description |
+| POST | `/api/admin/roles/:id/toggle-active` | Activates or deactivates an admin role |
+| POST | `/api/admin/roles/:id/permissions` | Grants one registry permission to the role |
+| DELETE | `/api/admin/roles/:id/permissions/:permId` | Revokes one registry permission from the role |
+
+Current UX contract:
+
 ```
-Promote to Admin
-────────────────────────────────────────
-Search existing platform user by email:
-[___________________________]
-[user card: avatar / name / email]
+Admin Access / Roles
+--------------------------------------------------------------
+[New Admin Role] [Refresh]
 
-Super Admin?  [ Toggle — OFF by default ]
-  ⚠ Super Admins bypass all permission checks
+[metric: roles] [metric: active] [metric: selected permissions]
 
-[Cancel]  [Promote →]
+Left index:
+  searchable role list with status and permission count
+
+Right detail:
+  selected role name, description, active state
+  edit metadata action
+  activate/deactivate action
+  permission matrix grouped by feature from PLATFORM_ADMIN_ROLE_GRANTABLE catalog
 ```
+
+| Action | UI permission gate | Backend rule |
+|--------|--------------------|--------------|
+| Create role | SuperAdmin or `platform.roles.create` | Role is created as an admin-role entity only |
+| Edit role metadata | SuperAdmin or `platform.roles.update` | Only name and description are editable |
+| Toggle role active | SuperAdmin or `platform.roles.toggle_active` | Inactive roles cannot be newly assigned to users |
+| Grant permission | SuperAdmin or `platform.roles.grant_permission` | Permission must belong to a platform-admin-role grantable feature; non-SuperAdmin can grant only permissions they already hold |
+| Revoke permission | SuperAdmin or `platform.roles.revoke_permission` | Backend validates role and permission identity |
+
+The permission matrix must show only `PLATFORM_ADMIN_ROLE_GRANTABLE` permissions. It must not include client-role permissions, B2B-delegatable permissions, public catalog flags, or plan-only controls. If the catalog endpoint is unavailable but the role list loads, the page may show the role's currently assigned permission list read-only; it must not synthesize a grant matrix.
+
+### 4.6 Admin Access Detail Behavior
+
+The current admin access UI keeps member-role assignment and role-permission management inside grouped index/detail pages instead of separate `/admin/users/:id` and `/admin/roles/:id` screens. Dedicated detail routes may be added later when they carry additional operational value, such as audit trails, effective permission diffs, or login/session history.
+
+Until then, the grouped pages must still respect detail-level backend permissions when they call detail endpoints. A list response may include role and permission summaries needed for the visible workflow, but it must not become a shortcut for unrelated private user data or audit records.
 
 ---
 
-### 4.4 Admin User Detail `/admin/users/:id`
-
-```
-← Back to Users
-
-┌──────────────────────────────────────────────────────────────┐
-│  [Avatar]  Ali Hassan                         ● Active        │
-│  ali@hiveapp.com                                             │
-│  User ID: 550e8400-...                                       │
-│                                     [Toggle Active] ←CanDo   │
-└──────────────────────────────────────────────────────────────┘
-
-ASSIGNED ROLES                               [+ Assign Role] ←CanDo
-─────────────────────────────────────────────────────────────────
-┌─────────────┬──────────┬───────────────────────────────────────┐
-│ Role        │ Status   │                                       │
-├─────────────┼──────────┼───────────────────────────────────────┤
-│ Billing Ops │ ● Active │ [Remove] ←CanDo(P.ADMIN_USERS_REMOVE_ROLE) │
-│ Support L1  │ ● Active │ [Remove] ←CanDo                       │
-└─────────────┴──────────┴───────────────────────────────────────┘
-
-EFFECTIVE PERMISSIONS  (union of all assigned roles)
-─────────────────────────────────────────────────────────────────
-platform.admin.subscriptions.read
-platform.admin.subscriptions.create
-platform.plans.list
-... (expandable tree, grouped by namespace)
-```
-
----
-
-### 4.5 Admin Roles `/admin/roles`
-
-**Requires:** `platform.admin.roles.read`
-
-```
-Admin Roles                              [+ New Role] ←CanDo(P.ADMIN_ROLES_CREATE)
-─────────────────────────────────────────────────────────────────
-┌────────────────┬─────────────┬──────────────┬─────────┬────────┐
-│ Name           │ Description │ Permissions  │ Status  │ Actions│
-├────────────────┼─────────────┼──────────────┼─────────┼────────┤
-│ Billing Ops    │ Manage subs │ 4            │ ● Active│ ···    │
-│ Support L1     │ Read-only   │ 2            │ ● Active│ ···    │
-│ Registry Mgr   │ Catalog ops │ 3            │ ○ Off   │ ···    │
-└────────────────┴─────────────┴──────────────┴─────────┴────────┘
-```
-
-Row actions: Edit name/description `CanDo(P.ADMIN_ROLES_UPDATE)`, Toggle Active `CanDo(P.ADMIN_ROLES_TOGGLE)`, Manage Permissions `CanDo(P.ADMIN_ROLES_GRANT_PERM or P.ADMIN_ROLES_REVOKE_PERM)`
-
----
-
-### 4.6 Admin Role Detail `/admin/roles/:id`
-
-**The cornerstone screen.** A non-super admin who has `roles.read` but not `roles.grant_permission` sees this with all toggles grayed out.
-
-```
-← Back to Roles
-
-Billing Ops                  ● Active
-"Manage billing and subscription operations"
-                      [Edit] ←CanDo(P.ADMIN_ROLES_UPDATE)
-                      [Toggle Active] ←CanDo(P.ADMIN_ROLES_TOGGLE)
-
-PERMISSION MATRIX
-─────────────────────────────────────────────────────────────────
-Toggle each permission on/off.
-Grayed = you lack grant/revoke permission yourself.
-─────────────────────────────────────────────────────────────────
-
-▼ Admin: Subscriptions
-  [✓] read               — View account subscription
-  [✓] create             — Manually assign a plan
-  [✓] update_overrides   — Apply custom overrides
-
-▼ Admin: Users
-  [ ] read               [ ] create         [ ] toggle_active
-  [ ] assign_role        [ ] remove_role
-
-▼ Admin: Roles
-  [ ] read               [ ] create         [ ] update
-  [ ] toggle_active      [ ] grant_permission  [ ] revoke_permission
-
-▼ Plans
-  [✓] list               [✓] list_features
-  [ ] create             [ ] assign_feature
-  [ ] toggle_active      [ ] update_feature   [ ] remove_feature
-
-▼ Registry
-  [✓] read               [ ] catalog        [ ] update_status
-
-Each toggle calls POST/DELETE /api/admin/roles/:id/permissions
-CanDo wrapper on every toggle: disabled if user lacks grant_permission or revoke_permission
-```
-
----
-
-### 4.7 Plans `/admin/plans`
+### 4.7 Plans Group `/admin/plans/*`
 
 **Requires:** `platform.plans.list`
 
+The sidebar exposes Plans as a grouped billing area, not as one overloaded page. `/admin/plans` redirects to `/admin/plans/templates`.
+
+Current child pages:
+
+| Route | Purpose |
+|-------|---------|
+| `/admin/plans/templates` | Plan template list, selected plan summary, active state, included feature composition |
+| `/admin/plans/features` | Plan-assignable feature matrix showing which plans include each feature and quota values per plan |
+
+The Plans pages are operational management screens, not pricing landing pages and not feature registry duplicates. They are for platform admins who need to understand which sellable plan templates exist, whether a plan can currently be selected, which features and quota values are included in each template, and where feature coverage differs across plans.
+
+Primary data sources:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/admin/plans` | Plan template list |
+| PATCH | `/api/admin/plans/:id/active?active=true|false` | Activate or deactivate a plan template when `platform.plans.toggle_active` is granted |
+| GET | `/api/admin/plans/:id/features` | Included feature composition and configured quota values |
+| GET | `/api/admin/registry/feature-catalog?audience=PLAN_ASSIGNABLE` | Plan-assignable feature definitions used to label included features and show assignable-but-not-included options |
+
+Plan template structure:
+
 ```
-Plans                                    [+ New Plan] ←CanDo(P.PLANS_CREATE)
+Plan templates                             [Refresh]
 ─────────────────────────────────────────────────────────────────
-┌───────┬──────┬──────────┬────────────┬──────────┬─────────┐
-│ Code  │ Name │ Price    │ Billing    │ Features │ Status  │
-├───────┼──────┼──────────┼────────────┼──────────┼─────────┤
-│ FREE  │ Free │ $0       │ FOREVER    │ 2        │ ● Active│
-│ PRO   │ Pro  │ $49/mo   │ MONTHLY    │ 6        │ ● Active│
-│ ENT   │ Ent. │ $199/mo  │ MONTHLY    │ 12       │ ● Active│
-└───────┴──────┴──────────┴────────────┴──────────┴─────────┘
+Plan list                       Selected plan inspector
+FREE     $0     7 features       PRO
+PRO      $29.99 7 features       $29.99 / Monthly        [Deactivate]
+ENT      $99.99 7 features
+
+                                 Summary: included features, quota-configured features, status
+
+                                 Composition list:
+                                 Workspace
+                                 platform.workspace
+                                 Included     members 10  companies 5
+
+                                 B2B Collaboration
+                                 platform.b2b
+                                 Included     no quota config
 ```
 
----
+The plan list should be a selectable list, not a wide table. It shows plan code/name, price, billing cycle, active state, and feature count when `platform.plans.list_features` is available. Selecting a row updates the right-side detail without navigating away.
 
-### 4.8 Plan Detail `/admin/plans/:id`
+The selected plan header shows the plan name, code, price, billing cycle, and active state. The active toggle is rendered only when the current admin has `platform.plans.toggle_active`; otherwise the state is read-only. Deactivating a plan means clients should not be able to newly select/buy that plan template. It does not silently rewrite existing subscriptions.
+
+Included features are shown as a composition list. Each row shows the business feature label, immutable feature code, add-on price, and plan quota config values. Quota config values are plan-specific; quota slot declarations still come from the feature definition. Unlimited quota is rendered explicitly when the backend sends `limit = null`.
+
+Quota pricing must be presented as a quota policy, not as a generic "quota price". Each declared quota resource has an included limit and an optional extra-unit price:
+
+- `limit = null` means unlimited for that plan; the extra-unit price is not applicable.
+- `limit = number` and `pricePerUnit = null` means a fixed included limit; the quota cannot be self-service bumped.
+- `limit = number` and `pricePerUnit = amount` means the plan includes the limit, and usage above that limit is billed per extra unit.
+
+Admin labels should use **Included limit**, **Extra unit price**, **Fixed limit**, **Unlimited**, and **Paid expansion**. The UI must disable or clear extra-unit pricing when the included limit is blank/unlimited, because billing ignores extra-unit prices without a finite base limit.
+
+The page must provide real management actions when permissions allow:
+
+- `platform.plans.create`: create a new plan template using code, name, optional description, price, billing cycle, and a source plan to inherit from.
+- `platform.plans.assign_feature`: add a plan-assignable feature to the selected plan.
+- `platform.plans.update_feature`: edit add-on price and quota config values for an included feature.
+- `platform.plans.remove_feature`: remove an included feature from the selected plan after confirmation.
+
+New plan creation must not default to an empty composition. The create dialog should default the inheritance source to the FREE plan when present, otherwise to the first available plan. The backend also defaults to FREE inheritance when `inheritFromPlanId` is not provided and FREE exists. Inheritance copies the source plan's included features, add-on prices, and quota policies into the new plan template; admins can then adjust the copied composition explicitly.
+
+Quota config forms are generated from the selected feature's declared quota schema. The UI must not allow arbitrary quota resource names that are not declared by the feature definition. The form should render one compact row per quota resource, with the quota policy badge next to the resource name and the two editable fields beside it.
+
+The plan-feature matrix is the place to compare feature coverage across plan templates. It uses `/api/admin/registry/feature-catalog?audience=PLAN_ASSIGNABLE`, `/api/admin/plans`, and `/api/admin/plans/:id/features`. It must not show platform-control/internal-only features, deprecated non-assignable features, or permissions as assignable plan units.
+
+Plan-feature matrix structure:
 
 ```
-← Back to Plans
+Plan features                              [Refresh]
+─────────────────────────────────────────────────────────────────
+[Search feature]
 
-PRO Plan — $49.00/month                  ● Active
-                            [Toggle Active] ←CanDo(P.PLANS_TOGGLE)
+Workspace
+platform.workspace       Permissions 2   Quotas 2
+  FREE        Included   members 3   companies 1
+  PRO         Included   members 10  companies 5
+  ENTERPRISE  Included   members unlimited companies unlimited
 
-FEATURES                     [+ Assign Feature] ←CanDo(P.PLANS_ASSIGN_FEATURE)
-──────────────────────────────────────────────────────────────────────────────
-┌──────────────┬────────────┬──────────────────────┬──────────┬─────────────┐
-│ Feature Code │ Add-on $   │ Quota Configs        │          │             │
-├──────────────┼────────────┼──────────────────────┼──────────┼─────────────┤
-│ workspace    │ —          │ members: 10          │ [Edit]   │ [Remove]    │
-│              │            │ companies: 5         │ ←CanDo   │ ←CanDo      │
-│ rbac         │ —          │ —                    │ [Edit]   │ [Remove]    │
-│ staff        │ —          │ —                    │ [Edit]   │ [Remove]    │
-│ company      │ —          │ —                    │ [Edit]   │ [Remove]    │
-│ subscription │ —          │ —                    │ [Edit]   │ [Remove]    │
-│ b2b          │ $9.99      │ —                    │ [Edit]   │ [Remove]    │
-└──────────────┴────────────┴──────────────────────┴──────────┴─────────────┘
-
-[Edit] = CanDo(P.PLANS_UPDATE_FEATURE, fallback="disable")
-[Remove] = CanDo(P.PLANS_REMOVE_FEATURE, fallback="disable")
+B2B Collaboration
+platform.b2b             Permissions 8   Quotas 0
+  FREE        Included
+  PRO         Included
+  ENTERPRISE  Included
 ```
 
-**Assign Feature drawer:**
-```
-Assign Feature to PRO
-──────────────────────────────────────
-Feature: [dropdown — from registry catalog]
-Add-on price: [$___.__]  (optional)
-Quota configs:
-  + Add quota slot
-  [slot: members | limit: 10]
-  [slot: companies | limit: 5]
+Avoid horizontally-scrolling comparison tables for this area. Use wrapping plan cells or stacked cells so the page remains usable on normal laptop widths and mobile screens.
 
-[Cancel]  [Assign]
-```
+Every write flow must validate against the backend feature registry rules. The UI may hide invalid options, but backend validators remain the authority.
 
 ---
 
@@ -636,30 +662,83 @@ Quota Bumps:
 
 ---
 
-### 4.11 Registry `/admin/registry`
+### 4.11 Features `/admin/features`
 
-**Requires:** `platform.registry.read`
+**Requires:** `platform.registry.feature_catalog`
+
+The backend namespace is `platform.registry`, but the admin-facing label is **Features** or **Platform Features**. Do not call this page "Registry" in navigation, headings, empty states, or help text. Admins should understand features as platform capabilities that can affect plans, public catalogs, permissions, quotas, and B2B delegation.
+
+Primary data source:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/admin/registry/feature-catalog?audience=ALL` | Full feature read model for the Platform Features page |
+| GET | `/api/admin/registry/permission-catalog?audience=PLATFORM_ADMIN_ROLE_GRANTABLE` | Admin-role permission picker source |
+| GET | `/api/admin/registry/permission-catalog?audience=CLIENT_ROLE_GRANTABLE` | Client-role permission picker source |
+| GET | `/api/admin/registry/permission-catalog?audience=B2B_DELEGATABLE` | B2B permission picker source |
+| PATCH | `/api/admin/registry/features/:id/active?active=false` | Activation change for features whose code definition explicitly allows operations activation, only when `platform.registry.update_active` is granted |
+
+The page must separate source-owned facts from managed state:
+
+| Source-owned, not editable | Managed where permitted |
+|---------------------------|-------------------------------|
+| Feature code | Technical-operations activation for code-declared operations-toggleable features |
+| Module code | Sort/display placement if supported |
+| Feature surface | Plan inclusion from plan management |
+| Permission ownership | Add-on price from plan management |
+| Quota slot keys/types | Quota values from plan/subscription management |
+| Plan/client/B2B grant eligibility | New catalog, plan, and client UI availability when technical operations deactivate an operations-toggleable feature |
+| Lifecycle status (`PUBLIC`, `BETA`, `DEPRECATED`, `INTERNAL`) | |
+
+Current Bootstrap structure:
 
 ```
-Platform Registry
+Features
 ─────────────────────────────────────────────────────────────────
-Tabs: [Inventory (full)] [Public Catalog]
+[Search features...]  Filter: [All] [Client features] [Admin features] [Plan eligible] [Catalog visible]
 
-INVENTORY
-▼ Core Module
-  ├─ workspace     INTERNAL  [→ PUBLIC] ←CanDo(P.REGISTRY_UPDATE_STATUS)
-  ├─ company       PUBLIC    [→ BETA]   [→ INTERNAL]  ←CanDo
-  └─ subscription  PUBLIC
+Feature list                       Selected feature inspector
+Workspace                          Workspace
+platform.workspace                  platform.workspace
+Client Workspace  Public           Activation: fixed by code
+Permissions 2  Quotas 2
 
-▼ Collaboration Module
-  ├─ b2b           BETA      [→ PUBLIC] [→ INTERNAL]  ←CanDo
-  └─ ...
+                                  Availability:
+                                  Plans yes, Public catalog yes, Client roles yes...
 
-Status chip colors:
-  PUBLIC   = green badge
-  BETA     = amber badge
-  INTERNAL = gray badge
+                                  Permissions:
+                                  platform.workspace.read       read
+                                  platform.workspace.delete     delete
+
+                                  Quotas:
+                                  members COUNT persons
+                                  companies COUNT companies
 ```
+
+The page should answer catalog questions, not expose raw implementation trivia:
+
+- Can customers see this feature?
+- Can platform admins include this feature in plans?
+- Does this feature expose quotas that plans must configure?
+- Which permissions come from this feature?
+- Can these permissions be granted to platform admin roles, client roles, or B2B collaborators?
+
+The page must not behave like the main dashboard. Do not add dashboard cards for client features, admin features, plan-eligible features, catalog-visible features, or warnings. The feature list and selected inspector already carry those dimensions.
+
+Avoid horizontally-scrolling feature tables. Use a searchable feature list and a selected feature inspector. The inspector may show availability, permissions, quota schema, and the minimum source-owned contract needed to understand the selected feature. Do not fill the inspector with repeated architecture explanations or validation copy unless there is a real warning that needs operator attention.
+
+Lifecycle and activation rules:
+
+- `Feature.status` is code-owned lifecycle. Admin UI must display it but must not render it as an editable dropdown.
+- `PUBLIC` means released for normal use on allowed surfaces when the feature is active.
+- `BETA` means shipped by code as a beta lifecycle. Authorized technical operators may deactivate the feature only if code also declares `operationsActivationToggleable`, but they cannot promote it to `PUBLIC` from UI.
+- `DEPRECATED` means code has marked it as legacy. Admins cannot newly assign deprecated features through plan/billing flows.
+- `INTERNAL` means code-owned internal/control capability or non-catalog capability. It is not a synonym for a hidden catalog feature.
+- `publicCatalogVisible = true` means the feature may appear in public/client catalog surfaces when active and in a released lifecycle.
+- `operationsActivationToggleable = true` is the separate code-owned flag that permits operations activation editing. The backend allows this flag only on public-catalog-visible features.
+- Authorized technical operators may toggle only `Feature.active` for features where `operationsActivationToggleable = true`. Inactive features are hidden from public/client catalogs and blocked from new billing/self-service configuration by backend validators.
+- Public features without `operationsActivationToggleable` are shown as **required** or **fixed by code** and must not render an enabled activation switch. Non-catalog features are also fixed by code.
+- Platform-shell features must render locked in the normal admin panel. `platform.company` is a required building block; `platform.b2b` is optional but still release/technical-operations controlled. If runtime suspension or a kill switch is added later, it belongs in a guarded technical operations surface with reason, expiry, audit, and explicit backend enforcement.
 
 ---
 
@@ -682,7 +761,7 @@ Your effective permissions:
   ✓ list   ✓ list_features   ✗ create   ✗ toggle_active
 
 ▼ platform.registry
-  ✓ read   ✗ update_status   ✗ catalog
+  ✓ read   ✗ update_active   ✗ catalog
 
 (✗ = exists in namespace but not granted to you)
 ```
@@ -1063,6 +1142,12 @@ Your Subscription
 Plan:    PRO                     Status: ● ACTIVE
 Price:   $49.00/month            Billing: MONTHLY
 
+PLAN OPTIONS
+─────────────────────────────────────────────────────────────────
+FREE          $0/month       Current plan
+PRO           $49/month      [Preview]
+ENTERPRISE    Contact sales   [Preview]
+
 INCLUDED FEATURES
 ─────────────────────────────────────────────────────────────────
 ✓ Workspace Management     Members: 10  Companies: 5
@@ -1077,8 +1162,20 @@ QUOTA USAGE
 Members    ████████░░  8 / 10
 Companies  ██░░░░░░░░  3 / 5
 
-[Upgrade Plan →]   ← links to pricing page / contact sales
+PREVIEW PANEL
+─────────────────────────────────────────────────────────────────
+Target Plan: PRO
+Add-ons:     B2B Collaborations [x]
+Quota:       Members [10__]   Companies [5__]
+New Price:   $58.99/month
+Conflicts:   none
+
+[Apply change]
 ```
+
+The page must call `GET /api/v1/subscriptions/catalog` to render plan options, feature rows, add-on prices, quota limits, selected overrides, and current usage. Changing a plan, add-on, or quota input calls `POST /api/v1/subscriptions/preview`; the preview response is the source of truth for effective features, quota limits, calculated price, and conflicts. `POST /api/v1/subscriptions/apply` is enabled only when preview returns `immediateAllowed=true`.
+
+If preview returns `QUOTA_BELOW_USAGE` or `FEATURE_IN_USE`, the relevant control is disabled or marked with the returned message and apply is unavailable. The current backend applies changes immediately with internal confirmation; checkout, invoices, proration, and scheduled downgrades are not part of this screen until those backend flows exist.
 
 ---
 
@@ -1163,15 +1260,14 @@ const atQuota = memberCount >= memberQuota
   /login                 ← AdminAuthController
   /                      ← Dashboard (context-aware)
   /my-access             ← non-SuperAdmin only
-  /users                 ← requires platform.admin.users.read
-  /users/:id
-  /roles                 ← requires platform.admin.roles.read
-  /roles/:id
+  /access                ← redirects to /admin/access/members
+  /access/members        ← requires platform.admin_users.read
+  /access/roles          ← requires platform.roles.read
   /plans                 ← requires platform.plans.list
   /plans/:id
   /subscriptions         ← requires platform.admin.subscriptions.read
   /subscriptions/:accountId
-  /registry              ← requires platform.registry.read
+  /features              ← requires platform.registry.feature_catalog
 
 /app
   /login                 ← AuthController
@@ -1224,8 +1320,8 @@ Logic: if `member.isOwner` → return all 40 client permission paths. Otherwise:
   "isSuperAdmin": true,
   "isActive": true,
   "permissions": [
-    "platform.admin.users.read",
-    "platform.admin.roles.read",
+    "platform.admin_users.read",
+    "platform.roles.read",
     "..."
   ]
 }

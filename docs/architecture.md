@@ -45,7 +45,7 @@ For example:
 platform.company.create
 platform.staff.invite
 platform.plans.update
-platform.registry.update_status
+platform.registry.update_active
 ```
 
 Every permission must map to exactly one feature:
@@ -158,9 +158,9 @@ HiveApp keeps generic registry tables for modules, features, and permissions. Th
 
 The database should not invent capabilities. Platform admins should not create arbitrary module codes, feature codes, or permission codes through the UI. If the codebase does not implement a feature, that feature should not exist as a usable product capability.
 
-Admins may manage business state around discovered features. That includes lifecycle status, sort order, plan inclusion, add-on pricing, quota values per plan, subscription/account overrides, and controlled beta exposure where allowed. Admins must not manage hard code-owned facts such as feature code, module ownership, feature surface, quota schema keys, quota schema types, or permission-to-feature mapping.
+Admins may manage business state around discovered features: sort order where supported, plan inclusion, add-on pricing, quota values per plan, and subscription/account overrides. Feature activation is not normal business-admin state. It may be changed only by an authorized technical operator when the code definition explicitly allows operations activation. Admins must not manage hard code-owned facts such as feature code, module ownership, feature surface, lifecycle status, quota schema keys, quota schema types, permission-to-feature mapping, or whether a feature is operations-toggleable.
 
-For a newly discovered definition, the registry initializes a feature that is declared visible in the public catalog as `PUBLIC`, and initializes a non-public or control-plane feature as `INTERNAL`. Once a feature row exists, startup synchronization must preserve its administrator-managed status.
+For a newly discovered definition, the registry initializes a feature that is declared visible in the public catalog as `PUBLIC`, unless code explicitly declares `BETA` or `DEPRECATED`, and initializes a non-public or control-plane feature as `INTERNAL`. Startup synchronization overwrites lifecycle status, quota schema, and sort order from code definitions. It preserves the persisted `is_active` flag. In the current backend, the activation API accepts changes only for code-declared `operationsActivationToggleable` features. That flag is allowed only on public-catalog-visible features, but public catalog visibility alone does not make a feature editable through registry controls. Non-toggleable features are code-owned and cannot be activated or deactivated through registry controls.
 
 The database can show that a feature is `CLIENT_WORKSPACE` or `PLATFORM_CONTROL`, but it cannot be the thing that decides it. Code decides the surface. DB state is used for inspection, filtering, auditing, and runtime joins.
 
@@ -217,29 +217,35 @@ Admin users manage the plan catalog. Client users manage their own subscription 
 
 Platform admin plan management belongs to a control-plane feature such as `platform.plans`. Admins may create plans, rename plans, update descriptions, change price, change billing cycle, activate or deactivate plans, assign eligible client workspace features, remove features from plans, configure quota values, configure add-on availability and pricing, duplicate plans, and archive or deprecate plans.
 
+New plan creation must not create an empty sellable plan by default. A newly created plan should inherit an existing plan composition, defaulting to FREE when no explicit source plan is provided and FREE exists. Inheritance copies plan-feature rows, add-on prices, and quota configs as the starting catalog state; later edits to either plan remain independent. This keeps core workspace features from being accidentally omitted while still allowing admins to create differentiated plans by modifying the inherited composition.
+
 Client subscription management belongs to a client workspace feature such as `platform.subscription`. Clients may choose a plan, upgrade or downgrade, enable allowed add-ons, disable add-ons, buy quota bumps, cancel subscriptions, and view billing state if the product allows those operations.
 
 `PlanFeature` is the join between a plan and a feature. It answers whether a plan includes a feature, what the default quota values are for that feature on that plan, and whether the feature is available or priced as an add-on. A `PlanFeature` must reference a declared feature, and its quota configs must match the feature's quota schema.
 
 A platform control-plane feature must never be assignable to a client plan. This is not protected by a DB status alone. It is protected by the code-owned feature surface. If someone attempts to mark `platform.plans` as public in the database, plan assignment must still reject it because `platform.plans` is a control-plane feature.
 
-At runtime, client feature access requires a usable subscription. An `ACTIVE` or `TRIALING` subscription grants its plan and validated add-on entitlements only while `currentPeriodEnd` is null or in the future. A null period end represents a non-expiring entitlement such as the seeded FREE plan. If a period expires before lifecycle cleanup updates the stored status, feature-gated actions are denied.
+At runtime, client feature access requires a usable subscription. An `ACTIVE` or `TRIALING` subscription grants its captured entitlement snapshot and validated add-on entitlements only while `currentPeriodEnd` is null or in the future. A null period end represents a non-expiring entitlement such as the seeded FREE plan. If a period expires before lifecycle cleanup updates the stored status, feature-gated actions are denied.
 
-The runtime entitlement decision is centralized in `PlanEntitlementService`. `PlanPolicy` uses that service to deny feature-gated requests when the account is not entitled. The same service is also used when returning effective client permissions from `/api/v1/me/permissions`, so the frontend does not receive permissions that runtime authorization would deny because of the account's plan, expired subscription, missing subscription, or invalid override state.
+The runtime entitlement decision is centralized in `PlanEntitlementService`. `PlanPolicy` uses that service to deny feature-gated requests when the account is not entitled. The same service is also used when returning effective client permissions from `/api/v1/me/permissions`, so the frontend does not receive permissions that runtime authorization would deny because of the account's subscription snapshot, expired subscription, missing subscription, or invalid override state.
+
+Plan templates and active subscription entitlements are now intentionally different records. `Plan` and `PlanFeature` describe the current product catalog. `Subscription.entitlementSnapshot` describes what a specific account currently owns. New subscriptions are snapshotted from the selected plan template at creation time. Later plan-template edits affect future subscriptions and explicit migrations, but they do not silently grant or revoke existing active subscription features, quotas, or base pricing. Runtime entitlement, quota enforcement, billing recalculation, client role permission pickers, B2B delegation pickers, B2B provider runtime checks, and effective-permission responses read from the active subscription snapshot first. Legacy live-plan fallback exists only for subscription rows that do not yet have a snapshot.
 
 An administrator plan assignment is a subscription transition, not an additional simultaneous entitlement. Assigning a different plan cancels all existing `ACTIVE` or `TRIALING` subscriptions for the account before storing the new `ACTIVE` subscription with empty overrides. Assigning an inactive plan is rejected, as is assigning the account's already-active plan again.
+
+Client subscription self-service uses the same transition model, but derives the account from the authenticated client context rather than accepting an account id. `GET /api/v1/subscriptions/catalog` returns active self-service plan options with safe feature metadata, included versus optional add-on status, quota limits, add-on prices, current subscription state, selected overrides, and current usage. `POST /api/v1/subscriptions/preview` validates a proposed target plan, add-ons, and quota overrides without mutating state, then returns the effective features, effective quotas, calculated recurring price, and conflicts. `POST /api/v1/subscriptions/apply` revalidates the same request under an account lock, rejects conflicts or no-op changes, cancels the previous usable subscription, and stores a new active snapshot. This is an internal immediate-confirmation flow today; external checkout, proration, invoices, and scheduled renewal/downgrade changes are not modeled yet.
 
 The persistence invariant is now one usable subscription per account, where usable means `ACTIVE` or `TRIALING`. `Subscription.usableAccountId` is populated with the account id only for usable states, is constrained to match `account_id` for those states, is null for non-usable history, and is unique in the table. This represents the conditional uniqueness rule without preventing multiple cancelled or past-due history rows. Normal plan assignment also takes a pessimistic account lock and flushes cancellation before replacement insertion, so concurrent plan changes serialize cleanly while the database remains the final protection against invalid writes.
 
 ## 11. Subscription Overrides
 
-Subscription overrides are account-specific changes over a plan. They may add an allowed feature beyond the base plan, remove or restrict an included feature for compliance or punitive reasons, override quota limits, override pricing, or grant controlled beta access when the feature definition allows it.
+Subscription overrides are account-specific changes over a plan. They may add an allowed active feature beyond the base plan, remove or restrict an included feature for compliance or punitive reasons, override quota limits, or override pricing. If a feature is in `BETA`, that lifecycle comes from code; overrides can include it only when the feature definition and validators already allow that usage.
 
-Overrides must be validated against code-owned feature and quota definitions. They cannot reference unknown features or unknown quota keys. They cannot enable platform control-plane features for client accounts. They cannot newly enable deprecated features unless the system explicitly supports grandfathering. Beta exposure must be explicit and auditable.
+Overrides must be validated against code-owned feature and quota definitions. They cannot reference unknown features or unknown quota keys. They cannot enable platform control-plane features for client accounts. They cannot newly enable deprecated features unless the system explicitly supports grandfathering. Any beta entitlement must be explicit, active, and auditable, but the beta lifecycle itself remains code-owned.
 
 The subscription layer should not treat all features as equivalent strings. It must understand the feature surface and the feature's allowed use in client subscriptions.
 
-Client subscription self-service is planned but not implemented yet. The intended direction is documented in `docs/PLAN_CLIENT_SUBSCRIPTION_SELF_SERVICE.md`: admins edit plan templates, while clients edit only their own active account subscription through preview and confirmation flows. The target model is snapshot-based so a mutable plan template does not silently change existing customer entitlements, quotas, or prices.
+Client subscription self-service is implemented for catalog, preview, and immediate apply flows. Clients edit only their own active account subscription through `platform.subscription` actions; they do not edit `Plan` or `PlanFeature` rows. Preview and apply share the same feature, quota, usage-conflict, snapshot, and billing calculation paths. Downgrades or add-on removals that would put current usage outside the requested entitlement are rejected until usage is reduced. Scheduled downgrades, external checkout/payment confirmation, proration, and invoices remain future payment/product work.
 
 ## 12. Feature Management And Registry
 
@@ -247,41 +253,59 @@ Feature management is itself a control-plane capability. In the current platform
 
 The registry allows platform admins to inspect discovered modules, features, permissions, feature surfaces, lifecycle status, quota schemas, permission counts, plan usage, orphan mappings, and validation errors. It does not let admins invent capabilities that the code does not implement.
 
+The word `registry` is an implementation/API concept, not the preferred product label. Admin-facing navigation and page titles should use **Platform Features** or **Features**. The UI should explain capabilities in business terms: who can use the feature, whether it can be sold in plans, whether it appears in client catalogs, which permissions it owns, which quota slots it exposes, and whether there are configuration warnings. Backend packages, services, permissions, and endpoints may continue to use `platform.registry` and `/api/admin/registry/**` because they describe the control-plane capability that projects code-defined feature metadata into database read models.
+
+The admin Platform Features page must not be a raw table dump. It should group each feature by operational meaning:
+
+- feature identity: display name, code, module, lifecycle status, active/seeded state
+- audience and boundary: platform control-plane, client workspace, public, or system
+- commercial use: plan-assignable, catalog-visible, add-on/plan usage, and quota schema
+- grant use: platform admin-role grantable, client-role grantable, or B2B-delegatable permissions
+- validation: code/DB sync, missing permission links, unsafe exposure, missing plan eligibility, invalid quota config, or other warnings
+
+Admins may edit controlled business metadata such as plan inclusion, add-on pricing, quota values per plan, and subscription/account overrides. The normal admin panel should inspect feature activation state, but it should not be the place where platform-shell capabilities are activated, deactivated, or killed for existing users. A feature can expose operations activation editing only when its code definition sets `operationsActivationToggleable = true`; no current platform-shell feature should opt into that. Admins must not edit code-owned facts such as feature code, module ownership, feature surface, lifecycle status, quota slot keys/types, permission ownership, or operations-toggle eligibility.
+
+Platform-shell features must not be made operations-toggleable just because they are catalog-visible or plan-visible. `platform.company` is a building block for company records, company-scoped permissions, workspace quotas, and B2B collaboration targets, so disabling it would create ambiguous runtime semantics and break surrounding product flows. `platform.b2b` is optional, but it is still a shell capability; activating, deactivating, or runtime-killing it is a release/technical-operations decision, not a normal business-admin plan-management action.
+
 Example registry permissions are:
 
 ```text
 platform.registry.read
 platform.registry.validate
-platform.registry.update_status
+platform.registry.update_active
 platform.registry.sync
 ```
 
 The registry is how the platform operator understands the code-defined product surface. It is not a low-level table editor.
 
-The current backend exposes code-owned registry read models for UI composition. `GET /api/admin/registry/feature-catalog` accepts a `FeatureCatalogAudience` query value and returns modules with feature definitions enriched by persisted registry state, quota schema, and persisted permissions. `PLAN_ASSIGNABLE` returns only features that code declares plan-assignable, so the plan editor cannot accidentally offer platform control-plane features. `PUBLIC_CATALOG` returns features whose code definition allows catalog exposure, with the current registry status included so the UI can distinguish public, beta, internal, and deprecated rows.
+The current backend exposes code-owned registry read models for UI composition. `GET /api/admin/registry/feature-catalog` accepts a `FeatureCatalogAudience` query value and returns modules with feature definitions enriched by persisted registry state, quota schema, persisted permissions, and the `operationsActivationToggleable` declaration. `PLAN_ASSIGNABLE` returns only features that code declares plan-assignable, so the plan editor cannot accidentally offer platform control-plane features. `PUBLIC_CATALOG` returns features whose code definition allows catalog exposure, with the current lifecycle status, activation flag, and operations-toggle eligibility included so the UI can distinguish public, beta, deprecated, inactive, required, and code-locked rows.
 
 `GET /api/admin/registry/permission-catalog` accepts a `PermissionCatalogAudience` query value and returns modules with features and filtered permissions for permission picker screens. `CLIENT_ROLE_GRANTABLE` exposes only client workspace permissions, `PLATFORM_ADMIN_ROLE_GRANTABLE` exposes only platform control-plane permissions, and `B2B_DELEGATABLE` exposes only explicitly listed B2B actions such as `platform.company.read_single`. These read models are UX helpers. The write services still enforce the same rules through `PermissionGrantValidator` and billing validators, so hiding a permission in the picker is not treated as the authorization boundary.
 
 Client-facing grant screens have their own smaller picker endpoints. `GET /api/v1/roles/permission-catalog` returns only permissions that the current account may grant to client workspace roles: the feature must be client-role grantable in code and currently entitled by the account's active subscription. `GET /api/v1/collaborations/{id}/permission-catalog` returns only permissions that the provider may delegate for that exact active collaboration: the caller must be the provider, the collaboration must be active, the feature must be entitled for the provider account, and the action must be explicitly listed as B2B-delegatable in the feature definition. These endpoints exist for good UX and safer API composition; they do not replace write-side validation.
 
-The public/client feature catalog is exposed separately at `GET /api/v1/features/catalog`. It is safe for unauthenticated plan-comparison and product-catalog views. The response contains only module code, feature code, display name, description, lifecycle status, and quota schema. It intentionally excludes registry ids, permissions, grant flags, and feature surfaces. A feature appears only when code marks it `publicCatalogVisible`, the registry row is active, and the registry status is `PUBLIC` or `BETA`. A database status change cannot make a platform control-plane feature appear there because the code-owned feature definition remains the first filter.
+The public/client feature catalog is exposed separately at `GET /api/v1/features/catalog`. It is safe for unauthenticated plan-comparison and product-catalog views. The response contains only module code, feature code, display name, description, lifecycle status, and quota schema. It intentionally excludes registry ids, permissions, grant flags, and feature surfaces. A feature appears only when code marks it `publicCatalogVisible`, the registry row is active, and the code-owned lifecycle status is `PUBLIC` or `BETA`. A database activation change cannot make a platform control-plane feature appear there because the code-owned feature definition remains the first filter.
 
-## 13. Status And Lifecycle
+## 13. Lifecycle And Activation
 
-Status is not the security boundary. Feature type and surface are the security boundary.
+Lifecycle status is not the security boundary. Feature type and surface are the security boundary.
 
-Status represents lifecycle or catalog state. The exact enum may evolve, but the accepted meanings are:
+`Feature.status` represents code-owned lifecycle. The exact enum may evolve, but the accepted meanings are:
 
 ```text
-ACTIVE/PUBLIC = available for normal use on allowed surfaces
-BETA          = implemented but controlled by explicit beta exposure
-DEPRECATED    = kept for existing usage, not newly assignable
-DISABLED      = unavailable for new usage
+PUBLIC     = released for normal use on allowed surfaces when active
+BETA       = implemented as a beta lifecycle by code
+DEPRECATED = kept for existing usage, not newly assignable
+INTERNAL   = internal/control/non-catalog lifecycle owned by code
 ```
 
-The old `INTERNAL` label is ambiguous because it does not answer "internal to whom?" or "hidden from which surface?" If the current code keeps `INTERNAL` temporarily, it should be treated as a legacy or transition label. It must not be the primary security decision.
+Admins cannot promote `BETA` to `PUBLIC`, mark a feature `DEPRECATED`, or make an `INTERNAL` feature public through UI. Those are release and architecture decisions made in feature definitions and synced by `FeatureSeeder`.
 
-For example, `platform.plans` remains a platform control-plane feature even if a DB row says it is public. Likewise, a client workspace feature can be hidden from a catalog without becoming a control-plane feature. Surface and status answer different questions.
+`Feature.active` is the persisted activation flag. It is operations-managed only when the feature definition declares `operationsActivationToggleable = true`. Deactivation means the feature is not offered for new catalog, plan, and client self-service flows where validators require active features; it does not change the feature surface or lifecycle. Non-toggleable features must render as required or fixed by code and must not expose an activation control, even when they are public-catalog-visible. Current platform-shell examples: `platform.company` and `platform.b2b` are both public but locked in the normal admin panel.
+
+Stopping already subscribed users from using a feature is a different operation from `Feature.active`. That should be modeled as a technical runtime suspension or kill switch with code-declared eligibility, allowed modes, reason, expiry, audit trail, and explicit enforcement in the affected service/policy boundaries. It must not be inferred from normal feature catalog activation.
+
+For example, `platform.plans` remains a platform control-plane feature even if a database row is corrupted. Likewise, a client workspace feature can be deactivated without becoming a control-plane feature. Surface, lifecycle, and activation answer different questions.
 
 ## 14. Role Grants
 
@@ -293,13 +317,15 @@ Role and B2B permission writes also enforce subscription entitlement. A permissi
 
 Admin role grants now use the unified registry `Permission` table through `AdminRolePermission`. The old separate `AdminPermission` entity is no longer the desired model.
 
-Client role management may display and grant only permissions whose feature belongs to a client workspace grant surface. It must not show platform control-plane permissions such as `platform.plans.update` or `platform.registry.update_status`.
+Client role management may display and grant only permissions whose feature belongs to a client workspace grant surface. It must not show platform control-plane permissions such as `platform.plans.update` or `platform.registry.update_active`.
 
 Platform admin role management may display and grant platform control-plane permissions. It should not blindly expose every client workspace permission unless the system intentionally supports that and has clear semantics for what a platform admin role is allowed to do.
 
 This filtering must be derived from code-owned feature definitions and validated registry metadata. It must not be based on loose string prefix checks such as "anything under platform is safe for clients."
 
-Platform admin delegation also has an actor ceiling. A non-SuperAdmin may grant or assign only permissions already held through active admin roles; publishing a feature or changing registry status does not bypass that ceiling. Only a SuperAdmin may create another SuperAdmin. An admin cannot deactivate their own account, and once another admin deactivates them, an existing admin JWT must no longer authenticate future requests. Reads of role or user detail are separately permissioned actions rather than an accidental side effect of listing access.
+Platform admin delegation also has an actor ceiling. A non-SuperAdmin may grant or assign only permissions already held through active admin roles; activating a feature does not bypass that ceiling. Only a SuperAdmin may create another SuperAdmin. An admin cannot deactivate their own account, and once another admin deactivates them, an existing admin JWT must no longer authenticate future requests. Reads of role or user detail are separately permissioned actions rather than an accidental side effect of listing access.
+
+The admin UI groups this control-plane surface as Admin Access, with Members and Roles pages under `/admin/access/*`. Members are platform admin operators, not client workspace members. Roles are platform admin roles, not `platform.rbac` client roles. The backend list responses may include the summaries required by those workflows: admin-user rows include assigned role summaries, and admin-role rows include assigned registry permission summaries. Those summaries are read models for the operator UI; write-side services still enforce the actor ceiling, role active state, SuperAdmin-only escalation, self-deactivation rule, and `PLATFORM_ADMIN_ROLE_GRANTABLE` feature-surface validation.
 
 ## 15. Current Platform Shell Feature Map
 
@@ -321,6 +347,8 @@ platform.b2b           -> CLIENT_WORKSPACE
 ```
 
 The names are intentionally surface-based. `platform.roles` is the platform admin role management feature. `platform.rbac` is the client workspace role management feature. `platform.subscriptions` is platform control-plane subscription administration. `platform.subscription` is the client workspace subscription view surface.
+
+The underlying authorization runtime is a platform building block, not a sellable optional feature. A client workspace cannot operate safely without membership, owner/system roles, permission resolution, and role assignment semantics. `platform.rbac` should therefore be understood as the management surface for workspace roles: listing roles, creating custom roles, editing role metadata, viewing the safe permission picker, and granting or revoking permission bricks. If the product needs to sell or gate advanced role customization, it should gate that management surface, not the existence of RBAC itself.
 
 ## 16. Hardening And Tests
 

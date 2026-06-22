@@ -40,6 +40,7 @@ PlanBillingConfigurationIntegrationTest
 PublicFeatureCatalogIntegrationTest
 QuotaEnforcementIntegrationTest
 SubscriptionIntegrityIntegrationTest
+ClientSubscriptionSelfServiceIntegrationTest
 ```
 
 Those tests prove the new direction is working, but they are not enough to close the platform shell. They cover unit-level invariants, critical service/policy boundaries, request-level token/surface separation, the first client resource isolation cases, member override/lifecycle boundaries, and the first complete B2B lifecycle abuse path. The remaining work is broader request-level and abuse-case coverage.
@@ -213,6 +214,7 @@ plan assignment rejects quota configs on features without quota slots. Covered a
 plan update rejects feature-code changes and validates quota configs the same way as assignment. Covered at request level.
 inactive plan cannot be assigned to a new subscription. Enforced and covered at service level.
 BillingCycle.FOREVER is allowed only for FREE if that rule is accepted
+subscription creation snapshots the selected plan template's features, quotas, and prices. Covered by service and request-level persistence tests.
 ```
 
 Required entitlement tests:
@@ -224,7 +226,7 @@ cancelled subscription denies feature-gated requests. Covered at policy level be
 expired subscription denies feature-gated requests. Enforced and covered at policy level for non-null `currentPeriodEnd`.
 missing subscription denies feature-gated requests. Covered at policy level.
 `PlanPolicy` and `/api/v1/me/permissions` share the same `PlanEntitlementService`, so frontend effective permissions do not include plan-denied actions. Covered at unit/service and request level.
-plan feature removal semantics are explicit and tested: either existing subscriptions lose the feature dynamically, or subscription snapshots preserve it
+plan feature removal semantics are explicit and tested: existing subscriptions preserve the feature through `Subscription.entitlementSnapshot`, while new subscriptions created after the template edit receive the updated template.
 subscription addedFeatures cannot add platform-control features. Covered at service and request levels.
 subscription addedFeatures cannot add unknown features. Covered at service and request levels.
 subscription addedFeatures cannot add INTERNAL features. Covered at request level.
@@ -243,9 +245,11 @@ simultaneous administrator plan assignments serialize and leave exactly one usab
 
 Accepted runtime rule: a subscription in `ACTIVE` or `TRIALING` state grants entitlement only when `currentPeriodEnd` is null, representing a non-expiring entitlement such as the seeded FREE plan, or lies in the future. An expired period denies feature-gated actions even if status cleanup has not yet run.
 
-Known semantic gap: the docs previously said removing a feature from a plan does not retroactively revoke it from existing subscriptions. The current dynamic plan policy may not behave that way unless subscriptions snapshot features or overrides preserve access. This must be decided and tested.
+Accepted snapshot rule: active subscriptions read entitlement, quota defaults, base price, add-on price, and quota bump price from `Subscription.entitlementSnapshot` when it exists. Live `PlanFeature` fallback is retained only for old rows without a snapshot. Removing a feature from a plan template does not revoke it from existing active subscriptions, but it does affect subscriptions created after the template change.
 
-Client subscription self-service is planned in `docs/PLAN_CLIENT_SUBSCRIPTION_SELF_SERVICE.md`. The required future coverage includes plan catalog read models, preview/apply consistency, downgrade conflict handling, add-on and quota selection validation, concurrency protection, and proving that effective permissions, quota enforcement, role pickers, and B2B runtime entitlement all resolve from the same active subscription state.
+Client subscription self-service now has catalog, preview, and immediate apply coverage. `ClientSubscriptionSelfServiceIntegrationTest` proves the client catalog exposes only safe plan data and current usage, inactive plans are rejected, control-plane add-ons are rejected, internal features are hidden and rejected, downgrade quota conflicts are reported by preview and rejected by apply without mutation, a successful apply creates a replacement snapshot, and concurrent client changes leave exactly one usable subscription. Service tests cover additional validator behavior such as rejecting add-ons already included in the target plan and calculating quota conflicts from current usage.
+
+Remaining future coverage belongs to product flows that are not implemented yet: external payment-provider failures, checkout confirmation webhooks, proration/invoice behavior, scheduled downgrades or renewal migrations, and any future endpoint that accepts an account id for client subscription mutation. Current client self-service endpoints derive account scope from `HiveAppContextHolder`, so cross-account mutation is structurally avoided in the implemented API shape.
 
 ## 9. Quotas
 

@@ -34,7 +34,7 @@ PermissionSeeder derived feature code by dropping the last segment, which failed
 Invalid action permission mappings now fail startup rather than leaving partial registry state.
 Feature status is treated too much like a security/visibility boundary.
 Client workspace and platform control-plane surfaces are not strongly modeled.
-Plans, roles, B2B, and subscriptions do not yet share one strict feature eligibility model.
+Plans, roles, B2B, subscriptions, catalog pickers, and runtime entitlement now share the strict feature eligibility model for the current platform shell.
 Quotas are not fully type-safe in code.
 ```
 
@@ -443,6 +443,8 @@ base plan price
 = current subscription price
 ```
 
+Client subscription self-service has also moved onto this model. The backend now exposes `GET /api/v1/subscriptions/catalog`, `POST /api/v1/subscriptions/preview`, and `POST /api/v1/subscriptions/apply` under the `platform.subscription` client workspace feature. Catalog returns only safe, plan-assignable public/beta feature metadata and current usage. Preview validates the target plan, add-ons, and quota overrides without mutation, reports feature/quota conflicts, and calculates price from the snapshot model. Apply revalidates under an account lock, rejects conflicts and no-op changes, cancels the previous usable subscription, and stores a new active snapshot. External checkout, invoices, proration, and scheduled downgrade handling are still future payment/product work.
+
 ## 13. Phase 11: Update Role Grant Rules
 
 Client roles and platform admin roles use different permission surfaces.
@@ -533,7 +535,7 @@ AdminPermissionPolicy:
 
 The policies must not treat all `platform.*` permissions as the same kind of thing.
 
-Current status: runtime entitlement logic is centralized in `PlanEntitlementService`. `PlanPolicy` delegates to it, and `EffectivePermissionService` uses the same service before returning `/api/v1/me/permissions`. The effective-permissions read model sits outside guarded feature services so the UI can ask what is available without requiring entitlement to a specific feature area first. Account owners still bypass workspace role grants, but their returned permission set is filtered by the account's current entitlement. Non-owner role/override permissions are also filtered by entitlement before reaching the frontend.
+Current status: runtime entitlement logic is centralized in `PlanEntitlementService`. Active subscriptions now carry a typed entitlement snapshot, and `PlanEntitlementService` reads that snapshot before falling back to legacy live plan-feature rows. `PlanPolicy` delegates to it, and `EffectivePermissionService` uses the same service before returning `/api/v1/me/permissions`. The effective-permissions read model sits outside guarded feature services so the UI can ask what is available without requiring entitlement to a specific feature area first. Account owners still bypass workspace role grants, but their returned permission set is filtered by the account's current entitlement. Non-owner role/override permissions are also filtered by entitlement before reaching the frontend.
 
 ## 16. Phase 14: Update Registry APIs
 
@@ -624,7 +626,7 @@ PermissionGuard receives HiveAppPermissionContext from supplier
 context-null scenarios are handled safely
 ```
 
-Current status: focused unit tests now cover feature definition validation, collector duplicate detection, guarded-service root-to-definition validation, visibility-aware feature seeding that preserves existing admin status, strict permission seeding with startup failure for malformed/missing/mismatched mappings, permission grant surface validation, registry read-model filtering, plan and subscription billing configuration validation, runtime plan entitlement by subscription state and period expiry, frontend effective-permission entitlement filtering, administrator subscription transitions and inactive-plan rejection, role/admin-role grant rejection for wrong surfaces, quota evaluation and override precedence, member and company quota placement inside their services, exact B2B collaboration matching, invalid subscription override parsing, and representative `ApiError` response bodies. Request-level isolation, token-surface, member override, public invitation redemption, initial B2B abuse, seeded FREE quota exhaustion, PRO/ENTERPRISE company quotas, priced PRO administrator quota overrides, admin control-plane escalation, and concurrent administrator plan replacement cases now exist. Spring AOP guard enforcement is active at the `platform` package root; public invitation token acceptance is deliberately outside guarded feature services. Subscription persistence now enforces exactly one `ACTIVE` or `TRIALING` subscription per account by a checked unique usable-account slot. Further action-level B2B product restrictions remain a decision before expanding that UX.
+Current status: focused unit tests now cover feature definition validation, collector duplicate detection, guarded-service root-to-definition validation, visibility-aware feature seeding that preserves existing admin status, strict permission seeding with startup failure for malformed/missing/mismatched mappings, permission grant surface validation, registry read-model filtering, plan and subscription billing configuration validation, runtime plan entitlement by subscription state and period expiry, subscription entitlement snapshot parsing, snapshot-first billing calculation, frontend effective-permission entitlement filtering, administrator subscription transitions and inactive-plan rejection, role/admin-role grant rejection for wrong surfaces, quota evaluation and override precedence, member and company quota placement inside their services, exact B2B collaboration matching, invalid subscription override parsing, client subscription self-service preview/apply validators, and representative `ApiError` response bodies. Request-level isolation, token-surface, member override, public invitation redemption, initial B2B abuse, seeded FREE quota exhaustion, PRO/ENTERPRISE company quotas, priced PRO administrator quota overrides, admin control-plane escalation, concurrent administrator plan replacement, active-subscription snapshot preservation after plan-template edits, and client catalog/preview/apply abuse paths now exist. Spring AOP guard enforcement is active at the `platform` package root; public invitation token acceptance is deliberately outside guarded feature services. Subscription persistence now enforces exactly one `ACTIVE` or `TRIALING` subscription per account by a checked unique usable-account slot, and new subscriptions snapshot their plan-template entitlements at creation. Further action-level B2B product restrictions remain a decision before expanding that UX.
 
 ## 18. Recommended Commit/Migration Order
 
@@ -641,7 +643,7 @@ Suggested order:
 6. Migrate client workspace features one by one. Done for the current platform shell services.
 7. Switch PermissionSeeder from warnings to startup failure. Done.
 8. Update plan management and PlanSeeder. Done for type-safe plan assignment and quota-config validation, including request-level proof that a published control-plane feature cannot become client-plan assignable.
-9. Update subscription overrides and quota validation. Done for configuration validation, administrator plan transitions, persistence, unit-level override precedence, FREE/PRO/ENTERPRISE plus priced PRO override request behavior, and database-enforced uniqueness for concurrent usable-subscription writes. Restrictive/beta override semantics remain product decisions if introduced.
+9. Update subscription overrides and quota validation. Done for configuration validation, administrator plan transitions, client catalog/preview/apply, persistence, unit-level override precedence, FREE/PRO/ENTERPRISE plus priced PRO override request behavior, and database-enforced uniqueness for concurrent usable-subscription writes. Restrictive/beta override semantics, external checkout, proration, invoices, and scheduled downgrade handling remain product decisions if introduced.
 10. Update role grant filtering. Done for grant APIs through `PermissionGrantValidator`.
 11. Update B2B delegation filtering. Done for the current platform shell: feature-surface validation, action-specific grant validation, and exact collaboration matching are enforced. New B2B product actions still require explicit feature-definition opt-in before UI exposure.
 12. Add/expand tests and remove old AppFeature provider path. In progress; provider path is removed and the current shell now has request-level isolation, entitlement, B2B, invitation, and admin control-plane abuse coverage. Further tests must accompany newly introduced product flows.

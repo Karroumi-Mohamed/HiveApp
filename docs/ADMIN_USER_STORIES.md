@@ -29,7 +29,7 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 | # | Story | Endpoint | Permission |
 |---|-------|----------|------------|
 | U-01 | As an admin, I can list all platform admin users with their email, roles, and active status | `GET /api/admin/users` | `platform.admin_users.read` |
-| U-02 | As an admin, I can view a single admin user's full details including their assigned roles | `GET /api/admin/users/:id` | `platform.admin_users.read` |
+| U-02 | As an admin, I can view a single admin user's full details including their assigned roles | `GET /api/admin/users/:id` | `platform.admin_users.read_detail` |
 | U-03 | As a SuperAdmin, I can promote an existing platform user to admin, optionally granting SuperAdmin status | `POST /api/admin/users` | `platform.admin_users.create` |
 | U-04 | As an admin, I can toggle another admin user's active status (activate or deactivate) | `POST /api/admin/users/:id/toggle-active` | `platform.admin_users.toggle_active` |
 | U-05 | As an admin, I can assign an admin role to an admin user | `POST /api/admin/users/:id/roles` | `platform.admin_users.assign_role` |
@@ -38,7 +38,8 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 **Constraints:**
 - An admin cannot deactivate themselves
 - SuperAdmin status can only be granted at creation time (no promotion endpoint)
-- Assigning a role that is inactive is still permitted — the role's inactivity only affects permission resolution
+- Assigning an inactive role is rejected. A role must be active before it can be newly assigned to an admin user.
+- A non-SuperAdmin can assign only roles whose permissions are already within their own active-role permission ceiling.
 
 ---
 
@@ -49,7 +50,7 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 | # | Story | Endpoint | Permission |
 |---|-------|----------|------------|
 | R-01 | As an admin, I can list all admin roles with their name, description, permission count, and active status | `GET /api/admin/roles` | `platform.roles.read` |
-| R-02 | As an admin, I can view a single admin role's full permission matrix | `GET /api/admin/roles/:id` | `platform.roles.read` |
+| R-02 | As an admin, I can view a single admin role's full permission matrix | `GET /api/admin/roles/:id` | `platform.roles.read_detail` |
 | R-03 | As an admin, I can create a new admin role with a name and description | `POST /api/admin/roles` | `platform.roles.create` |
 | R-04 | As an admin, I can update an admin role's name or description | `PUT /api/admin/roles/:id` | `platform.roles.update` |
 | R-05 | As an admin, I can toggle an admin role active or inactive | `POST /api/admin/roles/:id/toggle-active` | `platform.roles.toggle_active` |
@@ -60,7 +61,7 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 - An admin who has `roles.read` but not `roles.grant_permission` can VIEW the permission matrix but cannot toggle any permission
 - Deactivating a role immediately removes its effect on all users who hold it — no permission is granted from an inactive role
 - Admin role grants are validated by feature surface: only permissions owned by `PLATFORM_CONTROL` features may be granted to platform admin roles.
-- A separate self-escalation guard, such as "an admin cannot grant a permission they do not hold themselves unless SuperAdmin", is still a hardening requirement and must be covered by tests before the admin role UI is treated as production-safe.
+- A non-SuperAdmin cannot grant a permission they do not already hold through their own active admin roles. SuperAdmin bypass remains the only exception.
 
 ---
 
@@ -80,9 +81,9 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 
 **Constraints:**
 - `BillingCycle.FOREVER` is reserved exclusively for the FREE plan — any other plan must use MONTHLY or YEARLY
-- Deactivating a plan does not affect existing active subscriptions on that plan
-- Only features with status `PUBLIC` or `BETA` should be assignable to plans (INTERNAL features are platform-internal only)
-- Client subscription self-service will move active subscriptions toward an explicit snapshot model, documented in `docs/PLAN_CLIENT_SUBSCRIPTION_SELF_SERVICE.md`. Until that model is implemented, plan-feature edits should be treated carefully because runtime entitlement still reads the active subscription's plan composition.
+- Deactivating or editing a plan template does not silently rewrite existing active subscription entitlements, quotas, or snapshot pricing
+- Only active, plan-assignable features whose code-owned lifecycle is `PUBLIC` or `BETA` should be assignable to plans. `INTERNAL` and `DEPRECATED` lifecycle states are code-owned and cannot be corrected through admin UI.
+- Active subscriptions now carry an explicit entitlement snapshot, documented in `docs/PLAN_CLIENT_SUBSCRIPTION_SELF_SERVICE.md`. Plan-feature edits affect future subscriptions and explicit migrations, not existing active customers by accident.
 
 ---
 
@@ -98,26 +99,36 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 
 **Constraints:**
 - Subscription lookup is by `accountId` — the admin must know the account ID (sourced from the Subscriptions search page)
-- Custom overrides stack on top of the plan — they do not replace the plan's features in the current backend
+- Custom overrides stack on top of the subscription entitlement snapshot — they do not replace the snapshot's captured features in the current backend
 - Restrictive overrides are planned but not implemented as an enforced entitlement rule yet
-- Reassigning a plan (`S-02`) creates a new subscription record, the previous one is superseded
+- Reassigning a plan (`S-02`) creates a new subscription record with a fresh snapshot from the selected plan template, and the previous usable subscription is superseded
 
 ---
 
-## 6. Registry
+## 6. Platform Features
 
 **Requires namespace:** `platform.registry`
 
+The backend capability and API namespace remain `platform.registry`, but admin navigation must not label this area as "Registry." The product-facing label is **Platform Features** because admins are managing and inspecting platform capabilities, not editing a low-level registry table.
+
 | # | Story | Endpoint | Permission |
 |---|-------|----------|------------|
-| REG-01 | As an admin, I can view the full internal inventory of all modules and features including INTERNAL ones not visible to clients | `GET /api/admin/registry/inventory` | `platform.registry.read` |
-| REG-02 | As an admin, I can view the public-facing feature catalog (PUBLIC and BETA features only) | `GET /api/admin/registry/catalog` | `platform.registry.catalog` |
-| REG-03 | As an admin, I can change a feature's visibility status (INTERNAL → BETA → PUBLIC or back) to control what appears in plan assignment dropdowns and client-visible catalogs | `PATCH /api/admin/registry/features/:id/status` | `platform.registry.update_status` |
+| REG-01 | As an admin, I can view every platform feature with its lifecycle status, audience, plan availability, catalog visibility, permissions, quota slots, and validation state | `GET /api/admin/registry/feature-catalog` | `platform.registry.feature_catalog` |
+| REG-02 | As an admin, I can view filtered permission catalogs for admin-role grants, client-role grants, and B2B delegation so permission pickers do not expose the wrong surface | `GET /api/admin/registry/permission-catalog` | `platform.registry.permission_catalog` |
+| REG-03 | As an admin, I can view the legacy full internal inventory of all modules and features including INTERNAL ones not visible to clients | `GET /api/admin/registry/inventory` | `platform.registry.read` |
+| REG-04 | As an admin, I can view the legacy public-facing feature catalog (PUBLIC and BETA features only) | `GET /api/admin/registry/catalog` | `platform.registry.catalog` |
+| REG-05 | As an authorized technical operator, I can activate or deactivate only features that code explicitly declares operations-toggleable for new catalog, plan, and client UI usage | `PATCH /api/admin/registry/features/:id/active` | `platform.registry.update_active` |
 
 **Constraints:**
 - Modules and features are created automatically by `FeatureSeeder` from code-owned `FeatureDefinition` declarations. `PermissionSeeder` then links Permissionizer-discovered action permissions to those features.
-- Setting a feature to INTERNAL hides it from plan assignment and client catalogs but does not remove it from existing plans
-- DEPRECATED status exists as a terminal state — deprecated features remain on existing plans but cannot be assigned to new ones
+- Lifecycle status is code-owned. `PUBLIC`, `BETA`, `DEPRECATED`, and `INTERNAL` are declared by feature definitions and resynced by the seeder.
+- Admins cannot promote a beta feature, deprecate a feature, or turn an internal/control-plane feature public from the UI. Those are release and architecture decisions made in code.
+- Operations activation is allowed only when a feature definition sets `operationsActivationToggleable = true`. The definition validator allows that flag only on public-catalog-visible features, but public catalog visibility alone does not make a feature editable.
+- Public features without `operationsActivationToggleable`, platform-control features, system features, and other non-catalog features are code-owned and cannot be activated or deactivated through the API.
+- Current platform-shell features must stay locked in the normal admin panel even when they are public, plan-visible, role-grantable, or optional. `platform.company` is a required building block; `platform.b2b` is optional but still release/technical-operations controlled.
+- Killing already subscribed runtime usage is not REG-05. It requires a separate technical operations story with code-declared runtime-suspendability, explicit mode, reason, expiry, audit trail, and service/policy enforcement.
+- Admins must understand that feature surface is code-owned. A PLATFORM_CONTROL feature cannot be made plan-assignable, client-role grantable, or B2B-delegatable by changing database state, lifecycle status, or activation state.
+- The UI must clearly separate source-owned facts, business-admin editable plan/billing state, and technical-operations activation state.
 
 ---
 
@@ -189,9 +200,11 @@ GET    /api/admin/subscriptions/account/:id
 POST   /api/admin/subscriptions/account/:id
 PATCH  /api/admin/subscriptions/account/:id/overrides
 
+GET    /api/admin/registry/feature-catalog
+GET    /api/admin/registry/permission-catalog
 GET    /api/admin/registry/inventory
 GET    /api/admin/registry/catalog
-PATCH  /api/admin/registry/features/:id/status
+PATCH  /api/admin/registry/features/:id/active
 ```
 
 **Total: 24 endpoints across 6 domains.**
