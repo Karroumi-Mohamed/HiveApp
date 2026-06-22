@@ -32,6 +32,10 @@ public class Subscription extends BaseEntity {
     @Column(name = "custom_overrides")
     private String customOverrides;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "entitlement_snapshot")
+    private String entitlementSnapshot;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SubscriptionStatus status;

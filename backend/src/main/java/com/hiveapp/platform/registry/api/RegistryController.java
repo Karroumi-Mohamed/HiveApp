@@ -1,6 +1,5 @@
 package com.hiveapp.platform.registry.api;
 
-import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Module;
 import com.hiveapp.platform.registry.dto.FeatureCatalogAudience;
 import com.hiveapp.platform.registry.dto.PermissionCatalogAudience;
@@ -44,9 +43,9 @@ public class RegistryController {
         return ResponseEntity.ok(registryService.getPermissionCatalog(audience));
     }
 
-    @PatchMapping("/features/{id}/status")
-    public ResponseEntity<Void> updateStatus(@PathVariable UUID id, @RequestParam FeatureStatus status) {
-        registryService.updateFeatureStatus(id, status);
+    @PatchMapping("/features/{id}/active")
+    public ResponseEntity<Void> updateActive(@PathVariable UUID id, @RequestParam boolean active) {
+        registryService.updateFeatureActive(id, active);
         return ResponseEntity.noContent().build();
     }
 }

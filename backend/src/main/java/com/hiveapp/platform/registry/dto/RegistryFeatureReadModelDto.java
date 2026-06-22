@@ -23,6 +23,7 @@ public record RegistryFeatureReadModelDto(
         boolean platformAdminRoleGrantable,
         boolean b2bDelegatable,
         boolean publicCatalogVisible,
+        boolean operationsActivationToggleable,
         int sortOrder,
         List<QuotaSlot> quotaSchema,
         List<RegistryPermissionDto> permissions

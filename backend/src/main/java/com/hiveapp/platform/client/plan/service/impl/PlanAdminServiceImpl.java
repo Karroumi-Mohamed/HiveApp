@@ -56,7 +56,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         plan.setDescription(request.description());
         plan.setPrice(request.price());
         plan.setBillingCycle(request.billingCycle());
-        return planRepository.save(plan);
+        Plan savedPlan = planRepository.save(plan);
+        inheritPlanComposition(savedPlan, request.inheritFromPlanId());
+        return savedPlan;
     }
 
     @Override
@@ -129,5 +131,41 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new ResourceNotFoundException("PlanFeature", "id", planFeatureId);
         }
         planFeatureRepository.delete(pf);
+    }
+
+    private void inheritPlanComposition(Plan targetPlan, UUID requestedSourcePlanId) {
+        var sourcePlan = resolveInheritanceSource(requestedSourcePlanId).orElse(null);
+        if (sourcePlan == null) {
+            return;
+        }
+
+        var inheritedFeatures = planFeatureRepository.findAllByPlanId(sourcePlan.getId()).stream()
+                .map(sourceFeature -> {
+                    billingConfigurationValidator.validatePlanFeature(
+                            sourceFeature.getFeature().getCode(),
+                            sourceFeature.getAddOnPrice(),
+                            sourceFeature.getQuotaConfigs());
+                    PlanFeature copy = new PlanFeature();
+                    copy.setPlan(targetPlan);
+                    copy.setFeature(sourceFeature.getFeature());
+                    copy.setAddOnPrice(sourceFeature.getAddOnPrice());
+                    copy.setQuotaConfigs(sourceFeature.getQuotaConfigs() != null
+                            ? new ArrayList<>(sourceFeature.getQuotaConfigs())
+                            : new ArrayList<>());
+                    return copy;
+                })
+                .toList();
+
+        if (!inheritedFeatures.isEmpty()) {
+            planFeatureRepository.saveAll(inheritedFeatures);
+        }
+    }
+
+    private java.util.Optional<Plan> resolveInheritanceSource(UUID requestedSourcePlanId) {
+        if (requestedSourcePlanId != null) {
+            return java.util.Optional.of(planRepository.findById(requestedSourcePlanId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", requestedSourcePlanId)));
+        }
+        return planRepository.findByCode("FREE");
     }
 }

@@ -1,5 +1,6 @@
 package com.hiveapp.platform.registry.definition;
 
+import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.shared.quota.QuotaSlot;
 
 import java.util.ArrayList;
@@ -16,11 +17,13 @@ public record FeatureDefinition(
         String displayName,
         String description,
         FeatureSurface surface,
+        FeatureStatus lifecycleStatus,
         boolean planAssignable,
         boolean clientRoleGrantable,
         boolean platformAdminRoleGrantable,
         boolean b2bDelegatable,
         boolean publicCatalogVisible,
+        boolean operationsActivationToggleable,
         int sortOrder,
         List<QuotaSlot> quotaSlots,
         Set<String> b2bDelegatableActions
@@ -42,11 +45,16 @@ public record FeatureDefinition(
         moduleCode = parts[0];
         featureKey = parts[1];
         description = description == null ? "" : description;
+        lifecycleStatus = lifecycleStatus != null
+                ? lifecycleStatus
+                : (publicCatalogVisible ? FeatureStatus.PUBLIC : FeatureStatus.INTERNAL);
         quotaSlots = List.copyOf(quotaSlots == null ? List.of() : quotaSlots);
         b2bDelegatableActions = Set.copyOf(b2bDelegatableActions == null ? Set.of() : b2bDelegatableActions);
 
         validateSurfaceFlags(code, surface, planAssignable, clientRoleGrantable,
                 platformAdminRoleGrantable, b2bDelegatable, publicCatalogVisible);
+        validateLifecycleStatus(code, publicCatalogVisible, lifecycleStatus);
+        validateOperationsActivation(code, publicCatalogVisible, operationsActivationToggleable);
         validateQuotaSlots(code, quotaSlots);
         validateB2bActions(code, surface, b2bDelegatable, b2bDelegatableActions);
     }
@@ -89,11 +97,13 @@ public record FeatureDefinition(
         private final FeatureSurface surface;
         private String displayName;
         private String description = "";
+        private FeatureStatus lifecycleStatus;
         private boolean planAssignable;
         private boolean clientRoleGrantable;
         private boolean platformAdminRoleGrantable;
         private boolean b2bDelegatable;
         private boolean publicCatalogVisible;
+        private boolean operationsActivationToggleable;
         private int sortOrder = 1000;
         private final List<QuotaSlot> quotaSlots = new ArrayList<>();
         private final Set<String> b2bDelegatableActions = new HashSet<>();
@@ -110,6 +120,11 @@ public record FeatureDefinition(
 
         public Builder description(String description) {
             this.description = description;
+            return this;
+        }
+
+        public Builder lifecycleStatus(FeatureStatus lifecycleStatus) {
+            this.lifecycleStatus = Objects.requireNonNull(lifecycleStatus, "Feature lifecycle status is required");
             return this;
         }
 
@@ -137,6 +152,15 @@ public record FeatureDefinition(
             Objects.requireNonNull(actions, "B2B delegatable actions are required");
             this.b2bDelegatable = true;
             this.b2bDelegatableActions.addAll(List.of(actions));
+            return this;
+        }
+
+        public Builder operationsActivationToggleable() {
+            return operationsActivationToggleable(true);
+        }
+
+        public Builder operationsActivationToggleable(boolean operationsActivationToggleable) {
+            this.operationsActivationToggleable = operationsActivationToggleable;
             return this;
         }
 
@@ -168,11 +192,13 @@ public record FeatureDefinition(
                     displayName,
                     description,
                     surface,
+                    lifecycleStatus,
                     planAssignable,
                     clientRoleGrantable,
                     platformAdminRoleGrantable,
                     b2bDelegatable,
                     publicCatalogVisible,
+                    operationsActivationToggleable,
                     sortOrder,
                     quotaSlots,
                     b2bDelegatableActions);
@@ -202,6 +228,25 @@ public record FeatureDefinition(
         }
         if (publicCatalogVisible && !surface.publicCatalogVisible()) {
             throw new FeatureDefinitionException(code + " cannot be public-catalog visible from surface " + surface);
+        }
+    }
+
+    private static void validateLifecycleStatus(String code, boolean publicCatalogVisible, FeatureStatus lifecycleStatus) {
+        if (publicCatalogVisible && lifecycleStatus == FeatureStatus.INTERNAL) {
+            throw new FeatureDefinitionException(code + " cannot use INTERNAL lifecycle status when it is public-catalog visible; use active=false to hide it.");
+        }
+        if (!publicCatalogVisible && lifecycleStatus != FeatureStatus.INTERNAL) {
+            throw new FeatureDefinitionException(code + " cannot use " + lifecycleStatus + " lifecycle status when it is not public-catalog visible.");
+        }
+    }
+
+    private static void validateOperationsActivation(
+            String code,
+            boolean publicCatalogVisible,
+            boolean operationsActivationToggleable
+    ) {
+        if (operationsActivationToggleable && !publicCatalogVisible) {
+            throw new FeatureDefinitionException(code + " cannot be operations-activation toggleable unless it is public-catalog visible.");
         }
     }
 

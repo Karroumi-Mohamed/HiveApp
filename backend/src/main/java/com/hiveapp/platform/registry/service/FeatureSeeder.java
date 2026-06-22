@@ -25,8 +25,8 @@ import java.util.List;
  * Module code is derived from the first segment of each feature code:
  *   "hr.employees" -> module "hr"
  *
- * quota_schema is always overwritten from feature definitions — code is source of truth.
- * Admin-managed values (status, sort_order, is_active) are never overwritten by the seeder.
+ * quota_schema, lifecycle status, and sort_order are always overwritten from feature definitions — code is source of truth.
+ * Admin-managed values such as is_active are never overwritten by the seeder.
  */
 @Service
 @RequiredArgsConstructor
@@ -50,9 +50,9 @@ public class FeatureSeeder {
             SeedResult result = syncFeature(
                     definition.code(),
                     definition.moduleCode(),
+                    definition.lifecycleStatus(),
                     definition.quotaSlots(),
-                    definition.sortOrder(),
-                    definition.publicCatalogVisible() ? FeatureStatus.PUBLIC : FeatureStatus.INTERNAL);
+                    definition.sortOrder());
             modulesCreated += result.modulesCreated();
             featuresCreated += result.featuresCreated();
             featuresUpdated += result.featuresUpdated();
@@ -62,8 +62,8 @@ public class FeatureSeeder {
                 modulesCreated, featuresCreated, featuresUpdated);
     }
 
-    private SeedResult syncFeature(String featureCode, String moduleCode, List<QuotaSlot> quotaSlots,
-                                   int sortOrder, FeatureStatus initialStatus) {
+    private SeedResult syncFeature(String featureCode, String moduleCode, FeatureStatus lifecycleStatus,
+                                   List<QuotaSlot> quotaSlots, int sortOrder) {
         int modulesCreated = 0;
         int featuresCreated = 0;
         int featuresUpdated = 0;
@@ -83,13 +83,14 @@ public class FeatureSeeder {
             Feature feature = new Feature();
             feature.setCode(featureCode);
             feature.setModule(module);
-            feature.setStatus(initialStatus);
+            feature.setStatus(lifecycleStatus);
             feature.setQuotaSchema(quotaSlots);
             feature.setSortOrder(sortOrder);
             featureRepository.save(feature);
             featuresCreated++;
         } else {
             Feature feature = existing.get();
+            feature.setStatus(lifecycleStatus);
             feature.setQuotaSchema(quotaSlots);
             feature.setSortOrder(sortOrder);
             featureRepository.save(feature);

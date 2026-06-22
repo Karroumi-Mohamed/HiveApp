@@ -17,6 +17,7 @@ import com.hiveapp.platform.registry.dto.RegistryFeatureReadModelDto;
 import com.hiveapp.platform.registry.dto.RegistryModuleReadModelDto;
 import com.hiveapp.platform.registry.dto.RegistryPermissionDto;
 import com.hiveapp.platform.registry.service.RegistryService;
+import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
@@ -115,11 +116,18 @@ public class RegistryServiceImpl extends PlatformControlFeatureService implement
 
     @Override
     @Transactional
-    @PermissionNode(key = "update_status", description = "Update feature visibility status")
-    public void updateFeatureStatus(UUID featureId, FeatureStatus status) {
+    @PermissionNode(key = "update_active", description = "Activate or deactivate code-declared operations-toggleable features")
+    public void updateFeatureActive(UUID featureId, boolean active) {
         var feature = featureRepository.findById(featureId)
                 .orElseThrow(() -> new ResourceNotFoundException("Feature", "id", featureId));
-        feature.setStatus(status);
+        var definition = featureDefinitionCollectorProvider.getObject().collectByCode().get(feature.getCode());
+        if (definition == null) {
+            throw new BusinessException("Feature " + feature.getCode() + " is not backed by a code definition.");
+        }
+        if (!definition.operationsActivationToggleable()) {
+            throw new BusinessException("Feature " + feature.getCode() + " is code-owned and cannot be activated or deactivated through registry controls.");
+        }
+        feature.setActive(active);
         featureRepository.save(feature);
     }
 
@@ -173,6 +181,7 @@ public class RegistryServiceImpl extends PlatformControlFeatureService implement
                 definition.platformAdminRoleGrantable(),
                 definition.b2bDelegatable(),
                 definition.publicCatalogVisible(),
+                definition.operationsActivationToggleable(),
                 definition.sortOrder(),
                 definition.quotaSlots(),
                 permissions.stream()
