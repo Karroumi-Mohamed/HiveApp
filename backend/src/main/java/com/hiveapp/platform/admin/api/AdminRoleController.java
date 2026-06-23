@@ -1,6 +1,10 @@
 package com.hiveapp.platform.admin.api;
 
 import com.hiveapp.platform.admin.domain.entity.AdminRole;
+import com.hiveapp.platform.admin.domain.entity.AdminRolePermission;
+import com.hiveapp.platform.admin.domain.repository.AdminRolePermissionRepository;
+import com.hiveapp.platform.admin.dto.AdminPermissionSummaryDto;
+import com.hiveapp.platform.admin.dto.AdminRoleResponseDto;
 import com.hiveapp.platform.admin.dto.CreateAdminRoleRequest;
 import com.hiveapp.platform.admin.dto.GrantAdminPermissionRequest;
 import com.hiveapp.platform.admin.dto.UpdateAdminRoleRequest;
@@ -20,26 +24,29 @@ import java.util.UUID;
 public class AdminRoleController {
 
     private final AdminRoleService adminRoleService;
+    private final AdminRolePermissionRepository adminRolePermissionRepository;
 
     @GetMapping
-    public ResponseEntity<List<AdminRole>> getAll() {
-        return ResponseEntity.ok(adminRoleService.getAllAdminRoles());
+    public ResponseEntity<List<AdminRoleResponseDto>> getAll() {
+        return ResponseEntity.ok(adminRoleService.getAllAdminRoles().stream()
+                .map(this::toDto)
+                .toList());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<AdminRole> get(@PathVariable UUID id) {
-        return ResponseEntity.ok(adminRoleService.getAdminRole(id));
+    public ResponseEntity<AdminRoleResponseDto> get(@PathVariable UUID id) {
+        return ResponseEntity.ok(toDto(adminRoleService.getAdminRole(id)));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public AdminRole create(@Valid @RequestBody CreateAdminRoleRequest req) {
-        return adminRoleService.createAdminRole(req.name(), req.description());
+    public AdminRoleResponseDto create(@Valid @RequestBody CreateAdminRoleRequest req) {
+        return toDto(adminRoleService.createAdminRole(req.name(), req.description()));
     }
 
     @PutMapping("/{id}")
-    public AdminRole update(@PathVariable UUID id, @Valid @RequestBody UpdateAdminRoleRequest req) {
-        return adminRoleService.updateAdminRole(id, req.name(), req.description());
+    public AdminRoleResponseDto update(@PathVariable UUID id, @Valid @RequestBody UpdateAdminRoleRequest req) {
+        return toDto(adminRoleService.updateAdminRole(id, req.name(), req.description()));
     }
 
     @PostMapping("/{id}/toggle-active")
@@ -60,5 +67,29 @@ public class AdminRoleController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void revokePermission(@PathVariable UUID id, @PathVariable UUID permissionId) {
         adminRoleService.revokePermission(id, permissionId);
+    }
+
+    private AdminRoleResponseDto toDto(AdminRole role) {
+        return new AdminRoleResponseDto(
+                role.getId(),
+                role.getName(),
+                role.getDescription(),
+                role.isActive(),
+                adminRolePermissionRepository.findAllByAdminRoleId(role.getId()).stream()
+                        .map(this::toPermissionSummary)
+                        .toList()
+        );
+    }
+
+    private AdminPermissionSummaryDto toPermissionSummary(AdminRolePermission grant) {
+        var permission = grant.getPermission();
+        return new AdminPermissionSummaryDto(
+                permission.getId(),
+                permission.getCode(),
+                permission.getName(),
+                permission.getDescription(),
+                permission.getAction(),
+                permission.getResource()
+        );
     }
 }

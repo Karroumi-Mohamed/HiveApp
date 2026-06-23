@@ -1,9 +1,12 @@
 package com.hiveapp.platform.admin.api;
 
 import com.hiveapp.platform.admin.domain.entity.AdminUser;
+import com.hiveapp.platform.admin.domain.entity.AdminUserRole;
 import com.hiveapp.platform.admin.dto.AdminUserResponseDto;
+import com.hiveapp.platform.admin.dto.AdminRoleSummaryDto;
 import com.hiveapp.platform.admin.dto.AssignAdminRoleRequest;
 import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
+import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
 import com.hiveapp.platform.admin.service.AdminUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +23,7 @@ import java.util.UUID;
 public class AdminUserController {
 
     private final AdminUserService adminUserService;
+    private final AdminUserRoleRepository adminUserRoleRepository;
 
     @GetMapping
     public ResponseEntity<List<AdminUserResponseDto>> getAll() {
@@ -61,6 +65,20 @@ public class AdminUserController {
     }
 
     private AdminUserResponseDto toDto(AdminUser u) {
-        return new AdminUserResponseDto(u.getId(), u.getUser().getId(), u.getUser().getEmail(), u.isSuperAdmin(), u.isActive());
+        return new AdminUserResponseDto(
+                u.getId(),
+                u.getUser().getId(),
+                u.getUser().getEmail(),
+                u.isSuperAdmin(),
+                u.isActive(),
+                adminUserRoleRepository.findAllByAdminUserId(u.getId()).stream()
+                        .map(this::toRoleSummary)
+                        .toList()
+        );
+    }
+
+    private AdminRoleSummaryDto toRoleSummary(AdminUserRole assignment) {
+        var role = assignment.getAdminRole();
+        return new AdminRoleSummaryDto(role.getId(), role.getName(), role.getDescription(), role.isActive());
     }
 }

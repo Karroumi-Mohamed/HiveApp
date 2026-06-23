@@ -65,6 +65,9 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "create", description = "Create admin user")
     public AdminUser createAdminUser(UUID userId, boolean isSuperAdmin) {
+        if (adminUserRepository.findByUserId(userId).isPresent()) {
+            throw new DuplicateResourceException("AdminUser", "userId", userId);
+        }
         if (isSuperAdmin && !currentActorIsSuperAdmin()) {
             throw new InvalidPermissionGrantException("Only a SuperAdmin can create another SuperAdmin.");
         }
