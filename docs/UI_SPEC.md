@@ -211,15 +211,19 @@ export const P = {
   ADMIN_ROLES_REVOKE_PERM:     "platform.roles.revoke_permission",
 
   // ── Admin: Subscriptions ─────────────────────────────────
-  ADMIN_SUBS_READ:             "platform.admin.subscriptions.read",
-  ADMIN_SUBS_CREATE:           "platform.admin.subscriptions.create",
-  ADMIN_SUBS_OVERRIDES:        "platform.admin.subscriptions.update_overrides",
+  ADMIN_SUBS_READ:             "platform.subscriptions.read",
+  ADMIN_SUBS_CREATE:           "platform.subscriptions.create",
+  ADMIN_SUBS_OVERRIDES:        "platform.subscriptions.update_overrides",
 
   // ── Plans ────────────────────────────────────────────────
   PLANS_LIST:                  "platform.plans.list",
+  PLANS_READ_DETAIL:           "platform.plans.read_detail",
   PLANS_CREATE:                "platform.plans.create",
+  PLANS_UPDATE:                "platform.plans.update",
   PLANS_TOGGLE:                "platform.plans.toggle_active",
+  PLANS_DELETE:                "platform.plans.delete",
   PLANS_LIST_FEATURES:         "platform.plans.list_features",
+  PLANS_LIST_SUBSCRIBERS:      "platform.plans.list_subscribers",
   PLANS_ASSIGN_FEATURE:        "platform.plans.assign_feature",
   PLANS_UPDATE_FEATURE:        "platform.plans.update_feature",
   PLANS_REMOVE_FEATURE:        "platform.plans.remove_feature",
@@ -322,14 +326,18 @@ The admin shell now depends on `POST /api/admin/auth/login` and `GET /api/admin/
 | DELETE | `/api/admin/roles/:id/permissions/:permId` | `platform.roles.revoke_permission` |
 | GET | `/api/admin/plans` | `platform.plans.list` |
 | POST | `/api/admin/plans` | `platform.plans.create` |
+| GET | `/api/admin/plans/:id` | `platform.plans.read_detail` |
+| PUT | `/api/admin/plans/:id` | `platform.plans.update` |
 | PATCH | `/api/admin/plans/:id/active` | `platform.plans.toggle_active` |
+| DELETE | `/api/admin/plans/:id` | `platform.plans.delete` |
 | GET | `/api/admin/plans/:id/features` | `platform.plans.list_features` |
+| GET | `/api/admin/plans/:id/subscribers` | `platform.plans.list_subscribers` |
 | POST | `/api/admin/plans/:id/features` | `platform.plans.assign_feature` |
 | PUT | `/api/admin/plans/:id/features/:fid` | `platform.plans.update_feature` |
 | DELETE | `/api/admin/plans/:id/features/:fid` | `platform.plans.remove_feature` |
-| GET | `/api/admin/subscriptions/account/:id` | `platform.admin.subscriptions.read` |
-| POST | `/api/admin/subscriptions/account/:id` | `platform.admin.subscriptions.create` |
-| PATCH | `/api/admin/subscriptions/account/:id/overrides` | `platform.admin.subscriptions.update_overrides` |
+| GET | `/api/admin/subscriptions/account/:id` | `platform.subscriptions.read` |
+| POST | `/api/admin/subscriptions/account/:id` | `platform.subscriptions.create` |
+| PATCH | `/api/admin/subscriptions/account/:id/overrides` | `platform.subscriptions.update_overrides` |
 | GET | `/api/admin/registry/feature-catalog` | `platform.registry.feature_catalog` |
 | GET | `/api/admin/registry/permission-catalog` | `platform.registry.permission_catalog` |
 | GET | `/api/admin/registry/inventory` | `platform.registry.read` |
@@ -362,7 +370,7 @@ Nav items hide entirely if user has zero permissions in that namespace.
 │ ▼ Plans       │  — expands only if has platform.plans.*      │
 │   ○ Templates │  — plan templates and active state           │
 │   ○ Features  │  — plan-feature inclusion matrix             │
-│ ○ Subscriptions│ — only if has platform.admin.subscriptions.*│
+│   ○ Subscriptions│ — account subscription operations         │
 │ ○ Features    │  — only if has platform.registry.*           │
 │               │                                              │
 │ ───────────── │                                              │
@@ -509,7 +517,7 @@ Until then, the grouped pages must still respect detail-level backend permission
 
 **Requires:** `platform.plans.list`
 
-The sidebar exposes Plans as a grouped billing area, not as one overloaded page. `/admin/plans` redirects to `/admin/plans/templates`.
+The sidebar exposes **Plans** as a grouped plan-management area, not as one overloaded billing page. `/admin/plans` redirects to `/admin/plans/templates`.
 
 Current child pages:
 
@@ -517,6 +525,7 @@ Current child pages:
 |-------|---------|
 | `/admin/plans/templates` | Plan template list, selected plan summary, active state, included feature composition |
 | `/admin/plans/features` | Plan-assignable feature matrix showing which plans include each feature and quota values per plan |
+| `/admin/plans/subscriptions` | Account subscription lookup and account-specific plan/override operations |
 
 The Plans pages are operational management screens, not pricing landing pages and not feature registry duplicates. They are for platform admins who need to understand which sellable plan templates exist, whether a plan can currently be selected, which features and quota values are included in each template, and where feature coverage differs across plans.
 
@@ -525,8 +534,12 @@ Primary data sources:
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/admin/plans` | Plan template list |
+| GET | `/api/admin/plans/:id` | Selected plan detail, counts, recurring price, and backend warnings |
+| PUT | `/api/admin/plans/:id` | Edit plan template basics: name, description, price, billing cycle |
 | PATCH | `/api/admin/plans/:id/active?active=true|false` | Activate or deactivate a plan template when `platform.plans.toggle_active` is granted |
+| DELETE | `/api/admin/plans/:id` | Delete only unused plans with no subscription history |
 | GET | `/api/admin/plans/:id/features` | Included feature composition and configured quota values |
+| GET | `/api/admin/plans/:id/subscribers` | Current account-level subscribers for the selected plan |
 | GET | `/api/admin/registry/feature-catalog?audience=PLAN_ASSIGNABLE` | Plan-assignable feature definitions used to label included features and show assignable-but-not-included options |
 
 Plan template structure:
@@ -553,7 +566,9 @@ ENT      $99.99 7 features
 
 The plan list should be a selectable list, not a wide table. It shows plan code/name, price, billing cycle, active state, and feature count when `platform.plans.list_features` is available. Selecting a row updates the right-side detail without navigating away.
 
-The selected plan header shows the plan name, code, price, billing cycle, and active state. The active toggle is rendered only when the current admin has `platform.plans.toggle_active`; otherwise the state is read-only. Deactivating a plan means clients should not be able to newly select/buy that plan template. It does not silently rewrite existing subscriptions.
+The selected plan header shows the plan name, code, price, billing cycle, and active state. The edit basics action is rendered only when the current admin has `platform.plans.update`. The active toggle is rendered only when the current admin has `platform.plans.toggle_active`; otherwise the state is read-only. Deactivating a plan means clients should not be able to newly select/buy that plan template. It does not silently rewrite existing subscriptions.
+
+When `platform.plans.read_detail` is available, the detail panel must show backend-derived counts and warnings rather than client-side guesses. The current first version exposes feature count, quota-configured feature count, active/trialing/current/historical subscriber counts, current recurring price, and warnings such as inactive, no features, current subscribers, snapshot rule, and subscription history.
 
 Included features are shown as a composition list. Each row shows the business feature label, immutable feature code, add-on price, and plan quota config values. Quota config values are plan-specific; quota slot declarations still come from the feature definition. Unlimited quota is rendered explicitly when the backend sends `limit = null`.
 
@@ -568,9 +583,12 @@ Admin labels should use **Included limit**, **Extra unit price**, **Fixed limit*
 The page must provide real management actions when permissions allow:
 
 - `platform.plans.create`: create a new plan template using code, name, optional description, price, billing cycle, and a source plan to inherit from.
+- `platform.plans.update`: edit template name, description, price, and billing cycle. The plan code remains immutable.
 - `platform.plans.assign_feature`: add a plan-assignable feature to the selected plan.
 - `platform.plans.update_feature`: edit add-on price and quota config values for an included feature.
 - `platform.plans.remove_feature`: remove an included feature from the selected plan after confirmation.
+- `platform.plans.list_subscribers`: show the current account-level subscribers for the selected plan. The response must stay at account/subscription summary level and must not expose client companies, members, roles, invitations, or B2B resources.
+- `platform.plans.delete`: expose delete only as a danger-zone action. The backend rejects any plan with subscription history, and the UI should disable or warn when the detail read model reports history.
 
 New plan creation must not default to an empty composition. The create dialog should default the inheritance source to the FREE plan when present, otherwise to the first available plan. The backend also defaults to FREE inheritance when `inheritFromPlanId` is not provided and FREE exists. Inheritance copies the source plan's included features, add-on prices, and quota policies into the new plan template; admins can then adjust the copied composition explicitly.
 
@@ -604,65 +622,49 @@ Every write flow must validate against the backend feature registry rules. The U
 
 ---
 
-### 4.9 Subscriptions `/admin/subscriptions`
+### 4.9 Subscriptions `/admin/plans/subscriptions`
 
-**Requires:** `platform.admin.subscriptions.read`
+**Requires:** `platform.subscriptions.read`
+
+The admin subscription page is a lookup-and-operate screen, not an account browser. HiveApp currently has no endpoint for browsing all client accounts from the admin panel. The admin must enter a known `accountId`; the page then loads that account's active subscription using `GET /api/admin/subscriptions/account/:id`.
+
+The page lives under the Plans navigation group because it changes a specific customer's subscription state, not the plan template catalog. It must not be presented as a generic customer-management page and must not expose client business data such as companies, members, roles, invitations, or B2B records.
 
 ```
-Subscriptions          [Search by account email or ID: _________________]
-─────────────────────────────────────────────────────────────────
-┌──────────────────┬──────────┬──────────┬──────────┬──────────────────────┐
-│ Account          │ Plan     │ Status   │ Price    │ Actions              │
-├──────────────────┼──────────┼──────────┼──────────┼──────────────────────┤
-│ acme@corp.io     │ PRO      │ ACTIVE   │ $49.00   │ [View] [Override]    │
-│ startup@x.com    │ FREE     │ TRIALING │ $0.00    │ [View] [Assign Plan] │
-└──────────────────┴──────────┴──────────┴──────────┴──────────────────────┘
+Subscriptions
+──────────────────────────────────────────────────────────────
+[ Account ID ____________________________________ ] [Search]
 
-[Override] = CanDo(P.ADMIN_SUBS_OVERRIDES)
-[Assign Plan] = CanDo(P.ADMIN_SUBS_CREATE)
+┌ Current subscription ───────────────────────────────────────┐
+│ Account name / accountId                                    │
+│ Plan, status, current price, current period end              │
+│ Subscription id                                              │
+│ Bought snapshot: included feature codes and quota limits     │
+└──────────────────────────────────────────────────────────────┘
+
+┌ Replace plan ───────────────────┐  ┌ Account exceptions ─────┐
+│ Target active plan selector      │  │ Added feature overrides  │
+│ New snapshot warning             │  │ Quota override rows      │
+│ [Assign this plan]               │  │ [Reset] [Save]           │
+└──────────────────────────────────┘  └─────────────────────────┘
 ```
+
+The current subscription response includes `customOverrides` and `entitlementSnapshot` so the UI can edit from real state instead of blindly overwriting stored JSON. The snapshot section shows what the account currently owns from the selected plan transition. The exceptions section shows only account-specific additions and quota overrides.
+
+`POST /api/admin/subscriptions/account/:id?planCode=PRO` is a subscription transition. It cancels the previous usable `ACTIVE` or `TRIALING` subscription and creates a new active subscription with an entitlement snapshot from the selected plan template. The UI must show this as replacing the account subscription, not editing the plan template and not adding a second entitlement.
+
+`PATCH /api/admin/subscriptions/account/:id/overrides` saves account-specific override state. Added features are selected from plan-assignable feature definitions. Quota override rows are created only from declared quota slots on the account's current snapshot features plus selected added features. Blank quota limit means unlimited for that account. Duplicate quota rows are blocked in the UI, and backend validators remain the authority for inactive, internal, deprecated, unknown, or control-plane features.
+
+Write actions are permission-aware:
+
+- `platform.subscriptions.create`: enables assigning a different active plan to the looked-up account.
+- `platform.subscriptions.update_overrides`: enables saving added feature and quota override exceptions.
+- `platform.plans.list`: lets the UI load target plan options.
+- `platform.registry.feature_catalog`: lets the UI load plan-assignable feature and quota metadata for override controls.
 
 ---
 
-### 4.10 Subscription Detail `/admin/subscriptions/:accountId`
-
-```
-← Back
-
-Subscription: acme@corp.io
-─────────────────────────────────────────────────────────────────
-Plan:   PRO       Status: ACTIVE        Price: $49.00/mo
-                                 [Reassign Plan] ←CanDo(P.ADMIN_SUBS_CREATE)
-
-CUSTOM OVERRIDES                  [Edit Overrides] ←CanDo(P.ADMIN_SUBS_OVERRIDES)
-─────────────────────────────────────────────────────────────────
-Added Features:  [b2b]  [custom_reports]
-Quota Bumps:     members → 50  (plan default: 10)
-
-EFFECTIVE FEATURE SET  (plan + overrides)
-─────────────────────────────────────────────────────────────────
-✓ workspace   ✓ rbac   ✓ staff   ✓ company
-✓ subscription  ✓ b2b  ✓ custom_reports
-```
-
-**Edit Overrides drawer:**
-```
-Custom Overrides — acme@corp.io
-────────────────────────────────────────
-Added Features (beyond plan):
-  [✓] b2b              [✓] custom_reports
-  [ ] advanced_analytics
-
-Quota Bumps:
-  members   plan: 10   override: [50__]
-  companies plan: 5    override: [____]  (blank = no override)
-
-[Cancel]  [Save]
-```
-
----
-
-### 4.11 Features `/admin/features`
+### 4.10 Features `/admin/features`
 
 **Requires:** `platform.registry.feature_catalog`
 
@@ -754,7 +756,7 @@ Your admin roles:
 
 Your effective permissions:
 
-▼ platform.admin.subscriptions
+▼ platform.subscriptions
   ✓ read   ✓ create   ✓ update_overrides
 
 ▼ platform.plans
@@ -1263,10 +1265,10 @@ const atQuota = memberCount >= memberQuota
   /access                ← redirects to /admin/access/members
   /access/members        ← requires platform.admin_users.read
   /access/roles          ← requires platform.roles.read
-  /plans                 ← requires platform.plans.list
-  /plans/:id
-  /subscriptions         ← requires platform.admin.subscriptions.read
-  /subscriptions/:accountId
+  /plans                 ← redirects to /admin/plans/templates
+  /plans/templates       ← requires platform.plans.list
+  /plans/features        ← requires platform.plans.list_features
+  /plans/subscriptions   ← requires platform.subscriptions.read
   /features              ← requires platform.registry.feature_catalog
 
 /app

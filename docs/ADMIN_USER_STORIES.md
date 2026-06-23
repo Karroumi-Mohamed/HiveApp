@@ -78,12 +78,20 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 | P-05 | As an admin, I can assign a feature to a plan, optionally with an add-on price and quota slot limits | `POST /api/admin/plans/:id/features` | `platform.plans.assign_feature` |
 | P-06 | As an admin, I can update a plan feature's add-on price or quota slot configuration | `PUT /api/admin/plans/:id/features/:fid` | `platform.plans.update_feature` |
 | P-07 | As an admin, I can remove a feature from a plan | `DELETE /api/admin/plans/:id/features/:fid` | `platform.plans.remove_feature` |
+| P-08 | As an admin, I can inspect one plan with subscriber counts, feature counts, recurring price, and warnings | `GET /api/admin/plans/:id` | `platform.plans.read_detail` |
+| P-09 | As an admin, I can edit plan template basics without changing the immutable plan code | `PUT /api/admin/plans/:id` | `platform.plans.update` |
+| P-10 | As an admin, I can delete a plan only when it has no subscription history | `DELETE /api/admin/plans/:id` | `platform.plans.delete` |
+| P-11 | As an admin, I can list the current account-level subscribers for one plan | `GET /api/admin/plans/:id/subscribers` | `platform.plans.list_subscribers` |
 
 **Constraints:**
 - `BillingCycle.FOREVER` is reserved exclusively for the FREE plan — any other plan must use MONTHLY or YEARLY
 - Deactivating or editing a plan template does not silently rewrite existing active subscription entitlements, quotas, or snapshot pricing
 - Only active, plan-assignable features whose code-owned lifecycle is `PUBLIC` or `BETA` should be assignable to plans. `INTERNAL` and `DEPRECATED` lifecycle states are code-owned and cannot be corrected through admin UI.
 - Active subscriptions now carry an explicit entitlement snapshot, documented in `docs/PLAN_CLIENT_SUBSCRIPTION_SELF_SERVICE.md`. Plan-feature edits affect future subscriptions and explicit migrations, not existing active customers by accident.
+- Plan code is immutable after creation. Admin edits are limited to name, description, price, billing cycle, active state, and plan-feature composition.
+- The plan detail read model returns operational warnings such as inactive, no features, current subscribers, existing history, and the snapshot rule. The UI should show those warnings instead of inventing its own impact model.
+- Plan subscriber lists are account-level read models only. They must not expose client companies, members, roles, invitations, or B2B resources.
+- Hard delete is allowed only for unused plans. Any subscription history makes delete invalid; admins should deactivate the plan instead until archive/history semantics are implemented.
 
 ---
 
@@ -93,12 +101,14 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 
 | # | Story | Endpoint | Permission |
 |---|-------|----------|------------|
-| S-01 | As an admin, I can look up a client account's active subscription by account ID, seeing plan, status, price, and custom overrides | `GET /api/admin/subscriptions/account/:id` | `platform.subscriptions.read` |
+| S-01 | As an admin, I can look up a client account's active subscription by account ID, seeing plan, status, price, custom overrides, and the entitlement snapshot | `GET /api/admin/subscriptions/account/:id` | `platform.subscriptions.read` |
 | S-02 | As an admin, I can manually assign a plan to a client account (creates or replaces their subscription) | `POST /api/admin/subscriptions/account/:id` | `platform.subscriptions.create` |
 | S-03 | As an admin, I can apply custom overrides to a subscription to add features beyond the plan or bump quota limits for a specific account | `PATCH /api/admin/subscriptions/account/:id/overrides` | `platform.subscriptions.update_overrides` |
 
 **Constraints:**
 - Subscription lookup is by `accountId` — the admin must know the account ID (sourced from the Subscriptions search page)
+- The admin UI route is `/admin/plans/subscriptions`; it is part of the Plans group, not a client account browser.
+- The read model returns parsed `customOverrides` and parsed `entitlementSnapshot` for safe UI editing.
 - Custom overrides stack on top of the subscription entitlement snapshot — they do not replace the snapshot's captured features in the current backend
 - Restrictive overrides are planned but not implemented as an enforced entitlement rule yet
 - Reassigning a plan (`S-02`) creates a new subscription record with a fresh snapshot from the selected plan template, and the previous usable subscription is superseded
@@ -190,8 +200,12 @@ DELETE /api/admin/roles/:id/permissions/:permId
 
 GET    /api/admin/plans
 POST   /api/admin/plans
+GET    /api/admin/plans/:id
+PUT    /api/admin/plans/:id
 PATCH  /api/admin/plans/:id/active
+DELETE /api/admin/plans/:id
 GET    /api/admin/plans/:id/features
+GET    /api/admin/plans/:id/subscribers
 POST   /api/admin/plans/:id/features
 PUT    /api/admin/plans/:id/features/:fid
 DELETE /api/admin/plans/:id/features/:fid
