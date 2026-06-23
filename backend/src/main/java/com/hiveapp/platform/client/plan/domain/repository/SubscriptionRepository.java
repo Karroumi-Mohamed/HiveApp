@@ -17,6 +17,14 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
 
     List<Subscription> findAllByAccountIdAndStatusIn(UUID accountId, Collection<SubscriptionStatus> statuses);
 
+    List<Subscription> findAllByPlan_IdAndStatusInOrderByCreatedAtDesc(UUID planId, Collection<SubscriptionStatus> statuses);
+
+    long countByPlan_Id(UUID planId);
+
+    long countByPlan_IdAndStatus(UUID planId, SubscriptionStatus status);
+
+    long countByPlan_IdAndStatusIn(UUID planId, Collection<SubscriptionStatus> statuses);
+
     default Optional<Subscription> findActiveByAccountId(UUID accountId) {
         return findTopByAccountIdAndStatusOrderByCreatedAtDesc(accountId, SubscriptionStatus.ACTIVE);
     }
