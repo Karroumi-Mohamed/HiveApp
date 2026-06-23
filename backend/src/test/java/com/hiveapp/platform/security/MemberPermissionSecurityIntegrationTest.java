@@ -1,8 +1,9 @@
 package com.hiveapp.platform.security;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
+import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.client.invitation.domain.repository.InvitationRepository;
 import com.hiveapp.platform.client.invitation.dto.AcceptInvitationRequest;
 import com.hiveapp.platform.client.invitation.dto.SendInvitationRequest;
@@ -13,7 +14,6 @@ import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -35,7 +35,7 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
     private SubscriptionRepository subscriptionRepository;
 
     @Autowired
-    private PlanFeatureRepository planFeatureRepository;
+    private SubscriptionSnapshotReader subscriptionSnapshotReader;
 
     @Test
     void memberPermissionOverrideCanBeGrantedAndReadWithinCurrentWorkspace() throws Exception {
@@ -55,16 +55,9 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
-    @Transactional
     void mePermissionsDoNotExposePermissionsDeniedByCurrentPlanEntitlement() throws Exception {
         String token = registerClientAndGetToken();
-        UUID accountId = currentAccountId(token);
-        var subscription = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow();
-        var b2bPlanFeature = planFeatureRepository
-                .findByPlanIdAndFeature_Code(subscription.getPlan().getId(), B2bFeature.CODE)
-                .orElseThrow();
-        planFeatureRepository.delete(b2bPlanFeature);
-        planFeatureRepository.flush();
+        removeFeatureFromActiveSubscription(token, B2bFeature.CODE);
 
         Set<String> permissions = mePermissions(token);
 
@@ -179,6 +172,19 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
             permissions.add(permission.asText());
         }
         return permissions;
+    }
+
+    private void removeFeatureFromActiveSubscription(String token, String featureCode) throws Exception {
+        var subscription = subscriptionRepository.findActiveByAccountId(currentAccountId(token)).orElseThrow();
+        var snapshot = subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()).orElseThrow();
+        var updated = new SubscriptionEntitlementSnapshot(
+                snapshot.planCode(),
+                snapshot.basePrice(),
+                snapshot.features().stream()
+                        .filter(feature -> !featureCode.equals(feature.featureCode()))
+                        .toList());
+        subscription.setEntitlementSnapshot(subscriptionSnapshotReader.write(updated));
+        subscriptionRepository.saveAndFlush(subscription);
     }
 
     private String inviteAndAcceptMember(String ownerToken) throws Exception {

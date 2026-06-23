@@ -1,5 +1,6 @@
 package com.hiveapp.platform.registry.definition;
 
+import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.shared.quota.QuotaSlot;
 import org.junit.jupiter.api.Test;
 
@@ -22,11 +23,34 @@ class FeatureDefinitionTest {
         assertThat(definition.moduleCode()).isEqualTo("platform");
         assertThat(definition.featureKey()).isEqualTo("staff");
         assertThat(definition.surface()).isEqualTo(FeatureSurface.CLIENT_WORKSPACE);
+        assertThat(definition.lifecycleStatus()).isEqualTo(FeatureStatus.PUBLIC);
         assertThat(definition.planAssignable()).isTrue();
         assertThat(definition.clientRoleGrantable()).isTrue();
         assertThat(definition.platformAdminRoleGrantable()).isFalse();
         assertThat(definition.publicCatalogVisible()).isTrue();
+        assertThat(definition.operationsActivationToggleable()).isFalse();
         assertThat(definition.quotaSlots()).hasSize(1);
+    }
+
+    @Test
+    void operationsActivationMustBeExplicitlyDeclared() {
+        FeatureDefinition definition = FeatureDefinition.clientWorkspace("platform.reports")
+                .displayName("Reports")
+                .operationsActivationToggleable()
+                .build();
+
+        assertThat(definition.publicCatalogVisible()).isTrue();
+        assertThat(definition.operationsActivationToggleable()).isTrue();
+    }
+
+    @Test
+    void rejectsOperationsActivationForNonCatalogFeatures() {
+        assertThatThrownBy(() -> FeatureDefinition.platformControl("platform.registry")
+                .displayName("Registry")
+                .operationsActivationToggleable()
+                .build())
+                .isInstanceOf(FeatureDefinitionException.class)
+                .hasMessage("platform.registry cannot be operations-activation toggleable unless it is public-catalog visible.");
     }
 
     @Test
@@ -71,6 +95,36 @@ class FeatureDefinitionTest {
                 .build())
                 .isInstanceOf(FeatureDefinitionException.class)
                 .hasMessageContaining("Duplicate quota resource");
+    }
+
+    @Test
+    void lifecycleStatusIsCodeOwnedForCatalogFeatures() {
+        FeatureDefinition definition = FeatureDefinition.clientWorkspace("platform.company")
+                .displayName("Companies")
+                .lifecycleStatus(FeatureStatus.BETA)
+                .build();
+
+        assertThat(definition.lifecycleStatus()).isEqualTo(FeatureStatus.BETA);
+    }
+
+    @Test
+    void rejectsInternalLifecycleForCatalogVisibleFeatures() {
+        assertThatThrownBy(() -> FeatureDefinition.clientWorkspace("platform.company")
+                .displayName("Companies")
+                .lifecycleStatus(FeatureStatus.INTERNAL)
+                .build())
+                .isInstanceOf(FeatureDefinitionException.class)
+                .hasMessageContaining("cannot use INTERNAL lifecycle status");
+    }
+
+    @Test
+    void rejectsPublicLifecycleForInternalFeatures() {
+        assertThatThrownBy(() -> FeatureDefinition.platformControl("platform.plans")
+                .displayName("Plans")
+                .lifecycleStatus(FeatureStatus.PUBLIC)
+                .build())
+                .isInstanceOf(FeatureDefinitionException.class)
+                .hasMessageContaining("cannot use PUBLIC lifecycle status");
     }
 
     @Test

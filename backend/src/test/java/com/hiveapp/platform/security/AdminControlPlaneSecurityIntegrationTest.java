@@ -7,9 +7,6 @@ import com.hiveapp.platform.admin.dto.AssignAdminRoleRequest;
 import com.hiveapp.platform.admin.dto.CreateAdminRoleRequest;
 import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
 import com.hiveapp.platform.admin.dto.GrantAdminPermissionRequest;
-import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
-import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
-import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
@@ -18,9 +15,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
-import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
@@ -38,9 +35,6 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
     @Autowired
     private FeatureRepository featureRepository;
-
-    @Autowired
-    private PlanRepository planRepository;
 
     @Test
     void nonSuperAdminCannotReadUngrantedControlPlaneResources() throws Exception {
@@ -179,26 +173,68 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
-    void publishingAControlPlaneFeatureDoesNotMakeItAssignableToClientPlans() throws Exception {
+    void controlPlaneFeatureActiveStateCannotBeChangedThroughRegistryApi() throws Exception {
         String superToken = loginAdminAndGetToken();
         UUID featureId = featureRepository.findByCode("platform.plans").orElseThrow().getId();
-        UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
 
-        updateFeatureStatus(superToken, featureId, FeatureStatus.PUBLIC)
-                .andExpect(status().isNoContent());
-        try {
-            AssignPlanFeatureRequest request = new AssignPlanFeatureRequest("platform.plans", null, List.of());
-            mockMvc.perform(post("/api/admin/plans/{planId}/features", freePlanId)
-                            .header("Authorization", bearer(superToken))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.message")
-                            .value("Feature platform.plans cannot be assigned to billing configuration."));
-        } finally {
-            updateFeatureStatus(superToken, featureId, FeatureStatus.INTERNAL)
-                    .andExpect(status().isNoContent());
-        }
+        updateFeatureActive(superToken, featureId, false)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("Feature platform.plans is code-owned and cannot be activated or deactivated through registry controls."));
+    }
+
+    @Test
+    void requiredCatalogFeatureActiveStateCannotBeChangedThroughRegistryApi() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        UUID featureId = featureRepository.findByCode("platform.workspace").orElseThrow().getId();
+
+        updateFeatureActive(superToken, featureId, false)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("Feature platform.workspace is code-owned and cannot be activated or deactivated through registry controls."));
+    }
+
+    @Test
+    void companyBuildingBlockFeatureActiveStateCannotBeChangedThroughRegistryApi() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        UUID featureId = featureRepository.findByCode("platform.company").orElseThrow().getId();
+
+        updateFeatureActive(superToken, featureId, false)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("Feature platform.company is code-owned and cannot be activated or deactivated through registry controls."));
+    }
+
+    @Test
+    void b2bShellFeatureActiveStateCannotBeChangedThroughRegistryApi() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        UUID featureId = featureRepository.findByCode("platform.b2b").orElseThrow().getId();
+
+        updateFeatureActive(superToken, featureId, false)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("Feature platform.b2b is code-owned and cannot be activated or deactivated through registry controls."));
+    }
+
+    @Test
+    void featureActiveUpdateRequiresRegistryUpdateActivePermission() throws Exception {
+        LimitedAdmin admin = createLimitedAdmin("platform.registry.feature_catalog");
+        UUID featureId = featureRepository.findByCode("platform.b2b").orElseThrow().getId();
+
+        updateFeatureActive(admin.token(), featureId, false)
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void shellFeatureActiveStateCannotBeChangedByAuthorizedAdmin() throws Exception {
+        LimitedAdmin admin = createLimitedAdmin("platform.registry.update_active");
+        var feature = featureRepository.findByCode("platform.b2b").orElseThrow();
+
+        updateFeatureActive(admin.token(), feature.getId(), false)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("Feature platform.b2b is code-owned and cannot be activated or deactivated through registry controls."));
+        assertThat(featureRepository.findByCode("platform.b2b").orElseThrow().isActive()).isTrue();
     }
 
     private LimitedAdmin createLimitedAdmin(String... permissionCodes) throws Exception {
@@ -272,10 +308,10 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .header("Authorization", bearer(token)));
     }
 
-    private ResultActions updateFeatureStatus(String token, UUID featureId, FeatureStatus status) throws Exception {
-        return mockMvc.perform(patch("/api/admin/registry/features/{id}/status", featureId)
+    private ResultActions updateFeatureActive(String token, UUID featureId, boolean active) throws Exception {
+        return mockMvc.perform(patch("/api/admin/registry/features/{id}/active", featureId)
                 .header("Authorization", bearer(token))
-                .param("status", status.name()));
+                .param("active", Boolean.toString(active)));
     }
 
     private UUID responseId(ResultActions action) throws Exception {

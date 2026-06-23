@@ -1,8 +1,10 @@
 package com.hiveapp.platform.registry.service.impl;
 
 import com.hiveapp.platform.registry.definition.CompanyFeature;
+import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.PlansFeature;
+import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.entity.Permission;
@@ -11,6 +13,7 @@ import com.hiveapp.platform.registry.domain.repository.ModuleRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.platform.registry.dto.FeatureCatalogAudience;
 import com.hiveapp.platform.registry.dto.PermissionCatalogAudience;
+import com.hiveapp.shared.exception.BusinessException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.junit.jupiter.api.Test;
@@ -19,8 +22,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,6 +58,7 @@ class RegistryServiceImplTest {
         assertThat(catalog.get(0).features().get(0).permissions())
                 .extracting(permission -> permission.code())
                 .containsExactly("platform.company.create");
+        assertThat(catalog.get(0).features().get(0).operationsActivationToggleable()).isFalse();
     }
 
     @Test
@@ -95,9 +103,65 @@ class RegistryServiceImplTest {
                 .containsExactly("platform.company.read_single");
     }
 
+    @Test
+    void updateFeatureActiveAllowsDeclaredOptionalFeatureToBeDeactivated() {
+        FeatureDefinition reports = FeatureDefinition.clientWorkspace("platform.reports")
+                .displayName("Reports")
+                .operationsActivationToggleable()
+                .build();
+        RegistryServiceImpl service = service(List.of(reports));
+        UUID featureId = UUID.randomUUID();
+        Feature feature = feature("platform.reports", FeatureStatus.PUBLIC);
+        when(featureRepository.findById(featureId)).thenReturn(Optional.of(feature));
+
+        service.updateFeatureActive(featureId, false);
+
+        assertThat(feature.isActive()).isFalse();
+        verify(featureRepository).save(feature);
+    }
+
+    @Test
+    void updateFeatureActiveRejectsRequiredCompanyFeature() {
+        RegistryServiceImpl service = service(List.of(CompanyFeature.definition()));
+        UUID featureId = UUID.randomUUID();
+        Feature feature = feature(CompanyFeature.CODE, FeatureStatus.PUBLIC);
+        when(featureRepository.findById(featureId)).thenReturn(Optional.of(feature));
+
+        assertThatThrownBy(() -> service.updateFeatureActive(featureId, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Feature platform.company is code-owned and cannot be activated or deactivated through registry controls.");
+    }
+
+    @Test
+    void updateFeatureActiveRejectsInternalControlPlaneFeatures() {
+        RegistryServiceImpl service = service();
+        UUID featureId = UUID.randomUUID();
+        Feature feature = feature(PlansFeature.CODE, FeatureStatus.INTERNAL);
+        when(featureRepository.findById(featureId)).thenReturn(Optional.of(feature));
+
+        assertThatThrownBy(() -> service.updateFeatureActive(featureId, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Feature platform.plans is code-owned and cannot be activated or deactivated through registry controls.");
+    }
+
+    @Test
+    void updateFeatureActiveRejectsRequiredCatalogFeatures() {
+        RegistryServiceImpl service = service(List.of(WorkspaceFeature.definition()));
+        UUID featureId = UUID.randomUUID();
+        Feature feature = feature(WorkspaceFeature.CODE, FeatureStatus.PUBLIC);
+        when(featureRepository.findById(featureId)).thenReturn(Optional.of(feature));
+
+        assertThatThrownBy(() -> service.updateFeatureActive(featureId, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Feature platform.workspace is code-owned and cannot be activated or deactivated through registry controls.");
+    }
+
     private RegistryServiceImpl service() {
-        FeatureDefinitionCollector collector = new FeatureDefinitionCollector(
-                List.of(() -> List.of(CompanyFeature.definition(), PlansFeature.definition())));
+        return service(List.of(CompanyFeature.definition(), PlansFeature.definition()));
+    }
+
+    private RegistryServiceImpl service(List<FeatureDefinition> definitions) {
+        FeatureDefinitionCollector collector = new FeatureDefinitionCollector(List.of(() -> definitions));
         return new RegistryServiceImpl(moduleRepository, featureRepository, permissionRepository, provider(collector));
     }
 

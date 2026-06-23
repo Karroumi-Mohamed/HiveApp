@@ -53,10 +53,11 @@ class FeatureSeederTest {
     }
 
     @Test
-    void existingAdministratorManagedStatusIsNotOverwritten() {
+    void existingLifecycleStatusIsOverwrittenFromCodeButActivationIsPreserved() {
         Feature existing = new Feature();
         existing.setCode(WorkspaceFeature.CODE);
-        existing.setStatus(FeatureStatus.BETA);
+        existing.setStatus(FeatureStatus.DEPRECATED);
+        existing.setActive(false);
         Module module = new Module();
         module.setCode("platform");
         when(moduleRepository.findByCode("platform")).thenReturn(Optional.of(module));
@@ -64,7 +65,8 @@ class FeatureSeederTest {
 
         seeder(List.of(WorkspaceFeature.definition())).seedFeatures();
 
-        assertThat(existing.getStatus()).isEqualTo(FeatureStatus.BETA);
+        assertThat(existing.getStatus()).isEqualTo(FeatureStatus.PUBLIC);
+        assertThat(existing.isActive()).isFalse();
     }
 
     private FeatureSeeder seeder(List<FeatureDefinition> definitions) {

@@ -2,8 +2,9 @@ package com.hiveapp.platform.security;
 
 import com.hiveapp.platform.client.collaboration.dto.B2BPermissionRequest;
 import com.hiveapp.platform.client.collaboration.dto.InitiateCollaborationRequest;
-import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
-import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
+import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,10 +27,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTestSupport {
 
     @Autowired
-    private PlanRepository planRepository;
+    private SubscriptionRepository subscriptionRepository;
 
     @Autowired
-    private PlanFeatureRepository planFeatureRepository;
+    private SubscriptionSnapshotReader subscriptionSnapshotReader;
 
     @Test
     void clientCannotRequestCollaborationWithOwnCompany() throws Exception {
@@ -75,13 +76,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         String providerToken = registerClientAndGetToken();
         String clientToken = registerClientAndGetToken();
         UUID companyId = UUID.fromString(createCompany(providerToken, "Provider Company").get("id").asText());
-        var freePlan = planRepository.findByCode("FREE").orElseThrow();
-        var b2bPlanFeature = planFeatureRepository
-                .findByPlanIdAndFeature_Code(freePlan.getId(), "platform.b2b")
-                .orElseThrow();
-
-        planFeatureRepository.delete(b2bPlanFeature);
-        planFeatureRepository.flush();
+        String originalSnapshot = removeFeatureFromActiveSubscription(clientToken, "platform.b2b");
 
         try {
             mockMvc.perform(post("/api/v1/collaborations/initiate")
@@ -90,7 +85,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
                             .content(objectMapper.writeValueAsString(new InitiateCollaborationRequest(companyId))))
                     .andExpect(status().isForbidden());
         } finally {
-            planFeatureRepository.saveAndFlush(b2bPlanFeature);
+            restoreActiveSubscriptionSnapshot(clientToken, originalSnapshot);
         }
     }
 
@@ -149,13 +144,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
     @Test
     void providerPlanDenialHidesAndRejectsB2bDelegationPermission() throws Exception {
         B2bSetup setup = setupActiveCollaboration();
-        var freePlan = planRepository.findByCode("FREE").orElseThrow();
-        var companyPlanFeature = planFeatureRepository
-                .findByPlanIdAndFeature_Code(freePlan.getId(), "platform.company")
-                .orElseThrow();
-
-        planFeatureRepository.delete(companyPlanFeature);
-        planFeatureRepository.flush();
+        String originalSnapshot = removeFeatureFromActiveSubscription(setup.providerToken(), "platform.company");
 
         try {
             mockMvc.perform(get("/api/v1/collaborations/{id}/permission-catalog", setup.collaborationId())
@@ -168,7 +157,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
                     .andExpect(jsonPath("$.message")
                             .value("Permission platform.company.read_single is not available in the provider's current plan entitlement."));
         } finally {
-            planFeatureRepository.saveAndFlush(companyPlanFeature);
+            restoreActiveSubscriptionSnapshot(setup.providerToken(), originalSnapshot);
         }
     }
 
@@ -177,20 +166,14 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         B2bSetup setup = setupActiveCollaboration();
         grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.read_single")
                 .andExpect(status().isNoContent());
-        var freePlan = planRepository.findByCode("FREE").orElseThrow();
-        var b2bPlanFeature = planFeatureRepository
-                .findByPlanIdAndFeature_Code(freePlan.getId(), "platform.b2b")
-                .orElseThrow();
-
-        planFeatureRepository.delete(b2bPlanFeature);
-        planFeatureRepository.flush();
+        String originalSnapshot = removeFeatureFromActiveSubscription(setup.clientToken(), "platform.b2b");
 
         try {
             b2bCompanyRead(setup)
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.id").value(setup.companyId().toString()));
         } finally {
-            planFeatureRepository.saveAndFlush(b2bPlanFeature);
+            restoreActiveSubscriptionSnapshot(setup.clientToken(), originalSnapshot);
         }
     }
 
@@ -199,19 +182,13 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         B2bSetup setup = setupActiveCollaboration();
         grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.read_single")
                 .andExpect(status().isNoContent());
-        var freePlan = planRepository.findByCode("FREE").orElseThrow();
-        var companyPlanFeature = planFeatureRepository
-                .findByPlanIdAndFeature_Code(freePlan.getId(), "platform.company")
-                .orElseThrow();
-
-        planFeatureRepository.delete(companyPlanFeature);
-        planFeatureRepository.flush();
+        String originalSnapshot = removeFeatureFromActiveSubscription(setup.providerToken(), "platform.company");
 
         try {
             b2bCompanyRead(setup)
                     .andExpect(status().isForbidden());
         } finally {
-            planFeatureRepository.saveAndFlush(companyPlanFeature);
+            restoreActiveSubscriptionSnapshot(setup.providerToken(), originalSnapshot);
         }
     }
 
@@ -356,6 +333,27 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
                 .getResponse()
                 .getContentAsString();
         return UUID.fromString(objectMapper.readTree(response).get("id").asText());
+    }
+
+    private String removeFeatureFromActiveSubscription(String token, String featureCode) throws Exception {
+        var subscription = subscriptionRepository.findActiveByAccountId(currentAccountId(token)).orElseThrow();
+        String originalSnapshot = subscription.getEntitlementSnapshot();
+        var snapshot = subscriptionSnapshotReader.read(originalSnapshot).orElseThrow();
+        var updated = new SubscriptionEntitlementSnapshot(
+                snapshot.planCode(),
+                snapshot.basePrice(),
+                snapshot.features().stream()
+                        .filter(feature -> !featureCode.equals(feature.featureCode()))
+                        .toList());
+        subscription.setEntitlementSnapshot(subscriptionSnapshotReader.write(updated));
+        subscriptionRepository.saveAndFlush(subscription);
+        return originalSnapshot;
+    }
+
+    private void restoreActiveSubscriptionSnapshot(String token, String snapshot) throws Exception {
+        var subscription = subscriptionRepository.findActiveByAccountId(currentAccountId(token)).orElseThrow();
+        subscription.setEntitlementSnapshot(snapshot);
+        subscriptionRepository.saveAndFlush(subscription);
     }
 
     private org.springframework.test.web.servlet.ResultActions b2bCompanyRead(B2bSetup setup) throws Exception {

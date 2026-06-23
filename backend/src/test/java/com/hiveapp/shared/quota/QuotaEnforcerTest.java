@@ -6,8 +6,11 @@ import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
+import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
+import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +35,7 @@ class QuotaEnforcerTest {
     @Mock private PlanFeatureRepository planFeatureRepository;
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private SubscriptionOverrideReader subscriptionOverrideReader;
+    @Mock private SubscriptionSnapshotReader subscriptionSnapshotReader;
 
     private QuotaEnforcer quotaEnforcer;
     private UUID accountId;
@@ -39,7 +43,11 @@ class QuotaEnforcerTest {
 
     @BeforeEach
     void setUp() {
-        quotaEnforcer = new QuotaEnforcer(planFeatureRepository, subscriptionRepository, subscriptionOverrideReader);
+        quotaEnforcer = new QuotaEnforcer(
+                planFeatureRepository,
+                subscriptionRepository,
+                subscriptionOverrideReader,
+                subscriptionSnapshotReader);
         accountId = UUID.randomUUID();
         planId = UUID.randomUUID();
     }
@@ -48,6 +56,7 @@ class QuotaEnforcerTest {
     void deniesWhenCurrentUsageHasReachedPlanLimit() {
         when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.ACTIVE))
                 .thenReturn(Optional.of(subscription(null)));
+        when(subscriptionSnapshotReader.read(null)).thenReturn(Optional.empty());
         when(planFeatureRepository.findByPlanIdAndFeature_Code(planId, WorkspaceFeature.CODE))
                 .thenReturn(Optional.of(planFeature(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L))));
 
@@ -63,6 +72,7 @@ class QuotaEnforcerTest {
         AtomicBoolean evaluated = new AtomicBoolean();
         when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.ACTIVE))
                 .thenReturn(Optional.of(subscription(null)));
+        when(subscriptionSnapshotReader.read(null)).thenReturn(Optional.empty());
         when(planFeatureRepository.findByPlanIdAndFeature_Code(planId, WorkspaceFeature.CODE))
                 .thenReturn(Optional.of(planFeature(new QuotaLimitEntry(WorkspaceFeature.COMPANIES, null))));
 
@@ -72,6 +82,28 @@ class QuotaEnforcerTest {
         });
 
         org.assertj.core.api.Assertions.assertThat(evaluated.get()).isFalse();
+    }
+
+    @Test
+    void snapshotQuotaIsUsedWithoutLivePlanFeature() {
+        Subscription subscription = subscription(null);
+        subscription.setEntitlementSnapshot("{\"snapshot\":true}");
+        when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.ACTIVE))
+                .thenReturn(Optional.of(subscription));
+        when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
+                .thenReturn(Optional.of(new SubscriptionEntitlementSnapshot(
+                        "FREE",
+                        java.math.BigDecimal.ZERO,
+                        List.of(new SubscriptionFeatureSnapshot(
+                                WorkspaceFeature.CODE,
+                                null,
+                                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)))))));
+
+        assertThatThrownBy(() -> quotaEnforcer.check(
+                WorkspaceFeature.definition(), WorkspaceFeature.MEMBERS, accountId, () -> 3L))
+                .isInstanceOf(QuotaExceededException.class);
+
+        verifyNoInteractions(planFeatureRepository);
     }
 
     @Test

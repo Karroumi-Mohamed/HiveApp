@@ -5,6 +5,8 @@ import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
+import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.entity.Permission;
@@ -33,6 +35,7 @@ class PlanEntitlementServiceTest {
     @Mock private PlanFeatureRepository planFeatureRepository;
     @Mock private PermissionRepository permissionRepository;
     @Mock private SubscriptionOverrideReader subscriptionOverrideReader;
+    @Mock private SubscriptionSnapshotReader subscriptionSnapshotReader;
 
     private PlanEntitlementService service;
     private UUID accountId;
@@ -44,7 +47,8 @@ class PlanEntitlementServiceTest {
                 subscriptionRepository,
                 planFeatureRepository,
                 permissionRepository,
-                subscriptionOverrideReader
+                subscriptionOverrideReader,
+                subscriptionSnapshotReader
         );
         accountId = UUID.randomUUID();
         planId = UUID.randomUUID();
@@ -54,8 +58,11 @@ class PlanEntitlementServiceTest {
     void activePlanFeatureEntitlesPermission() {
         when(subscriptionRepository.findActiveByAccountId(accountId))
                 .thenReturn(Optional.of(subscription(SubscriptionStatus.ACTIVE, null, null)));
-        when(planFeatureRepository.existsByPlanIdAndPermissionCode(planId, "platform.company.create"))
-                .thenReturn(true);
+        when(permissionRepository.findByCode("platform.company.create"))
+                .thenReturn(Optional.of(permission("platform.company.create", "platform.company")));
+        when(subscriptionSnapshotReader.read(null)).thenReturn(Optional.empty());
+        when(planFeatureRepository.findByPlanIdAndFeature_Code(planId, "platform.company"))
+                .thenReturn(Optional.of(new com.hiveapp.platform.client.plan.domain.entity.PlanFeature()));
 
         assertThat(service.isPermissionEntitled(accountId, "platform.company.create")).isTrue();
     }
@@ -69,10 +76,30 @@ class PlanEntitlementServiceTest {
                         LocalDateTime.now().plusDays(1),
                         null
                 )));
-        when(planFeatureRepository.existsByPlanIdAndPermissionCode(planId, "platform.company.create"))
-                .thenReturn(true);
+        when(permissionRepository.findByCode("platform.company.create"))
+                .thenReturn(Optional.of(permission("platform.company.create", "platform.company")));
+        when(subscriptionSnapshotReader.read(null)).thenReturn(Optional.empty());
+        when(planFeatureRepository.findByPlanIdAndFeature_Code(planId, "platform.company"))
+                .thenReturn(Optional.of(new com.hiveapp.platform.client.plan.domain.entity.PlanFeature()));
 
         assertThat(service.isPermissionEntitled(accountId, "platform.company.create")).isTrue();
+    }
+
+    @Test
+    void subscriptionSnapshotEntitlesPermissionWithoutLivePlanFeature() {
+        Subscription subscription = subscription(SubscriptionStatus.ACTIVE, null, null);
+        subscription.setEntitlementSnapshot("{\"snapshot\":true}");
+        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
+        when(permissionRepository.findByCode("platform.company.create"))
+                .thenReturn(Optional.of(permission("platform.company.create", "platform.company")));
+        when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
+                .thenReturn(Optional.of(new SubscriptionEntitlementSnapshot(
+                        "FREE",
+                        java.math.BigDecimal.ZERO,
+                        List.of(new SubscriptionFeatureSnapshot("platform.company", null, List.of())))));
+
+        assertThat(service.isPermissionEntitled(accountId, "platform.company.create")).isTrue();
+        verifyNoInteractions(planFeatureRepository);
     }
 
     @Test
@@ -93,10 +120,11 @@ class PlanEntitlementServiceTest {
         String overrides = "{\"addedFeatures\":[\"platform.company\"]}";
         when(subscriptionRepository.findActiveByAccountId(accountId))
                 .thenReturn(Optional.of(subscription(SubscriptionStatus.ACTIVE, null, overrides)));
-        when(planFeatureRepository.existsByPlanIdAndPermissionCode(planId, "platform.company.create"))
-                .thenReturn(false);
         when(permissionRepository.findByCode("platform.company.create"))
                 .thenReturn(Optional.of(permission("platform.company.create", "platform.company")));
+        when(subscriptionSnapshotReader.read(null)).thenReturn(Optional.empty());
+        when(planFeatureRepository.findByPlanIdAndFeature_Code(planId, "platform.company"))
+                .thenReturn(Optional.empty());
         when(subscriptionOverrideReader.read(overrides))
                 .thenReturn(new SubscriptionOverrides(Set.of("platform.company"), List.of()));
 

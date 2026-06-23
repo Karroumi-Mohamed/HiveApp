@@ -2,9 +2,12 @@ package com.hiveapp.platform.security;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
+import com.hiveapp.platform.client.company.dto.CreateCompanyRequest;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
+import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
@@ -13,6 +16,7 @@ import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
@@ -35,6 +39,9 @@ class SubscriptionIntegrityIntegrationTest extends PlatformShellIntegrationTestS
 
     @Autowired
     private PlanRepository planRepository;
+
+    @Autowired
+    private PlanFeatureRepository planFeatureRepository;
 
     @Autowired
     private SubscriptionRepository subscriptionRepository;
@@ -105,6 +112,28 @@ class SubscriptionIntegrityIntegrationTest extends PlatformShellIntegrationTestS
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    @Test
+    void subscriptionSnapshotKeepsExistingEntitlementAfterPlanTemplateChanges() throws Exception {
+        String existingToken = registerClientAndGetToken();
+        Plan free = planRepository.findByCode("FREE").orElseThrow();
+        PlanFeature companyFeature = planFeatureRepository
+                .findByPlanIdAndFeature_Code(free.getId(), "platform.company")
+                .orElseThrow();
+
+        planFeatureRepository.delete(companyFeature);
+        planFeatureRepository.flush();
+
+        try {
+            createCompany(existingToken, "Snapshot Existing Company");
+
+            String newToken = registerClientAndGetToken();
+            createCompanyRequest(newToken, "Snapshot New Company")
+                    .andExpect(status().isForbidden());
+        } finally {
+            planFeatureRepository.saveAndFlush(companyFeature);
+        }
+    }
+
     private CompletableFuture<Integer> assignPlanAsync(String adminToken, UUID accountId, String planCode) {
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -133,6 +162,24 @@ class SubscriptionIntegrityIntegrationTest extends PlatformShellIntegrationTestS
                 .getResponse()
                 .getContentAsString();
         return UUID.fromString(objectMapper.readTree(response).get("id").asText());
+    }
+
+    private org.springframework.test.web.servlet.ResultActions createCompanyRequest(
+            String token,
+            String name
+    ) throws Exception {
+        CreateCompanyRequest request = new CreateCompanyRequest(
+                name,
+                name + " LLC",
+                null,
+                "Software",
+                "US",
+                null
+        );
+        return mockMvc.perform(post("/api/v1/companies")
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)));
     }
 
     private Subscription newSubscription(Account account, Plan plan, SubscriptionStatus status) {

@@ -2,24 +2,32 @@ package com.hiveapp.platform.client.plan.service.impl;
 
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
+import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.shared.exception.InvalidRequestException;
+import com.hiveapp.shared.quota.QuotaLimitEntry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -36,6 +44,68 @@ class PlanAdminServiceImplTest {
 
     @InjectMocks
     private PlanAdminServiceImpl planAdminService;
+
+    @BeforeEach
+    void setUp() {
+        lenientSavedPlan();
+    }
+
+    @Test
+    void createPlanDefaultsToFreePlanCompositionWhenNoSourceIsProvided() {
+        UUID freePlanId = UUID.randomUUID();
+        Plan freePlan = plan(freePlanId, "FREE");
+        Feature workspace = feature("platform.workspace");
+        PlanFeature sourceFeature = planFeature(freePlan, workspace,
+                List.of(new QuotaLimitEntry("members", 3L, new BigDecimal("2.00"))));
+
+        when(planRepository.findByCode("STARTER")).thenReturn(Optional.empty());
+        when(planRepository.findByCode("FREE")).thenReturn(Optional.of(freePlan));
+        when(planFeatureRepository.findAllByPlanId(freePlanId)).thenReturn(List.of(sourceFeature));
+
+        planAdminService.createPlan(new CreatePlanRequest(
+                "STARTER",
+                "Starter",
+                null,
+                BigDecimal.TEN,
+                BillingCycle.MONTHLY,
+                null
+        ));
+
+        var inheritedFeatures = capturedInheritedFeatures();
+        assertThat(inheritedFeatures).hasSize(1);
+        assertThat(inheritedFeatures.getFirst().getFeature()).isSameAs(workspace);
+        assertThat(inheritedFeatures.getFirst().getAddOnPrice()).isNull();
+        assertThat(inheritedFeatures.getFirst().getQuotaConfigs())
+                .containsExactly(new QuotaLimitEntry("members", 3L, new BigDecimal("2.00")));
+        assertThat(inheritedFeatures.getFirst().getQuotaConfigs()).isNotSameAs(sourceFeature.getQuotaConfigs());
+        verify(billingConfigurationValidator).validatePlanFeature(
+                "platform.workspace",
+                null,
+                sourceFeature.getQuotaConfigs());
+    }
+
+    @Test
+    void createPlanCanInheritFromExplicitSourcePlan() {
+        UUID sourcePlanId = UUID.randomUUID();
+        Plan sourcePlan = plan(sourcePlanId, "PRO");
+
+        when(planRepository.findByCode("TEAM")).thenReturn(Optional.empty());
+        when(planRepository.findById(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
+        when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of());
+
+        planAdminService.createPlan(new CreatePlanRequest(
+                "TEAM",
+                "Team",
+                null,
+                new BigDecimal("49.00"),
+                BillingCycle.MONTHLY,
+                sourcePlanId
+        ));
+
+        verify(planRepository).findById(sourcePlanId);
+        verify(planRepository, never()).findByCode("FREE");
+        verify(planFeatureRepository, never()).saveAll(any());
+    }
 
     @Test
     void assignFeatureRejectsConfigurationRejectedByBillingValidator() {
@@ -76,10 +146,14 @@ class PlanAdminServiceImplTest {
     }
 
     private static Plan plan(UUID id) {
+        return plan(id, "PRO");
+    }
+
+    private static Plan plan(UUID id, String code) {
         Plan plan = new Plan();
         ReflectionTestUtils.setField(plan, "id", id);
-        plan.setCode("PRO");
-        plan.setName("Pro");
+        plan.setCode(code);
+        plan.setName(code);
         return plan;
     }
 
@@ -89,5 +163,26 @@ class PlanAdminServiceImplTest {
         feature.setStatus(FeatureStatus.PUBLIC);
         feature.setActive(true);
         return feature;
+    }
+
+    private static PlanFeature planFeature(Plan plan, Feature feature, List<QuotaLimitEntry> quotas) {
+        PlanFeature planFeature = new PlanFeature();
+        planFeature.setPlan(plan);
+        planFeature.setFeature(feature);
+        planFeature.setQuotaConfigs(new ArrayList<>(quotas));
+        return planFeature;
+    }
+
+    private void lenientSavedPlan() {
+        org.mockito.Mockito.lenient()
+                .when(planRepository.save(any(Plan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private List<PlanFeature> capturedInheritedFeatures() {
+        ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+        verify(planFeatureRepository).saveAll(captor.capture());
+        return (List<PlanFeature>) captor.getValue();
     }
 }
