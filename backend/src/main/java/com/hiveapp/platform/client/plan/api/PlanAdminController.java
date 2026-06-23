@@ -3,8 +3,11 @@ package com.hiveapp.platform.client.plan.api;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.PlanDetailDto;
 import com.hiveapp.platform.client.plan.dto.PlanDto;
 import com.hiveapp.platform.client.plan.dto.PlanFeatureDto;
+import com.hiveapp.platform.client.plan.dto.PlanSubscriberDto;
+import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,24 +27,37 @@ public class PlanAdminController {
     @GetMapping
     public List<PlanDto> listPlans() {
         return planAdminService.listPlans().stream()
-                .map(p -> new PlanDto(p.getId(), p.getCode(), p.getName(),
-                        p.getDescription(), p.getPrice(), p.getBillingCycle(), p.isActive()))
+                .map(this::toDto)
                 .toList();
+    }
+
+    @GetMapping("/{planId}")
+    public PlanDetailDto getPlanDetail(@PathVariable UUID planId) {
+        return planAdminService.getPlanDetail(planId);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public PlanDto createPlan(@Valid @RequestBody CreatePlanRequest request) {
         var p = planAdminService.createPlan(request);
-        return new PlanDto(p.getId(), p.getCode(), p.getName(),
-                p.getDescription(), p.getPrice(), p.getBillingCycle(), p.isActive());
+        return toDto(p);
+    }
+
+    @PutMapping("/{planId}")
+    public PlanDto updatePlan(@PathVariable UUID planId, @Valid @RequestBody UpdatePlanRequest request) {
+        return toDto(planAdminService.updatePlan(planId, request));
     }
 
     @PatchMapping("/{planId}/active")
     public PlanDto toggleActive(@PathVariable UUID planId, @RequestParam boolean active) {
         var p = planAdminService.toggleActive(planId, active);
-        return new PlanDto(p.getId(), p.getCode(), p.getName(),
-                p.getDescription(), p.getPrice(), p.getBillingCycle(), p.isActive());
+        return toDto(p);
+    }
+
+    @DeleteMapping("/{planId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deletePlan(@PathVariable UUID planId) {
+        planAdminService.deletePlan(planId);
     }
 
     // --- Feature composition ---
@@ -51,6 +67,11 @@ public class PlanAdminController {
         return planAdminService.listPlanFeatures(planId).stream()
                 .map(this::toDto)
                 .toList();
+    }
+
+    @GetMapping("/{planId}/subscribers")
+    public List<PlanSubscriberDto> listSubscribers(@PathVariable UUID planId) {
+        return planAdminService.listPlanSubscribers(planId);
     }
 
     @PostMapping("/{planId}/features")
@@ -80,5 +101,10 @@ public class PlanAdminController {
                 pf.getAddOnPrice(),
                 pf.getQuotaConfigs()
         );
+    }
+
+    private PlanDto toDto(com.hiveapp.platform.client.plan.domain.entity.Plan p) {
+        return new PlanDto(p.getId(), p.getCode(), p.getName(),
+                p.getDescription(), p.getPrice(), p.getBillingCycle(), p.isActive());
     }
 }

@@ -1,6 +1,8 @@
 package com.hiveapp.platform.admin.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
+import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -14,5 +16,7 @@ public record AdminSubscriptionDto(
         String planName,
         SubscriptionStatus status,
         BigDecimal currentPrice,
-        LocalDateTime currentPeriodEnd
+        LocalDateTime currentPeriodEnd,
+        SubscriptionOverrides customOverrides,
+        SubscriptionEntitlementSnapshot entitlementSnapshot
 ) {}

@@ -14,6 +14,8 @@ import java.util.UUID;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
+import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 
 @RestController
 @RequestMapping("/api/admin/subscriptions")
@@ -22,6 +24,8 @@ public class SubscriptionAdminController {
 
     private final AdminSubscriptionService adminSubscriptionService;
     private final SubscriptionMapper subscriptionMapper;
+    private final SubscriptionOverrideReader subscriptionOverrideReader;
+    private final SubscriptionSnapshotReader subscriptionSnapshotReader;
 
     @GetMapping("/account/{accountId}")
     public AdminSubscriptionDto get(@PathVariable UUID accountId) {
@@ -37,7 +41,9 @@ public class SubscriptionAdminController {
                 sub.getPlan().getName(),
                 sub.getStatus(),
                 sub.getCurrentPrice(),
-                sub.getCurrentPeriodEnd()
+                sub.getCurrentPeriodEnd(),
+                subscriptionOverrideReader.read(sub.getCustomOverrides()),
+                subscriptionSnapshotReader.read(sub.getEntitlementSnapshot()).orElse(null)
         );
     }
 
