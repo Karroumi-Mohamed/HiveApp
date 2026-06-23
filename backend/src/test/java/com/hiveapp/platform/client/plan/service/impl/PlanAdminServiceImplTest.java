@@ -5,11 +5,14 @@ import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
+import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +43,7 @@ class PlanAdminServiceImplTest {
 
     @Mock private PlanRepository planRepository;
     @Mock private PlanFeatureRepository planFeatureRepository;
+    @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private BillingConfigurationValidator billingConfigurationValidator;
 
     @InjectMocks
@@ -143,6 +147,50 @@ class PlanAdminServiceImplTest {
 
         verify(billingConfigurationValidator).validatePlanFeature("platform.workspace", null, List.of());
         verify(planFeatureRepository).save(planFeature);
+    }
+
+    @Test
+    void updatePlanRejectsForeverBillingCycleForNonFreePlan() {
+        UUID planId = UUID.randomUUID();
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan(planId, "PRO")));
+
+        assertThatThrownBy(() -> planAdminService.updatePlan(
+                planId,
+                new UpdatePlanRequest("Pro", null, BigDecimal.TEN, BillingCycle.FOREVER)
+        ))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("BillingCycle.FOREVER is reserved for the FREE plan.");
+
+        verify(planRepository, never()).save(any(Plan.class));
+    }
+
+    @Test
+    void deletePlanRejectsPlanWithSubscriptionHistory() {
+        UUID planId = UUID.randomUUID();
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan(planId, "PRO")));
+        when(subscriptionRepository.countByPlan_Id(planId)).thenReturn(2L);
+
+        assertThatThrownBy(() -> planAdminService.deletePlan(planId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("cannot be deleted");
+
+        verify(planRepository, never()).delete(any(Plan.class));
+    }
+
+    @Test
+    void deletePlanRemovesUnusedPlanAndItsFeatureRows() {
+        UUID planId = UUID.randomUUID();
+        Plan plan = plan(planId, "DRAFT");
+        PlanFeature planFeature = planFeature(plan, feature("platform.workspace"), List.of());
+
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(subscriptionRepository.countByPlan_Id(planId)).thenReturn(0L);
+        when(planFeatureRepository.findAllByPlanId(planId)).thenReturn(List.of(planFeature));
+
+        planAdminService.deletePlan(planId);
+
+        verify(planFeatureRepository).deleteAll(List.of(planFeature));
+        verify(planRepository).delete(plan);
     }
 
     private static Plan plan(UUID id) {

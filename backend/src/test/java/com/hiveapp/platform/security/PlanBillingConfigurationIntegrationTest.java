@@ -1,8 +1,11 @@
 package com.hiveapp.platform.security;
 
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
+import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
@@ -20,6 +23,9 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.hasItem;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -207,6 +213,93 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         }
     }
 
+    @Test
+    void adminSubscriptionReadModelIncludesSnapshotAndOverridesForUiEditing() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        String clientToken = registerClientAndGetToken();
+        UUID accountId = currentAccountId(clientToken);
+
+        updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
+                        Set.of("platform.company"),
+                        List.of(new QuotaOverride("platform.workspace", "members", 5L))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/admin/subscriptions/account/{accountId}", accountId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountId").value(accountId.toString()))
+                .andExpect(jsonPath("$.customOverrides.addedFeatures", hasItem("platform.company")))
+                .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].featureCode").value("platform.workspace"))
+                .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].resource").value("members"))
+                .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].limit").value(5))
+                .andExpect(jsonPath("$.entitlementSnapshot.planCode").value("FREE"))
+                .andExpect(jsonPath("$.entitlementSnapshot.features[*].featureCode", hasItem("platform.workspace")));
+    }
+
+    @Test
+    void adminPlanDetailSubscribersUpdateAndSafeDeleteEndpoints() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        String clientToken = registerClientAndGetToken();
+        UUID accountId = currentAccountId(clientToken);
+        UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
+
+        mockMvc.perform(get("/api/admin/plans/{planId}", freePlanId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("FREE"))
+                .andExpect(jsonPath("$.currentSubscriberCount", greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.warnings", hasItem("HAS_CURRENT_SUBSCRIBERS")))
+                .andExpect(jsonPath("$.warnings", hasItem("TEMPLATE_EDITS_DO_NOT_UPDATE_EXISTING_SNAPSHOTS")));
+
+        mockMvc.perform(get("/api/admin/plans/{planId}/subscribers", freePlanId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].accountId", hasItem(accountId.toString())))
+                .andExpect(jsonPath("$[*].planCode", hasItem("FREE")));
+
+        UUID draftPlanId = createPlan(adminToken, new CreatePlanRequest(
+                "TMP_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(),
+                "Temporary Plan",
+                null,
+                new BigDecimal("12.00"),
+                BillingCycle.MONTHLY,
+                freePlanId
+        ));
+
+        mockMvc.perform(put("/api/admin/plans/{planId}", draftPlanId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UpdatePlanRequest(
+                                "Temporary Plan Edited",
+                                "Editable plan basics",
+                                new BigDecimal("18.00"),
+                                BillingCycle.YEARLY
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Temporary Plan Edited"))
+                .andExpect(jsonPath("$.description").value("Editable plan basics"))
+                .andExpect(jsonPath("$.price").value(18.00))
+                .andExpect(jsonPath("$.billingCycle").value("YEARLY"));
+
+        mockMvc.perform(get("/api/admin/plans/{planId}", draftPlanId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentSubscriberCount").value(0));
+
+        mockMvc.perform(delete("/api/admin/plans/{planId}", draftPlanId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/admin/plans/{planId}", draftPlanId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/api/admin/plans/{planId}", freePlanId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("cannot be deleted")));
+    }
+
     private org.springframework.test.web.servlet.ResultActions assignPlanFeature(
             String adminToken,
             UUID planId,
@@ -239,6 +332,18 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)));
+    }
+
+    private UUID createPlan(String adminToken, CreatePlanRequest request) throws Exception {
+        String response = mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return UUID.fromString(objectMapper.readTree(response).get("id").asText());
     }
 
     private UUID currentAccountId(String token) throws Exception {

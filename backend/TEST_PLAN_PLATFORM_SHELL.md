@@ -212,8 +212,12 @@ plan assignment rejects quota configs for unknown quota resources. Covered at se
 plan assignment rejects duplicate quota configs, negative limits, negative quota unit prices, and negative add-on prices. Covered at request level.
 plan assignment rejects quota configs on features without quota slots. Covered at service level.
 plan update rejects feature-code changes and validates quota configs the same way as assignment. Covered at request level.
+plan basics update validates name, nonnegative price, and the FREE-only `BillingCycle.FOREVER` rule. Covered at service and request levels.
+plan detail read model exposes feature counts, quota-configured counts, subscriber counts, recurring price, and warning flags for UI safety. Covered at request level.
+plan subscriber read model exposes only account/subscription summary fields for current ACTIVE/TRIALING subscriptions. Covered at request level.
+unused plan delete removes the plan and its plan-feature rows. Covered at service and request levels.
+plan delete rejects any plan with subscription history. Covered at service and request levels.
 inactive plan cannot be assigned to a new subscription. Enforced and covered at service level.
-BillingCycle.FOREVER is allowed only for FREE if that rule is accepted
 subscription creation snapshots the selected plan template's features, quotas, and prices. Covered by service and request-level persistence tests.
 ```
 
