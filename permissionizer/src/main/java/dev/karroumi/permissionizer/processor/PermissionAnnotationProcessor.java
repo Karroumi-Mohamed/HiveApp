@@ -940,9 +940,13 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             case CLASS, INTERFACE -> ((TypeElement) element)
                     .getQualifiedName().toString();
             case METHOD -> {
-                TypeElement enclosing = (TypeElement) element.getEnclosingElement();
+                ExecutableElement method = (ExecutableElement) element;
+                TypeElement enclosing = (TypeElement) method.getEnclosingElement();
+                String parameterTypes = method.getParameters().stream()
+                        .map(parameter -> typeUtils.erasure(parameter.asType()).toString())
+                        .collect(Collectors.joining(","));
                 yield enclosing.getQualifiedName().toString()
-                        + "#" + element.getSimpleName().toString();
+                        + "#" + method.getSimpleName() + "(" + parameterTypes + ")";
             }
             default -> element.toString();
         };

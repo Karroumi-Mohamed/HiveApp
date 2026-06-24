@@ -1,6 +1,7 @@
 package dev.karroumi.permissionizer;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Method;
@@ -68,6 +69,9 @@ public final class PermissionCollector {
     private static List<Class<?>> loadRootsFromIndex() {
         List<Class<?>> roots = new ArrayList<>();
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        if (classLoader == null) {
+            classLoader = PermissionCollector.class.getClassLoader();
+        }
 
         try {
             Enumeration<java.net.URL> resources = classLoader.getResources(INDEX_FILE);
@@ -84,13 +88,21 @@ public final class PermissionCollector {
                         try {
                             roots.add(Class.forName(line, false, classLoader));
                         } catch (ClassNotFoundException e) {
-                            // Class was removed but index not yet regenerated
+                            throw new PermissionCollectionException(
+                                    "Permission root listed in " + url + " cannot be loaded: " + line,
+                                    e);
                         }
                     }
+                } catch (IOException e) {
+                    throw new PermissionCollectionException(
+                            "Cannot read Permissionizer root index: " + url,
+                            e);
                 }
             }
-        } catch (Exception e) {
-            // Error reading resources
+        } catch (IOException e) {
+            throw new PermissionCollectionException(
+                    "Cannot discover Permissionizer root indexes",
+                    e);
         }
 
         return roots;
@@ -158,8 +170,10 @@ public final class PermissionCollector {
             }
         } catch (NoSuchMethodException e) {
             // Not a permission class
-        } catch (Exception e) {
-            // Invocation failed
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new PermissionCollectionException(
+                    "Cannot read generated permission from " + clazz.getName(),
+                    e);
         }
         return null;
     }
@@ -181,8 +195,12 @@ public final class PermissionCollector {
                     descriptions.putAll(map);
                 }
             }
-        } catch (Exception e) {
-            // No descriptions method or invocation failed
+        } catch (NoSuchMethodException e) {
+            // Explicit roots created outside the processor may omit descriptions.
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new PermissionCollectionException(
+                    "Cannot read generated descriptions from " + rootClass.getName(),
+                    e);
         }
     }
 
