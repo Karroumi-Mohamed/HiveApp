@@ -67,6 +67,11 @@ backend/src/main/resources/application.yaml
 backend/src/main/resources/application-*.yml
 backend/src/main/resources/application-*.yaml
 
+# Reviewed, environment-driven configuration committed as the safe baseline.
+!backend/src/main/resources/application.yaml
+!backend/src/main/resources/application-dev.yaml
+!backend/src/main/resources/application-prod.yaml
+
 # ──────────────────────────────────────────
 # Debug / Logs
 # ──────────────────────────────────────────

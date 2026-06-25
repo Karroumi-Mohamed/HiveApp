@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:hiveapp;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+
+hiveapp:
+  jwt:
+    secret: test-only-hiveapp-jwt-secret-never-use-in-deployment
+  invitation:
+    base-url: http://localhost:5173
+  admin:
+    bootstrap:
+      enabled: true
+      email: test-admin@hiveapp.local
+      password: test-only-admin-password
+      first-name: Test
+      last-name: Administrator

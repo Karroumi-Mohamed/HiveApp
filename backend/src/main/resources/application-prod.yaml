@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: ${HIVEAPP_DB_URL}
+    driver-class-name: org.postgresql.Driver
+    username: ${HIVEAPP_DB_USERNAME}
+    password: ${HIVEAPP_DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+hiveapp:
+  jwt:
+    secret: ${HIVEAPP_JWT_SECRET}
+  invitation:
+    base-url: ${HIVEAPP_FRONTEND_BASE_URL}
+  admin:
+    bootstrap:
+      enabled: ${HIVEAPP_ADMIN_BOOTSTRAP_ENABLED:false}
+      email: ${HIVEAPP_ADMIN_BOOTSTRAP_EMAIL:}
+      password: ${HIVEAPP_ADMIN_BOOTSTRAP_PASSWORD:}
+      first-name: ${HIVEAPP_ADMIN_BOOTSTRAP_FIRST_NAME:Platform}
+      last-name: ${HIVEAPP_ADMIN_BOOTSTRAP_LAST_NAME:Administrator}

@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.UUID;
 
@@ -20,10 +21,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@ActiveProfiles("test")
 public abstract class PlatformShellIntegrationTestSupport {
 
-    protected static final String ADMIN_EMAIL = "admin@hiveapp.com";
-    protected static final String ADMIN_PASSWORD = "admin123";
+    protected static final String ADMIN_EMAIL = "test-admin@hiveapp.local";
+    protected static final String ADMIN_PASSWORD = "test-only-admin-password";
     protected static final String CLIENT_PASSWORD = "password123";
 
     @Autowired
