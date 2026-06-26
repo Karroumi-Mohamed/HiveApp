@@ -1,0 +1,1732 @@
+# Planning rules
+1. **Compilable and Runnable Batches**: Every implementation batch must keep the codebase compiling and passing existing JUnit tests.
+2. **Foundations First**: DB schemas and migration scripts must be developed before coding services.
+3. **Core API Stability**: Backend endpoints and contracts (DTOs) must be stable before starting frontend development.
+4. **Prerequisites Verification**: Do not begin a batch unless all prerequisite TOFIX IDs are fully implemented/verified.
+5. **No Placeholders**: Mock classes must use explicit, configurable behavior rather than empty logic.
+
+---
+
+# Phase overview
+- **Phase 0: Baseline protection and critical security** (Hardens testing, configuration, and security guard execution).
+- **Phase 1: Account, ownership, membership, authentication and tenant isolation** (Establishes strict tenant boundaries, removes invitations, and implements basic membership/credentials).
+- **Phase 2: Company, Groups, roles, assignments and permission overrides** (Builds the organization hierarchy, RBAC scoping, and exceptions).
+- **Phase 3: Registry and Permissionizer integration** (Resolves startup syncing, dynamic catalogs, and action-level grant checks).
+- **Phase 4: Plans, AddOns, quotas, Money and subscriptions** (Introduces Money columns, price-books, subscriptions, and quota package models).
+- **Phase 5: Operational flows: previews, scheduled/bulk jobs, lifecycle, audit, communications and B2B** (Implements plan revisions, B2B collaboration, auditing, and mail escape).
+- **Phase 6: Stable APIs, DTOs and read models** (Cleans boundaries, maps via MapStruct, and paginates responses).
+- **Phase 7: Remove and rewrite the admin frontend** (Rebuilds the admin panel to consume the clean REST APIs).
+- **Phase 8: End-to-end verification and documentation cleanup** (Validates migrations, B2B links, and purges references).
+
+---
+
+# Dependency graph
+```mermaid
+flowchart TD
+    subgraph Phase 0: Baseline Security
+        CONFIG-001 & TEST-001 --> ADMIN-001
+        PERM-001 & PERM-003 & PERM-004 --> ADMIN-001
+        ADMIN-001 --> ADMIN-002
+        ADMIN-002 --> ADMIN-RBAC-001
+        ADMIN-RBAC-001 --> PERM-002
+        PERM-002 --> AUTHZ-001
+        AUTHZ-001 --> PERM-005
+    end
+
+    subgraph Phase 1: Identity & Tenant Isolation
+        AUTHZ-001 --> TENANCY-001
+        TENANCY-001 --> TENANCY-002
+        TENANCY-002 --> TENANCY-003
+        AUTH-001 --> AUTH-002
+        AUTH-002 --> AUTH-003
+        AUTH-003 --> AUTH-004
+        AUTH-004 --> AUTH-005
+        ADMIN-AUTH-001 --> ADMIN-AUTH-002
+        TENANCY-003 --> ACCOUNT-001
+        ACCOUNT-001 --> ACCOUNT-002
+        ACCOUNT-002 --> ACCOUNT-003
+        ACCOUNT-003 --> ACCOUNT-004
+        ACCOUNT-004 --> ACCOUNT-005
+        TENANCY-002 --> MEMBER-001
+        MEMBER-001 --> MEMBER-002
+        MEMBER-002 --> MEMBER-003
+        MEMBER-003 --> MEMBER-005
+        MEMBER-002 --> INVITE-000
+        INVITE-000 --> INVITE-001_007
+        INVITE-000 --> EMAIL-002
+        EVENT-001
+        EVENT-002
+    end
+
+    subgraph Phase 2: RBAC & Groups
+        TENANCY-003 --> COMPANY-001
+        COMPANY-001 --> COMPANY-002
+        COMPANY-002 --> ORG-001
+        ORG-001 --> ORG-002
+        MEMBER-003 --> ROLE-001
+        ROLE-001 --> ROLE-002
+        ROLE-002 --> ROLE-003
+        ROLE-003 --> ROLE-004
+        ROLE-004 --> ROLE-005
+        ROLE-003 --> RBAC-001
+        RBAC-001 --> RBAC-002
+        RBAC-002 --> RBAC-003
+        RBAC-003 --> RBAC-004
+        RBAC-003 --> RBAC-006
+        RBAC-006 --> AUTHZ-004
+    end
+
+    subgraph Phase 3: Registry Synchronization
+        AUTHZ-001 --> REGISTRY-002
+        REGISTRY-002 --> REGISTRY-003
+        REGISTRY-003 --> REGISTRY-007
+        REGISTRY-007 --> REGISTRY-009
+        REGISTRY-009 --> REGISTRY-004
+        REGISTRY-004 --> REGISTRY-005
+        REGISTRY-005 --> REGISTRY-006
+        REGISTRY-006 --> REGISTRY-008
+        REGISTRY-008 --> REGISTRY-010
+    end
+
+    subgraph Phase 4: Subscriptions & Money
+        BILLING-003 --> PLAN-001
+        PLAN-001 --> PLAN-002
+        PLAN-002 --> PLAN-003
+        PLAN-003 --> PLAN-004
+        PLAN-004 --> PLAN-006
+        PLAN-004 --> PLAN-008
+        PLAN-008 --> PLAN-012
+        PLAN-008 --> QUOTA-003
+        QUOTA-003 --> QUOTA-004
+        QUOTA-004 --> QUOTA-002
+        PLAN-006 --> SUBSCRIPTION-001
+        SUBSCRIPTION-001 --> SUBSCRIPTION-002
+        SUBSCRIPTION-002 --> SUBSCRIPTION-003
+        SUBSCRIPTION-003 --> SUBSCRIPTION-004
+        SUBSCRIPTION-004 --> SUBSCRIPTION-005
+        SUBSCRIPTION-005 --> SUBSCRIPTION-006
+        SUBSCRIPTION-006 --> SUBSCRIPTION-007
+        SUBSCRIPTION-006 --> PLAN-005
+        SUBSCRIPTION-003 --> BILLING-001
+        BILLING-001 --> BILLING-002
+    end
+
+    subgraph Phase 5: Operations & B2B
+        PLAN-006 & SUBSCRIPTION-003 --> PLAN-007
+        PLAN-007 --> PLAN-009
+        PLAN-009 --> PLAN-010
+        PLAN-010 --> PLAN-011
+        TENANCY-003 --> COLLAB-001
+        COLLAB-001 --> COLLAB-002
+        COLLAB-002 --> COLLAB-003
+        COLLAB-003 --> COLLAB-004
+        COLLAB-004 --> COLLAB-005
+        COLLAB-005 --> COLLAB-006
+        COLLAB-006 --> COLLAB-007
+        COLLAB-007 --> COLLAB-008
+        COLLAB-008 --> AUTHZ-002
+        AUTHZ-002 --> AUTHZ-003
+        AUTHZ-003 --> AUTHZ-005
+        AUTHZ-003 --> AUTHZ-006
+        EMAIL-001
+    end
+```
+
+---
+
+# Phase 0: Baseline protection and critical security
+
+### Batch 0.1: Recommended First Batch
+
+**Execution status — 2026-07-16**
+
+- `ADMIN-001` is complete; `ADMIN-002` collision handling was safely resolved in the same bootstrap change.
+- The destructive/default-secret portion of `CONFIG-001` is complete. Versioned database migrations remain open, so the full finding is not closed.
+- `PERM-003` and `PERM-004` were confirmed and fixed with focused standalone tests.
+- `PERM-001` was confirmed. Remediation moves to Batch 0.2 because the broad guarded package must be audited before package interception is enabled.
+- `TEST-001` remains ongoing. Current verified baseline: 210 HiveApp backend tests and 4 Permissionizer tests, all green.
+
+#### [IMPLEMENT] CONFIG-001 — The only application configuration is destructive development configuration
+- **Prerequisites**: None.
+- **Unlocks**: ADMIN-001.
+- **Order Rationale**: Separates configuration profiles immediately to ensure production migrations do not execute with `ddl-auto: create-drop`.
+- **Affected Backend Areas**: `application.yaml`, `application-prod.yaml`, `application-dev.yaml`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Running with production profile disables dev tools and uses safe database validation levels.
+- **Tests**: Configuration profile loader tests.
+- **Future UI Flow**: None.
+- **Execution Status**: Profile separation, external production secrets/URLs, PostgreSQL configuration, and safe `ddl-auto` behavior are implemented. Versioned schema migrations remain open.
+
+#### [VERIFY FIRST] TEST-001 — Green tests preserve important unsafe behavior and omit critical negative cases
+- **Prerequisites**: None.
+- **Unlocks**: ADMIN-001.
+- **Order Rationale**: Baseline test verification. The latest run passes all 210 tests (`2026-07-16`) while focused negative cases continue to be added. Remediation: Add test assertions for the remaining missing negative cases.
+- **Affected Backend Areas**: Entire Integration Test Suite.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Report on Loose Assertions is completed; new negative test cases are integrated.
+- **Tests**: Integration security checks.
+- **Future UI Flow**: None.
+- **Execution Status**: In progress. Configuration/admin-bootstrap negative tests and standalone Permissionizer characterization tests were added; the broader audit remains open.
+
+#### [VERIFY FIRST] PERM-001 — Package-level guarded nodes may not be intercepted
+- **Prerequisites**: None.
+- **Unlocks**: None.
+- **Order Rationale**: Standalone AOP package scan check. Verification: Add focused integration test targeting a package-level guard to verify if unannotated classes inherit the guard. Remediation: If failed, adjust Spring AOP advisor pattern matching.
+- **Affected Backend Areas**: AspectJ AOP Proxy rules.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Interceptors execute on methods within guarded packages.
+- **Tests**: Focused AOP test.
+- **Future UI Flow**: None.
+- **Execution Status**: Confirmed. The resolver recognizes the package guard, but the current annotation-only Spring pointcut does not intercept the unannotated method. Remediation is carried into Batch 0.2 after a guarded-package boundary audit.
+
+#### [VERIFY FIRST] PERM-003 — Overloaded methods share the processor's element key
+- **Prerequisites**: None.
+- **Unlocks**: None.
+- **Order Rationale**: Validation of processor key generation. Verification: Add test check with overloaded controller signatures. Remediation: If key clashes, update generator parser to append arguments parameters.
+- **Affected Backend Areas**: Annotation processor.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Overloaded methods generate unique processor keys.
+- **Tests**: Compilation tests.
+- **Future UI Flow**: None.
+- **Execution Status**: Completed. Processor keys include erased parameter signatures, with a compilation test covering overloads.
+
+#### [VERIFY FIRST] PERM-004 — Reflection and collection failures are silently swallowed
+- **Prerequisites**: None.
+- **Unlocks**: None.
+- **Order Rationale**: Verification of reflection handlers. Verification: Trigger custom class loader exceptions. Remediation: If swallowed, configure PermissionCollector to crash context on exceptions.
+- **Affected Backend Areas**: PermissionCollector class.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Scans throwing reflection exceptions propagate and halt startup.
+- **Tests**: Reflection exception tests.
+- **Future UI Flow**: None.
+- **Execution Status**: Completed. Indexed-root and reflection failures now throw a dedicated collection exception, with focused fail-closed tests.
+
+#### [IMPLEMENT] ADMIN-001 — Unconditional startup seeder creates and logs a known SuperAdmin password
+- **Prerequisites**: CONFIG-001.
+- **Unlocks**: ADMIN-002.
+- **Order Rationale**: Secures default password seeding before configuring admin flows.
+- **Affected Backend Areas**: `AdminSeeder.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Seeding in production gets passwords from safe variables and skips logs.
+- **Tests**: Seeding environment checks.
+- **Future UI Flow**: None.
+- **Execution Status**: Completed. Bootstrap is opt-in, credentials are externally configured and validated, passwords are never logged, and production-disabled/collision behavior is tested.
+
+---
+
+### Batch 0.2: Security Guard Activation
+
+**Carried forward from Batch 0.1:** Before enabling package-level interception, audit the broad `com.hiveapp.platform` guarded root and mark explicit guarded/package-off boundaries. Then add startup and request-level tests proving unannotated methods in intentionally guarded packages are intercepted without accidentally guarding infrastructure methods.
+
+#### [IMPLEMENT] PERM-002 — HiveApp bypasses startup guard-alignment verification
+- **Prerequisites**: ADMIN-RBAC-001.
+- **Unlocks**: AUTHZ-001.
+- **Order Rationale**: Activates fatal boot checks on mismatched keys after the Batch 0.1 collector/processor fixes; package-interception activation remains gated by the carried-forward boundary audit.
+- **Affected Backend Areas**: Guard verification execution.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Boot aborts on duplicate or unaligned controller keys.
+- **Tests**: Boot verification checks.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] AUTHZ-001 — HiveApp explicitly disables Permissionizer guard verification
+- **Prerequisites**: PERM-002.
+- **Unlocks**: TENANCY-001, REGISTRY-002.
+- **Order Rationale**: Enables global interception locks.
+- **Affected Backend Areas**: `SecurityConfig.java`, `application.yaml`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Interceptors reject unannotated endpoints by default.
+- **Tests**: Integration tests checking access blocks.
+- **Future UI Flow**: None.
+
+---
+
+### Batch 0.3: Admin Seeding & Security Constraints
+#### [IMPLEMENT] ADMIN-002 — Admin seeding stops when the user exists, even if the admin record does not
+- **Prerequisites**: ADMIN-001.
+- **Unlocks**: ADMIN-RBAC-001.
+- **Order Rationale**: Ensures administrative records are seeded consistently.
+- **Affected Backend Areas**: `AdminSeeder.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Existing user emails map safely to new AdminUser rows.
+- **Tests**: Seeder unit tests.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] ADMIN-RBAC-001 — Non-SuperAdmin protection is incomplete for destructive admin actions
+- **Prerequisites**: ADMIN-002.
+- **Unlocks**: PERM-002.
+- **Order Rationale**: Restricts platform deletion and critical configurations.
+- **Affected Backend Areas**: `AdminRolePolicy.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Normal admins are blocked from SuperAdmin commands.
+- **Tests**: SuperAdmin validation checks.
+- **Future UI Flow**: Admin Portal management.
+
+---
+
+### Batch 0.4: Policy Order Verification
+#### [LOCK WITH TESTS] PERM-005 — Policy order is security-significant
+- **Prerequisites**: AUTHZ-001.
+- **Unlocks**: None.
+- **Order Rationale**: The current policy execution chain (Admin → B2B → Plan → User Role) is intentional. Implement explicit integration tests that lock the current order and document the consequence for AUTHZ-002.
+- **Affected Backend Areas**: `PermissionGuard`, `PermissionizerAutoConfiguration`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Chain precedence is asserted and locked by test suite.
+- **Tests**: Policy chain integration tests.
+- **Future UI Flow**: None.
+
+---
+
+# Phase 1: Account, ownership, membership, authentication and tenant isolation
+
+### Batch 1.1: Tenancy Boundaries & Isolation
+#### [IMPLEMENT] TENANCY-001 — Establish `Account` as the canonical tenant boundary
+- **Prerequisites**: AUTHZ-001.
+- **Unlocks**: TENANCY-002.
+- **Order Rationale**: Sets the core tenant filters on database queries before validating relationships.
+- **Affected Backend Areas**: JPA Repositories, `SecurityContextService.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Queries enforce Account ID parameters.
+- **Tests**: Multi-tenant isolation checks.
+- **Future UI Flow**: Tenant navigation.
+
+#### [IMPLEMENT] TENANCY-002 — `Account.ownerId` is an unverified raw UUID relationship
+- **Prerequisites**: TENANCY-001.
+- **Unlocks**: TENANCY-003, MEMBER-001.
+- **Order Rationale**: Ensures the owner ID maps to a real entity before checking tenant-wide parents.
+- **Affected Backend Areas**: `Account.java`, `AccountRepository.java`.
+- **Database Migration**: Yes (add foreign key).
+- **Acceptance Criteria**: Account owner points to User record with integrity checks.
+- **Tests**: JPA verification.
+- **Future UI Flow**: None.
+
+#### [VERIFY FIRST] TENANCY-003 — Cross-account relationship invariants are not visible in the entity model
+- **Prerequisites**: TENANCY-002.
+- **Unlocks**: ACCOUNT-001, COMPANY-001, COLLAB-001.
+- **Order Rationale**: Entity cross-account check. Verification: Check if parent mismatch is allowed. Remediation: Add `@PrePersist` listeners to validate child account matches parent account.
+- **Affected Backend Areas**: Lifecycle validation listeners.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Mismatched tenant hierarchies raise validation errors.
+- **Tests**: Cross-account mismatch tests.
+- **Future UI Flow**: None.
+
+---
+
+### Batch 1.2: Identity & Authentication
+#### [VERIFY FIRST] AUTH-001 — Email identity is not canonicalized
+- **Prerequisites**: None.
+- **Unlocks**: AUTH-002.
+- **Order Rationale**: Email validation check. Verification: Check if casing differences create duplicates. Remediation: Enforce lower-casing on read/write in repository.
+- **Affected Backend Areas**: `UserServiceImpl.java`, `UserRepository.java`.
+- **Database Migration**: Yes (index casing conversion).
+- **Acceptance Criteria**: Email fields are saved in lower-case.
+- **Tests**: Registration unit tests.
+- **Future UI Flow**: Signup / Login.
+
+#### [IMPLEMENT] AUTH-002 — Refresh-token type and revocation behavior are not visible at the service boundary
+- **Prerequisites**: AUTH-001.
+- **Unlocks**: AUTH-003.
+- **Order Rationale**: Secures refresh token scope before resolving member security principal.
+- **Affected Backend Areas**: Token Service, Security Filters.
+- **Database Migration**: Yes (token schemas).
+- **Acceptance Criteria**: Active token validation checks match service layer definitions.
+- **Tests**: Refresh token validation tests.
+- **Future UI Flow**: Logout / session expiry.
+
+#### [IMPLEMENT] AUTH-003 — Client authentication is user-based while authorization is membership/workspace-based
+- **Prerequisites**: AUTH-002.
+- **Unlocks**: AUTH-004.
+- **Order Rationale**: Scopes security principal to the active member inside the workspace.
+- **Affected Backend Areas**: `JwtAuthenticationFilter.java`, `SecurityContextHolder`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Context principal resolves to workspace member roles.
+- **Tests**: Authentication context tests.
+- **Future UI Flow**: Dashboard loading.
+
+#### [VERIFY FIRST] AUTH-004 — Registration uniqueness check is race-prone unless database errors are translated
+- **Prerequisites**: AUTH-003.
+- **Unlocks**: AUTH-005.
+- **Order Rationale**: Registration concurrency check. Verification: Test concurrent signup requests with identical email. Remediation: Add try-catch translating database unique constraint errors to structured validation exceptions.
+- **Affected Backend Areas**: `UserServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Mismatched parallel registrations throw clear exception mappings.
+- **Tests**: Registration concurrency tests.
+- **Future UI Flow**: Registration page.
+
+#### [IMPLEMENT] AUTH-005 — User-details lookup leaks invalid UUID parsing behavior
+- **Prerequisites**: AUTH-004.
+- **Unlocks**: None.
+- **Order Rationale**: Resolves payload validation crashes on malformed queries.
+- **Affected Backend Areas**: Controllers.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Malformed ID requests return 400 bad request.
+- **Tests**: URL parser check tests.
+- **Future UI Flow**: User detail lookup.
+
+#### [IMPLEMENT] ADMIN-AUTH-001 — Admin refresh tokens have no matching admin refresh flow
+- **Prerequisites**: None.
+- **Unlocks**: ADMIN-AUTH-002.
+- **Order Rationale**: Implements token renewal mechanics for administrators.
+- **Affected Backend Areas**: Admin Token controller.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Active admin sessions are renewable via refresh tokens.
+- **Tests**: Refresh token integration tests.
+- **Future UI Flow**: Admin Portal dashboard refresh.
+
+#### [IMPLEMENT] ADMIN-AUTH-002 — Admin login duplicates authentication logic and skips DTO validation
+- **Prerequisites**: ADMIN-AUTH-001.
+- **Unlocks**: None.
+- **Order Rationale**: Standardizes admin controllers validation payload.
+- **Affected Backend Areas**: `AdminAuthController.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Admin endpoint matches normal login schema validations.
+- **Tests**: Authentication validation tests.
+- **Future UI Flow**: Admin Portal login.
+
+---
+
+### Batch 1.3: Provisioning & Slug Lifecycle
+#### [IMPLEMENT] ACCOUNT-001 — Registration can succeed with no subscription
+- **Prerequisites**: TENANCY-003.
+- **Unlocks**: ACCOUNT-002.
+- **Order Rationale**: Mandatory subscription allocation during account provisioning.
+- **Affected Backend Areas**: `AccountProvisioningService.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Onboarding fails if FREE plan assignment fails.
+- **Tests**: Provisioning tests.
+- **Future UI Flow**: Onboarding checkouts.
+
+#### [IMPLEMENT] ACCOUNT-002 — Workspace deactivation consequences are not implemented in the account service
+- **Prerequisites**: ACCOUNT-001.
+- **Unlocks**: ACCOUNT-003.
+- **Order Rationale**: Cuts access for suspended tenants.
+- **Affected Backend Areas**: Tenant interceptors.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Inactive account endpoints throw `403 Account Suspended`.
+- **Tests**: Account deactivation checks.
+- **Future UI Flow**: Workspace lock screen.
+
+#### [VERIFY FIRST] ACCOUNT-003 — Workspace slug creation is check-then-insert and race-prone
+- **Prerequisites**: ACCOUNT-002.
+- **Unlocks**: ACCOUNT-004.
+- **Order Rationale**: Slug duplicate check. Verification: Check slug creation under concurrent registration. Remediation: Add unique database index on `accounts(slug)`.
+- **Affected Backend Areas**: `Account.java`, `AccountRepository.java`.
+- **Database Migration**: Yes (unique slug constraint).
+- **Acceptance Criteria**: Concurrent identical slugs fail with unique constraint violations.
+- **Tests**: Slug concurrency tests.
+- **Future UI Flow**: Account creation form.
+
+#### [VERIFY FIRST] ACCOUNT-004 — Workspace provisioning is not explicitly idempotent
+- **Prerequisites**: ACCOUNT-003.
+- **Unlocks**: ACCOUNT-005.
+- **Order Rationale**: Idempotency check. Verification: Submit identical registration payload twice. Remediation: Add an idempotency key table checking submissions.
+- **Affected Backend Areas**: `AccountProvisioningService.java`.
+- **Database Migration**: Yes (idempotency logs table).
+- **Acceptance Criteria**: Submitting identical payload returns preexisting setup parameters.
+- **Tests**: Idempotent provisioning tests.
+- **Future UI Flow**: Onboarding wizard.
+
+#### [IMPLEMENT] ACCOUNT-005 — Account service contract still exposes a persistence entity
+- **Prerequisites**: ACCOUNT-004.
+- **Unlocks**: None.
+- **Order Rationale**: Clean encapsulation.
+- **Affected Backend Areas**: `AccountService.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Operations exchange DTO schemas.
+- **Tests**: Interface unit tests.
+- **Future UI Flow**: Account settings.
+
+---
+
+### Batch 1.4: Workspace Membership & Quotas
+#### [IMPLEMENT] MEMBER-001 — Authorized members can deactivate the workspace owner
+- **Prerequisites**: TENANCY-002.
+- **Unlocks**: MEMBER-002.
+- **Order Rationale**: Protects owner lockout bounds before structuring membership constraint checks.
+- **Affected Backend Areas**: `MemberServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Lockout requests target owner throw 403.
+- **Tests**: Owner lockout block integration tests.
+- **Future UI Flow**: Team configurations settings.
+
+#### [IMPLEMENT] MEMBER-002 — Direct member addition allows duplicate memberships
+- **Prerequisites**: MEMBER-001.
+- **Unlocks**: MEMBER-003, INVITE-000.
+- **Order Rationale**: Restricts multi-tenant membership duplication.
+- **Affected Backend Areas**: `members` table.
+- **Database Migration**: Yes (unique index on `members(account_id, user_id)`).
+- **Acceptance Criteria**: Workspace addition fails on existing user.
+- **Tests**: Concurrency membership addition tests.
+- **Future UI Flow**: Team addition panel.
+
+#### [IMPLEMENT] MEMBER-003 — Member role assignment allows duplicates and inactive roles
+- **Prerequisites**: MEMBER-002.
+- **Unlocks**: MEMBER-005, ROLE-001.
+- **Order Rationale**: Ensures role status alignment.
+- **Affected Backend Areas**: `MemberRoleRepository.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Adding duplicate or deactivated assignments throws validation errors.
+- **Tests**: Assignment checks.
+- **Future UI Flow**: Team role assignments.
+
+#### [IMPLEMENT] MEMBER-005 — Member deactivation does not implement the decided offboarding lifecycle
+- **Prerequisites**: MEMBER-003.
+- **Unlocks**: None.
+- **Order Rationale**: Session revocation blocks deactivated logins.
+- **Affected Backend Areas**: `MemberServiceImpl.java`, token refresh filters.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Active JWT sessions are immediately invalidated on deactivation.
+- **Tests**: Token revocation checks.
+- **Future UI Flow**: Team manager dashboard.
+
+#### [IMPLEMENT] QUOTA-001 — Member/company quota checks are inefficient and race-prone
+- **Prerequisites**: MEMBER-002.
+- **Unlocks**: None.
+- **Order Rationale**: Optimizes membership counts.
+- **Affected Backend Areas**: `MemberServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Queries use optimized database counts.
+- **Tests**: Load limit checks.
+- **Future UI Flow**: Team member addition.
+
+#### [VERIFY FIRST] DATA-001 — Join/grant tables may allow duplicate relationships
+- **Prerequisites**: MEMBER-003.
+- **Unlocks**: None.
+- **Order Rationale**: Join table constraint check. Verification: Check if duplicate `member_roles` or `role_permissions` can be saved. Remediation: Add unique database constraints on join tables.
+- **Affected Backend Areas**: Database schemas.
+- **Database Migration**: Yes (unique constraints on join tables).
+- **Acceptance Criteria**: Database rejects duplicate mapping inserts.
+- **Tests**: Constraint integrity tests.
+- **Future UI Flow**: None.
+
+---
+
+### Batch 1.5: Direct Creation Replacing Invitations
+#### [IMPLEMENT] INVITE-000 — Remove the invitation subsystem and replace it with direct member creation
+- **Prerequisites**: MEMBER-002.
+- **Unlocks**: INVITE-001_007, EMAIL-002.
+- **Order Rationale**: Completely removes the legacy invitation entities and adds direct creation endpoints. Carry safe template HTML escaping, validated origin URLs, and accurate deadlines (from EMAIL-002) into the replacement activation/reset emails.
+- **Affected Backend Areas**: All invitation files, controllers, services.
+- **Database Migration**: Yes (drop `invitations` table).
+- **Acceptance Criteria**: Invitation controller/services are deleted. Direct creation is exposed.
+- **Tests**: Remove invitation tests, add direct member addition tests.
+- **Future UI Flow**: Add Member screen.
+
+#### [REMOVE AS OBSOLETE] INVITE-001 — Invitation acceptance bypasses member quota enforcement
+- **Prerequisites**: INVITE-000.
+- **Unlocks**: None.
+- **Order Rationale**: Subsystem is removed.
+- **Affected Backend Areas**: Invitations.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Removed.
+- **Tests**: Delete corresponding tests.
+- **Future UI Flow**: None.
+
+#### [REMOVE AS OBSOLETE] INVITE-002 — Invitation token acts as a seven-day login credential for existing users
+- **Prerequisites**: INVITE-000.
+- **Unlocks**: None.
+- **Order Rationale**: Subsystem is removed.
+- **Affected Backend Areas**: Invitations.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Removed.
+- **Tests**: Delete corresponding tests.
+- **Future UI Flow**: None.
+
+#### [REMOVE AS OBSOLETE] INVITE-003 — Invitation token is stored in plaintext
+- **Prerequisites**: INVITE-000.
+- **Unlocks**: None.
+- **Order Rationale**: Subsystem is removed.
+- **Affected Backend Areas**: Invitations.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Removed.
+- **Tests**: Delete corresponding tests.
+- **Future UI Flow**: None.
+
+#### [REMOVE AS OBSOLETE] INVITE-004 — Stored invitation role/scope is not safely revalidated on acceptance
+- **Prerequisites**: INVITE-000.
+- **Unlocks**: None.
+- **Order Rationale**: Subsystem is removed.
+- **Affected Backend Areas**: Invitations.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Removed.
+- **Tests**: Delete corresponding tests.
+- **Future UI Flow**: None.
+
+#### [REMOVE AS OBSOLETE] INVITE-005 — Invitation email normalization and duplicate protection are incomplete
+- **Prerequisites**: INVITE-000.
+- **Unlocks**: None.
+- **Order Rationale**: Subsystem is removed.
+- **Affected Backend Areas**: Invitations.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Removed.
+- **Tests**: Delete corresponding tests.
+- **Future UI Flow**: None.
+
+#### [REMOVE AS OBSOLETE] INVITE-006 — Expiration maintenance scans other accounts and mutates inside a read-only flow
+- **Prerequisites**: INVITE-000.
+- **Unlocks**: None.
+- **Order Rationale**: Subsystem is removed.
+- **Affected Backend Areas**: Invitations.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Removed.
+- **Tests**: Delete corresponding tests.
+- **Future UI Flow**: None.
+
+#### [REMOVE AS OBSOLETE] INVITE-007 — Email delivery and database commit are not coordinated
+- **Prerequisites**: INVITE-000.
+- **Unlocks**: None.
+- **Order Rationale**: Subsystem is removed.
+- **Affected Backend Areas**: Invitations.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Removed.
+- **Tests**: Delete corresponding tests.
+- **Future UI Flow**: None.
+
+#### [REMOVE AS OBSOLETE] EMAIL-002 — Invitation HTML embeds unescaped user/configuration values and hard-codes expiry text
+- **Prerequisites**: INVITE-000.
+- **Unlocks**: None.
+- **Order Rationale**: Replaced by safe escaping, URL validation, and dynamic expiry deadlines inside the new user activation templates under direct creation (`INVITE-000`).
+- **Affected Backend Areas**: Invitations.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Removed.
+- **Tests**: Delete corresponding tests.
+- **Future UI Flow**: None.
+
+---
+
+### Batch 1.6: Legacy Event Cleanup
+#### [REMOVE AS OBSOLETE] EVENT-001 — `UserRegisteredEvent` is unused dead architecture
+- **Prerequisites**: None.
+- **Unlocks**: None.
+- **Order Rationale**: Cleans legacy boilerplate.
+- **Affected Backend Areas**: Events.
+- **Database Migration**: No.
+- **Acceptance Criteria**: File deleted.
+- **Tests**: Clean compilation.
+- **Future UI Flow**: None.
+
+#### [REMOVE AS OBSOLETE] EVENT-002 — `Account` event artifacts are unused leftovers
+- **Prerequisites**: None.
+- **Unlocks**: None.
+- **Order Rationale**: Cleans legacy boilerplate.
+- **Affected Backend Areas**: Events.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Files deleted.
+- **Tests**: Clean compilation.
+- **Future UI Flow**: None.
+
+---
+
+# Phase 2: Company, Groups, roles, assignments and permission overrides
+
+### Batch 2.1: Company Lifecycle & Safe Metadata Edits
+#### [IMPLEMENT] COMPANY-001 — Company deactivation has no defined dependent-data behavior
+- **Prerequisites**: TENANCY-003.
+- **Unlocks**: COMPANY-002.
+- **Order Rationale**: Restricts access on deactivated workspace scopes.
+- **Affected Backend Areas**: `CompanyServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Inactive company checks block B2B connection actions and operations.
+- **Tests**: Company deactivation validation tests.
+- **Future UI Flow**: Company configurations page.
+
+#### [IMPLEMENT] COMPANY-002 — Company identity editing does not implement the decided field-sensitive contract
+- **Prerequisites**: COMPANY-001.
+- **Unlocks**: ORG-001.
+- **Order Rationale**: Implements safe edits validation rules.
+- **Affected Backend Areas**: `CompanyServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Modifications to sensitive properties require high-level authorization.
+- **Tests**: Edit authorization tests.
+- **Future UI Flow**: Company settings form.
+
+---
+
+### Batch 2.2: Organizational Hierarchy Model
+#### [IMPLEMENT] ORG-001 — Department entity cannot support the decided generic Group model
+- **Prerequisites**: COMPANY-002.
+- **Unlocks**: ORG-002.
+- **Order Rationale**: Implements nested groups model structure.
+- **Affected Backend Areas**: `Department.java` (rename/replace to `Group.java`).
+- **Database Migration**: Yes (schema migrations).
+- **Acceptance Criteria**: Groups database layout supports hierarchy linkages.
+- **Tests**: Tree mappings validation.
+- **Future UI Flow**: Organization hierarchy manager.
+
+#### [IMPLEMENT] ORG-002 — Organization Groups must stay outside automatic authorization
+- **Prerequisites**: ORG-001.
+- **Unlocks**: None.
+- **Order Rationale**: Decouples group movements from security clearances.
+- **Affected Backend Areas**: `UserRolePolicy.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Security checks evaluate permissions independently of group placement.
+- **Tests**: Security integration test.
+- **Future UI Flow**: Organization hierarchy manager.
+
+---
+
+### Batch 2.3: Custom & System Role Constraints
+#### [IMPLEMENT] ROLE-001 — Deleting a role does not deliberately handle member assignments
+- **Prerequisites**: MEMBER-003.
+- **Unlocks**: ROLE-002.
+- **Order Rationale**: Blocks deleting roles currently assigned to members.
+- **Affected Backend Areas**: `RoleServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Deleting active role returns validation warnings.
+- **Tests**: Role deletion check tests.
+- **Future UI Flow**: Roles settings manager.
+
+#### [IMPLEMENT] ROLE-002 — System-role permissions can still be modified
+- **Prerequisites**: ROLE-001.
+- **Unlocks**: ROLE-003.
+- **Order Rationale**: Locks platform templates.
+- **Affected Backend Areas**: `RoleServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Modifying roles marked `isSystemRole = true` returns 403.
+- **Tests**: System roles integrity checks.
+- **Future UI Flow**: Roles dashboard.
+
+#### [IMPLEMENT] ROLE-003 — Role activation state is incomplete and internally inconsistent
+- **Prerequisites**: ROLE-002.
+- **Unlocks**: ROLE-004, RBAC-001.
+- **Order Rationale**: Adds role lifecycles (ACTIVE, INACTIVE, ARCHIVED).
+- **Affected Backend Areas**: `Role.java`.
+- **Database Migration**: Yes (add role state columns).
+- **Acceptance Criteria**: Role states transition according to enum rules.
+- **Tests**: State transition tests.
+- **Future UI Flow**: Role lifecycle toggles.
+
+#### [VERIFY FIRST] ROLE-004 — Role permission keys may not match the declared feature contract
+- **Prerequisites**: ROLE-003.
+- **Unlocks**: ROLE-005.
+- **Order Rationale**: Permission validation check. Verification: Check if invalid keys can be mapped to roles. Remediation: Add validator rejecting keys not declared by feature annotations.
+- **Affected Backend Areas**: `RoleServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Invalid key mappings reject with `ResourceNotFoundException`.
+- **Tests**: Key validation tests.
+- **Future UI Flow**: Permission picker.
+
+#### [IMPLEMENT] ROLE-005 — Shared custom-role edits have no impact workflow
+- **Prerequisites**: ROLE-004.
+- **Unlocks**: None.
+- **Order Rationale**: Warns admins on custom role mutations.
+- **Affected Backend Areas**: `RoleServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Editing role alerts downstream subscriber impact count.
+- **Tests**: Save role warning tests.
+- **Future UI Flow**: Custom roles save dialog.
+
+---
+
+### Batch 2.4: Clean RBAC Scoping & Evaluation Ceiling
+#### [IMPLEMENT] RBAC-001 — Company scope is represented twice for role assignment
+- **Prerequisites**: ROLE-003.
+- **Unlocks**: RBAC-002.
+- **Order Rationale**: Cleans duplicate scope columns in database.
+- **Affected Backend Areas**: `MemberRole.java`, `Role.java`.
+- **Database Migration**: Yes (consolidate company scope mappings).
+- **Acceptance Criteria**: Role assignments declare company boundaries uniquely.
+- **Tests**: Database schema mappings check.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] RBAC-002 — Inactive client roles still grant permissions
+- **Prerequisites**: RBAC-001.
+- **Unlocks**: RBAC-003.
+- **Order Rationale**: Runtime verification of role active state.
+- **Affected Backend Areas**: `UserRolePolicy.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Deactivated roles are excluded from permission resolution.
+- **Tests**: Active role runtime checks.
+- **Future UI Flow**: Access logs.
+
+#### [IMPLEMENT] RBAC-003 — Client role assignment and direct grants have no actor permission ceiling
+- **Prerequisites**: RBAC-002.
+- **Unlocks**: RBAC-004, RBAC-006.
+- **Order Rationale**: Backend validation ceiling check.
+- **Affected Backend Areas**: `RoleServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: User cannot grant permission keys they do not hold.
+- **Tests**: Assignment ceiling tests.
+- **Future UI Flow**: Admin role edit panel.
+
+#### [IMPLEMENT] RBAC-004 — Removing a member role ignores company scope
+- **Prerequisites**: RBAC-003.
+- **Unlocks**: None.
+- **Order Rationale**: Scopes assignments removal safely.
+- **Affected Backend Areas**: `MemberServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Removing role assignment respects target company boundaries.
+- **Tests**: Scoped removal tests.
+- **Future UI Flow**: Role assignment tables.
+
+---
+
+### Batch 2.5: Scoped Exceptions & Overrides
+#### [IMPLEMENT] RBAC-006 — Direct member overrides cannot support the decided exception lifecycle
+- **Prerequisites**: RBAC-003.
+- **Unlocks**: AUTHZ-004.
+- **Order Rationale**: Exception override details.
+- **Affected Backend Areas**: `MemberPermissionOverride.java`.
+- **Database Migration**: Yes (add reason, expiry columns).
+- **Acceptance Criteria**: Overrides support description reasons and expiration dates.
+- **Tests**: Overrides expiration tests.
+- **Future UI Flow**: User exceptions settings.
+
+#### [IMPLEMENT] AUTHZ-004 — Account-wide member overrides do not apply inside company context
+- **Prerequisites**: RBAC-006.
+- **Unlocks**: None.
+- **Order Rationale**: Cascades global overrides to child entities.
+- **Affected Backend Areas**: `UserRolePolicy.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Account-wide overrides cascade to sub-company operations.
+- **Tests**: Scoped cascade validation tests.
+- **Future UI Flow**: None.
+
+---
+
+# Phase 3: Registry and Permissionizer integration
+
+### Deferred registry lifecycle work
+#### [DEFERRED] REGISTRY-001 — Removed code definitions and annotations remain as live database rows
+- **Prerequisites**: None.
+- **Unlocks**: None.
+- **Order Rationale**: Product decision assumes deployed feature and permission codes remain stable. Do not build alias, replacement, or automated retirement machinery until a real removal/rename requirement appears.
+- **Affected Backend Areas**: Registry synchronization and persisted plan/role/grant references.
+- **Database Migration**: No active migration in this plan.
+- **Acceptance Criteria**: The deferral is explicit; codes are treated as stable developer contracts and are never silently reused.
+- **Tests**: None until the deferred lifecycle is activated.
+- **Future UI Flow**: None.
+
+---
+
+### Batch 3.1: Startup Seeding Repair & Inspectability
+#### [IMPLEMENT] REGISTRY-002 — Stale permission actions still pass role-grant validation
+- **Prerequisites**: AUTHZ-001.
+- **Unlocks**: REGISTRY-003.
+- **Order Rationale**: Checks role grants against code definitions (excludes deferred REGISTRY-001).
+- **Affected Backend Areas**: `PermissionGrantValidator.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Mismatched codes reject role updates.
+- **Tests**: Action validation integration tests.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] REGISTRY-003 — A partial or empty Permissionizer collection is accepted as successful seeding
+- **Prerequisites**: REGISTRY-002.
+- **Unlocks**: REGISTRY-007.
+- **Order Rationale**: Crash boot on incomplete scans.
+- **Affected Backend Areas**: `FeatureSeeder.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Empty scanned keys cause context exit.
+- **Tests**: Verification checks.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] REGISTRY-007 — Existing feature rows are not fully repaired from their code definition
+- **Prerequisites**: REGISTRY-003.
+- **Unlocks**: REGISTRY-009.
+- **Order Rationale**: Syncs database columns with code annotations.
+- **Affected Backend Areas**: `FeatureSeeder.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Database metadata is overwritten by code annotations.
+- **Tests**: Sync repair tests.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] REGISTRY-009 — Startup synchronization is split, non-atomic across registry layers, and not inspectable
+- **Prerequisites**: REGISTRY-007.
+- **Unlocks**: REGISTRY-004.
+- **Order Rationale**: Wraps synchronize routines into single transaction.
+- **Affected Backend Areas**: `FeatureSeeder.java`, `PermissionSeeder.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Sync executes transactionally and writes a sync log row.
+- **Tests**: Concurrency synchronization locks checks.
+- **Future UI Flow**: System status logs.
+
+---
+
+### Batch 3.2: Dynamic Catalog Visibility & Audience Selection
+#### [IMPLEMENT] REGISTRY-004 — Current feature activation cannot represent the four decided operational controls
+- **Prerequisites**: REGISTRY-009.
+- **Unlocks**: REGISTRY-005.
+- **Order Rationale**: State indicators for catalogs.
+- **Affected Backend Areas**: `Feature.java`.
+- **Database Migration**: Yes (add visibility state columns).
+- **Acceptance Criteria**: Features support visibility states.
+- **Tests**: Visibility transition checks.
+- **Future UI Flow**: Catalog Admin visibility switches.
+
+#### [IMPLEMENT] REGISTRY-005 — The two public catalog implementations disagree and one mutates JPA entities
+- **Prerequisites**: REGISTRY-004.
+- **Unlocks**: REGISTRY-006.
+- **Order Rationale**: Standardizes catalog fetch routines.
+- **Affected Backend Areas**: Catalog Services.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Disagreeing catalog implementation is removed; uses read DTOs.
+- **Tests**: Catalog queries return consistent models.
+- **Future UI Flow**: Pricing page catalogs.
+
+#### [IMPLEMENT] REGISTRY-006 — Permission-picker construction scales as permission-by-permission entitlement checks
+- **Prerequisites**: REGISTRY-005.
+- **Unlocks**: REGISTRY-008.
+- **Order Rationale**: Database optimization for pickers.
+- **Affected Backend Areas**: `PermissionGrantValidator.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Permissions are queried using bulk joins.
+- **Tests**: Load testing verification.
+- **Future UI Flow**: Admin role assignment pickers.
+
+#### [IMPLEMENT] REGISTRY-008 — Client-role grantability is feature-wide, including destructive and commercial actions
+- **Prerequisites**: REGISTRY-006.
+- **Unlocks**: REGISTRY-010.
+- **Order Rationale**: Checks code grant limits before mappings.
+- **Affected Backend Areas**: `PermissionGrantValidator.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Granting non-role-grantable keys throws security exceptions.
+- **Tests**: Validation integration tests.
+- **Future UI Flow**: Admin role edit form.
+
+#### [IMPLEMENT] REGISTRY-010 — Catalog and permission-picker contracts are neither uniformly audience-specific nor versioned
+- **Prerequisites**: REGISTRY-008.
+- **Unlocks**: None.
+- **Order Rationale**: Decouples API catalog contracts.
+- **Affected Backend Areas**: Catalog controllers.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Picker API contract uses DTO mappings.
+- **Tests**: API contract tests.
+- **Future UI Flow**: Role picker list.
+
+---
+
+# Phase 4: Plans, AddOns, quotas, Money and subscriptions
+
+### Batch 4.1: Money Type and Price-Book Foundations
+#### [IMPLEMENT] BILLING-003 — HiveApp has price calculations but no decided Money, price-book, invoice, or payment ledger
+- **Prerequisites**: None.
+- **Unlocks**: PLAN-001.
+- **Order Rationale**: Installs the core money structures before mapping database tables.
+- **Affected Backend Areas**: Domain entities.
+- **Database Migration**: Yes (add explicit currency column).
+- **Acceptance Criteria**: Prices are saved with explicit currencies (e.g. `USD`).
+- **Tests**: Money value object tests.
+- **Future UI Flow**: Billing history lists.
+
+---
+
+### Batch 4.2: Plan Persistence & Atomic Seeders
+#### [VERIFY FIRST] PLAN-001 — Plan persistence constraints are weak at the entity level
+- **Prerequisites**: BILLING-003.
+- **Unlocks**: PLAN-002.
+- **Order Rationale**: Database level unique constraint verification. Verification: Check if duplicate plan codes can be saved. Remediation: Add unique database index on `plans(code)`.
+- **Affected Backend Areas**: `Plan.java`.
+- **Database Migration**: Yes (unique code constraint).
+- **Acceptance Criteria**: Duplicate plan codes raise database errors.
+- **Tests**: JPA integration tests.
+- **Future UI Flow**: Plans builder.
+
+#### [IMPLEMENT] PLAN-002 — FREE/default plan availability is not protected
+- **Prerequisites**: PLAN-001.
+- **Unlocks**: PLAN-003.
+- **Order Rationale**: Blocks default plan deletes.
+- **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Deleting default FREE plan throws `BusinessException`.
+- **Tests**: Default plan deletion unit tests.
+- **Future UI Flow**: Admin plans console.
+
+#### [IMPLEMENT] PLAN-003 — Seeded plan composition diverges between fresh and existing installations
+- **Prerequisites**: PLAN-002.
+- **Unlocks**: PLAN-004.
+- **Order Rationale**: Atomic plan seeder setup.
+- **Affected Backend Areas**: `PlanSeeder.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Seed operation leaves database matches identical.
+- **Tests**: Seeder checks.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] PLAN-004 — Plan-feature uniqueness is enforced only by a race-prone pre-check
+- **Prerequisites**: PLAN-003.
+- **Unlocks**: PLAN-006, PLAN-008.
+- **Order Rationale**: Restricts duplications in features map.
+- **Affected Backend Areas**: `PlanFeature.java`.
+- **Database Migration**: Yes (unique index on `plan_features(plan_id, feature_id)`).
+- **Acceptance Criteria**: Duplicate plan feature mappings fail database constraint checks.
+- **Tests**: Concurrency mapping tests.
+- **Future UI Flow**: Catalog assignments setting page.
+
+---
+
+### Batch 4.3: Plan Lifecycle & AddOn Models
+#### [IMPLEMENT] PLAN-006 — Boolean plan state cannot implement the decided lifecycle
+- **Prerequisites**: PLAN-004.
+- **Unlocks**: SUBSCRIPTION-001, PLAN-007.
+- **Order Rationale**: Adds lifecycles (DRAFT, ACTIVE, ARCHIVED).
+- **Affected Backend Areas**: `Plan.java`.
+- **Database Migration**: Yes (add lifecycle state column).
+- **Acceptance Criteria**: State field matches enum machine rules.
+- **Tests**: State transition tests.
+- **Future UI Flow**: Plan status dropdown.
+
+#### [IMPLEMENT] PLAN-008 — PlanFeature commercial meaning and subscriber-removal boundaries are implicit
+- **Prerequisites**: PLAN-004.
+- **Unlocks**: PLAN-012, QUOTA-003.
+- **Order Rationale**: Structured JSON packages mappings.
+- **Affected Backend Areas**: `PlanFeature.java`.
+- **Database Migration**: Yes (schema updates for features).
+- **Acceptance Criteria**: Configuration objects support distinct packages.
+- **Tests**: JSON mapping unit tests.
+- **Future UI Flow**: Plan features edit form.
+
+#### [IMPLEMENT] PLAN-012 — Current per-feature add-on fields cannot represent the agreed commercial AddOn model
+- **Prerequisites**: PLAN-008.
+- **Unlocks**: None.
+- **Order Rationale**: Implements explicit AddOn records instead of null-inferred prices.
+- **Affected Backend Areas**: `AddOn.java` (new entity).
+- **Database Migration**: Yes (create `add_ons` table).
+- **Acceptance Criteria**: Add-on plans are purchasable separately.
+- **Tests**: Add-on purchase integration tests.
+- **Future UI Flow**: Marketplace add-on catalog.
+
+---
+
+### Batch 4.4: Quota Packages & Resource Cost Resolution
+#### [IMPLEMENT] QUOTA-003 — Quota conflict matching loses the owning feature
+- **Prerequisites**: PLAN-008.
+- **Unlocks**: QUOTA-004.
+- **Order Rationale**: Dynamic compound key.
+- **Affected Backend Areas**: `QuotaEnforcer.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Quota checks resolve conflict mappings using feature code.
+- **Tests**: Enforcement unit tests.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] QUOTA-004 — Current arbitrary overrides cannot represent the decided quota-package model
+- **Prerequisites**: QUOTA-003.
+- **Unlocks**: QUOTA-002.
+- **Order Rationale**: Maps discrete increments.
+- **Affected Backend Areas**: `QuotaOverride.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Overrides map to discrete package increments.
+- **Tests**: Quota math tests.
+- **Future UI Flow**: Subscription custom quotas editor.
+
+#### [IMPLEMENT] QUOTA-002 — Client quota overrides can request unlimited capacity for free
+- **Prerequisites**: QUOTA-004.
+- **Unlocks**: None.
+- **Order Rationale**: Recalculates cost prior to changes.
+- **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Adding overrides recalculates subscription costs.
+- **Tests**: Quota price calculation tests.
+- **Future UI Flow**: Customer billing overrides page.
+
+---
+
+### Batch 4.5: Immutable snapshots & Subscription Transitions
+#### [VERIFY FIRST] SUBSCRIPTION-001 — Subscription lifecycle terminology is inconsistent
+- **Prerequisites**: PLAN-006.
+- **Unlocks**: SUBSCRIPTION-002.
+- **Order Rationale**: Verification of enum naming consistency. Verification: Check database mapping files for conflicting terminology. Remediation: Enforce standard naming status values.
+- **Affected Backend Areas**: `SubscriptionStatus.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Status values match canonical terms.
+- **Tests**: Alignment check.
+- **Future UI Flow**: None.
+
+#### [VERIFY FIRST] SUBSCRIPTION-002 — Entitlement and override JSON is stored as untyped strings
+- **Prerequisites**: SUBSCRIPTION-001.
+- **Unlocks**: SUBSCRIPTION-003.
+- **Order Rationale**: JSON mapping verification. Verification: Check if mapping errors trigger silent crashes on load. Remediation: Write JPA AttributeConverters translating column to typed Java models.
+- **Affected Backend Areas**: `Subscription.java`.
+- **Database Migration**: Yes (JSON columns).
+- **Acceptance Criteria**: JSON columns parse safely to Java attributes.
+- **Tests**: Converter unit tests.
+- **Future UI Flow**: Customer subscriptions view.
+
+#### [IMPLEMENT] SUBSCRIPTION-003 — Subscription periods and lifecycle transitions are not implemented
+- **Prerequisites**: SUBSCRIPTION-002.
+- **Unlocks**: SUBSCRIPTION-004, BILLING-001, PLAN-007.
+- **Order Rationale**: Core period scheduler.
+- **Affected Backend Areas**: `SubscriptionServiceImpl.java`, background scheduler.
+- **Database Migration**: Yes (periods tables).
+- **Acceptance Criteria**: Scheduled task updates active subscriptions at period end.
+- **Tests**: Integration scheduler tests.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] SUBSCRIPTION-004 — Trial subscriptions are authorized but invisible to client subscription flows
+- **Prerequisites**: SUBSCRIPTION-003.
+- **Unlocks**: SUBSCRIPTION-005.
+- **Order Rationale**: Exposes trial duration.
+- **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Trialing accounts display trial bounds.
+- **Tests**: Trial access integration tests.
+- **Future UI Flow**: Subscription Billing status dashboard.
+
+#### [IMPLEMENT] SUBSCRIPTION-005 — Admin overrides can grant out-of-plan features with no defined price
+- **Prerequisites**: SUBSCRIPTION-004.
+- **Unlocks**: SUBSCRIPTION-006.
+- **Order Rationale**: Recalculates cost on custom feature grants.
+- **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Adding out-of-plan features charges priced defaults.
+- **Tests**: Dynamic pricing integration tests.
+- **Future UI Flow**: Customer overrides setting form.
+
+#### [IMPLEMENT] SUBSCRIPTION-006 — Legacy subscriptions without snapshots receive optional add-ons automatically
+- **Prerequisites**: SUBSCRIPTION-005.
+- **Unlocks**: SUBSCRIPTION-007, PLAN-005.
+- **Order Rationale**: Snapshots are mandatory before evaluating downgrade steps.
+- **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Legacy entries receive dynamic repairs.
+- **Tests**: Migration snapshot repair tests.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] SUBSCRIPTION-007 — Downgrade safety is centralized, incomplete, and fails open for new modules
+- **Prerequisites**: SUBSCRIPTION-006.
+- **Unlocks**: None.
+- **Order Rationale**: Validates limits prior to downgrading.
+- **Affected Backend Areas**: Downgrade validator classes.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Downgrading fails if current usage exceeds target limits.
+- **Tests**: Downgrade rejection tests.
+- **Future UI Flow**: Plan change checkout wizard.
+
+#### [IMPLEMENT] PLAN-005 — Purchased subscription terms are not a complete historical snapshot
+- **Prerequisites**: SUBSCRIPTION-006.
+- **Unlocks**: None.
+- **Order Rationale**: Guarantees immutable terms history preservation.
+- **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Snapshots store exact plan terms at checkout time.
+- **Tests**: Price mutation tests.
+- **Future UI Flow**: Customer invoice histories.
+
+---
+
+### Batch 4.6: Checkout Operations & Gateway Mocks
+#### [IMPLEMENT] BILLING-001 — Client self-service activates paid plans without payment or approval
+- **Prerequisites**: SUBSCRIPTION-003.
+- **Unlocks**: BILLING-002.
+- **Order Rationale**: Installs payment gateway validations.
+- **Affected Backend Areas**: Checkout services.
+- **Database Migration**: Yes (payment ledger schema).
+- **Acceptance Criteria**: Changes stay pending until payment confirmation.
+- **Tests**: Payment checkout tests.
+- **Future UI Flow**: Upgrades checkouts page.
+
+#### [IMPLEMENT] BILLING-002 — The only payment gateway bean always reports fake success
+- **Prerequisites**: BILLING-001.
+- **Unlocks**: None.
+- **Order Rationale**: Replace raw mocks with structured simulator settings.
+- **Affected Backend Areas**: Mock Payment provider configurations.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Simulated payments return configurable outcomes.
+- **Tests**: Mock gateway unit tests.
+- **Future UI Flow**: Payment test panels.
+
+---
+
+# Phase 5: Operational flows: previews, scheduled/bulk jobs, lifecycle, audit, communications and B2B
+
+### Batch 5.1: Plan Lineages, Revisions & Deletion Previews
+#### [IMPLEMENT] PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
+- **Prerequisites**: PLAN-006, SUBSCRIPTION-003.
+- **Unlocks**: PLAN-009.
+- **Order Rationale**: Implements draft-revision edits to active plans.
+- **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
+- **Database Migration**: Yes (lineage linking columns).
+- **Acceptance Criteria**: Edits to active plans branch into drafts.
+- **Tests**: Plan draft revision branching tests.
+- **Future UI Flow**: Plan editing dashboard.
+
+#### [IMPLEMENT] PLAN-009 — Plan deletion lacks the decided draft-only impact workflow
+- **Prerequisites**: PLAN-007.
+- **Unlocks**: PLAN-010.
+- **Order Rationale**: Checks usage prior to deletes.
+- **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Deleting active templates returns count warnings.
+- **Tests**: Delete custom role integration tests.
+- **Future UI Flow**: Plan deletion validation modal.
+
+#### [IMPLEMENT] PLAN-010 — Plan duplication has no durable revision identity or code-reservation lifecycle
+- **Prerequisites**: PLAN-009.
+- **Unlocks**: PLAN-011.
+- **Order Rationale**: Builds lineage tracks.
+- **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
+- **Database Migration**: Yes (parent plan code tracking).
+- **Acceptance Criteria**: Duplicates inherit history chains.
+- **Tests**: Lineage validation tests.
+- **Future UI Flow**: Plan cloning wizard.
+
+#### [IMPLEMENT] PLAN-011 — Admin subscriber management is a collection of single-record endpoints, not the decided operational flow
+- **Prerequisites**: PLAN-010.
+- **Unlocks**: None.
+- **Order Rationale**: Exposes batch actions and paginated metrics to admins.
+- **Affected Backend Areas**: Plan admin controllers.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Subscriber lists are paginated and searchable.
+- **Tests**: Pagination endpoint integration tests.
+- **Future UI Flow**: Admin plan subscribers list.
+
+---
+
+### Batch 5.2: B2B Lifecycle & Discovery Operations
+#### [IMPLEMENT] COLLAB-001 — Duplicate collaborations are allowed
+- **Prerequisites**: TENANCY-003.
+- **Unlocks**: COLLAB-002.
+- **Order Rationale**: Constraints for B2B.
+- **Affected Backend Areas**: `Collaboration.java`.
+- **Database Migration**: Yes (unique index on `collaborations(client_id, provider_id, company_id)`).
+- **Acceptance Criteria**: Duplicate relationships fail DB saves.
+- **Tests**: Concurrency collaboration tests.
+- **Future UI Flow**: Collaboration request card.
+
+#### [IMPLEMENT] COLLAB-002 — B2B delegation lacks an actor permission ceiling
+- **Prerequisites**: COLLAB-001.
+- **Unlocks**: COLLAB-003.
+- **Order Rationale**: Delegation checks.
+- **Affected Backend Areas**: `CollaborationServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Delegator cannot assign permissions they do not hold.
+- **Tests**: Ceiling validation checks.
+- **Future UI Flow**: Delegation pickers.
+
+#### [IMPLEMENT] COLLAB-003 — Collaboration operations do not revalidate active account/company state
+- **Prerequisites**: COLLAB-002.
+- **Unlocks**: COLLAB-004.
+- **Order Rationale**: Active rechecks.
+- **Affected Backend Areas**: `CollaborationServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Mapped records verify status flags.
+- **Tests**: Isolation tests.
+- **Future UI Flow**: Connection grids.
+
+#### [IMPLEMENT] COLLAB-004 — `SUSPENDED` status has no management flow
+- **Prerequisites**: COLLAB-003.
+- **Unlocks**: COLLAB-005.
+- **Order Rationale**: Lifecycle suspension transitions.
+- **Affected Backend Areas**: `CollaborationServiceImpl.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Suspend endpoint disables active access.
+- **Tests**: State check tests.
+- **Future UI Flow**: Collaboration management toggles.
+
+#### [IMPLEMENT] COLLAB-005 — Concurrent lifecycle actions can overwrite each other
+- **Prerequisites**: COLLAB-004.
+- **Unlocks**: COLLAB-006.
+- **Order Rationale**: Locking transitions.
+- **Affected Backend Areas**: `Collaboration.java`.
+- **Database Migration**: Yes (add `@Version` column).
+- **Acceptance Criteria**: Mismatched transitions throw `ObjectOptimisticLockingFailureException`.
+- **Tests**: Concurrency locking tests.
+- **Future UI Flow**: Connection buttons.
+
+#### [IMPLEMENT] COLLAB-006 — UI cannot read the collaboration's currently granted permissions
+- **Prerequisites**: COLLAB-005.
+- **Unlocks**: COLLAB-007.
+- **Order Rationale**: Access inspection APIs.
+- **Affected Backend Areas**: Collaboration controllers.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Connection detail endpoint lists grants.
+- **Tests**: API contract integration tests.
+- **Future UI Flow**: Collaboration details inspect panel.
+
+#### [IMPLEMENT] COLLAB-007 — Collaboration service exposes persistence entities
+- **Prerequisites**: COLLAB-006.
+- **Unlocks**: COLLAB-008.
+- **Order Rationale**: Decouple service boundaries.
+- **Affected Backend Areas**: `CollaborationService.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Services exchange B2BDTOs.
+- **Tests**: Compilation checks.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] COLLAB-008 — B2B discovery and lifecycle APIs cannot implement the decided management flow
+- **Prerequisites**: COLLAB-007.
+- **Unlocks**: AUTHZ-002.
+- **Order Rationale**: Implements share-code verification instead of raw UUID lookups.
+- **Affected Backend Areas**: Collaboration controllers.
+- **Database Migration**: Yes (add company share codes column).
+- **Acceptance Criteria**: Requests require valid share code matching.
+- **Tests**: Share code verification tests.
+- **Future UI Flow**: Collaboration connector form.
+
+---
+
+### Batch 5.3: B2B Operator Scoping & Context Routing
+#### [IMPLEMENT] AUTHZ-002 — Any active member of a B2B client account can use all delegated collaboration permissions
+- **Prerequisites**: COLLAB-008.
+- **Unlocks**: AUTHZ-003.
+- **Order Rationale**: Blocks client members from accessing provider data unless they hold client-side B2B operator roles.
+- **Affected Backend Areas**: `B2bCollaborationPolicy.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Runtime checks verify client worker role status.
+- **Tests**: B2B operator role integration tests.
+- **Future UI Flow**: B2B operator settings panel.
+
+#### [IMPLEMENT] AUTHZ-003 — Existing B2B grants are not revalidated against current code delegation rules
+- **Prerequisites**: AUTHZ-002.
+- **Unlocks**: AUTHZ-005, AUTHZ-006.
+- **Order Rationale**: Re-filters runtime B2B permissions dynamically against active code definition annotations.
+- **Affected Backend Areas**: `B2bCollaborationPolicy.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Removed permissions disappear dynamically from B2B access lists.
+- **Tests**: Dynamic delegation tests.
+- **Future UI Flow**: None.
+
+#### [IMPLEMENT] AUTHZ-005 — Tenant and B2B context headers are absent from CORS configuration
+- **Prerequisites**: AUTHZ-003.
+- **Unlocks**: None.
+- **Order Rationale**: Adds custom context headers to CORS config.
+- **Affected Backend Areas**: `WebMvcConfigurer` CORS settings.
+- **Database Migration**: No.
+- **Acceptance Criteria**: HTTP headers (e.g. `X-Tenant-Id`) are accepted in options requests.
+- **Tests**: CORS validation tests.
+- **Future UI Flow**: Cross-workspace frontend requests.
+
+#### [DESIGN FIRST] AUTHZ-006 — Shell authorization cannot target one managed entity or subgroup
+- **Prerequisites**: AUTHZ-003.
+- **Unlocks**: None.
+- **Order Rationale**: Target-aware exceptions design decision. Choose the smallest explicit target model during implementation before deploying context parameters.
+- **Affected Backend Areas**: `HiveAppContextHolder`, policy evaluation engines.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Target-management model selected; context parameters resolved in check gates.
+- **Tests**: Target validation tests.
+- **Future UI Flow**: Sub-company data lists.
+
+---
+
+### Batch 5.4: Transactional Security & Financial Auditing
+#### [VERIFY FIRST] AUDIT-001 — Security and billing changes lack a reviewed actor-aware audit model
+- **Prerequisites**: None.
+- **Unlocks**: None.
+- **Order Rationale**: Audit trail verify. Verification: Check which mutations skip actor-logging. Remediation: Enforce audit recording mapping actors.
+- **Affected Backend Areas**: Mutation controllers, audit service.
+- **Database Migration**: Yes (audit logs schema).
+- **Acceptance Criteria**: State mutations write record entries mapping active actor.
+- **Tests**: Audit logging integration tests.
+- **Future UI Flow**: Compliance audit reports.
+
+---
+
+### Batch 5.5: Unified Monolith Time Handling
+#### [VERIFY FIRST] TIME-001 — Business timestamps mix `Instant` and `LocalDateTime`
+- **Prerequisites**: None.
+- **Unlocks**: None.
+- **Order Rationale**: Time formats check. Verification: Locate entities declaring LocalDateTime properties. Remediation: Convert all datetime properties to Instant.
+- **Affected Backend Areas**: Domain entities.
+- **Database Migration**: Yes (alter timestamp columns type).
+- **Acceptance Criteria**: Datetime properties represent UTC Instants.
+- **Tests**: Timezone mapping unit tests.
+- **Future UI Flow**: Date labels.
+
+---
+
+### Batch 5.6: Safe SMTP
+#### [IMPLEMENT] EMAIL-001 — Missing SMTP silently becomes token logging and apparent delivery success
+- **Prerequisites**: None.
+- **Unlocks**: None.
+- **Order Rationale**: Safe SMTP failures handling.
+- **Affected Backend Areas**: Email Sender provider.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Unsent mail returns failure metrics to caller.
+- **Tests**: SMTP exception simulation tests.
+- **Future UI Flow**: Email delivery status dialogs.
+
+---
+
+# Phase 6: Stable APIs, DTOs and read models
+
+### Batch 6.1: DTO Validation & Pagination
+#### [VERIFY FIRST] DTO-001 — Request validation is inconsistent at important write boundaries
+- **Prerequisites**: None.
+- **Unlocks**: DTO-002.
+- **Order Rationale**: API validation verification. Verification: Check which API endpoints accept raw input. Remediation: Standardize validation annotations on DTO schemas.
+- **Affected Backend Areas**: Request bodies.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Invalid payloads reject with structured validation arrays.
+- **Tests**: Validation annotation checks.
+- **Future UI Flow**: Form validations.
+
+#### [VERIFY FIRST] DTO-002 — Several response DTOs cannot represent important entity state
+- **Prerequisites**: DTO-001.
+- **Unlocks**: DTO-003.
+- **Order Rationale**: API response verification. Verification: Locate response fields mapping entities directly. Remediation: Align DTO attributes to match entity states.
+- **Affected Backend Areas**: Response bodies.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Response fields display status states.
+- **Tests**: Mapping unit tests.
+- **Future UI Flow**: Settings status panels.
+
+#### [VERIFY FIRST] DTO-003 — Multiple overlapping registry/catalog DTO families need explicit boundaries
+- **Prerequisites**: DTO-002.
+- **Unlocks**: DTO-004, AUTHZ-DTO-001, MAPPER-001, ADMIN-DATA-001, ADMIN-DATA-002, MEMBER-004.
+- **Order Rationale**: Catalog family namespace verification. Verification: Map overlaps in catalog DTOs. Remediation: Split into platform-admin vs client workspaces sets.
+- **Affected Backend Areas**: DTO directories.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Clean namespaces.
+- **Tests**: Compilation checks.
+- **Future UI Flow**: Settings pages.
+
+#### [VERIFY FIRST] DTO-004 — Client plan catalog quota model contains duplicated fields
+- **Prerequisites**: DTO-003.
+- **Unlocks**: None.
+- **Order Rationale**: Quota DTO payload validation. Verification: Find redundant fields in quota models. Remediation: Streamline models.
+- **Affected Backend Areas**: `QuotaLimitDto.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Duplicate fields removed from payload.
+- **Tests**: JSON schema validation.
+- **Future UI Flow**: Pricing page catalogs.
+
+#### [IMPLEMENT] AUTHZ-DTO-001 — Effective client permission response has no explicit company context
+- **Prerequisites**: DTO-003.
+- **Unlocks**: None.
+- **Order Rationale**: Groups permissions inside companies.
+- **Affected Backend Areas**: Permission responses.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Permission lists map company contexts.
+- **Tests**: Mapping tests.
+- **Future UI Flow**: Sidebar menus.
+
+#### [IMPLEMENT] MEMBER-004 — Member DTO cannot support the implemented management flows cleanly
+- **Prerequisites**: DTO-003.
+- **Unlocks**: None.
+- **Order Rationale**: Aligns member lists to display active status and scopes.
+- **Affected Backend Areas**: `MemberDto.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Member responses display active role arrays.
+- **Tests**: Mapping tests.
+- **Future UI Flow**: Team settings list.
+
+#### [IMPLEMENT] ADMIN-DATA-001 — Admin list endpoints perform query-per-row mapping
+- **Prerequisites**: DTO-003.
+- **Unlocks**: None.
+- **Order Rationale**: Prevents N+1 queries in admin views.
+- **Affected Backend Areas**: Admin controllers.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Admin query loads relationships in single join query.
+- **Tests**: Hibernate query count checks.
+- **Future UI Flow**: Admin Portal lists.
+
+#### [VERIFY FIRST] ADMIN-DATA-002 — Admin users and roles are returned without pagination
+- **Prerequisites**: DTO-003.
+- **Unlocks**: None.
+- **Order Rationale**: Admin pagination verification. Verification: Check list query performance with high admin count. Remediation: Add pagination query parameters.
+- **Affected Backend Areas**: Admin controllers.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Requests accept page/size parameters.
+- **Tests**: Pagination unit tests.
+- **Future UI Flow**: Admin user lists.
+
+---
+
+### Batch 6.2: Lazy-Safe API DTO Mapping
+#### [VERIFY FIRST] MAPPER-001 — Mappers traverse lazy relationships
+- **Prerequisites**: DTO-003.
+- **Unlocks**: MAPPER-002.
+- **Order Rationale**: Hibernate lazy mapping check. Verification: Assert if mapper calls trigger LazyInitializationExceptions. Remediation: Exclude uninitialized lazy properties from auto-mappings.
+- **Affected Backend Areas**: Mappers.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Mappers do not check uninitialized Hibernate properties.
+- **Tests**: Lazy serialization checks.
+- **Future UI Flow**: API JSON serialization.
+
+#### [VERIFY FIRST] MAPPER-002 — Most API mapping appears to be manual and distributed
+- **Prerequisites**: MAPPER-001.
+- **Unlocks**: None.
+- **Order Rationale**: Mapping normalization check. Verification: Locate manual property loops. Remediation: Standardize mappings using MapStruct interfaces.
+- **Affected Backend Areas**: Core mappers.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Manual mapping boilerplates are deleted.
+- **Tests**: MapStruct compilation.
+- **Future UI Flow**: None.
+
+---
+
+### Batch 6.3: Boundary Segregation
+#### [VERIFY FIRST] SERVICE-001 — Identity service exposes its JPA entity as a cross-domain contract
+- **Prerequisites**: None.
+- **Unlocks**: SERVICE-002.
+- **Order Rationale**: Identity encapsulation check. Verification: Check if identity service leaks User entity. Remediation: Restructure interface using UserDTO contract.
+- **Affected Backend Areas**: `IdentityService.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Interfaces hide `User` entity records.
+- **Tests**: Compilation checks.
+- **Future UI Flow**: Login screen.
+
+#### [IMPLEMENT] SERVICE-002 — Platform admin service contracts expose persistence entities
+- **Prerequisites**: SERVICE-001.
+- **Unlocks**: SERVICE-003.
+- **Order Rationale**: Isolates admin services.
+- **Affected Backend Areas**: Admin services.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Interfaces exchange AdminDTOs.
+- **Tests**: Compilation checks.
+- **Future UI Flow**: Admin Dashboard.
+
+#### [IMPLEMENT] SERVICE-003 — Company and member API services also expose persistence entities
+- **Prerequisites**: SERVICE-002.
+- **Unlocks**: None.
+- **Order Rationale**: Isolates workspaces services.
+- **Affected Backend Areas**: Workspace services.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Services return DTOs.
+- **Tests**: Compilation checks.
+- **Future UI Flow**: Team portal pages.
+
+---
+
+### Batch 6.4: Monolithic Cross-Domain Modular Contracts
+#### [DESIGN FIRST] MODULES-001 — Cross-domain data exchange inside the monolith has no confirmed contract yet
+- **Prerequisites**: None.
+- **Unlocks**: MODULES-002.
+- **Order Rationale**: Internal monolith contract decision. Review service/package dependencies first before prescribing ArchUnit or restructuring.
+- **Affected Backend Areas**: Domain module packages.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Cross-package communication rules selected; boundaries documented.
+- **Tests**: None.
+- **Future UI Flow**: None.
+
+#### [VERIFY FIRST] MODULES-002 — Company domain ownership is structurally unclear
+- **Prerequisites**: MODULES-001.
+- **Unlocks**: None.
+- **Order Rationale**: Package location verification. Verification: Review company service dependencies. Remediation: Re-align company module mapping boundaries.
+- **Affected Backend Areas**: Company domain packages.
+- **Database Migration**: No.
+- **Acceptance Criteria**: decide whether Company belongs to accounts, company module, or shared organizational kernel.
+- **Tests**: Package checks.
+- **Future UI Flow**: None.
+
+---
+
+### Batch 6.5: Normalized REST Errors
+#### [IMPLEMENT] API-ERROR-001 — Error responses lack stable machine-readable business codes
+- **Prerequisites**: None.
+- **Unlocks**: None.
+- **Order Rationale**: Standardizes exception representation.
+- **Affected Backend Areas**: `GlobalExceptionHandler.java`.
+- **Database Migration**: No.
+- **Acceptance Criteria**: Exception payload structure outputs code strings (e.g. `MEMBER_LIMIT_EXCEEDED`).
+- **Tests**: Error controller checks.
+- **Future UI Flow**: Client error banners.
+
+---
+
+# Phase 7: Remove and rewrite the admin frontend
+- **Prerequisites**: All Phase 6 API work completed.
+- **Action**: IMPLEMENT.
+- **Description**: Rebuild the Admin Frontend using clean, versioned DTO catalogs and paginated subscriber queries. Delete legacy views.
+
+---
+
+# Phase 8: End-to-end verification and documentation cleanup
+- **Prerequisites**: All Phase 7 work completed.
+- **Action**: IMPLEMENT.
+- **Description**: Verification of migrations, B2B connections, and deletion of obsolete docs.
+
+---
+
+# Deferred work
+- **REGISTRY-001 — Removed code definitions and annotations remain as live database rows**
+  - **Prerequisites**: AUTHZ-001.
+  - **Unlocks**: None.
+  - **Order Rationale**: Deferred by product decision. Treat deployed codes as stable developer contracts and revisit only when actual rename requirements appear.
+- All advanced target-aware management rules (deferred per `MANAGEMENT-FLOW-001` and `AUTHZ-006` agreements).
+- Emergency runtime catalog shutdowns and new-sale suspensions (`REGISTRY-FLOW-002` / `REGISTRY-004` aspects).
+
+---
+
+# Verification-first issues
+- `TEST-001`: Negative-test coverage audit of current JUnit integration tests.
+- `PERM-001`: Verification of package-level AOP advisor target matching.
+- `PERM-003`: Verification of overloaded methods key resolution.
+- `PERM-004`: Verification of PermissionCollector exception propagation.
+- `TENANCY-003`: Verification of cross-account parent-child boundary leakage.
+- `AUTH-001`: Verification of email login case sensitivity duplicates.
+- `AUTH-004`: Verification of registration uniqueness concurrency checks.
+- `ACCOUNT-003`: Verification of slug creation uniqueness concurrency race.
+- `ACCOUNT-004`: Verification of provisioning idempotency checks.
+- `DATA-001`: Verification of join table mapping duplicates.
+- `ROLE-004`: Verification of role permission key matching.
+- `PLAN-001`: Verification of plan code database constraints.
+- `SUBSCRIPTION-001`: Verification of subscription status nomenclature conflicts.
+- `SUBSCRIPTION-002`: Verification of JSON column conversion crashes.
+- `AUDIT-001`: Verification of mutation audit trail gaps.
+- `TIME-001`: Verification of mixed local vs UTC datetime usage.
+- `DTO-001`: Verification of API payload validation coverage.
+- `DTO-002`: Verification of API response state mapping gaps.
+- `DTO-003`: Verification of overlapping catalog DTO namespaces.
+- `DTO-004`: Verification of redundant fields in quota models.
+- `ADMIN-DATA-002`: Verification of large admin lists performance bounds.
+- `MAPPER-001`: Verification of Hibernate lazy mapping serialization traversals.
+- `MAPPER-002`: Verification of manual mapping boilerplate occurrences.
+- `SERVICE-001`: Verification of identity service entity leakage.
+- `MODULES-002`: Verification of company domain packages location.
+
+---
+
+# Obsolete/removal work
+- `INVITE-001` through `INVITE-007`: Replaced by `INVITE-000` (Direct Member Creation).
+- `EMAIL-002`: Invitation templates (replaced by activation emails under `INVITE-000`).
+- `EVENT-001`: Legacy event.
+- `EVENT-002`: Legacy event.
+
+---
+
+# Complete TOFIX coverage matrix
+| TOFIX ID | Title | Current status | Action | Phase | Batch | Prerequisites | Acceptance evidence |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **TENANCY-001** | Establish Account boundary | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.1 | AUTHZ-001 | Context ID scoping |
+| **TENANCY-002** | Account owner id relationship | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.1 | TENANCY-001 | Real foreign key |
+| **RBAC-001** | Company scope represented twice | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | ROLE-003 | Consolidated columns |
+| **RBAC-002** | Inactive roles grant permissions | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-001 | Ignored in evaluation |
+| **RBAC-003** | Ceiling for assignments | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-002 | Actor ceiling enforced |
+| **RBAC-004** | Role removal ignores scope | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-003 | Scope checked |
+| **DATA-001** | Duplicate relationships | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.4 | MEMBER-003 | Unique DB index |
+| **TENANCY-003** | Mismatched parent accounts | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.1 | TENANCY-002 | `@PrePersist` validator |
+| **ORG-001** | Support generic Group model | MISSING | IMPLEMENT | Phase 2 | Batch 2.2 | COMPANY-002 | Hierarchy table |
+| **ORG-002** | Groups stay outside authz | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | ORG-001 | Security check ignore |
+| **AUTHZ-006** | Context evaluation checks | MISSING | DESIGN FIRST | Phase 5 | Batch 5.3 | AUTHZ-003 | Design document |
+| **RBAC-006** | Exception override lifecycle | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-003 | Expire column |
+| **SUBSCRIPTION-001**| Terminological alignment | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | PLAN-006 | Enums corrected |
+| **SUBSCRIPTION-002**| JSON strings | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | SUBSCRIPTION-001 | Converter classes |
+| **PLAN-001** | Database constraints | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.2 | BILLING-003 | Unique code |
+| **PLAN-006** | Lifecycle states | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | State column |
+| **PLAN-007** | Branching revisions | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Draft generation |
+| **BILLING-001** | Checkouts activation | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Payment validation |
+| **BILLING-003** | Money prices ledger | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.1 | None | Money type index |
+| **QUOTA-002** | Custom overrides limit | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Cost calculation |
+| **SUBSCRIPTION-003**| Periods scheduler | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-002 | Cron execution |
+| **SUBSCRIPTION-004**| Trial visibility | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-003 | Trial display |
+| **SUBSCRIPTION-005**| Overrides pricing | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-004 | Recalculated cost |
+| **SUBSCRIPTION-006**| Dynamic repairs | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-005 | Snapshot seeder |
+| **SUBSCRIPTION-007**| Downgrade safety checks | MISSING | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Rejections |
+| **QUOTA-004** | Discrete packages | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-003 | Packages map |
+| **QUOTA-003** | Compound key | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | PLAN-008 | Collision fixed |
+| **PLAN-002** | Default plan protection | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-001 | Deletion block |
+| **PLAN-003** | Atomic plan seeding | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-002 | Transactional boot |
+| **PLAN-004** | Unique assignments | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-003 | Db unique index |
+| **PLAN-008** | PlanFeature schema | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Quota config JSON |
+| **PLAN-009** | Deletion preview | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-007 | Deletion warnings |
+| **PLAN-010** | Cloning Wizard | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Copy lineages |
+| **PLAN-011** | Subscriber management | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-010 | Pagination |
+| **PLAN-012** | Explicit AddOn | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Add_ons table |
+| **PLAN-005** | Immutable snapshots | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | snapshot values |
+| **TIME-001** | Unified Timestamps | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.5 | None | Instants type |
+| **MODULES-001** | Modular Interfaces | PARTIAL | DESIGN FIRST | Phase 6 | Batch 6.4 | None | Boundary check |
+| **MODULES-002** | Company domain owner | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.4 | MODULES-001 | Package check |
+| **AUDIT-001** | Audit logs | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.4 | None | Audit logs validation |
+| **DTO-001** | Request validation | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | None | MethodArgumentNotValid |
+| **DTO-002** | Align response | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-001 | Mapped properties |
+| **AUTHZ-DTO-001**| Contextual DTO | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Scope context |
+| **DTO-003** | DTO boundaries | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-002 | Namespace mappings |
+| **DTO-004** | Client DTO clean | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Clean structure |
+| **MAPPER-001** | Prevent Lazy-Init | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.2 | DTO-003 | Excluded properties |
+| **MAPPER-002** | MapStruct mappers | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.2 | MAPPER-001 | MapStruct interfaces |
+| **SERVICE-001** | Expose DTOs | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.3 | None | UserDTO return |
+| **SERVICE-002** | Expose DTOs | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-001 | AdminDTO return |
+| **SERVICE-003** | Expose DTOs | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-002 | MemberDTO return |
+| **AUTH-001** | Email Canonicalized | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.2 | None | Lower-case matches |
+| **AUTH-002** | Invalidate sessions | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-001 | Token revoked |
+| **AUTH-003** | Align Security Context | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-002 | Principal matches |
+| **AUTH-004** | Db error translation | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.2 | AUTH-003 | Handled constraints |
+| **AUTH-005** | Malformed UUID check | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-004 | Return 400 |
+| **EVENT-001** | Dead Event | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Deleted file |
+| **ACCOUNT-001** | Require Subscription | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.3 | TENANCY-003 | Mandatory setup |
+| **ACCOUNT-002** | Account check filters | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.3 | ACCOUNT-001 | Blocked access |
+| **ACCOUNT-003** | Slug constraints | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.3 | ACCOUNT-002 | Unique index |
+| **ACCOUNT-004** | Idempotency token | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.3 | ACCOUNT-003 | Deduplication |
+| **ACCOUNT-005** | DTO in interface | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.3 | ACCOUNT-004 | Contract isolation |
+| **QUOTA-001** | Fast count | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Optimized query |
+| **COMPANY-001** | Access blocking | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.1 | TENANCY-003 | Interception blocks |
+| **COMPANY-002** | Safe edits | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.1 | COMPANY-001 | Guard checks |
+| **MEMBER-001** | Owner lockout block | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | TENANCY-002 | Rejected deactivations |
+| **MEMBER-002** | Unique memberships | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-001 | Unique index |
+| **MEMBER-003** | Active role check | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Validate role status |
+| **MEMBER-004** | Member DTO clean | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Align fields |
+| **MEMBER-005** | Token revocation | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-003 | Revoked JWTs |
+| **EVENT-002** | Dead Event | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Deleted file |
+| **ROLE-001** | Role check delete | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | MEMBER-003 | Validation warning |
+| **ROLE-002** | System roles locks | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-001 | 403 Forbidden |
+| **ROLE-003** | Lifecycle enums | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-002 | State column |
+| **ROLE-004** | Key matching validation | PARTIAL | VERIFY FIRST | Phase 2 | Batch 2.3 | ROLE-003 | Validation check |
+| **ROLE-005** | Edit Warnings | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-004 | Count warning |
+| **INVITE-000** | Replace invites | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.5 | MEMBER-002 | API deleted |
+| **INVITE-001** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
+| **INVITE-002** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
+| **INVITE-003** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
+| **INVITE-004** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
+| **INVITE-005** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
+| **INVITE-006** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
+| **INVITE-007** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
+| **COLLAB-001** | Collaboration unique | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | TENANCY-003 | Unique Index |
+| **COLLAB-002** | Actor ceiling | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-001 | Ceiling validation |
+| **COLLAB-003** | Revalidate active | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-002 | Context checks |
+| **COLLAB-004** | Suspend methods | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-003 | Active state cuts |
+| **COLLAB-005** | Optimistic lock | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-004 | `@Version` checks |
+| **COLLAB-006** | Detail endpoint | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-005 | API lists grants |
+| **COLLAB-007** | Clean services | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-006 | DTO usage |
+| **COLLAB-008** | Connection codes | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-007 | Share code verified |
+| **ADMIN-001** | Safe seeding logging | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | CONFIG-001 | Secure env password |
+| **ADMIN-002** | User existing seed | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.3 | ADMIN-001 | Context matches |
+| **ADMIN-AUTH-001**| Token refresh | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.2 | None | Access refresh flow |
+| **ADMIN-AUTH-002**| DTO validate admin | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.2 | ADMIN-AUTH-001 | Standard validations |
+| **ADMIN-RBAC-001**| SuperAdmin checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.3 | ADMIN-002 | Access denied blocks |
+| **ADMIN-DATA-001**| Query join | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Bulk load mapping |
+| **ADMIN-DATA-002**| Page parameters | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Paginated metrics |
+| **BILLING-002** | Simulated payments | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | BILLING-001 | Configurable returns |
+| **EMAIL-001** | Mail error report | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.6 | None | Exception propagate |
+| **EMAIL-002** | Escape templates | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Safe activation emails |
+| **API-ERROR-001**| Error codes payload | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.5 | None | Code mapping returned |
+| **CONFIG-001** | Profile configs | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | None | Destructive dev only |
+| **AUTHZ-001** | Global guard | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | PERM-002 | Lock down unannotated |
+| **AUTHZ-002** | B2B operator check | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | COLLAB-008 | Client worker verified |
+| **AUTHZ-003** | Dynamic validation | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-002 | Keys filter checks |
+| **AUTHZ-005** | CORS headers | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-003 | Header verification |
+| **REGISTRY-001** | Deleted keys clean | PARTIAL | DEFERRED | Phase 3 | None | AUTHZ-001 | Revisit on requirement |
+| **REGISTRY-002** | Stale actions block | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | AUTHZ-001 | Grant check matches |
+| **REGISTRY-003** | Corrupt discovery crash| PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-002 | Startup validation exit |
+| **REGISTRY-004** | Visibility enums | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-009 | State column mapping |
+| **REGISTRY-005** | Clean catalog services | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-004 | Disagreeing API removed |
+| **REGISTRY-006** | Bulk picker query | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-005 | Bulk query execution |
+| **REGISTRY-007** | Repair metadata | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-003 | Sync updates columns |
+| **REGISTRY-008** | destructive block | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-006 | Action level validator |
+| **REGISTRY-009** | Seeding transaction | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-007 | Startup lock logs |
+| **REGISTRY-010** | Picker DTO | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-008 | Decoupled payload |
+| **PERM-001** | AspectJ matching | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Target node proxy |
+| **PERM-002** | Startup guard checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | ADMIN-RBAC-001 | Alignment check |
+| **PERM-003** | Element key uniqueness| PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Signature compiler key |
+| **PERM-004** | Swallowed reflection | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Exception throws |
+| **PERM-005** | Precedence chain | PARTIAL | LOCK WITH TESTS | Phase 0 | Batch 0.4 | AUTHZ-001 | Precedence evaluation |
+| **TEST-001** | Negative test audit | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Verified negative coverage |
+| **AUTHZ-004** | Cascade overrides | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-006 | Dynamic context check |
+
+---
+
+# Risks and migration ordering
+- **High-Risk Schema Conversions**: Adding unique constraints on `members(account_id, user_id)` (`MEMBER-002`) and `collaborations` (`COLLAB-001`) may fail if duplicate data exists.
+  - *Mitigation*: Run pre-migration clean scripts in Flyway to delete or merge duplicates.
+- **Transactional Seeding Deadlocks**: Synchronization database locking on multi-node startup (`REGISTRY-009`) may deadlock.
+  - *Mitigation*: Configure short timeouts and lock acquisition retry behaviors.
+- **In-Place Subscription Mutations**: Converting money columns to support explicit currencies (`BILLING-003`) changes all price calculations.
+  - *Mitigation*: This migration must run first in the billing phase before plan lifecycle validation.
+
+---
+
+# Definition of done per batch
+1. **Compilation**: Code compiles with zero warnings or errors.
+2. **Local Tests**: `mvn test` completes with 100% success rate.
+3. **Database Consistency**: Local Flyway migrations execute against H2/PostgreSQL without errors.
+4. **Security Integrity**: Dynamic permissionizer validations protect all newly deployed endpoints.
+
+---
+
+# Recommended first implementation batch
+- **Batch 0.1 (Baseline Security & Verification)**
+  - Encompasses `CONFIG-001` (configuration profiles setup), `TEST-001` (negative tests coverage audit), `PERM-001`, `PERM-003`, `PERM-004` (verification steps for standalone Permissionizer aspect behavior), and `ADMIN-001` (securing SuperAdmin startup logging and credentials).
+  - This establishes safe configuration, a test baseline, and focused verification of the user-owned Permissionizer behavior before any conditional Permissionizer changes.
+
+---
+
+# Questions/blockers requiring user confirmation
+1. **B2B Invitation Expiry Timeframe (COLLAB-008)**: Should B2B collaboration share codes carry a default, configurable expiration window similar to the original user invitation workflow (e.g. 7 days)?
+2. **Account Suspension and Refresh Session Timing (ACCOUNT-002)**: Upon deactivating/suspending a workspace, should active user refresh sessions be revoked immediately, or is standard token expiration duration acceptable?
