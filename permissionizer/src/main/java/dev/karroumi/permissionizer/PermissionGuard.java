@@ -274,9 +274,18 @@ public final class PermissionGuard {
     }
 
     public static void reset() {
-        policies.clear();
+        resetConfiguration();
         autoGuardActive = false;
         springInterceptorActive = false;
+    }
+
+    /**
+     * Clears policies and runtime configuration while preserving already
+     * registered interception mechanisms. Intended for application-context
+     * reconfiguration where the Spring interceptor/agent remains installed.
+     */
+    public static void resetConfiguration() {
+        policies.clear();
         dryRun = false;
         exactMatching = false;
         denialListener = null;
@@ -306,8 +315,9 @@ public final class PermissionGuard {
                 throw new IllegalStateException("SECURITY MISCONFIGURATION: guard=ON found but no agent/interceptor active.");
             }
         } catch (ClassNotFoundException ignored) {
-        } catch (Exception e) {
-            LOG.warning("Guard verification failed: " + e.getMessage());
+            // No generated guarded nodes means there is nothing to align.
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Cannot verify Permissionizer guard alignment.", e);
         }
     }
 }
