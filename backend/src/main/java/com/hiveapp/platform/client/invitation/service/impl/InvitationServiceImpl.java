@@ -38,7 +38,7 @@ import java.util.UUID;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = InvitationsFeature.KEY, description = "Workspace Invitation Management")
+@PermissionNode(key = InvitationsFeature.KEY, description = "Workspace Invitation Management", guard = PermissionNode.Guard.ON)
 public class InvitationServiceImpl extends ClientWorkspaceFeatureService implements InvitationService {
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();

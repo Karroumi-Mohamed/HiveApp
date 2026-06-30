@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = AdminUsersFeature.KEY, description = "Admin User Management")
+@PermissionNode(key = AdminUsersFeature.KEY, description = "Admin User Management", guard = PermissionNode.Guard.ON)
 public class AdminUserServiceImpl extends PlatformControlFeatureService implements AdminUserService {
 
     private final AdminUserRepository adminUserRepository;

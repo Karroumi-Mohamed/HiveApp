@@ -54,7 +54,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = ClientSubscriptionFeature.KEY, description = "Subscription Management")
+@PermissionNode(key = ClientSubscriptionFeature.KEY, description = "Subscription Management", guard = PermissionNode.Guard.ON)
 public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService implements SubscriptionService {
 
     private final SubscriptionRepository subscriptionRepository;

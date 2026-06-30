@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = RegistryFeature.KEY, description = "Platform Registry Management")
+@PermissionNode(key = RegistryFeature.KEY, description = "Platform Registry Management", guard = PermissionNode.Guard.ON)
 public class RegistryServiceImpl extends PlatformControlFeatureService implements RegistryService {
 
     private final ModuleRepository moduleRepository;

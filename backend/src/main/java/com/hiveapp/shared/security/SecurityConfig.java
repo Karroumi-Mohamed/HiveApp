@@ -28,6 +28,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import dev.karroumi.permissionizer.PermissionGuard;
 import dev.karroumi.permissionizer.PermissionPolicy;
+import dev.karroumi.permissionizer.spring.PermissionInterceptor;
 import com.hiveapp.shared.security.policy.AdminPermissionPolicy;
 import com.hiveapp.shared.security.policy.B2bCollaborationPolicy;
 import com.hiveapp.shared.security.policy.PlanPolicy;
@@ -55,6 +56,8 @@ public class SecurityConfig {
     private final UserRolePolicy userRolePolicy;
     private final ContextDetectionFilter contextDetectionFilter;
     private final Supplier<HiveAppPermissionContext> permissionContextSupplier;
+    /** Ensures Spring interception is registered before fatal guard verification runs. */
+    private final PermissionInterceptor permissionInterceptor;
 
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
@@ -161,7 +164,7 @@ public class SecurityConfig {
 
     @PostConstruct
     public void permissionsLoader() {
-        PermissionGuard.reset();
+        PermissionGuard.resetConfiguration();
         PermissionGuard.builder()
             .addPolicy(adminPermissionPolicy)   // FIRST — short-circuits for admin actors
             .addPolicy(b2bPolicy)
@@ -177,7 +180,6 @@ public class SecurityConfig {
                     .map(GrantedAuthority::getAuthority)
                     .toList();
             }))
-            .skipVerification() 
             .initialize();
     }
 }

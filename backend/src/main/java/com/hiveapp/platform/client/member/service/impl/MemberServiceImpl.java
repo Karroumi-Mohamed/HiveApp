@@ -32,7 +32,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = StaffFeature.KEY, description = "Member Management")
+@PermissionNode(key = StaffFeature.KEY, description = "Member Management", guard = PermissionNode.Guard.ON)
 public class MemberServiceImpl extends ClientWorkspaceFeatureService implements MemberService {
 
     private final MemberRepository memberRepository;

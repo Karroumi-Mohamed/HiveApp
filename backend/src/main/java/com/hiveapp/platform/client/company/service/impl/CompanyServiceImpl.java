@@ -22,7 +22,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = CompanyFeature.KEY, description = "Company Management")
+@PermissionNode(key = CompanyFeature.KEY, description = "Company Management", guard = PermissionNode.Guard.ON)
 public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements CompanyService {
 
     private final CompanyRepository companyRepository;

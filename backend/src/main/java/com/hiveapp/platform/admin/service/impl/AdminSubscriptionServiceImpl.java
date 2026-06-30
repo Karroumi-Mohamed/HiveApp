@@ -17,7 +17,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = SubscriptionsFeature.KEY, description = "Client Subscription Management")
+@PermissionNode(key = SubscriptionsFeature.KEY, description = "Client Subscription Management", guard = PermissionNode.Guard.ON)
 public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService implements AdminSubscriptionService {
 
     private final SubscriptionService subscriptionService;

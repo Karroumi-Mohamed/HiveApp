@@ -25,7 +25,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = AdminRolesFeature.KEY, description = "Admin Role Management")
+@PermissionNode(key = AdminRolesFeature.KEY, description = "Admin Role Management", guard = PermissionNode.Guard.ON)
 public class AdminRoleServiceImpl extends PlatformControlFeatureService implements AdminRoleService {
 
     private final AdminRoleRepository adminRoleRepository;

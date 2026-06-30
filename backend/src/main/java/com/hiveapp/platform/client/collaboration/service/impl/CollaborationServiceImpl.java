@@ -35,7 +35,7 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = B2bFeature.KEY, description = "B2B Collaboration Management")
+@PermissionNode(key = B2bFeature.KEY, description = "B2B Collaboration Management", guard = PermissionNode.Guard.ON)
 public class CollaborationServiceImpl extends ClientWorkspaceFeatureService implements CollaborationService {
 
     private final CollaborationRepository collaborationRepository;

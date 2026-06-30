@@ -30,7 +30,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = WorkspaceRolesFeature.KEY, description = "Role Management")
+@PermissionNode(key = WorkspaceRolesFeature.KEY, description = "Role Management", guard = PermissionNode.Guard.ON)
 public class RoleServiceImpl extends ClientWorkspaceFeatureService implements RoleService {
 
     private final RoleRepository roleRepository;

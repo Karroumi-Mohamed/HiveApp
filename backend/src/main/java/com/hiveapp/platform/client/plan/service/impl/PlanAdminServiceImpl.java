@@ -33,7 +33,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = PlansFeature.KEY, description = "Plan Catalogue Management")
+@PermissionNode(key = PlansFeature.KEY, description = "Plan Catalogue Management", guard = PermissionNode.Guard.ON)
 public class PlanAdminServiceImpl extends PlatformControlFeatureService implements PlanAdminService {
 
     private final PlanRepository planRepository;

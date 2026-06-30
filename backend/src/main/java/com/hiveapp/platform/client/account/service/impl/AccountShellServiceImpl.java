@@ -18,7 +18,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@PermissionNode(key = WorkspaceFeature.KEY, description = "Account & Workspace Management")
+@PermissionNode(key = WorkspaceFeature.KEY, description = "Account & Workspace Management", guard = PermissionNode.Guard.ON)
 public class AccountShellServiceImpl extends ClientWorkspaceFeatureService implements AccountShellService {
 
     private final AccountRepository accountRepository;
