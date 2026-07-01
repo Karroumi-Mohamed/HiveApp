@@ -2302,7 +2302,7 @@ Add stable error codes and structured metadata for expected business outcomes, p
 
 **Evidence**
 
-The latest local report is green (210 tests on 2026-07-16), and the suite has useful isolation, policy, quota, subscription-integrity, and control-plane coverage. Batch 0.1 added focused configuration/admin-bootstrap negative tests and four standalone Permissionizer tests. However:
+The latest local report is green (213 tests on 2026-07-16), and the suite has useful isolation, policy, quota, subscription-integrity, and control-plane coverage. Batches 0.1–0.2 added focused configuration/admin-bootstrap negative tests, explicit guard-boundary tests, and six standalone Permissionizer tests. However:
 
 - client self-service integration explicitly expects applying PRO to return `201` and activate it without payment;
 - admin security tests explicitly expect every current feature activation request to be rejected;
@@ -2325,8 +2325,8 @@ Before implementation, convert each confirmed security/entitlement/lifecycle fin
 
 **Batch 0.1 execution evidence — 2026-07-16**
 
-- The full HiveApp backend suite passes: 210 tests, zero failures/errors/skips.
-- The standalone Permissionizer suite passes: 4 tests, including overload collection, fail-fast collection failures, and package-guard interception characterization.
+- The full HiveApp backend suite passes: 213 tests, zero failures/errors/skips.
+- The standalone Permissionizer suite passes: 6 tests, including overload collection, fail-fast collection failures, package-guard interception characterization, and fatal startup alignment.
 - This finding remains open because the broader negative-case list above has not yet been implemented.
 
 ---
@@ -2369,7 +2369,7 @@ Separate explicit local/test and production profiles. Production must use extern
 
 ### AUTHZ-001 — HiveApp explicitly disables Permissionizer guard verification
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-16`
 
 **Evidence**
 
@@ -2384,6 +2384,16 @@ A missing AOP/agent interceptor, proxy edge case, or future unverified guarded s
 **Required fix direction**
 
 Remove `skipVerification()` after fixing any underlying verification problem. Add production-startup and request-level tests proving guarded methods fail closed when interception/configuration is missing.
+
+**Batch 0.2 implementation evidence — 2026-07-16**
+
+- `SecurityConfig` no longer calls `skipVerification()`.
+- Spring interceptor creation is an explicit initialization dependency, so verification cannot run before interception registration.
+- PermissionGuard configuration resets preserve installed interception mechanisms across Spring test/application contexts.
+- The broad `com.hiveapp.platform` node is structural-only (`guard = OFF`); all 12 permission-bearing service implementations explicitly declare `guard = ON`.
+- Boundary tests prove infrastructure does not inherit a synthetic permission and an explicitly guarded service resolves its exact action path.
+- Existing HTTP security tests prove unauthorized client/admin requests are denied after activation.
+- Non-blocking cleanup remains: Spring warns that the inherited final `AbstractFeatureService.featureDefinitions()` method cannot be proxied on guarded service classes. It is registry-contribution infrastructure rather than a permission action; later separate that contribution from guarded service proxies or add a deliberate advisor exclusion instead of treating the warning as authorization coverage.
 
 ---
 
@@ -2692,15 +2702,15 @@ These were observed in the standalone Permissionizer source and must later be ch
 
 ### PERM-001 — Package-level guarded nodes may not be intercepted
 
-**Status:** `CONFIRMED — REMEDIATION DEFERRED TO BATCH 0.2`
+**Status:** `MITIGATED IN HIVEAPP — LIBRARY LIMITATION DEFERRED`
 
-`PackageGuardInterceptionTest` proves that the resolver returns `shouldCheck=true` for a class under a guarded package while the current Spring `@Around` pointcut is never entered for its unannotated method. Enabling broad package interception immediately is unsafe because HiveApp currently guards the broad `com.hiveapp.platform` root and contains unannotated controllers, seeders, and internal methods beneath it. Batch 0.2 must first audit and define explicit guarded/package-off boundaries, then activate interception with startup and request-level tests.
+`PackageGuardInterceptionTest` proves that the resolver returns `shouldCheck=true` for a class under a guarded package while the current Spring `@Around` pointcut is never entered for its unannotated method. Batch 0.2 audited HiveApp and removed its reliance on this behavior: `com.hiveapp.platform` is structural-only (`guard = OFF`), while the 12 permission-bearing service classes explicitly use `guard = ON` and are matched by the current pointcut. Generic package-level interception remains a standalone Permissionizer limitation and must not be advertised as supported until implemented safely.
 
 ### PERM-002 — HiveApp bypasses startup guard-alignment verification
 
-**Status:** `CONFIRMED`
+**Status:** `FIXED — 2026-07-16`
 
-The standalone verification implementation appeared capable of failing open, and HiveApp additionally calls `.skipVerification()` explicitly. See `AUTHZ-001`; security misconfiguration must become startup-fatal in production.
+PermissionGuard verification previously caught and logged its own security exception, and HiveApp called `.skipVerification()` explicitly. Verification failures now propagate, with tests proving guarded definitions fail initialization without an interceptor and succeed after Spring interception registration. HiveApp no longer skips verification and makes interceptor creation an initialization dependency.
 
 ### PERM-003 — Overloaded methods share the processor's element key
 

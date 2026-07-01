@@ -28,7 +28,6 @@ flowchart TD
         PERM-001 & PERM-003 & PERM-004 --> ADMIN-001
         ADMIN-001 --> ADMIN-002
         ADMIN-002 --> ADMIN-RBAC-001
-        ADMIN-RBAC-001 --> PERM-002
         PERM-002 --> AUTHZ-001
         AUTHZ-001 --> PERM-005
     end
@@ -143,8 +142,8 @@ flowchart TD
 - `ADMIN-001` is complete; `ADMIN-002` collision handling was safely resolved in the same bootstrap change.
 - The destructive/default-secret portion of `CONFIG-001` is complete. Versioned database migrations remain open, so the full finding is not closed.
 - `PERM-003` and `PERM-004` were confirmed and fixed with focused standalone tests.
-- `PERM-001` was confirmed. Remediation moves to Batch 0.2 because the broad guarded package must be audited before package interception is enabled.
-- `TEST-001` remains ongoing. Current verified baseline: 210 HiveApp backend tests and 4 Permissionizer tests, all green.
+- `PERM-001` was confirmed. HiveApp's reliance on package interception was removed in Batch 0.2; the generic library limitation remains deferred.
+- `TEST-001` remains ongoing. Current verified baseline: 213 HiveApp backend tests and 6 Permissionizer tests, all green.
 
 #### [IMPLEMENT] CONFIG-001 — The only application configuration is destructive development configuration
 - **Prerequisites**: None.
@@ -160,7 +159,7 @@ flowchart TD
 #### [VERIFY FIRST] TEST-001 — Green tests preserve important unsafe behavior and omit critical negative cases
 - **Prerequisites**: None.
 - **Unlocks**: ADMIN-001.
-- **Order Rationale**: Baseline test verification. The latest run passes all 210 tests (`2026-07-16`) while focused negative cases continue to be added. Remediation: Add test assertions for the remaining missing negative cases.
+- **Order Rationale**: Baseline test verification. The latest run passes all 213 tests (`2026-07-16`) while focused negative cases continue to be added. Remediation: Add test assertions for the remaining missing negative cases.
 - **Affected Backend Areas**: Entire Integration Test Suite.
 - **Database Migration**: No.
 - **Acceptance Criteria**: Report on Loose Assertions is completed; new negative test cases are integrated.
@@ -216,27 +215,29 @@ flowchart TD
 
 ### Batch 0.2: Security Guard Activation
 
-**Carried forward from Batch 0.1:** Before enabling package-level interception, audit the broad `com.hiveapp.platform` guarded root and mark explicit guarded/package-off boundaries. Then add startup and request-level tests proving unannotated methods in intentionally guarded packages are intercepted without accidentally guarding infrastructure methods.
+**Execution status — 2026-07-16:** Completed. The broad `com.hiveapp.platform` root is structural-only, all 12 permission-bearing service classes explicitly enable guarding, infrastructure remains outside the automatic boundary, startup alignment is fatal, and focused plus full-suite verification is green. Generic package-only interception remains a deferred Permissionizer library limitation rather than a HiveApp dependency.
 
 #### [IMPLEMENT] PERM-002 — HiveApp bypasses startup guard-alignment verification
-- **Prerequisites**: ADMIN-RBAC-001.
+- **Prerequisites**: None.
 - **Unlocks**: AUTHZ-001.
 - **Order Rationale**: Activates fatal boot checks on mismatched keys after the Batch 0.1 collector/processor fixes; package-interception activation remains gated by the carried-forward boundary audit.
 - **Affected Backend Areas**: Guard verification execution.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Boot aborts on duplicate or unaligned controller keys.
+- **Acceptance Criteria**: Initialization aborts when guarded definitions exist without a registered interceptor/agent; a registered Spring interceptor permits startup.
 - **Tests**: Boot verification checks.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed. Verification exceptions propagate, reset/reconfiguration preserves installed interception, and standalone tests cover failure and success paths.
 
 #### [IMPLEMENT] AUTHZ-001 — HiveApp explicitly disables Permissionizer guard verification
 - **Prerequisites**: PERM-002.
 - **Unlocks**: TENANCY-001, REGISTRY-002.
-- **Order Rationale**: Enables global interception locks.
+- **Order Rationale**: Enables fatal startup alignment and explicit service-level interception without automatically proxying every platform bean.
 - **Affected Backend Areas**: `SecurityConfig.java`, `application.yaml`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Interceptors reject unannotated endpoints by default.
+- **Acceptance Criteria**: Permission-bearing services are explicitly intercepted, infrastructure does not inherit synthetic permissions, and unauthorized requests are denied.
 - **Tests**: Integration tests checking access blocks.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed. `skipVerification()` is removed, interceptor registration is ordered before initialization, boundary tests pass, and the full 213-test backend suite is green.
 
 ---
 
@@ -1678,7 +1679,7 @@ flowchart TD
 | **EMAIL-002** | Escape templates | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Safe activation emails |
 | **API-ERROR-001**| Error codes payload | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.5 | None | Code mapping returned |
 | **CONFIG-001** | Profile configs | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | None | Destructive dev only |
-| **AUTHZ-001** | Global guard | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | PERM-002 | Lock down unannotated |
+| **AUTHZ-001** | Explicit service guards | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | PERM-002 | Guarded services enforced |
 | **AUTHZ-002** | B2B operator check | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | COLLAB-008 | Client worker verified |
 | **AUTHZ-003** | Dynamic validation | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-002 | Keys filter checks |
 | **AUTHZ-005** | CORS headers | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-003 | Header verification |
@@ -1693,7 +1694,7 @@ flowchart TD
 | **REGISTRY-009** | Seeding transaction | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-007 | Startup lock logs |
 | **REGISTRY-010** | Picker DTO | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-008 | Decoupled payload |
 | **PERM-001** | AspectJ matching | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Target node proxy |
-| **PERM-002** | Startup guard checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | ADMIN-RBAC-001 | Alignment check |
+| **PERM-002** | Startup guard checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | None | Alignment check |
 | **PERM-003** | Element key uniqueness| PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Signature compiler key |
 | **PERM-004** | Swallowed reflection | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Exception throws |
 | **PERM-005** | Precedence chain | PARTIAL | LOCK WITH TESTS | Phase 0 | Batch 0.4 | AUTHZ-001 | Precedence evaluation |
