@@ -23,6 +23,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -173,6 +174,89 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void nonSuperAdminCannotDeactivateSuperAdmin() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        UUID superAdminId = currentAdminId(superToken);
+        LimitedAdmin admin = createLimitedAdmin("platform.admin_users.toggle_active");
+
+        toggleAdmin(admin.token(), superAdminId)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("Only a SuperAdmin can modify another SuperAdmin."));
+
+        mockMvc.perform(get("/api/admin/me")
+                .header("Authorization", bearer(superToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isActive").value(true));
+    }
+
+    @Test
+    void lastActiveSuperAdminCannotDeactivateSelf() throws Exception {
+        String superToken = loginAdminAndGetToken();
+
+        toggleAdmin(superToken, currentAdminId(superToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message")
+                        .value("An administrator cannot deactivate their own account."));
+    }
+
+    @Test
+    void nonSuperAdminCannotAssignOrRemoveRolesOnSuperAdmin() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        UUID superAdminId = currentAdminId(superToken);
+        UUID assignedRoleId = createAdminRole(superToken, "Existing super role " + UUID.randomUUID());
+        UUID unassignedRoleId = createAdminRole(superToken, "New super role " + UUID.randomUUID());
+        assignRole(superToken, superAdminId, assignedRoleId).andExpect(status().isNoContent());
+        LimitedAdmin admin = createLimitedAdmin(
+                "platform.admin_users.assign_role",
+                "platform.admin_users.remove_role");
+
+        assignRole(admin.token(), superAdminId, unassignedRoleId)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("Only a SuperAdmin can modify another SuperAdmin."));
+
+        removeRole(admin.token(), superAdminId, assignedRoleId)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("Only a SuperAdmin can modify another SuperAdmin."));
+    }
+
+    @Test
+    void nonSuperAdminCannotDeactivateRoleAboveTheirPermissionCeiling() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        UUID targetRoleId = createAdminRole(superToken, "Elevated toggle target " + UUID.randomUUID());
+        grantPermission(superToken, targetRoleId, "platform.registry.read").andExpect(status().isNoContent());
+        LimitedAdmin admin = createLimitedAdmin("platform.roles.toggle_active");
+
+        toggleRole(admin.token(), targetRoleId)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("A platform administrator cannot activate or deactivate a role containing permissions they do not hold."));
+    }
+
+    @Test
+    void permissionRevocationObeysActorCeilingButAllowsOwnedPermission() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        UUID permissionId = permissionRepository.findByCode("platform.registry.read").orElseThrow().getId();
+
+        UUID elevatedRoleId = createAdminRole(superToken, "Elevated revoke target " + UUID.randomUUID());
+        grantPermission(superToken, elevatedRoleId, "platform.registry.read").andExpect(status().isNoContent());
+        LimitedAdmin restricted = createLimitedAdmin("platform.roles.revoke_permission");
+
+        revokePermission(restricted.token(), elevatedRoleId, permissionId)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("A platform administrator cannot modify a role containing permissions they do not hold."));
+
+        UUID allowedRoleId = createAdminRole(superToken, "Allowed revoke target " + UUID.randomUUID());
+        grantPermission(superToken, allowedRoleId, "platform.registry.read").andExpect(status().isNoContent());
+        LimitedAdmin allowed = createLimitedAdmin(
+                "platform.roles.revoke_permission",
+                "platform.registry.read");
+
+        revokePermission(allowed.token(), allowedRoleId, permissionId)
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
     void controlPlaneFeatureActiveStateCannotBeChangedThroughRegistryApi() throws Exception {
         String superToken = loginAdminAndGetToken();
         UUID featureId = featureRepository.findByCode("platform.plans").orElseThrow().getId();
@@ -303,9 +387,32 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .content(objectMapper.writeValueAsString(request)));
     }
 
+    private ResultActions removeRole(String token, UUID adminUserId, UUID roleId) throws Exception {
+        return mockMvc.perform(delete("/api/admin/users/{id}/roles/{roleId}", adminUserId, roleId)
+                .header("Authorization", bearer(token)));
+    }
+
+    private ResultActions revokePermission(String token, UUID roleId, UUID permissionId) throws Exception {
+        return mockMvc.perform(delete("/api/admin/roles/{id}/permissions/{permissionId}", roleId, permissionId)
+                .header("Authorization", bearer(token)));
+    }
+
+    private ResultActions toggleRole(String token, UUID roleId) throws Exception {
+        return mockMvc.perform(post("/api/admin/roles/{id}/toggle-active", roleId)
+                .header("Authorization", bearer(token)));
+    }
+
     private ResultActions toggleAdmin(String token, UUID adminUserId) throws Exception {
         return mockMvc.perform(post("/api/admin/users/{id}/toggle-active", adminUserId)
                 .header("Authorization", bearer(token)));
+    }
+
+    private UUID currentAdminId(String token) throws Exception {
+        String response = mockMvc.perform(get("/api/admin/me")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return UUID.fromString(objectMapper.readTree(response).get("id").asText());
     }
 
     private ResultActions updateFeatureActive(String token, UUID featureId, boolean active) throws Exception {

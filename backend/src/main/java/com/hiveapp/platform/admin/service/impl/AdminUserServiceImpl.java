@@ -5,7 +5,7 @@ import com.hiveapp.platform.admin.domain.entity.AdminUserRole;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
-import com.hiveapp.platform.admin.domain.repository.AdminRolePermissionRepository;
+import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.admin.service.AdminUserService;
 import com.hiveapp.platform.admin.dto.AdminMeDto;
 import com.hiveapp.identity.service.IdentityService;
@@ -38,10 +38,10 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     private final AdminUserRepository adminUserRepository;
     private final AdminRoleRepository adminRoleRepository;
     private final AdminUserRoleRepository adminUserRoleRepository;
-    private final AdminRolePermissionRepository adminRolePermissionRepository;
     private final PermissionRepository permissionRepository;
     private final PermissionGrantValidator permissionGrantValidator;
     private final IdentityService identityService;
+    private final AdminMutationAuthorizer adminMutationAuthorizer;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -68,7 +68,7 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
         if (adminUserRepository.findByUserId(userId).isPresent()) {
             throw new DuplicateResourceException("AdminUser", "userId", userId);
         }
-        if (isSuperAdmin && !currentActorIsSuperAdmin()) {
+        if (isSuperAdmin && !adminMutationAuthorizer.currentActorIsSuperAdmin()) {
             throw new InvalidPermissionGrantException("Only a SuperAdmin can create another SuperAdmin.");
         }
         var user = identityService.getUserById(userId)
@@ -86,6 +86,7 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "toggle_active", description = "Activate or deactivate admin user")
     public void toggleActive(UUID id) {
         var adminUser = getAdminUser(id);
+        adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
         if (adminUser.isActive() && isCurrentActor(adminUser)) {
             throw new InvalidStateException("An administrator cannot deactivate their own account.");
         }
@@ -107,7 +108,8 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
         if (!adminRole.isActive()) {
             throw new InvalidStateException("Inactive admin roles cannot be assigned.");
         }
-        requireActorCanAssignRole(adminRoleId);
+        adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
+        adminMutationAuthorizer.requireCanManageRole(adminRoleId, "assign");
 
         AdminUserRole aur = new AdminUserRole();
         aur.setAdminUser(adminUser);
@@ -119,6 +121,11 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "remove_role", description = "Remove admin role from admin user")
     public void removeRole(UUID adminUserId, UUID adminRoleId) {
+        var adminUser = getAdminUser(adminUserId);
+        adminRoleRepository.findById(adminRoleId)
+                .orElseThrow(() -> new ResourceNotFoundException("AdminRole", "id", adminRoleId));
+        adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
+        adminMutationAuthorizer.requireCanManageRole(adminRoleId, "remove");
         adminUserRoleRepository.deleteByAdminUserIdAndAdminRoleId(adminUserId, adminRoleId);
     }
 
@@ -165,33 +172,4 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
                 && context.actorUserId().equals(target.getUser().getId());
     }
 
-    private boolean currentActorIsSuperAdmin() {
-        var context = HiveAppContextHolder.getContext();
-        if (context == null || context.actorUserId() == null) {
-            return false;
-        }
-        return adminUserRepository.findByUserId(context.actorUserId())
-                .filter(AdminUser::isActive)
-                .map(AdminUser::isSuperAdmin)
-                .orElse(false);
-    }
-
-    private void requireActorCanAssignRole(UUID adminRoleId) {
-        if (currentActorIsSuperAdmin()) {
-            return;
-        }
-        var context = HiveAppContextHolder.getContext();
-        if (context == null || context.actorUserId() == null) {
-            throw new InvalidPermissionGrantException("An authenticated platform administrator is required to assign admin roles.");
-        }
-        var actor = adminUserRepository.findByUserId(context.actorUserId())
-                .orElseThrow(() -> new InvalidPermissionGrantException("The acting user is not a platform administrator."));
-
-        boolean exceedsActorPermissions = adminRolePermissionRepository.findAllByAdminRoleId(adminRoleId).stream()
-                .anyMatch(grant -> !adminUserRepository.hasPermission(actor.getId(), grant.getPermission().getCode()));
-        if (exceedsActorPermissions) {
-            throw new InvalidPermissionGrantException(
-                    "A platform administrator cannot assign a role containing permissions they do not hold.");
-        }
-    }
 }

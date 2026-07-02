@@ -4,7 +4,7 @@ import com.hiveapp.platform.admin.domain.entity.AdminRole;
 import com.hiveapp.platform.admin.domain.entity.AdminRolePermission;
 import com.hiveapp.platform.admin.domain.repository.AdminRolePermissionRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
-import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
+import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
 import com.hiveapp.platform.registry.domain.entity.Permission;
@@ -30,8 +30,8 @@ class AdminRoleServiceImplTest {
     @Mock private AdminRoleRepository adminRoleRepository;
     @Mock private PermissionRepository permissionRepository;
     @Mock private AdminRolePermissionRepository adminRolePermissionRepository;
-    @Mock private AdminUserRepository adminUserRepository;
     @Mock private PermissionGrantValidator permissionGrantValidator;
+    @Mock private AdminMutationAuthorizer adminMutationAuthorizer;
 
     @InjectMocks
     private AdminRoleServiceImpl adminRoleService;

@@ -4,7 +4,7 @@ import com.hiveapp.platform.admin.domain.entity.AdminRole;
 import com.hiveapp.platform.admin.domain.entity.AdminRolePermission;
 import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminRolePermissionRepository;
-import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
+import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.admin.service.AdminRoleService;
 import com.hiveapp.platform.registry.definition.AdminRolesFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
@@ -13,8 +13,6 @@ import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureSe
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
-import com.hiveapp.shared.exception.InvalidPermissionGrantException;
-import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -31,8 +29,8 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
     private final AdminRoleRepository adminRoleRepository;
     private final PermissionRepository permissionRepository;
     private final AdminRolePermissionRepository adminRolePermissionRepository;
-    private final AdminUserRepository adminUserRepository;
     private final PermissionGrantValidator permissionGrantValidator;
+    private final AdminMutationAuthorizer adminMutationAuthorizer;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -68,6 +66,7 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "update", description = "Update admin role metadata")
     public AdminRole updateAdminRole(UUID id, String name, String description) {
         var adminRole = getAdminRole(id);
+        adminMutationAuthorizer.requireCanManageRole(id, "update");
         adminRole.setName(name);
         adminRole.setDescription(description);
         return adminRoleRepository.save(adminRole);
@@ -78,6 +77,7 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "toggle_active", description = "Activate or deactivate admin role")
     public void toggleActive(UUID id) {
         var adminRole = getAdminRole(id);
+        adminMutationAuthorizer.requireCanManageRole(id, "activate or deactivate");
         adminRole.setActive(!adminRole.isActive());
         adminRoleRepository.save(adminRole);
     }
@@ -94,7 +94,8 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
         var permission = permissionRepository.findById(permissionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "id", permissionId));
         permissionGrantValidator.requirePlatformAdminRoleGrantable(permission.getCode());
-        requireActorCanDelegatePermission(permission.getCode());
+        adminMutationAuthorizer.requireCanManageRole(adminRoleId, "modify");
+        adminMutationAuthorizer.requireCanManagePermission(permission.getCode(), "grant");
 
         AdminRolePermission arp = new AdminRolePermission();
         arp.setAdminRole(adminRole);
@@ -106,23 +107,11 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "revoke_permission", description = "Revoke admin permission from admin role")
     public void revokePermission(UUID adminRoleId, UUID permissionId) {
+        getAdminRole(adminRoleId);
+        var permission = permissionRepository.findById(permissionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Permission", "id", permissionId));
+        adminMutationAuthorizer.requireCanManageRole(adminRoleId, "modify");
+        adminMutationAuthorizer.requireCanManagePermission(permission.getCode(), "revoke");
         adminRolePermissionRepository.deleteByAdminRoleIdAndPermissionId(adminRoleId, permissionId);
-    }
-
-    private void requireActorCanDelegatePermission(String permissionCode) {
-        var context = HiveAppContextHolder.getContext();
-        if (context == null || context.actorUserId() == null) {
-            throw new InvalidPermissionGrantException("An authenticated platform administrator is required to grant permissions.");
-        }
-
-        var actor = adminUserRepository.findByUserId(context.actorUserId())
-                .orElseThrow(() -> new InvalidPermissionGrantException("The acting user is not a platform administrator."));
-        if (actor.isSuperAdmin()) {
-            return;
-        }
-        if (!adminUserRepository.hasPermission(actor.getId(), permissionCode)) {
-            throw new InvalidPermissionGrantException(
-                    "A platform administrator cannot grant a permission they do not hold.");
-        }
     }
 }
