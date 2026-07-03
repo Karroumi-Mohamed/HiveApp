@@ -242,25 +242,30 @@ flowchart TD
 ---
 
 ### Batch 0.3: Admin Seeding & Security Constraints
+
+**Execution status — 2026-07-16:** Completed. The earlier bootstrap work safely resolved `ADMIN-002`; centralized admin mutation authorization now protects SuperAdmin targets and applies the acting administrator's permission ceiling consistently across role and permission mutations. Focused verification and the complete 222-test backend suite are green.
+
 #### [IMPLEMENT] ADMIN-002 — Admin seeding stops when the user exists, even if the admin record does not
 - **Prerequisites**: ADMIN-001.
 - **Unlocks**: ADMIN-RBAC-001.
-- **Order Rationale**: Ensures administrative records are seeded consistently.
+- **Order Rationale**: Prevents ambiguous bootstrap identity state before delegated administration is enabled.
 - **Affected Backend Areas**: `AdminSeeder.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Existing user emails map safely to new AdminUser rows.
+- **Acceptance Criteria**: Bootstrap verifies the explicit AdminUser record and never silently promotes an existing normal user.
 - **Tests**: Seeder unit tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed in Batch 0.1. An existing normal user causes startup to refuse unsafe implicit promotion; an existing AdminUser is recognized safely.
 
 #### [IMPLEMENT] ADMIN-RBAC-001 — Non-SuperAdmin protection is incomplete for destructive admin actions
 - **Prerequisites**: ADMIN-002.
-- **Unlocks**: PERM-002.
-- **Order Rationale**: Restricts platform deletion and critical configurations.
-- **Affected Backend Areas**: `AdminRolePolicy.java`.
+- **Unlocks**: None.
+- **Order Rationale**: Establishes the target and delegation boundaries before more admin control-plane features are built.
+- **Affected Backend Areas**: `AdminMutationAuthorizer.java`, `AdminUserServiceImpl.java`, `AdminRoleServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Normal admins are blocked from SuperAdmin commands.
-- **Tests**: SuperAdmin validation checks.
+- **Acceptance Criteria**: A non-SuperAdmin cannot modify a SuperAdmin or manage roles/permissions outside their own permission ceiling; SuperAdmins can manage other administrators; self-deactivation remains blocked.
+- **Tests**: Central authorizer unit tests and admin control-plane integration tests covering both denial and permitted paths.
 - **Future UI Flow**: Admin Portal management.
+- **Execution Status**: Completed. Target protection and permission-ceiling enforcement now cover admin activation, role assignment/removal, role metadata/activation, and permission grant/revocation. Full backend suite: 222 tests green.
 
 ---
 

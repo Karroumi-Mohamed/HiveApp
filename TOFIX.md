@@ -2135,7 +2135,7 @@ Centralize credential verification and token issuance while preserving explicit 
 
 ### ADMIN-RBAC-001 — Non-SuperAdmin protection is incomplete for destructive admin actions
 
-**Status:** `DECISION`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -2148,9 +2148,17 @@ Centralize credential verification and token issuance while preserving explicit 
 
 A delegated administrator may be able to disable the platform's recovery administrator or sabotage roles beyond their authority, even if they cannot grant themselves those permissions.
 
-**Required decision**
+**Decision**
 
-Define whether destructive admin operations obey a hierarchy. At minimum, protect the last active SuperAdmin and test all SuperAdmin/non-SuperAdmin target combinations.
+Destructive admin operations obey two explicit boundaries: only a SuperAdmin may modify a SuperAdmin, and a delegated administrator may manage only roles and permissions inside their own permission ceiling. SuperAdmins retain authority over other administrators. Self-deactivation remains blocked, so an active SuperAdmin cannot remove the currently authenticated recovery administrator.
+
+**Implementation evidence — 2026-07-16**
+
+- `AdminMutationAuthorizer` centralizes target protection and permission-ceiling checks instead of duplicating partial rules across services.
+- Admin activation changes and role assignment/removal now protect SuperAdmin targets.
+- Role metadata updates, activation changes, permission grants/revocations, and admin role assignment/removal all enforce the acting administrator's permission ceiling.
+- Focused tests cover delegated-admin denial, SuperAdmin authority, inactive actors, protected SuperAdmin targets, role activation above the actor ceiling, denied revocation above the ceiling, and allowed revocation inside it.
+- The complete backend suite passes: 222 tests, 0 failures, 0 errors, 0 skipped.
 
 ---
 
