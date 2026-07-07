@@ -2734,9 +2734,18 @@ The annotation processor previously identified methods using class plus method n
 
 ### PERM-005 — Policy order is security-significant
 
-**Status:** `CONFIRMED`
+**Status:** `FIXED — 2026-07-16`
 
 HiveApp configures: Admin → B2B → Plan → User Role → Spring authorities. Direct client access is correctly plan-gated before role evaluation. B2B intentionally short-circuits before client role evaluation, which creates the actor-level delegation gap recorded in `AUTHZ-002`. Keep order under explicit integration tests.
+
+**Implementation evidence — 2026-07-16**
+
+- `PermissionPolicyOrderTest` exercises the actual chain registered by `SecurityConfig`, rather than a separately reconstructed policy list.
+- The test locks the exact execution order: Admin → B2B → Plan → User Role → Spring-authority fallback.
+- Separate cases prove that an Admin grant, B2B denial, Plan denial, or User Role denial short-circuits every later policy as intended.
+- The Spring-authority fallback is proven to run only after every domain policy abstains and cannot override a User Role denial.
+- The existing B2B early-grant behavior is deliberately preserved and remains tracked as the separate actor-level authorization defect `AUTHZ-002`.
+- The focused seven-test policy-order suite and complete 229-test backend suite pass with no failures, errors, or skips.
 
 ---
 

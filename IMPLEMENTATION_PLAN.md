@@ -270,15 +270,19 @@ flowchart TD
 ---
 
 ### Batch 0.4: Policy Order Verification
+
+**Execution status — 2026-07-16:** Completed. Seven focused tests lock the configured Admin → B2B → Plan → User Role → Spring-authority chain, including every grant/deny short-circuit boundary. The complete 229-test backend suite is green. `AUTHZ-002` remains a separate later fix; this batch documents and preserves its current B2B precedence instead of changing behavior implicitly.
+
 #### [LOCK WITH TESTS] PERM-005 — Policy order is security-significant
 - **Prerequisites**: AUTHZ-001.
 - **Unlocks**: None.
-- **Order Rationale**: The current policy execution chain (Admin → B2B → Plan → User Role) is intentional. Implement explicit integration tests that lock the current order and document the consequence for AUTHZ-002.
-- **Affected Backend Areas**: `PermissionGuard`, `PermissionizerAutoConfiguration`.
+- **Order Rationale**: The current policy execution chain (Admin → B2B → Plan → User Role → Spring authorities) is intentional. Lock the order and document the consequence for AUTHZ-002 before changing B2B actor authorization later.
+- **Affected Backend Areas**: `SecurityConfig.permissionsLoader()`, `PermissionGuard` policy evaluation.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Chain precedence is asserted and locked by test suite.
-- **Tests**: Policy chain integration tests.
+- **Acceptance Criteria**: Exact chain precedence and every early grant/deny boundary are asserted; the fallback cannot override a domain denial.
+- **Tests**: `PermissionPolicyOrderTest` using the actual `SecurityConfig` registration path.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed. Seven focused tests and the full 229-test backend suite pass.
 
 ---
 
