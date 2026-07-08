@@ -71,7 +71,12 @@ public class PublicInvitationServiceImpl implements PublicInvitationService {
         }
 
         UUID accountId = invitation.getAccount().getId();
-        if (memberRepository.existsByAccountIdAndUserId(accountId, user.getId())) {
+        var activeMembership = memberRepository.findByUserIdAndIsActiveTrue(user.getId());
+        if (activeMembership.isPresent()
+                && !activeMembership.orElseThrow().getAccount().getId().equals(accountId)) {
+            throw new InvalidStateException("This user already has an active membership in another workspace.");
+        }
+        if (activeMembership.isPresent()) {
             log.warn("User={} is already a member of account={}, marking invitation accepted anyway", user.getId(), accountId);
             invitation.setStatus(InvitationStatus.ACCEPTED);
             invitationRepository.save(invitation);

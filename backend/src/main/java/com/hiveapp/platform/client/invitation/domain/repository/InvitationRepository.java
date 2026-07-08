@@ -13,6 +13,8 @@ public interface InvitationRepository extends JpaRepository<Invitation, UUID> {
 
     Optional<Invitation> findByToken(String token);
 
+    Optional<Invitation> findByIdAndAccountId(UUID id, UUID accountId);
+
     /** All active invites for an account — used in list endpoint. */
     List<Invitation> findAllByAccountIdAndStatus(UUID accountId, InvitationStatus status);
 

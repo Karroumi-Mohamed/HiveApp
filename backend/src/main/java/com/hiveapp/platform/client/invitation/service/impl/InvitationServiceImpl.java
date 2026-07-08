@@ -89,23 +89,16 @@ public class InvitationServiceImpl extends ClientWorkspaceFeatureService impleme
         }
 
         var company = request.companyId() != null
-                ? companyRepository.findById(request.companyId())
+                ? companyRepository.findByIdAndAccountId(request.companyId(), accountId)
                         .orElseThrow(() -> new ResourceNotFoundException("Company", "id", request.companyId()))
                 : null;
 
-        if (company != null && !company.getAccount().getId().equals(accountId)) {
-            throw new ForbiddenException("Company does not belong to this workspace.");
-        }
-
         // Validate optional role belongs to this account and can be assigned at the requested company scope.
         var role = request.roleId() != null
-                ? roleRepository.findById(request.roleId())
+                ? roleRepository.findByIdAndAccountId(request.roleId(), accountId)
                         .orElseThrow(() -> new ResourceNotFoundException("Role", "id", request.roleId()))
                 : null;
         if (request.roleId() != null) {
-            if (!role.getAccount().getId().equals(accountId)) {
-                throw new ForbiddenException("Role does not belong to this workspace.");
-            }
             if (role.getCompany() != null && (company == null || !role.getCompany().getId().equals(company.getId()))) {
                 throw new ForbiddenException("Company-scoped role can only be invited inside its company.");
             }
@@ -152,12 +145,8 @@ public class InvitationServiceImpl extends ClientWorkspaceFeatureService impleme
     @PermissionNode(key = "revoke", description = "Revoke a pending invitation")
     public void revoke(UUID invitationId, UUID accountId) {
         requireCurrentAccount(accountId);
-        var invitation = invitationRepository.findById(invitationId)
+        var invitation = invitationRepository.findByIdAndAccountId(invitationId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Invitation", "id", invitationId));
-
-        if (!invitation.getAccount().getId().equals(accountId)) {
-            throw new ForbiddenException("Invitation does not belong to this workspace.");
-        }
         if (invitation.getStatus() != InvitationStatus.PENDING) {
             throw new InvalidStateException("Only PENDING invitations can be revoked. Current status: " + invitation.getStatus());
         }

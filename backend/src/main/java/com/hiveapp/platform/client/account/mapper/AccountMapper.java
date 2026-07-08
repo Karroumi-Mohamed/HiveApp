@@ -8,6 +8,7 @@ import org.mapstruct.Mapping;
 
 @Mapper(componentModel = "spring")
 public interface AccountMapper {
+    @Mapping(source = "owner.id", target = "ownerId")
     @Mapping(source = "active", target = "isActive")
     AccountDto toDto(Account account);
 }

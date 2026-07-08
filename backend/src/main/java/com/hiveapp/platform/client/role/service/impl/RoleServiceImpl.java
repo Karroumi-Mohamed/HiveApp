@@ -50,9 +50,9 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     @Override
     @PermissionNode(key = "read", description = "View role details")
     public Role getRole(UUID id) {
-        var role = roleRepository.findById(id)
+        UUID accountId = currentAccountId();
+        var role = roleRepository.findByIdAndAccountId(id, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", id));
-        requireRoleInCurrentAccount(role);
         return role;
     }
 
@@ -66,9 +66,9 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     @Override
     @PermissionNode(key = "view_company", description = "View company-scoped roles")
     public List<Role> getCompanyRoles(UUID companyId) {
-        var company = companyRepository.findById(companyId)
+        UUID accountId = currentAccountId();
+        var company = companyRepository.findByIdAndAccountId(companyId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
-        requireCurrentAccount(company.getAccount().getId());
         return roleRepository.findAllByCompanyId(companyId);
     }
 
@@ -80,13 +80,9 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
         var account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
         var company = companyId != null
-                ? companyRepository.findById(companyId)
+                ? companyRepository.findByIdAndAccountId(companyId, accountId)
                         .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId))
                 : null;
-
-        if (company != null && !company.getAccount().getId().equals(accountId)) {
-            throw new ForbiddenException("Company does not belong to your account");
-        }
 
         Role role = new Role();
         role.setAccount(account);
@@ -164,14 +160,18 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
         return permissionPickerCatalogService.clientRoleCatalog(accountId);
     }
 
-    private void requireRoleInCurrentAccount(Role role) {
-        requireCurrentAccount(role.getAccount().getId());
-    }
-
     private void requireCurrentAccount(UUID accountId) {
-        UUID currentAccountId = HiveAppContextHolder.getContext().currentAccountId();
+        UUID currentAccountId = currentAccountId();
         if (!accountId.equals(currentAccountId)) {
             throw new ForbiddenException("Role does not belong to your account");
         }
+    }
+
+    private UUID currentAccountId() {
+        var context = HiveAppContextHolder.getContext();
+        if (context == null || context.currentAccountId() == null) {
+            throw new ForbiddenException("An active workspace context is required");
+        }
+        return context.currentAccountId();
     }
 }

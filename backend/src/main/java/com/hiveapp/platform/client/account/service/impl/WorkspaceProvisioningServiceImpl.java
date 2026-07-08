@@ -49,7 +49,7 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
         String slug = resolveUniqueSlug(baseSlug);
 
         Account account = new Account();
-        account.setOwnerId(userId);
+        account.setOwner(user);
         account.setName(user.getFirstName() + "'s Workspace");
         account.setSlug(slug);
         account.setActive(true);

@@ -54,7 +54,8 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
 
     @Override
     public Collaboration getCollaboration(UUID id) {
-        return collaborationRepository.findById(id)
+        UUID accountId = currentAccountId();
+        return collaborationRepository.findParticipantById(id, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Collaboration", "id", id));
     }
 
@@ -86,7 +87,8 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     @Transactional
     @PermissionNode(key = "accept", description = "Accept incoming collaboration")
     public void acceptCollaboration(UUID providerAccountId, UUID id) {
-        var collab = getCollaboration(id);
+        requireCurrentAccount(providerAccountId);
+        var collab = getProviderCollaboration(id, providerAccountId);
         requireProvider(collab, providerAccountId, "Not authorized to accept this collaboration request");
         requireStatus(collab, CollaborationStatus.PENDING, "Only pending collaborations can be accepted");
         collab.setStatus(CollaborationStatus.ACTIVE);
@@ -98,7 +100,8 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     @Transactional
     @PermissionNode(key = "revoke", description = "Revoke collaboration")
     public void revokeCollaboration(UUID accountId, UUID id) {
-        var collab = getCollaboration(id);
+        requireCurrentAccount(accountId);
+        var collab = getParticipantCollaboration(id, accountId);
         requireParticipant(collab, accountId, "Not authorized to revoke this collaboration");
         if (collab.getStatus() == CollaborationStatus.REVOKED) {
             throw new InvalidStateException("Collaboration is already revoked");
@@ -126,7 +129,8 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     @Transactional
     @PermissionNode(key = "grant_permission", description = "Grant permissions to this B2B client")
     public void grantPermission(UUID providerAccountId, UUID collaborationId, String permissionCode) {
-        var collab = getCollaboration(collaborationId);
+        requireCurrentAccount(providerAccountId);
+        var collab = getProviderCollaboration(collaborationId, providerAccountId);
         requireProvider(collab, providerAccountId, "Only the provider can grant B2B permissions");
         requireStatus(collab, CollaborationStatus.ACTIVE, "Permissions can only be granted to an active collaboration");
 
@@ -153,7 +157,8 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     @Transactional
     @PermissionNode(key = "revoke_permission", description = "Revoke permissions from this B2B client")
     public void revokePermission(UUID providerAccountId, UUID collaborationId, String permissionCode) {
-        var collab = getCollaboration(collaborationId);
+        requireCurrentAccount(providerAccountId);
+        var collab = getProviderCollaboration(collaborationId, providerAccountId);
         requireProvider(collab, providerAccountId, "Only the provider can revoke B2B permissions");
 
         var perm = regPermissionRepository.findByCode(permissionCode)
@@ -165,8 +170,8 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
 
     @Override
     public List<CollaborationPermission> getPermissions(UUID collaborationId) {
-        var collab = getCollaboration(collaborationId);
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        UUID accountId = currentAccountId();
+        var collab = getParticipantCollaboration(collaborationId, accountId);
         requireParticipant(collab, accountId, "Not authorized to view this collaboration's permissions");
         return permissionRepository.findAllByCollaborationId(collaborationId);
     }
@@ -174,7 +179,8 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     @Override
     @PermissionNode(key = "permission_catalog", description = "View B2B-delegatable permission catalog")
     public List<PermissionPickerModuleDto> getPermissionCatalog(UUID providerAccountId, UUID collaborationId) {
-        var collab = getCollaboration(collaborationId);
+        requireCurrentAccount(providerAccountId);
+        var collab = getProviderCollaboration(collaborationId, providerAccountId);
         requireProvider(collab, providerAccountId, "Only the provider can view grantable B2B permissions");
         requireStatus(collab, CollaborationStatus.ACTIVE, "Permissions can only be granted to an active collaboration");
         return permissionPickerCatalogService.b2bDelegationCatalog(providerAccountId);
@@ -194,10 +200,28 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     }
 
     private void requireCurrentAccount(UUID accountId) {
-        UUID currentAccountId = HiveAppContextHolder.getContext().currentAccountId();
+        UUID currentAccountId = currentAccountId();
         if (!accountId.equals(currentAccountId)) {
             throw new ForbiddenException("Collaboration does not belong to your account");
         }
+    }
+
+    private Collaboration getProviderCollaboration(UUID id, UUID providerAccountId) {
+        return collaborationRepository.findByIdAndProviderAccountId(id, providerAccountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Collaboration", "id", id));
+    }
+
+    private Collaboration getParticipantCollaboration(UUID id, UUID accountId) {
+        return collaborationRepository.findParticipantById(id, accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Collaboration", "id", id));
+    }
+
+    private UUID currentAccountId() {
+        var context = HiveAppContextHolder.getContext();
+        if (context == null || context.currentAccountId() == null) {
+            throw new ForbiddenException("An active workspace context is required");
+        }
+        return context.currentAccountId();
     }
 
     private void requireStatus(Collaboration collaboration, CollaborationStatus status, String message) {

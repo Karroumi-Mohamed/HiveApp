@@ -41,9 +41,8 @@ public class SecurityContextService {
                 UUID providerAccountId = company.getAccount().getId();
 
                 if (isB2B) {
-                    var member = memberRepository.findFirstByUserId(userId)
+                    var member = memberRepository.findByUserIdAndIsActiveTrue(userId)
                         .orElseThrow(() -> new UnauthorizedException("Access Denied: You are not a member of any account"));
-                    requireActiveMember(member);
                     clientAccountId = member.getAccount().getId();
 
                     var collaboration = collaborationRepository.findByClientAccountIdAndProviderAccountIdAndCompanyIdAndStatus(
@@ -63,11 +62,12 @@ public class SecurityContextService {
                 throw new InvalidRequestException("Invalid UUID format in X-Company-ID header");
             }
         } else {
-            var member = memberRepository.findFirstByUserId(userId).orElse(null);
+            var member = memberRepository.findByUserIdAndIsActiveTrue(userId).orElse(null);
             if (member != null) {
-                requireActiveMember(member);
                 currentAccountId = member.getAccount().getId();
                 clientAccountId = currentAccountId;
+            } else if (memberRepository.existsByUserId(userId)) {
+                throw new UnauthorizedException("Access Denied: Workspace membership is inactive");
             }
         }
 

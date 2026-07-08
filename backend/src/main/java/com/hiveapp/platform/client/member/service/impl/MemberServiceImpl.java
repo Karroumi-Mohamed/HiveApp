@@ -19,6 +19,7 @@ import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureSe
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.shared.exception.ForbiddenException;
+import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
@@ -53,7 +54,8 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
 
     @Override
     public Member getMember(UUID id) {
-        return memberRepository.findById(id)
+        UUID accountId = currentAccountId();
+        return memberRepository.findByIdAndAccountId(id, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member", "id", id));
     }
 
@@ -73,6 +75,9 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
         var user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+        if (memberRepository.existsByUserIdAndIsActiveTrue(userId)) {
+            throw new InvalidStateException("User already has an active workspace membership");
+        }
 
         quotaEnforcer.check(
                 WorkspaceFeature.definition(),
@@ -120,10 +125,11 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @PermissionNode(key = "assign_role", description = "Assign role to member")
     public void assignRole(UUID memberId, UUID roleId, UUID companyId) {
         var member = getMember(memberId);
-        var role = roleRepository.findById(roleId)
+        UUID accountId = member.getAccount().getId();
+        var role = roleRepository.findByIdAndAccountId(roleId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
         var company = companyId != null
-                ? companyRepository.findById(companyId)
+                ? companyRepository.findByIdAndAccountId(companyId, accountId)
                         .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId))
                 : null;
 
@@ -148,7 +154,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @PermissionNode(key = "remove_role", description = "Remove role from member")
     public void removeRole(UUID memberId, UUID roleId) {
         var member = getMember(memberId);
-        var role = roleRepository.findById(roleId)
+        var role = roleRepository.findByIdAndAccountId(roleId, member.getAccount().getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
         requireCurrentAccount(member);
         requireSameAccount(member, role);
@@ -160,7 +166,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @PermissionNode(key = "grant_permission", description = "Grant or deny direct permission override")
     public void grantPermissionOverride(UUID memberId, String permissionCode, UUID companyId, boolean decision) {
         var member = getMember(memberId);
-        var company = companyRepository.findById(companyId)
+        var company = companyRepository.findByIdAndAccountId(companyId, member.getAccount().getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
         var permission = permissionRepository.findByCode(permissionCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
@@ -184,7 +190,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @PermissionNode(key = "revoke_permission", description = "Remove direct permission override")
     public void revokePermissionOverride(UUID memberId, String permissionCode, UUID companyId) {
         var member = getMember(memberId);
-        var company = companyRepository.findById(companyId)
+        var company = companyRepository.findByIdAndAccountId(companyId, member.getAccount().getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
         var permission = permissionRepository.findByCode(permissionCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
@@ -200,7 +206,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @PermissionNode(key = "read_overrides", description = "View member permission overrides")
     public List<MemberPermissionOverrideDto> getMemberOverrides(UUID memberId, UUID companyId) {
         var member = getMember(memberId);
-        var company = companyRepository.findById(companyId)
+        var company = companyRepository.findByIdAndAccountId(companyId, member.getAccount().getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
         requireCurrentAccount(member);
         requireSameAccount(member, company);
@@ -219,10 +225,18 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     }
 
     private void requireCurrentAccount(UUID accountId) {
-        UUID currentAccountId = HiveAppContextHolder.getContext().currentAccountId();
+        UUID currentAccountId = currentAccountId();
         if (!accountId.equals(currentAccountId)) {
             throw new ForbiddenException("Member does not belong to your account");
         }
+    }
+
+    private UUID currentAccountId() {
+        var context = HiveAppContextHolder.getContext();
+        if (context == null || context.currentAccountId() == null) {
+            throw new ForbiddenException("An active workspace context is required");
+        }
+        return context.currentAccountId();
     }
 
     private void requireSameAccount(Member member, com.hiveapp.platform.client.role.domain.entity.Role role) {

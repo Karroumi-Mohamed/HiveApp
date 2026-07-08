@@ -98,13 +98,8 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
     private Company getOwnedCompany(UUID accountId, UUID id) {
         requireCurrentAccount(accountId);
         requireB2bTargetCompany(id);
-        var company = companyRepository.findById(id)
+        var company = companyRepository.findByIdAndAccountId(id, accountId)
             .orElseThrow(() -> new ResourceNotFoundException("Company", "id", id));
-
-        if (!company.getAccount().getId().equals(accountId)) {
-            throw new ForbiddenException("Company does not belong to your account");
-        }
-
         return company;
     }
 
