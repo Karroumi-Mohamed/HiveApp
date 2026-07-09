@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.platform.client.collaboration.domain.constant.CollaborationStatus;
 import com.hiveapp.shared.domain.BaseEntity;
+import com.hiveapp.shared.domain.TenantInvariant;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -38,4 +39,17 @@ public class Collaboration extends BaseEntity {
 
     @Column(name = "revoked_at")
     private LocalDateTime revokedAt;
+
+    @PrePersist
+    @PreUpdate
+    void validateTenantInvariant() {
+        TenantInvariant.requireSameEntity(
+                providerAccount,
+                company.getAccount(),
+                "Collaboration company must belong to the provider account");
+        TenantInvariant.requireDifferentEntities(
+                clientAccount,
+                providerAccount,
+                "Collaboration client and provider accounts must be different");
+    }
 }

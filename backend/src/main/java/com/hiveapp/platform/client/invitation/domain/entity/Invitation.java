@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.invitation.domain.constant.InvitationStatus;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.role.domain.entity.Role;
 import com.hiveapp.shared.domain.BaseEntity;
+import com.hiveapp.shared.domain.TenantInvariant;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -53,4 +54,31 @@ public class Invitation extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id")
     private Company company;
+
+    @PrePersist
+    @PreUpdate
+    void validateTenantInvariant() {
+        TenantInvariant.requireSameEntity(
+                account,
+                invitedBy.getAccount(),
+                "Invitation sender must belong to the invitation account");
+        if (role != null) {
+            TenantInvariant.requireSameEntity(
+                    account,
+                    role.getAccount(),
+                    "Invitation role must belong to the invitation account");
+        }
+        if (company != null) {
+            TenantInvariant.requireSameEntity(
+                    account,
+                    company.getAccount(),
+                    "Invitation company must belong to the invitation account");
+        }
+        if (role != null && role.getCompany() != null) {
+            TenantInvariant.requireSameEntity(
+                    role.getCompany(),
+                    company,
+                    "A company-scoped invitation role must use the same company");
+        }
+    }
 }

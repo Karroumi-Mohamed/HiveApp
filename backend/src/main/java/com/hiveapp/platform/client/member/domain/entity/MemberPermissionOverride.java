@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.member.domain.entity;
 import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.shared.domain.BaseEntity;
+import com.hiveapp.shared.domain.TenantInvariant;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -26,4 +27,13 @@ public class MemberPermissionOverride extends BaseEntity {
 
     @Column(nullable = false)
     private boolean decision;
+
+    @PrePersist
+    @PreUpdate
+    void validateTenantInvariant() {
+        TenantInvariant.requireSameEntity(
+                member.getAccount(),
+                company.getAccount(),
+                "Member permission override company must belong to the member account");
+    }
 }

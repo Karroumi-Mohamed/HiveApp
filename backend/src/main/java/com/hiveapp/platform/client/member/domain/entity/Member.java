@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.member.domain.entity;
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.shared.domain.BaseEntity;
+import com.hiveapp.shared.domain.TenantInvariant;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -28,4 +29,15 @@ public class Member extends BaseEntity {
 
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
+
+    @PrePersist
+    @PreUpdate
+    void validateTenantInvariant() {
+        if (isOwner) {
+            TenantInvariant.requireSameEntity(
+                    account.getOwner(),
+                    user,
+                    "An owner member must reference the account owner");
+        }
+    }
 }

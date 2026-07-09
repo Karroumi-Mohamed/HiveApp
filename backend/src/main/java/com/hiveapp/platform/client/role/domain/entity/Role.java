@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.role.domain.entity;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.shared.domain.BaseEntity;
+import com.hiveapp.shared.domain.TenantInvariant;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -35,4 +36,15 @@ public class Role extends BaseEntity {
 
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
+
+    @PrePersist
+    @PreUpdate
+    void validateTenantInvariant() {
+        if (company != null) {
+            TenantInvariant.requireSameEntity(
+                    account,
+                    company.getAccount(),
+                    "Role company must belong to the role account");
+        }
+    }
 }
