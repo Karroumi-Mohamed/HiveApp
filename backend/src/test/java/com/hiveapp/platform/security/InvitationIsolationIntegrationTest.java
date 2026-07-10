@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.invitation.domain.repository.InvitationReposi
 import com.hiveapp.platform.client.invitation.dto.AcceptInvitationRequest;
 import com.hiveapp.platform.client.invitation.dto.SendInvitationRequest;
 import com.hiveapp.platform.client.role.dto.CreateRoleRequest;
+import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,7 +47,7 @@ class InvitationIsolationIntegrationTest extends PlatformShellIntegrationTestSup
 
         mockMvc.perform(delete("/api/v1/invitations/{id}", ownerInvitationId)
                         .header("Authorization", bearer(otherToken)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -64,7 +65,7 @@ class InvitationIsolationIntegrationTest extends PlatformShellIntegrationTestSup
                         .header("Authorization", bearer(otherToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -82,7 +83,7 @@ class InvitationIsolationIntegrationTest extends PlatformShellIntegrationTestSup
                         .header("Authorization", bearer(otherToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -172,6 +173,23 @@ class InvitationIsolationIntegrationTest extends PlatformShellIntegrationTestSup
     }
 
     @Test
+    void existingUserCannotAcceptMembershipInASecondActiveWorkspace() throws Exception {
+        String existingEmail = "existing-member-" + UUID.randomUUID() + "@example.com";
+        registerClient(existingEmail);
+        String otherOwnerToken = registerClientAndGetToken();
+        UUID invitationId = sendInvitation(otherOwnerToken, existingEmail, null, null);
+        String invitationToken = invitationRepository.findById(invitationId).orElseThrow().getToken();
+        AcceptInvitationRequest request = new AcceptInvitationRequest(invitationToken, null, null, null);
+
+        mockMvc.perform(post("/api/v1/invitations/accept")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message")
+                        .value("This user already has an active membership in another workspace."));
+    }
+
+    @Test
     void acceptedInvitationPreservesCompanyScopedRoleAssignment() throws Exception {
         String ownerToken = registerClientAndGetToken();
         assignPlan(ownerToken, "PRO");
@@ -221,6 +239,17 @@ class InvitationIsolationIntegrationTest extends PlatformShellIntegrationTestSup
                 .getResponse()
                 .getContentAsString();
         return UUID.fromString(objectMapper.readTree(response).get("id").asText());
+    }
+
+    private String registerClient(String email) throws Exception {
+        RegisterRequest request = new RegisterRequest(
+                email, CLIENT_PASSWORD, "Existing", "Member", null);
+        String response = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).get("accessToken").asText();
     }
 
     private UUID createRole(String token, UUID companyId, String name) throws Exception {

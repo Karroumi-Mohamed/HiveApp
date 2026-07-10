@@ -38,8 +38,8 @@ class CompanyIsolationIntegrationTest extends PlatformShellIntegrationTestSuppor
         UUID ownerCompanyId = UUID.fromString(createCompany(ownerToken, "Owner Company").get("id").asText());
 
         mockMvc.perform(get("/api/v1/companies/{id}", ownerCompanyId)
-                        .header("Authorization", bearer(otherToken)))
-                .andExpect(status().isForbidden());
+                .header("Authorization", bearer(otherToken)))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -54,7 +54,7 @@ class CompanyIsolationIntegrationTest extends PlatformShellIntegrationTestSuppor
                         .header("Authorization", bearer(otherToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -65,7 +65,7 @@ class CompanyIsolationIntegrationTest extends PlatformShellIntegrationTestSuppor
 
         mockMvc.perform(delete("/api/v1/companies/{id}", ownerCompanyId)
                         .header("Authorization", bearer(otherToken)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test

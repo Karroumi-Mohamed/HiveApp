@@ -83,7 +83,7 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
         UUID otherCompanyId = UUID.fromString(createCompany(otherToken, "Other Company").get("id").asText());
 
         grantOverride(otherToken, ownerMemberId, otherCompanyId, "platform.company.read_single")
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -94,7 +94,7 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
         UUID otherMemberId = currentMemberId(otherToken);
 
         grantOverride(otherToken, otherMemberId, ownerCompanyId, "platform.company.read_single")
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -106,14 +106,14 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
 
         mockMvc.perform(get("/api/v1/members/{id}/permissions", otherMemberId)
                         .header("Authorization", bearer(otherToken))
-                        .param("companyId", ownerCompanyId.toString()))
-                .andExpect(status().isForbidden());
+                .param("companyId", ownerCompanyId.toString()))
+                .andExpect(status().isNotFound());
 
         mockMvc.perform(delete("/api/v1/members/{id}/permissions/{permissionCode}",
                         otherMemberId, "platform.company.read_single")
                         .header("Authorization", bearer(otherToken))
                         .param("companyId", ownerCompanyId.toString()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test

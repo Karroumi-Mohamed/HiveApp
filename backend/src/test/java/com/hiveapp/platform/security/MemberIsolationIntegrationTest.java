@@ -46,7 +46,7 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
                         .header("Authorization", bearer(otherToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -57,7 +57,7 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
 
         mockMvc.perform(delete("/api/v1/members/{id}", ownerMemberId)
                         .header("Authorization", bearer(otherToken)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -88,7 +88,7 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
 
         mockMvc.perform(delete("/api/v1/members/{id}/roles/{roleId}", otherMemberId, ownerRoleId)
                         .header("Authorization", bearer(otherToken)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     private org.springframework.test.web.servlet.ResultActions assignRole(

@@ -1,6 +1,7 @@
 package com.hiveapp.platform.security;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.hiveapp.identity.domain.entity.User;
+import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.platform.client.company.dto.CreateCompanyRequest;
 import com.hiveapp.platform.client.member.dto.AddMemberRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
@@ -8,6 +9,7 @@ import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.shared.quota.QuotaOverride;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.util.UUID;
@@ -19,6 +21,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSupport {
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Test
     void freePlanAllowsOnlyOneCompany() throws Exception {
@@ -41,9 +46,9 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
     @Test
     void freePlanMemberLimitCountsOwnerAndDeniesThirdAddition() throws Exception {
         String ownerToken = registerClientAndGetToken();
-        UUID firstUserId = currentUserId(registerClientAndGetToken());
-        UUID secondUserId = currentUserId(registerClientAndGetToken());
-        UUID thirdUserId = currentUserId(registerClientAndGetToken());
+        UUID firstUserId = createUnattachedUser("First");
+        UUID secondUserId = createUnattachedUser("Second");
+        UUID thirdUserId = createUnattachedUser("Third");
 
         addMember(ownerToken, firstUserId, "First Member").andExpect(status().isCreated());
         addMember(ownerToken, secondUserId, "Second Member").andExpect(status().isCreated());
@@ -101,9 +106,14 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
                 .andExpect(jsonPath("$.details[2]").value("current: 6"));
     }
 
-    private UUID currentUserId(String token) throws Exception {
-        JsonNode members = listMembers(token);
-        return UUID.fromString(members.get(0).get("userId").asText());
+    private UUID createUnattachedUser(String firstName) {
+        User user = User.builder()
+                .email("quota-user-" + UUID.randomUUID() + "@example.com")
+                .passwordHash("not-used")
+                .firstName(firstName)
+                .lastName("Member")
+                .build();
+        return userRepository.save(user).getId();
     }
 
     private org.springframework.test.web.servlet.ResultActions addMember(

@@ -15,6 +15,7 @@ import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.shared.exception.ForbiddenException;
+import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
@@ -103,6 +104,22 @@ class MemberServiceImplTest {
                 .hasMessageContaining("Member does not belong to your account");
 
         verifyNoInteractions(quotaEnforcer, accountRepository, userRepository);
+    }
+
+    @Test
+    void addMemberRejectsUserWhoAlreadyHasAnActiveWorkspaceMembership() {
+        UUID accountId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        setContext(accountId);
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account(accountId)));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user(userId)));
+        when(memberRepository.existsByUserIdAndIsActiveTrue(userId)).thenReturn(true);
+
+        assertThatThrownBy(() -> memberService.addMember(accountId, userId, "Nora"))
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessage("User already has an active workspace membership");
+
+        verifyNoInteractions(quotaEnforcer);
     }
 
     private static void setContext(UUID accountId) {

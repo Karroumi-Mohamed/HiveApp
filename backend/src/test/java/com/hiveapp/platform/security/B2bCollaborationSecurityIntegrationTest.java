@@ -50,7 +50,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
 
         mockMvc.perform(patch("/api/v1/collaborations/{id}/accept", setup.collaborationId())
                         .header("Authorization", bearer(setup.clientToken())))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
 
         mockMvc.perform(patch("/api/v1/collaborations/{id}/accept", setup.collaborationId())
                         .header("Authorization", bearer(setup.providerToken())))
@@ -138,7 +138,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
 
         mockMvc.perform(get("/api/v1/collaborations/{id}/permission-catalog", setup.collaborationId())
                         .header("Authorization", bearer(setup.clientToken())))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -206,7 +206,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         B2bSetup setup = setupActiveCollaboration();
 
         grantPermission(setup.clientToken(), setup.collaborationId(), "platform.company.read_single")
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -267,7 +267,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
 
         mockMvc.perform(delete("/api/v1/collaborations/{id}", setup.collaborationId())
                         .header("Authorization", bearer(otherToken)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     private B2bSetup setupPendingCollaboration() throws Exception {

@@ -43,7 +43,7 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
 
         mockMvc.perform(get("/api/v1/roles/{id}", ownerRoleId)
                         .header("Authorization", bearer(otherToken)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -57,7 +57,7 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
                         .header("Authorization", bearer(otherToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -68,7 +68,7 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
 
         mockMvc.perform(delete("/api/v1/roles/{id}", ownerRoleId)
                         .header("Authorization", bearer(otherToken)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -82,7 +82,7 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
                         .header("Authorization", bearer(otherToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -97,7 +97,7 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
                         .header("Authorization", bearer(otherToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -113,7 +113,7 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
                         .header("Authorization", bearer(otherToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
