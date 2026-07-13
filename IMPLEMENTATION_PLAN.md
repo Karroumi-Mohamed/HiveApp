@@ -289,35 +289,41 @@ flowchart TD
 # Phase 1: Account, ownership, membership, authentication and tenant isolation
 
 ### Batch 1.1: Tenancy Boundaries & Isolation
+
+**Execution status — 2026-07-16:** Completed for the current unpublished, in-memory development stage. Account-scoped repository lookups, active membership context selection, ownership mapping, generated-schema foreign-key metadata, entity persistence callbacks, non-disclosing 404 isolation behavior, and the full 241-test backend suite are green. Versioned production migrations remain future deployment hardening under `CONFIG-001`, not a Batch 1.1 blocker.
+
 #### [IMPLEMENT] TENANCY-001 — Establish `Account` as the canonical tenant boundary
 - **Prerequisites**: AUTHZ-001.
 - **Unlocks**: TENANCY-002.
 - **Order Rationale**: Sets the core tenant filters on database queries before validating relationships.
-- **Affected Backend Areas**: JPA Repositories, `SecurityContextService.java`.
+- **Affected Backend Areas**: Tenant-owned JPA repositories, client services, `SecurityContextService.java`.
 - **Database Migration**: No.
 - **Acceptance Criteria**: Queries enforce Account ID parameters.
 - **Tests**: Multi-tenant isolation checks.
 - **Future UI Flow**: Tenant navigation.
+- **Execution Status**: Completed. Account is the canonical context ID and tenant-owned IDs are loaded through account/participant-scoped queries.
 
 #### [IMPLEMENT] TENANCY-002 — `Account.ownerId` is an unverified raw UUID relationship
 - **Prerequisites**: TENANCY-001.
 - **Unlocks**: TENANCY-003, MEMBER-001.
 - **Order Rationale**: Ensures the owner ID maps to a real entity before checking tenant-wide parents.
-- **Affected Backend Areas**: `Account.java`, `AccountRepository.java`.
+- **Affected Backend Areas**: `Account.java`, `AccountRepository.java`, provisioning/member creation.
 - **Database Migration**: Yes (add foreign key).
-- **Acceptance Criteria**: Account owner points to User record with integrity checks.
-- **Tests**: JPA verification.
+- **Acceptance Criteria**: Account owner points to a User; owner Member matches it; one active membership per user is enforced in current application flows and generated development schemas contain the owner foreign key.
+- **Tests**: Ownership mapping, owner-member callback, duplicate active-membership flows.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed for the current in-memory stage. Persistent-production concurrency constraints move with the future CONFIG-001 migration baseline.
 
 #### [VERIFY FIRST] TENANCY-003 — Cross-account relationship invariants are not visible in the entity model
 - **Prerequisites**: TENANCY-002.
 - **Unlocks**: ACCOUNT-001, COMPANY-001, COLLAB-001.
-- **Order Rationale**: Entity cross-account check. Verification: Check if parent mismatch is allowed. Remediation: Add `@PrePersist` listeners to validate child account matches parent account.
-- **Affected Backend Areas**: Lifecycle validation listeners.
+- **Order Rationale**: Entity cross-account verification confirmed persistence-level gaps; callbacks now provide defense beyond normal service paths.
+- **Affected Backend Areas**: Tenant aggregate entities, `TenantInvariant.java`, scoped repositories.
 - **Database Migration**: No.
 - **Acceptance Criteria**: Mismatched tenant hierarchies raise validation errors.
 - **Tests**: Cross-account mismatch tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed. Persistence callbacks cover all relationships listed in the finding, and request-level isolation tests pass.
 
 ---
 
@@ -1586,7 +1592,7 @@ flowchart TD
 | TOFIX ID | Title | Current status | Action | Phase | Batch | Prerequisites | Acceptance evidence |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **TENANCY-001** | Establish Account boundary | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.1 | AUTHZ-001 | Context ID scoping |
-| **TENANCY-002** | Account owner id relationship | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.1 | TENANCY-001 | Real foreign key |
+| **TENANCY-002** | Account owner id relationship | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.1 | TENANCY-001 | User relationship and active-member guard |
 | **RBAC-001** | Company scope represented twice | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | ROLE-003 | Consolidated columns |
 | **RBAC-002** | Inactive roles grant permissions | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-001 | Ignored in evaluation |
 | **RBAC-003** | Ceiling for assignments | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-002 | Actor ceiling enforced |

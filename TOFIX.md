@@ -41,7 +41,7 @@ Do not fix entries immediately. First inspect the relevant entities, repositorie
 
 ### TENANCY-001 — Establish `Account` as the canonical tenant boundary
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-16`
 
 **Evidence**
 
@@ -61,11 +61,18 @@ If future HR, payroll, and accounting modules disagree about whether tenancy is 
 - Require future business records to carry the appropriate account/company scope.
 - Align naming in backend context, APIs, UI, and surviving documentation.
 
+**Implementation evidence — 2026-07-16**
+
+- `SecurityContextService` now selects only an active membership and continues to use `Account` as `currentAccountId`; inactive membership still fails as 401 rather than degrading into an unscoped context.
+- Company, member, role, invitation, and collaboration repositories expose account- or participant-scoped ID lookups.
+- Service write/read paths use those scoped queries, so a foreign tenant ID is treated as absent (404) instead of loading the row globally and revealing that it exists.
+- Existing HTTP isolation suites now lock non-disclosing behavior for companies, members, roles, invitations, and B2B collaborations.
+
 ---
 
 ### TENANCY-002 — `Account.ownerId` is an unverified raw UUID relationship
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-16`
 
 **Evidence**
 
@@ -81,6 +88,18 @@ The account owner UUID and owner-member row can drift apart. The database cannot
 **Required fix direction**
 
 Use one authoritative ownership model with referential integrity. Single-workspace client membership is now an accepted product rule, so enforce user membership uniqueness at the database level and keep owner identity consistent with the Account's owner Member.
+
+**Implementation evidence — 2026-07-16**
+
+- `Account.ownerId` was replaced by a required lazy `User owner` relationship using the existing `owner_id` column, named foreign-key metadata, and the existing uniqueness contract.
+- Workspace provisioning assigns the loaded `User` entity and creates the matching owner `Member` in the same transaction.
+- An owner-member persistence callback rejects a member whose user differs from the account owner.
+- Member creation and legacy invitation acceptance reject a user who already has an active membership in another account; security-context selection uses only the active membership.
+- Tests cover the ownership mapping, owner/member consistency, duplicate active-membership rejection, and the legacy cross-workspace acceptance path.
+
+**Future production hardening — not a current blocker**
+
+The current unpublished application uses disposable in-memory H2 schemas generated from JPA, so `fk_accounts_owner` is recreated from the entity mapping on every run. One-active-membership behavior is enforced in application flows and tested. When HiveApp gains a persistent production database, `CONFIG-001` must introduce versioned migrations and a database-level concurrent-write constraint without preventing historical inactive membership rows; that deployment hardening does not block the current batch.
 
 ---
 
@@ -224,7 +243,7 @@ Add database unique constraints matching the domain invariants, then make servic
 
 ### TENANCY-003 — Cross-account relationship invariants are not visible in the entity model
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-07-16`
 
 **Evidence**
 
@@ -248,6 +267,15 @@ Inspect every create/update service and abuse test covering these relationships.
 **Possible fix direction**
 
 Centralize same-account/same-company invariant checks, query related records through tenant-scoped repositories, and add request-level negative tests for cross-account identifiers.
+
+**Verification and implementation evidence — 2026-07-16**
+
+- Verification confirmed that service checks covered several normal flows but the entity model itself permitted invalid combinations.
+- `TenantInvariant` now provides identity-safe same/different entity checks for persistence callbacks.
+- `@PrePersist` and `@PreUpdate` checks protect owner members, role/company scope, member-role assignments, member overrides, invitations, department parents/managers, and collaboration provider/company/client relationships.
+- Tenant-owned service inputs are loaded through scoped repository methods before mutation.
+- Ten focused entity/service tests plus the existing HTTP isolation suites cover valid and mismatched relationships.
+- The complete backend suite passes: 241 tests, 0 failures, 0 errors, 0 skipped.
 
 ---
 
