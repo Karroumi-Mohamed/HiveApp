@@ -1,5 +1,6 @@
 package com.hiveapp.identity.service.impl;
 
+import com.hiveapp.identity.domain.EmailIdentity;
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.dto.AuthResponse;
@@ -7,20 +8,19 @@ import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.identity.service.AuthService;
+import com.hiveapp.identity.service.CredentialAuthenticationService;
 import com.hiveapp.platform.client.account.service.WorkspaceProvisioningService;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.UnauthorizedException;
-import com.hiveapp.shared.security.JwtTokenProvider;
+import com.hiveapp.shared.security.IssuedTokens;
+import com.hiveapp.shared.security.TokenAudience;
+import com.hiveapp.shared.security.TokenSessionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.Map;
 
 @Slf4j
 @Service
@@ -29,26 +29,31 @@ public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtTokenProvider jwtTokenProvider;
-    private final AuthenticationManager authenticationManager;
+    private final CredentialAuthenticationService credentialAuthenticationService;
+    private final TokenSessionService tokenSessionService;
     private final WorkspaceProvisioningService workspaceProvisioningService;
 
     @Override
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.email())) {
-            throw new DuplicateResourceException("User", "email", request.email());
+        String email = EmailIdentity.canonicalize(request.email());
+        if (userRepository.existsByEmail(email)) {
+            throw new DuplicateResourceException("User", "email", email);
         }
 
         User user = User.builder()
-                .email(request.email())
+                .email(email)
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .firstName(request.firstName())
                 .lastName(request.lastName())
                 .phone(request.phone())
                 .build();
 
-        user = userRepository.save(user);
+        try {
+            user = userRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException ex) {
+            throw new DuplicateResourceException("User", "email", email);
+        }
         log.info("Registered new user: {}", user.getEmail());
 
         // Provision workspace synchronously — no events needed
@@ -60,19 +65,11 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new UnauthorizedException("Invalid email or password"));
-
-        if (!user.isActive()) {
-            throw new UnauthorizedException("Account is deactivated");
-        }
-
-        try {
-            authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(user.getId().toString(), request.password()));
-        } catch (BadCredentialsException ex) {
-            throw new UnauthorizedException("Invalid email or password");
-        }
+        User user = credentialAuthenticationService.authenticate(
+                request.email(),
+                request.password(),
+                "Invalid email or password",
+                "Account is deactivated");
 
         log.info("User logged in: {}", user.getEmail());
         return issueTokens(user);
@@ -81,12 +78,8 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(readOnly = true)
     public AuthResponse refresh(RefreshTokenRequest request) {
-        if (!jwtTokenProvider.validateToken(request.refreshToken())) {
-            throw new UnauthorizedException("Invalid or expired refresh token");
-        }
-
-        var userId = jwtTokenProvider.getUserIdFromToken(request.refreshToken());
-        var user = userRepository.findById(userId)
+        var identity = tokenSessionService.consume(request.refreshToken(), TokenAudience.CLIENT);
+        var user = userRepository.findById(identity.userId())
                 .orElseThrow(() -> new UnauthorizedException("User not found"));
 
         if (!user.isActive()) {
@@ -97,13 +90,15 @@ public class AuthServiceImpl implements AuthService {
         return issueTokens(user);
     }
 
+    @Override
+    public void logout(RefreshTokenRequest request) {
+        tokenSessionService.revoke(request.refreshToken(), TokenAudience.CLIENT);
+    }
+
     // ── Internals ─────────────────────────────────────────────────────────────
 
     private AuthResponse issueTokens(User user) {
-        var claims = Map.<String, Object>of("tokenType", "CLIENT");
-        String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), claims);
-        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId());
-        long expiresIn = jwtTokenProvider.getAccessTokenExpiration();
-        return AuthResponse.of(accessToken, refreshToken, expiresIn);
+        IssuedTokens tokens = tokenSessionService.issue(user.getId(), TokenAudience.CLIENT);
+        return AuthResponse.of(tokens.accessToken(), tokens.refreshToken(), tokens.expiresIn());
     }
 }

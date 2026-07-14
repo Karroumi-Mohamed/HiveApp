@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.invitation.service.impl;
 
+import com.hiveapp.identity.domain.EmailIdentity;
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
@@ -69,6 +70,7 @@ public class InvitationServiceImpl extends ClientWorkspaceFeatureService impleme
     @PermissionNode(key = "send", description = "Send workspace invitation")
     public InvitationDto send(UUID accountId, UUID invitedByUserId, SendInvitationRequest request) {
         requireCurrentAccount(accountId);
+        String email = EmailIdentity.canonicalize(request.email());
         var account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
 
@@ -77,15 +79,15 @@ public class InvitationServiceImpl extends ClientWorkspaceFeatureService impleme
 
         // Reject if target is already a member
         if (memberRepository.existsByAccountIdAndUserId(accountId,
-                userRepository.findByEmail(request.email())
+                userRepository.findByEmail(email)
                         .map(User::getId).orElse(UUID.randomUUID()))) {
             throw new InvalidStateException("This user is already a member of the workspace.");
         }
 
         // Reject duplicate pending invite to same email
         if (invitationRepository.existsByAccountIdAndEmailAndStatus(
-                accountId, request.email().toLowerCase(), InvitationStatus.PENDING)) {
-            throw new DuplicateResourceException("Pending invitation", "email", request.email().toLowerCase());
+                accountId, email, InvitationStatus.PENDING)) {
+            throw new DuplicateResourceException("Pending invitation", "email", email);
         }
 
         var company = request.companyId() != null
@@ -106,7 +108,7 @@ public class InvitationServiceImpl extends ClientWorkspaceFeatureService impleme
 
         Invitation invitation = new Invitation();
         invitation.setAccount(account);
-        invitation.setEmail(request.email().toLowerCase());
+        invitation.setEmail(email);
         invitation.setToken(generateToken());
         invitation.setStatus(InvitationStatus.PENDING);
         invitation.setExpiresAt(Instant.now().plus(expiryDays, ChronoUnit.DAYS));

@@ -42,9 +42,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
             try {
-                String tokenType = jwtTokenProvider.getClaimsFromToken(token).get("tokenType", String.class);
-                if (!"CLIENT".equals(tokenType)) {
-                    log.warn("Rejected token with type {} on client endpoint", tokenType);
+                var claims = jwtTokenProvider.getClaimsFromToken(token);
+                if (!jwtTokenProvider.hasPurpose(claims, TokenAudience.CLIENT, TokenUse.ACCESS)) {
+                    log.warn("Rejected token with type {} and use {} on client endpoint",
+                            claims.get("tokenType"), claims.get("tokenUse"));
                     if (!isPublicPath(request)) {
                         accessDeniedHandler.handle(request, response,
                                 new AccessDeniedException("Token is not valid for the client API surface"));

@@ -21,13 +21,22 @@ public class UserDetailsServiceImpl implements UserDetailsService{
     @Override
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String userId) throws UsernameNotFoundException {
-        var user = userRepository.findById(UUID.fromString(userId))
-            .orElseThrow(() -> new UsernameNotFoundException("User not found: " + userId));
+        UUID parsedUserId = parseUserId(userId);
+        var user = userRepository.findById(parsedUserId)
+            .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
         return new HiveAppUserDetails(
             user.getId(),
             user.getEmail(),
             user.getPasswordHash(),
             user.isActive());
+    }
+
+    private UUID parseUserId(String userId) {
+        try {
+            return UUID.fromString(userId);
+        } catch (IllegalArgumentException ex) {
+            throw new UsernameNotFoundException("User not found");
+        }
     }
 }

@@ -42,9 +42,10 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
             try {
-                String tokenType = jwtTokenProvider.getClaimsFromToken(token).get("tokenType", String.class);
-                if (!"ADMIN".equals(tokenType)) {
-                    log.warn("Rejected token with type {} on admin endpoint", tokenType);
+                var claims = jwtTokenProvider.getClaimsFromToken(token);
+                if (!jwtTokenProvider.hasPurpose(claims, TokenAudience.ADMIN, TokenUse.ACCESS)) {
+                    log.warn("Rejected token with type {} and use {} on admin endpoint",
+                            claims.get("tokenType"), claims.get("tokenUse"));
                     if (!isPublicPath(request)) {
                         accessDeniedHandler.handle(request, response,
                                 new AccessDeniedException("Token is not valid for the admin API surface"));
@@ -94,6 +95,6 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private boolean isPublicPath(HttpServletRequest request) {
-        return requestPath(request).equals("/api/admin/auth/login");
+        return requestPath(request).startsWith("/api/admin/auth/");
     }
 }

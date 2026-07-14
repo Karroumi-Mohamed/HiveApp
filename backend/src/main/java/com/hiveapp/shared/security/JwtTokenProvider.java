@@ -13,7 +13,6 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
-import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -28,21 +27,25 @@ public class JwtTokenProvider {
                 jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateAccessToken(UUID userId, Map<String, Object> extraClaims) {
+    public String generateAccessToken(UUID userId, TokenAudience audience) {
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(userId.toString())
-                .claims(extraClaims)
+                .claim("tokenType", audience.name())
+                .claim("tokenUse", TokenUse.ACCESS.name())
                 .issuedAt(new Date(now))
                 .expiration(new Date(now + jwtProperties.getAccessTokenExpiration().toMillis()))
                 .signWith(getSigningKey())
                 .compact();
     }
 
-    public String generateRefreshToken(UUID userId) {
+    public String generateRefreshToken(UUID userId, TokenAudience audience, UUID tokenId) {
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(userId.toString())
+                .id(tokenId.toString())
+                .claim("tokenType", audience.name())
+                .claim("tokenUse", TokenUse.REFRESH.name())
                 .issuedAt(new Date(now))
                 .expiration(new Date(now + jwtProperties.getRefreshTokenExpiration().toMillis()))
                 .signWith(getSigningKey())
@@ -81,7 +84,16 @@ public class JwtTokenProvider {
                 .getPayload();
     }
 
+    public boolean hasPurpose(Claims claims, TokenAudience audience, TokenUse tokenUse) {
+        return audience.name().equals(claims.get("tokenType", String.class))
+                && tokenUse.name().equals(claims.get("tokenUse", String.class));
+    }
+
     public long getAccessTokenExpiration() {
         return jwtProperties.getAccessTokenExpiration().toSeconds();
+    }
+
+    public long getRefreshTokenExpiration() {
+        return jwtProperties.getRefreshTokenExpiration().toSeconds();
     }
 }

@@ -104,7 +104,7 @@ public class SecurityConfig {
                     "/api/v1/features/catalog",
                     "/api/v1/invitations/validate",
                     "/api/v1/invitations/accept",
-                    "/api/admin/auth/login",
+                    "/api/admin/auth/**",
                     "/swagger-ui/**",
                     "/swagger-ui.html",
                     "/v3/api-docs/**",

@@ -11,6 +11,7 @@ import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.exception.UnauthorizedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import java.util.UUID;
 
 @Service
@@ -21,6 +22,7 @@ public class SecurityContextService {
     private final MemberRepository memberRepository;
     private final CollaborationRepository collaborationRepository;
 
+    @Transactional(readOnly = true)
     public HiveAppPermissionContext validateAndBuild(UUID userId, String companyIdHeader, String isB2BHeader) {
         if (userId == null) throw new UnauthorizedException("User not authenticated");
 
@@ -37,12 +39,13 @@ public class SecurityContextService {
                 
                 Company company = companyRepository.findById(requestedCompanyId)
                     .orElseThrow(() -> new ResourceNotFoundException("Company", "id", requestedCompanyId));
-                
+                requireActiveAccount(company.getAccount());
                 UUID providerAccountId = company.getAccount().getId();
 
                 if (isB2B) {
                     var member = memberRepository.findByUserIdAndIsActiveTrue(userId)
                         .orElseThrow(() -> new UnauthorizedException("Access Denied: You are not a member of any account"));
+                    requireActiveAccount(member.getAccount());
                     clientAccountId = member.getAccount().getId();
 
                     var collaboration = collaborationRepository.findByClientAccountIdAndProviderAccountIdAndCompanyIdAndStatus(
@@ -64,6 +67,7 @@ public class SecurityContextService {
         } else {
             var member = memberRepository.findByUserIdAndIsActiveTrue(userId).orElse(null);
             if (member != null) {
+                requireActiveAccount(member.getAccount());
                 currentAccountId = member.getAccount().getId();
                 clientAccountId = currentAccountId;
             } else if (memberRepository.existsByUserId(userId)) {
@@ -77,6 +81,13 @@ public class SecurityContextService {
     private void requireActiveMember(com.hiveapp.platform.client.member.domain.entity.Member member) {
         if (!member.isActive()) {
             throw new UnauthorizedException("Access Denied: Workspace membership is inactive");
+        }
+        requireActiveAccount(member.getAccount());
+    }
+
+    private void requireActiveAccount(com.hiveapp.platform.client.account.domain.entity.Account account) {
+        if (!account.isActive()) {
+            throw new ForbiddenException("Access Denied: Workspace account is suspended");
         }
     }
 }

@@ -22,8 +22,9 @@ public class AdminUserDetailsServiceImpl implements UserDetailsService{
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String userId) throws UsernameNotFoundException {
         // userId = User.id (the token subject set by AdminAuthController)
-        var adminUser = adminUserRepository.findByUserId(UUID.fromString(userId))
-            .orElseThrow(() -> new UsernameNotFoundException("Admin user not found for userId: " + userId));
+        UUID parsedUserId = parseUserId(userId);
+        var adminUser = adminUserRepository.findByUserId(parsedUserId)
+            .orElseThrow(() -> new UsernameNotFoundException("Admin user not found"));
 
         // Store User.id in HiveAppUserDetails so ContextDetectionFilter and AdminPermissionPolicy
         // see the correct actorUserId and can call adminUserRepository.findByUserId() consistently
@@ -33,5 +34,13 @@ public class AdminUserDetailsServiceImpl implements UserDetailsService{
             adminUser.getUser().getPasswordHash(),
             adminUser.isActive() && adminUser.getUser().isActive()
         );
+    }
+
+    private UUID parseUserId(String userId) {
+        try {
+            return UUID.fromString(userId);
+        } catch (IllegalArgumentException ex) {
+            throw new UsernameNotFoundException("Admin user not found");
+        }
     }
 }

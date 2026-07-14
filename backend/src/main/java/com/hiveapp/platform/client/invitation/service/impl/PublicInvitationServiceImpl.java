@@ -16,7 +16,9 @@ import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
-import com.hiveapp.shared.security.JwtTokenProvider;
+import com.hiveapp.shared.security.IssuedTokens;
+import com.hiveapp.shared.security.TokenAudience;
+import com.hiveapp.shared.security.TokenSessionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,7 +26,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -37,7 +38,7 @@ public class PublicInvitationServiceImpl implements PublicInvitationService {
     private final MemberRoleRepository memberRoleRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtTokenProvider jwtTokenProvider;
+    private final TokenSessionService tokenSessionService;
 
     @Override
     @Transactional(readOnly = true)
@@ -139,9 +140,7 @@ public class PublicInvitationServiceImpl implements PublicInvitationService {
     }
 
     private AuthResponse issueClientToken(User user) {
-        var claims = Map.<String, Object>of("tokenType", "CLIENT");
-        String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), claims);
-        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId());
-        return AuthResponse.of(accessToken, refreshToken, jwtTokenProvider.getAccessTokenExpiration());
+        IssuedTokens tokens = tokenSessionService.issue(user.getId(), TokenAudience.CLIENT);
+        return AuthResponse.of(tokens.accessToken(), tokens.refreshToken(), tokens.expiresIn());
     }
 }

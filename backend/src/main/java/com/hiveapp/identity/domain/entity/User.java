@@ -1,9 +1,12 @@
 package com.hiveapp.identity.domain.entity;
 
 import com.hiveapp.shared.domain.BaseEntity;
+import com.hiveapp.identity.domain.EmailIdentity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -48,5 +51,11 @@ public class User extends BaseEntity {
 
     public String getFullName() {
         return firstName + " " + lastName;
+    }
+
+    @PrePersist
+    @PreUpdate
+    void canonicalizeEmail() {
+        email = EmailIdentity.canonicalize(email);
     }
 }
