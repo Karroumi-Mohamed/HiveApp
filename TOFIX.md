@@ -1362,7 +1362,7 @@ Both client and admin user-details services translate malformed UUIDs to the sam
 
 ### EVENT-001 — `UserRegisteredEvent` is unused dead architecture
 
-**Status:** `OBSERVED`
+**Status:** `REMOVED AS OBSOLETE — 2026-07-16`
 
 **Evidence**
 
@@ -1377,6 +1377,10 @@ Dead event types confuse future development about whether registration consequen
 **Possible fix direction**
 
 Keep synchronous provisioning for the organized monolith if that is the chosen transaction model, and remove the unused event. Retain it only if a concrete listener and failure contract are deliberately introduced.
+
+**Implementation evidence — 2026-07-16**
+
+`UserRegisteredEvent` and its otherwise-unused `DomainEvent` marker are deleted. `AuthServiceImpl.register()` remains the single explicit registration path and calls `WorkspaceProvisioningService.provision()` synchronously inside the registration transaction. Active credential-email events are separate, purpose-specific after-commit delivery events and were retained.
 
 ---
 
@@ -1720,7 +1724,7 @@ Define separate member summary and member access-detail read models with safe us
 
 ### EVENT-002 — Account event artifacts are unused leftovers
 
-**Status:** `OBSERVED`
+**Status:** `REMOVED AS OBSOLETE — 2026-07-16`
 
 **Evidence**
 
@@ -1735,6 +1739,10 @@ These leftovers obscure the chosen synchronous monolith flow and invite future d
 **Possible fix direction**
 
 Remove dead event/listener/service artifacts after confirming tests and external reflection do not depend on them.
+
+**Implementation evidence — 2026-07-16**
+
+`AccountCreatedEvent` and the comment-only `UserRegistrationEventListener` are deleted after repository-wide reference verification. The unused duplicate `AccountService` had already been removed in Batch 1.3. No active publisher, listener, reflection registration, or test depended on these artifacts; the clean full backend suite remains green at 265 tests.
 
 ---
 

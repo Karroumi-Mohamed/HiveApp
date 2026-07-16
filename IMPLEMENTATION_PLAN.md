@@ -649,6 +649,9 @@ flowchart TD
 ---
 
 ### Batch 1.6: Legacy Event Cleanup
+
+**Execution status — 2026-07-16:** Completed. The unused registration event, Account event, comment-only listener, and orphaned shared event marker are deleted. Registration remains one explicit synchronous transaction through `WorkspaceProvisioningService`; current credential email and subscription listeners remain intact because they have active publishers and concrete after-commit behavior. The clean full backend suite passes all 265 tests with zero failures/errors.
+
 #### [REMOVE AS OBSOLETE] EVENT-001 — `UserRegisteredEvent` is unused dead architecture
 - **Prerequisites**: None.
 - **Unlocks**: None.
@@ -658,6 +661,7 @@ flowchart TD
 - **Acceptance Criteria**: File deleted.
 - **Tests**: Clean compilation.
 - **Future UI Flow**: None.
+- **Execution Status**: Removed together with the now-unused `DomainEvent` marker. Registration continues to provision synchronously with no duplicate event path.
 
 #### [REMOVE AS OBSOLETE] EVENT-002 — `Account` event artifacts are unused leftovers
 - **Prerequisites**: None.
@@ -668,6 +672,7 @@ flowchart TD
 - **Acceptance Criteria**: Files deleted.
 - **Tests**: Clean compilation.
 - **Future UI Flow**: None.
+- **Execution Status**: Removed. `AccountCreatedEvent` and the comment-only `UserRegistrationEventListener` are deleted; the already-removed duplicate `AccountService` remains absent.
 
 ---
 
@@ -1618,8 +1623,8 @@ flowchart TD
 # Obsolete/removal work
 - `INVITE-001` through `INVITE-007`: Removed and replaced by completed `INVITE-000` (Direct Member Creation).
 - `EMAIL-002`: Removed invitation template; safety requirements completed in activation/reset emails under `INVITE-000`.
-- `EVENT-001`: Legacy event.
-- `EVENT-002`: Legacy event.
+- `EVENT-001`: Completed removal of the legacy registration event and orphaned marker.
+- `EVENT-002`: Completed removal of legacy Account event/listener artifacts.
 
 ---
 
@@ -1681,7 +1686,7 @@ flowchart TD
 | **AUTH-003** | Align Security Context | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-002 | Active membership/account context test |
 | **AUTH-004** | Db error translation | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.2 | Unique-constraint translation unit test |
 | **AUTH-005** | Malformed UUID check | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | Safe client/admin principal parsing tests |
-| **EVENT-001** | Dead Event | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Deleted file |
+| **EVENT-001** | Dead Event | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Registration event and orphaned marker deleted |
 | **ACCOUNT-001** | Require Subscription | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.3 | TENANCY-003 | Atomic FREE snapshot and rollback tests |
 | **ACCOUNT-002** | Account check filters | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.3 | ACCOUNT-001 | Suspension denial and refresh revocation tests |
 | **ACCOUNT-003** | Slug constraints | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.3 | ACCOUNT-002 | User-bound slug collision tests |
@@ -1695,7 +1700,7 @@ flowchart TD
 | **MEMBER-003** | Active role check | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Inactive and duplicate scoped assignment rejection |
 | **MEMBER-004** | Member DTO clean | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Align fields |
 | **MEMBER-005** | Token revocation | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-003 | Access-context denial and CLIENT refresh-session revocation |
-| **EVENT-002** | Dead Event | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Deleted file |
+| **EVENT-002** | Dead Event | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Account event/listener artifacts deleted |
 | **ROLE-001** | Role check delete | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | MEMBER-003 | Validation warning |
 | **ROLE-002** | System roles locks | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-001 | 403 Forbidden |
 | **ROLE-003** | Lifecycle enums | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-002 | State column |
