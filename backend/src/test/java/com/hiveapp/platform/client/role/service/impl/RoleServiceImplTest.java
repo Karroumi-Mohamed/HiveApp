@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.role.service.impl;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
+import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.role.domain.entity.Role;
@@ -15,6 +16,7 @@ import com.hiveapp.platform.registry.service.PermissionPickerCatalogService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
+import com.hiveapp.shared.exception.InvalidStateException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -90,6 +92,27 @@ class RoleServiceImplTest {
         assertThatThrownBy(() -> roleService.addPermissionToRole(roleId, permissionCode))
                 .isInstanceOf(InvalidPermissionGrantException.class)
                 .hasMessageContaining("current plan entitlement");
+
+        verify(rolePermissionRepository, never()).save(org.mockito.ArgumentMatchers.any(RolePermission.class));
+    }
+
+    @Test
+    void addPermissionToRoleRejectsNewGrantWhileCompanyIsInactive() {
+        UUID accountId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        setContext(accountId);
+        Role role = role(roleId, accountId);
+        Company company = new Company();
+        company.setAccount(role.getAccount());
+        company.setName("Inactive Company");
+        company.setCountry("US");
+        company.setActive(false);
+        role.setCompany(company);
+        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+
+        assertThatThrownBy(() -> roleService.addPermissionToRole(roleId, "platform.company.read_single"))
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessageContaining("company is inactive");
 
         verify(rolePermissionRepository, never()).save(org.mockito.ArgumentMatchers.any(RolePermission.class));
     }

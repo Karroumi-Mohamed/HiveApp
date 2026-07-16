@@ -228,6 +228,28 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
+    void deactivationCutsOffB2bImmediatelyAndReactivationRestoresPreservedGrant() throws Exception {
+        B2bSetup setup = setupActiveCollaboration();
+        grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.read_single")
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(delete("/api/v1/companies/{id}", setup.companyId())
+                        .header("Authorization", bearer(setup.providerToken())))
+                .andExpect(status().isNoContent());
+
+        b2bCompanyRead(setup)
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/v1/companies/{id}/reactivate", setup.companyId())
+                        .header("Authorization", bearer(setup.providerToken())))
+                .andExpect(status().isOk());
+
+        b2bCompanyRead(setup)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(setup.companyId().toString()));
+    }
+
+    @Test
     void b2bPermissionIsScopedToTheExactCollaborationCompany() throws Exception {
         String providerToken = registerClientAndGetToken();
         String clientToken = registerClientAndGetToken();

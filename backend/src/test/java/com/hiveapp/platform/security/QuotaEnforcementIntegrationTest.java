@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -99,6 +100,23 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
 
         createCompanyRequest(token, "Replacement Company")
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void companyReactivationFailsWhenItsFreedQuotaSlotWasReused() throws Exception {
+        String token = registerClientAndGetToken();
+        UUID companyId = UUID.fromString(createCompany(token, "Inactive Company").get("id").asText());
+
+        mockMvc.perform(delete("/api/v1/companies/{id}", companyId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isNoContent());
+        createCompanyRequest(token, "Replacement Company")
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/v1/companies/{id}/reactivate", companyId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isPaymentRequired())
+                .andExpect(jsonPath("$.message", containsString("Quota exceeded")));
     }
 
     @Test

@@ -4,6 +4,8 @@ import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.service.CompanyCountryChangeGuard;
+import com.hiveapp.platform.client.company.service.CompanyReactivationValidator;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.shared.exception.ForbiddenException;
@@ -37,6 +39,8 @@ class CompanyServiceImplTest {
     @Mock private CompanyRepository companyRepository;
     @Mock private AccountRepository accountRepository;
     @Mock private QuotaEnforcer quotaEnforcer;
+    @Mock private CompanyCountryChangeGuard countryChangeGuard;
+    @Mock private CompanyReactivationValidator reactivationValidator;
 
     @InjectMocks
     private CompanyServiceImpl companyService;
@@ -55,9 +59,15 @@ class CompanyServiceImplTest {
         when(companyRepository.countByAccountIdAndIsActiveTrue(accountId)).thenReturn(1L);
         when(companyRepository.save(any(Company.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Company result = companyService.createCompany(accountId, "Acme", "Acme LLC", null, null, null, null);
+        var result = companyService.createCompany(
+                accountId, "  Acme  ", " Acme LLC ", " tx-1 ", " Software ", "us", " Main St ", " logo ");
 
-        assertThat(result.getAccount()).isSameAs(account);
+        assertThat(result.company().getAccount()).isSameAs(account);
+        assertThat(result.company().getName()).isEqualTo("Acme");
+        assertThat(result.company().getTaxId()).isEqualTo("TX-1");
+        assertThat(result.company().getCountry()).isEqualTo("US");
+        assertThat(result.company().getLogoUrl()).isEqualTo("logo");
+        assertThat(result.warnings()).isEmpty();
         ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
         verify(quotaEnforcer).check(
                 any(FeatureDefinition.class),
@@ -74,10 +84,79 @@ class CompanyServiceImplTest {
         setContext(currentAccountId);
 
         assertThatThrownBy(() -> companyService.createCompany(
-                requestedAccountId, "Acme", "Acme LLC", null, null, null, null))
+                requestedAccountId, "Acme", "Acme LLC", null, null, "US", null, null))
                 .isInstanceOf(ForbiddenException.class);
 
         verifyNoInteractions(quotaEnforcer, accountRepository);
+    }
+
+    @Test
+    void createCompanyReturnsSameTenantTaxIdWarningWithoutRejectingSave() {
+        UUID accountId = UUID.randomUUID();
+        setContext(accountId);
+        Account account = account(accountId);
+        when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account));
+        when(companyRepository.save(any(Company.class))).thenAnswer(invocation -> {
+            Company company = invocation.getArgument(0);
+            ReflectionTestUtils.setField(company, "id", UUID.randomUUID());
+            return company;
+        });
+        when(companyRepository.existsByAccountIdAndCountryAndTaxIdAndIdNot(
+                eq(accountId), eq("US"), eq("TX-1"), any(UUID.class))).thenReturn(true);
+
+        var result = companyService.createCompany(
+                accountId, "Acme", null, "tx-1", null, "us", null, null);
+
+        assertThat(result.warnings()).containsExactly(CompanyServiceImpl.DUPLICATE_TAX_ID_WARNING);
+    }
+
+    @Test
+    void updateCompanyUsesCountryGuardAndUpdatesAllEditableMetadata() {
+        UUID accountId = UUID.randomUUID();
+        UUID companyId = UUID.randomUUID();
+        setContext(accountId);
+        Company company = company(companyId, account(accountId), true);
+        company.setCountry("US");
+        when(companyRepository.findByIdAndAccountIdForUpdate(companyId, accountId))
+                .thenReturn(Optional.of(company));
+        when(companyRepository.save(company)).thenReturn(company);
+
+        var result = companyService.updateCompany(
+                accountId, companyId, " New Name ", " Legal ", " tax-2 ", " Finance ",
+                "ca", " Address ", " https://logo.example/image.png ");
+
+        verify(countryChangeGuard).requireChangeAllowed(company, "CA");
+        assertThat(result.company().getName()).isEqualTo("New Name");
+        assertThat(result.company().getTaxId()).isEqualTo("TAX-2");
+        assertThat(result.company().getCountry()).isEqualTo("CA");
+        assertThat(result.company().getAddress()).isEqualTo("Address");
+        assertThat(result.company().getLogoUrl()).isEqualTo("https://logo.example/image.png");
+    }
+
+    @Test
+    void reactivateCompanyRechecksQuotaAndSavedEntitlementsUnderLocks() {
+        UUID accountId = UUID.randomUUID();
+        UUID companyId = UUID.randomUUID();
+        setContext(accountId);
+        Account account = account(accountId);
+        Company company = company(companyId, account, false);
+        when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account));
+        when(companyRepository.findByIdAndAccountIdForUpdate(companyId, accountId))
+                .thenReturn(Optional.of(company));
+        when(companyRepository.countByAccountIdAndIsActiveTrue(accountId)).thenReturn(1L);
+        when(companyRepository.save(company)).thenReturn(company);
+
+        Company result = companyService.reactivateCompany(accountId, companyId);
+
+        assertThat(result.isActive()).isTrue();
+        ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
+        verify(quotaEnforcer).check(
+                any(FeatureDefinition.class),
+                eq(WorkspaceFeature.COMPANIES),
+                eq(accountId),
+                usageCaptor.capture());
+        assertThat(usageCaptor.getValue().getAsLong()).isEqualTo(1L);
+        verify(reactivationValidator).validate(company);
     }
 
     private static void setContext(UUID accountId) {
@@ -90,6 +169,17 @@ class CompanyServiceImplTest {
         ReflectionTestUtils.setField(account, "id", id);
         account.setName("Acme");
         account.setSlug("acme");
+        account.setActive(true);
         return account;
+    }
+
+    private static Company company(UUID id, Account account, boolean active) {
+        Company company = new Company();
+        ReflectionTestUtils.setField(company, "id", id);
+        company.setAccount(account);
+        company.setName("Acme");
+        company.setCountry("US");
+        company.setActive(active);
+        return company;
     }
 }

@@ -7,6 +7,7 @@ import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.identity.service.CredentialAccessMaterial;
 import com.hiveapp.identity.service.MemberCredentialService;
 import com.hiveapp.platform.client.account.domain.entity.Account;
+import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.member.domain.entity.Member;
@@ -292,6 +293,28 @@ class MemberServiceImplTest {
         verify(memberRoleRepository, org.mockito.Mockito.never()).saveAndFlush(any(MemberRole.class));
     }
 
+    @Test
+    void assignRoleRejectsNewCompanyScopedGrantWhileCompanyIsInactive() {
+        UUID accountId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        UUID companyId = UUID.randomUUID();
+        setContext(accountId);
+        Account account = account(accountId);
+        Member member = member(memberId, account, user(UUID.randomUUID()), false);
+        Role role = role(roleId, account, true);
+        Company company = company(companyId, account, false);
+        when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(member));
+        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(companyRepository.findByIdAndAccountId(companyId, accountId)).thenReturn(Optional.of(company));
+
+        assertThatThrownBy(() -> memberService.assignRole(memberId, roleId, companyId))
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessageContaining("inactive company");
+
+        verify(memberRoleRepository, org.mockito.Mockito.never()).saveAndFlush(any(MemberRole.class));
+    }
+
     private static void setContext(UUID accountId) {
         setContext(accountId, UUID.randomUUID());
     }
@@ -348,6 +371,16 @@ class MemberServiceImplTest {
         role.setName("Manager");
         role.setActive(active);
         return role;
+    }
+
+    private static Company company(UUID id, Account account, boolean active) {
+        Company company = new Company();
+        ReflectionTestUtils.setField(company, "id", id);
+        company.setAccount(account);
+        company.setName("Acme Company");
+        company.setCountry("US");
+        company.setActive(active);
+        return company;
     }
 
     private static void addPermission(Role role, String code) {
