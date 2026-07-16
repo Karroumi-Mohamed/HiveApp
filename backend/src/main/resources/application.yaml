@@ -11,8 +11,8 @@ hiveapp:
     secret: ${HIVEAPP_JWT_SECRET}
     access-token-expiration: 900s
     refresh-token-expiration: 604800s
-  invitation:
-    expiry-days: 7
+  activation:
+    token-expiration: 24h
     base-url: ${HIVEAPP_FRONTEND_BASE_URL}
 
 server:

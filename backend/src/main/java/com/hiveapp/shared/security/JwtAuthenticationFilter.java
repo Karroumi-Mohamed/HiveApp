@@ -43,7 +43,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
             try {
                 var claims = jwtTokenProvider.getClaimsFromToken(token);
-                if (!jwtTokenProvider.hasPurpose(claims, TokenAudience.CLIENT, TokenUse.ACCESS)) {
+                boolean normalAccess = jwtTokenProvider.hasPurpose(
+                        claims, TokenAudience.CLIENT, TokenUse.ACCESS);
+                boolean initialAccess = jwtTokenProvider.hasPurpose(
+                        claims, TokenAudience.CLIENT, TokenUse.INITIAL_ACCESS);
+                if (!normalAccess && !initialAccess) {
                     log.warn("Rejected token with type {} and use {} on client endpoint",
                             claims.get("tokenType"), claims.get("tokenUse"));
                     if (!isPublicPath(request)) {
@@ -51,9 +55,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 new AccessDeniedException("Token is not valid for the client API surface"));
                         return;
                     }
+                } else if (initialAccess && !isInitialAccessPath(request)) {
+                    accessDeniedHandler.handle(request, response,
+                            new AccessDeniedException("Initial-access tokens may only change the password or log out"));
+                    return;
                 } else {
                     String userId = jwtTokenProvider.getUserIdFromToken(token).toString();
                     var userDetails = userDetailsService.loadUserByUsername(userId);
+
+                    if (normalAccess
+                            && userDetails instanceof HiveAppUserDetails hiveAppUserDetails
+                            && !hiveAppUserDetails.isNormalAccessAllowed()) {
+                        accessDeniedHandler.handle(request, response,
+                                new AccessDeniedException("Credential activation is required"));
+                        return;
+                    }
 
                     var authentication = new UsernamePasswordAuthenticationToken(
                             userDetails, null, userDetails.getAuthorities()
@@ -94,11 +110,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String path = requestPath(request);
         return path.startsWith("/api/v1/auth/")
                 || path.equals("/api/v1/features/catalog")
-                || path.equals("/api/v1/invitations/validate")
-                || path.equals("/api/v1/invitations/accept")
                 || path.startsWith("/swagger-ui/")
                 || path.equals("/swagger-ui.html")
                 || path.startsWith("/v3/api-docs/")
                 || path.equals("/actuator/health");
+    }
+
+    private boolean isInitialAccessPath(HttpServletRequest request) {
+        String path = requestPath(request);
+        return path.equals("/api/v1/auth/initial-password/change")
+                || path.equals("/api/v1/auth/initial-password/logout");
     }
 }

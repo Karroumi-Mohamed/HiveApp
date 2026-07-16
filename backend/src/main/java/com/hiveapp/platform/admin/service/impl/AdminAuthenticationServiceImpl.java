@@ -32,7 +32,7 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
         User user = credentialAuthenticationService.authenticate(
-                request.email(),
+                request.identifier(),
                 request.password(),
                 "Invalid admin email or password",
                 "Admin account is inactive");

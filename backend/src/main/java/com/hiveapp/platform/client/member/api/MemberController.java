@@ -1,6 +1,8 @@
 package com.hiveapp.platform.client.member.api;
 
-import com.hiveapp.platform.client.member.dto.AddMemberRequest;
+import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
+import com.hiveapp.platform.client.member.dto.MemberAccessResponse;
+import com.hiveapp.platform.client.member.dto.MemberCreationResponse;
 import com.hiveapp.platform.client.member.dto.AssignRoleRequest;
 import com.hiveapp.platform.client.member.dto.MemberDto;
 import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
@@ -36,9 +38,16 @@ public class MemberController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public MemberDto addMember(@Valid @RequestBody AddMemberRequest req) {
+    public MemberCreationResponse createMember(@Valid @RequestBody CreateMemberRequest req) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return memberMapper.toDto(memberService.addMember(accountId, req.userId(), req.displayName()));
+        var result = memberService.createMember(accountId, req);
+        var access = result.initialAccess();
+        return new MemberCreationResponse(
+                memberMapper.toDto(result.member()),
+                access.method(),
+                access.state(),
+                access.temporaryPassword(),
+                access.linkExpiresAt());
     }
 
     @PatchMapping("/{id}")
@@ -50,6 +59,22 @@ public class MemberController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deactivateMember(@PathVariable UUID id) {
         memberService.deactivateMember(id);
+    }
+
+    @PostMapping("/{id}/access/regenerate")
+    public MemberAccessResponse regenerateInitialAccess(@PathVariable UUID id) {
+        return memberService.regenerateInitialAccess(id);
+    }
+
+    @PostMapping("/{id}/access/reset")
+    public MemberAccessResponse resetAccess(@PathVariable UUID id) {
+        return memberService.resetAccess(id);
+    }
+
+    @PostMapping("/{id}/access/unlock")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unlockInitialAccess(@PathVariable UUID id) {
+        memberService.unlockInitialAccess(id);
     }
 
     // ── Role assignments ──────────────────────────────────────────────────────

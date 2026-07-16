@@ -10,7 +10,9 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
     Optional<Member> findByIdAndAccountId(UUID id, UUID accountId);
     Optional<Member> findByAccountIdAndUserId(UUID accountId, UUID userId);
     Optional<Member> findByUserIdAndIsActiveTrue(UUID userId);
+    Optional<Member> findByAccount_SlugAndEmployeeNumber(String accountSlug, String employeeNumber);
     boolean existsByAccountIdAndUserId(UUID accountId, UUID userId);
     boolean existsByUserId(UUID userId);
     boolean existsByUserIdAndIsActiveTrue(UUID userId);
+    boolean existsByAccountIdAndEmployeeNumber(UUID accountId, String employeeNumber);
 }

@@ -10,7 +10,8 @@ import lombok.Setter;
 
 @Entity
 @Table(name = "members", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_members_account_user", columnNames = {"account_id", "user_id"})
+        @UniqueConstraint(name = "uk_members_account_user", columnNames = {"account_id", "user_id"}),
+        @UniqueConstraint(name = "uk_members_account_employee", columnNames = {"account_id", "employee_number"})
 })
 @Getter @Setter
 public class Member extends BaseEntity {
@@ -25,6 +26,9 @@ public class Member extends BaseEntity {
 
     @Column(name = "display_name")
     private String displayName;
+
+    @Column(name = "employee_number", length = 80)
+    private String employeeNumber;
 
     @Column(name = "is_owner", nullable = false)
     private boolean isOwner = false;

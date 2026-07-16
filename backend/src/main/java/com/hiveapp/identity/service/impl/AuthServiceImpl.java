@@ -8,7 +8,8 @@ import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.identity.service.AuthService;
-import com.hiveapp.identity.service.CredentialAuthenticationService;
+import com.hiveapp.identity.service.ClientCredentialAuthenticationService;
+import com.hiveapp.identity.service.CredentialLifecycleService;
 import com.hiveapp.platform.client.account.service.WorkspaceProvisioningService;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.UnauthorizedException;
@@ -29,7 +30,8 @@ public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final CredentialAuthenticationService credentialAuthenticationService;
+    private final ClientCredentialAuthenticationService clientCredentialAuthenticationService;
+    private final CredentialLifecycleService credentialLifecycleService;
     private final TokenSessionService tokenSessionService;
     private final WorkspaceProvisioningService workspaceProvisioningService;
 
@@ -43,10 +45,12 @@ public class AuthServiceImpl implements AuthService {
 
         User user = User.builder()
                 .email(email)
+                .username("owner-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 20))
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .firstName(request.firstName())
                 .lastName(request.lastName())
                 .phone(request.phone())
+                .emailVerified(true)
                 .build();
 
         try {
@@ -63,15 +67,17 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(LoginRequest request) {
-        User user = credentialAuthenticationService.authenticate(
-                request.email(),
-                request.password(),
-                "Invalid email or password",
-                "Account is deactivated");
+        var authentication = clientCredentialAuthenticationService.authenticate(request);
+        User user = authentication.user();
 
-        log.info("User logged in: {}", user.getEmail());
+        log.info("Client identity authenticated: {}", user.getId());
+        if (authentication.passwordChangeRequired()) {
+            tokenSessionService.revokeAll(java.util.List.of(user.getId()), TokenAudience.CLIENT);
+            var initial = tokenSessionService.issueInitialAccess(user.getId());
+            return AuthResponse.initialAccess(initial.accessToken(), initial.expiresIn());
+        }
         return issueTokens(user);
     }
 
@@ -85,6 +91,10 @@ public class AuthServiceImpl implements AuthService {
         if (!user.isActive()) {
             throw new UnauthorizedException("Account is deactivated");
         }
+        if (user.getCredentialState() != com.hiveapp.identity.domain.constant.CredentialState.ACTIVE
+                || user.isPasswordChangeRequired()) {
+            throw new UnauthorizedException("Credential activation is required");
+        }
 
         log.info("Token refreshed for user: {}", user.getEmail());
         return issueTokens(user);
@@ -93,6 +103,31 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void logout(RefreshTokenRequest request) {
         tokenSessionService.revoke(request.refreshToken(), TokenAudience.CLIENT);
+    }
+
+    @Override
+    public AuthResponse completeActivation(String token, String newPassword) {
+        return credentialLifecycleService.completeActivation(token, newPassword);
+    }
+
+    @Override
+    public AuthResponse changeInitialPassword(String initialAccessToken, String newPassword) {
+        return credentialLifecycleService.changeInitialPassword(initialAccessToken, newPassword);
+    }
+
+    @Override
+    public void logoutInitialAccess(String initialAccessToken) {
+        credentialLifecycleService.logoutInitialAccess(initialAccessToken);
+    }
+
+    @Override
+    public void requestPasswordReset(String email) {
+        credentialLifecycleService.requestPasswordReset(email);
+    }
+
+    @Override
+    public AuthResponse completePasswordReset(String token, String newPassword) {
+        return credentialLifecycleService.completePasswordReset(token, newPassword);
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────

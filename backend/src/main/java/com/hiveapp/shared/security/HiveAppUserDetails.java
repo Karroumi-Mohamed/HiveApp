@@ -15,12 +15,24 @@ public class HiveAppUserDetails implements UserDetails {
     private final String email;
     private final String password;
     private final boolean active;
+    private final boolean normalAccessAllowed;
 
     public HiveAppUserDetails(UUID userId, String email, String password, boolean active){
+        this(userId, email, password, active, true);
+    }
+
+    public HiveAppUserDetails(
+            UUID userId,
+            String email,
+            String password,
+            boolean active,
+            boolean normalAccessAllowed
+    ) {
         this.userId = userId;
         this.email = email;
         this.password = password;
         this.active = active;
+        this.normalAccessAllowed = normalAccessAllowed;
     }
 
     @Override

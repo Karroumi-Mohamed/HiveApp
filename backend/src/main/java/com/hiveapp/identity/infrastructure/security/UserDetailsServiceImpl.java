@@ -27,9 +27,11 @@ public class UserDetailsServiceImpl implements UserDetailsService{
 
         return new HiveAppUserDetails(
             user.getId(),
-            user.getEmail(),
+            user.getEmail() != null ? user.getEmail() : user.getUsername(),
             user.getPasswordHash(),
-            user.isActive());
+            user.isActive(),
+            user.getCredentialState() == com.hiveapp.identity.domain.constant.CredentialState.ACTIVE
+                    && !user.isPasswordChangeRequired());
     }
 
     private UUID parseUserId(String userId) {

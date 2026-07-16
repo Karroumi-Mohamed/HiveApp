@@ -8,6 +8,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -23,6 +24,7 @@ public class PlanEntitlementService {
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
 
+    @Transactional(readOnly = true)
     public boolean isPermissionEntitled(UUID accountId, String permissionCode) {
         Optional<Subscription> subscription = subscriptionRepository.findActiveByAccountId(accountId);
         if (subscription.isEmpty()) {

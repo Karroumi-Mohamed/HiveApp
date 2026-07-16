@@ -52,6 +52,19 @@ public class JwtTokenProvider {
                 .compact();
     }
 
+    public String generateInitialAccessToken(UUID userId, UUID tokenId) {
+        long now = System.currentTimeMillis();
+        return Jwts.builder()
+                .subject(userId.toString())
+                .id(tokenId.toString())
+                .claim("tokenType", TokenAudience.CLIENT.name())
+                .claim("tokenUse", TokenUse.INITIAL_ACCESS.name())
+                .issuedAt(new Date(now))
+                .expiration(new Date(now + jwtProperties.getAccessTokenExpiration().toMillis()))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
     public boolean validateToken(String token) {
         try {
             Jwts.parser()

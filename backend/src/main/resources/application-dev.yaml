@@ -12,7 +12,7 @@ spring:
 hiveapp:
   jwt:
     secret: dev-only-hiveapp-jwt-secret-change-before-deployment
-  invitation:
+  activation:
     base-url: http://localhost:5173
   admin:
     bootstrap:

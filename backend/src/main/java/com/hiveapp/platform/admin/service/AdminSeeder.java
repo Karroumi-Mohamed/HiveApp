@@ -48,10 +48,12 @@ public class AdminSeeder {
 
         User user = new User();
         user.setEmail(adminEmail);
+        user.setUsername("admin-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 20));
         user.setPasswordHash(passwordEncoder.encode(properties.password()));
         user.setFirstName(properties.firstName());
         user.setLastName(properties.lastName());
         user.setActive(true);
+        user.setEmailVerified(true);
         user = userRepository.save(user);
 
         AdminUser admin = new AdminUser();

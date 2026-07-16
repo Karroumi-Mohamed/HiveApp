@@ -20,6 +20,7 @@ public class TokenSessionService {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final ConcurrentMap<UUID, RefreshSession> activeRefreshTokens = new ConcurrentHashMap<>();
+    private final ConcurrentMap<UUID, InitialAccessSession> activeInitialAccessTokens = new ConcurrentHashMap<>();
 
     public IssuedTokens issue(UUID userId, TokenAudience audience) {
         removeExpiredSessions();
@@ -45,6 +46,42 @@ public class TokenSessionService {
         return new RefreshTokenIdentity(parsed.userId(), expectedAudience);
     }
 
+    public IssuedInitialAccessToken issueInitialAccess(UUID userId) {
+        removeExpiredSessions();
+        UUID tokenId = UUID.randomUUID();
+        String accessToken = jwtTokenProvider.generateInitialAccessToken(userId, tokenId);
+        long expiresIn = jwtTokenProvider.getAccessTokenExpiration();
+        activeInitialAccessTokens.put(tokenId,
+                new InitialAccessSession(userId, Instant.now().plusSeconds(expiresIn)));
+        return new IssuedInitialAccessToken(accessToken, expiresIn);
+    }
+
+    public UUID consumeInitialAccess(String token) {
+        try {
+            if (!jwtTokenProvider.validateToken(token)) {
+                throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
+            }
+            Claims claims = jwtTokenProvider.getClaimsFromToken(token);
+            if (!jwtTokenProvider.hasPurpose(claims, TokenAudience.CLIENT, TokenUse.INITIAL_ACCESS)
+                    || claims.getId() == null) {
+                throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
+            }
+            UUID tokenId = UUID.fromString(claims.getId());
+            UUID userId = UUID.fromString(claims.getSubject());
+            InitialAccessSession session = activeInitialAccessTokens.get(tokenId);
+            if (session == null
+                    || !session.userId().equals(userId)
+                    || !activeInitialAccessTokens.remove(tokenId, session)) {
+                throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
+            }
+            return userId;
+        } catch (UnauthorizedException ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
+        }
+    }
+
     public void revoke(String refreshToken, TokenAudience expectedAudience) {
         consume(refreshToken, expectedAudience);
     }
@@ -54,11 +91,14 @@ public class TokenSessionService {
         activeRefreshTokens.entrySet().removeIf(entry ->
                 entry.getValue().audience() == audience
                         && revokedUserIds.contains(entry.getValue().userId()));
+        activeInitialAccessTokens.entrySet().removeIf(entry ->
+                revokedUserIds.contains(entry.getValue().userId()));
     }
 
     private void removeExpiredSessions() {
         Instant now = Instant.now();
         activeRefreshTokens.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+        activeInitialAccessTokens.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
     }
 
     private ParsedRefreshToken parse(String token, TokenAudience expectedAudience) {
@@ -82,6 +122,9 @@ public class TokenSessionService {
     }
 
     private record RefreshSession(UUID userId, TokenAudience audience, Instant expiresAt) {
+    }
+
+    private record InitialAccessSession(UUID userId, Instant expiresAt) {
     }
 
     private record ParsedRefreshToken(UUID userId, UUID tokenId) {
