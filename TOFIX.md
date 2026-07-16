@@ -1714,7 +1714,7 @@ Define separate member summary and member access-detail read models with safe us
 - The target is flushed inactive before every current CLIENT refresh session for its User is revoked. Existing access tokens also fail immediately because security context requires an active membership.
 - Active-member quota excludes the suspended record, while owner and self-deactivation protections prevent accidental workspace lockout.
 - Integration coverage proves both an existing access token and an issued refresh token fail after deactivation.
-- Temporary activation credentials do not exist yet; their invalidation belongs to the direct-creation/activation implementation in Batch 1.5. Reactivation impact validation, reason/audit capture, hard-delete eligibility, and module-contributed reassignment previews remain in the later lifecycle, audit, and operations batches rather than being approximated here.
+- Batch 1.5 now invalidates pending email tokens, unused temporary passwords, restricted initial-access sessions, and ordinary refresh sessions during deactivation. Reactivation impact validation, reason/audit capture, hard-delete eligibility, and module-contributed reassignment previews remain in the later lifecycle, audit, and operations batches rather than being approximated here.
 
 ---
 
@@ -1840,7 +1840,7 @@ Current role permission add/remove operations mutate the shared role directly. T
 
 ### INVITE-000 — Remove the invitation subsystem and replace it with direct member creation
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Product decision**
 
@@ -1862,13 +1862,25 @@ Workspace invitation/acceptance is not part of the intended HiveApp flow. Author
 - Give the Account owner all member-access actions through the owner invariant. Give non-owners only explicit Account-scoped Permissionizer actions and enforce the delegation ceiling.
 - If deployment ever contains invitation rows, add an explicit retirement/migration plan rather than leaving redeemable tokens active.
 
-The findings below remain as evidence of why the existing subsystem must not be exposed while removal is pending; they do not need separate product flows if the subsystem is deleted completely.
+**Implementation evidence — 2026-07-16**
+
+- The invitation entity, repository, services, controllers, DTOs, events/status, registry feature, security routes, usage counting, and tests are deleted. There is no invitation endpoint or redeemable invitation token path.
+- `POST /api/v1/members` atomically creates the User, Account-scoped Member, initial credential, and validated initial roles under the Account quota lock. Username is globally unique; email is optional/canonical; employee number is optional and unique inside the Account.
+- Email members receive a hashed, one-time, expiring activation link only after commit. Members without email receive a cryptographically strong temporary password in the creation/regeneration response only; only its password hash is stored.
+- The first successful temporary-password login consumes that password and issues a single-use restricted token that can only change password or log out. Completing activation/password change clears initial material, revokes earlier sessions, and issues normal access.
+- Account-scoped Permissionizer actions protect create/regenerate/reset/unlock. Initial roles are revalidated against Account/Company state, role state/scope, plan entitlement, and the actor's current permission ceiling before any identity is inserted.
+- Login supports username, optional email, or Account code plus Account-scoped employee number. Five failed temporary-password attempts lock access until an authorized manager unlocks or regenerates it.
+- Activated members with verified email can request a non-disclosing one-time reset link. Without email, an authorized Account actor resets access and receives a new one-time-visible temporary password.
+- Focused integration coverage proves one-time use, restricted-token boundaries, employee-number login, regeneration, reset/session revocation, lock/unlock, hashed email activation/reset, replay rejection, and initial-role delegation ceilings. Secret-bearing values are never logged. The clean full backend suite passes all 265 tests with zero failures/errors.
+- Audit records remain centralized under `AUDIT-001`; production schema retirement belongs to the future deployment baseline because the current unpublished application uses generated disposable schemas.
+
+The findings below are retained as historical evidence for the removed subsystem; they no longer describe reachable runtime flows.
 
 ---
 
 ### INVITE-001 — Invitation acceptance bypasses member quota enforcement
 
-**Status:** `CONFIRMED`
+**Status:** `REMOVED AS OBSOLETE — 2026-07-16`
 
 **Evidence**
 
@@ -1886,7 +1898,7 @@ Use one transactional membership-admission operation for direct add and invitati
 
 ### INVITE-002 — Invitation token acts as a seven-day login credential for existing users
 
-**Status:** `DECISION`
+**Status:** `REMOVED AS OBSOLETE — 2026-07-16`
 
 **Evidence**
 
@@ -1912,7 +1924,7 @@ The safer default is authenticated acceptance for existing users.
 
 ### INVITE-003 — Invitation token is stored in plaintext
 
-**Status:** `CONFIRMED`
+**Status:** `REMOVED AS OBSOLETE — 2026-07-16`
 
 **Evidence**
 
@@ -1930,7 +1942,7 @@ Store a cryptographic hash of the token, send the raw value only in the email, a
 
 ### INVITE-004 — Stored invitation role/scope is not safely revalidated on acceptance
 
-**Status:** `CONFIRMED`
+**Status:** `REMOVED AS OBSOLETE — 2026-07-16`
 
 **Evidence**
 
@@ -1953,7 +1965,7 @@ Revalidate all current invariants transactionally at acceptance. Return an actio
 
 ### INVITE-005 — Invitation email normalization and duplicate protection are incomplete
 
-**Status:** `CONFIRMED`
+**Status:** `REMOVED AS OBSOLETE — 2026-07-16`
 
 **Evidence**
 
@@ -1974,7 +1986,7 @@ Use the same canonical email policy as identity and enforce the intended pending
 
 ### INVITE-006 — Expiration maintenance scans other accounts and mutates inside a read-only flow
 
-**Status:** `CONFIRMED`
+**Status:** `REMOVED AS OBSOLETE — 2026-07-16`
 
 **Evidence**
 
@@ -1993,7 +2005,7 @@ Use account-scoped bulk update/query or a scheduled expiration job. Keep validat
 
 ### INVITE-007 — Email delivery and database commit are not coordinated
 
-**Status:** `VERIFY`
+**Status:** `REMOVED AS OBSOLETE — 2026-07-16`
 
 **Evidence**
 
@@ -2389,27 +2401,28 @@ The UI could display mixed-cycle/mixed-meaning totals as revenue, paid access co
 
 ### EMAIL-001 — Missing SMTP silently becomes token logging and apparent delivery success
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — 2026-07-16`
 
 **Evidence**
 
-- When no `JavaMailSender` bean exists, `LoggingEmailServiceImpl` becomes the primary email service.
-- It logs the full invitation acceptance URL, including the bearer invitation token.
-- `EmailService.sendInvitation()` returns `void`; invitation flow has no delivery result/status and treats this fallback as success.
+- The former invitation sender and secret-bearing fallback logging have been removed.
+- `LoggingEmailServiceImpl` is now restricted to non-production profiles and records only destination/purpose/workspace/expiry, never the action URL or token.
+- Production has no logging fallback; SMTP activation is selected explicitly by `spring.mail.host`, so a missing transport leaves the required `EmailService` dependency unsatisfied at startup.
+- Credential emails are requested transactionally and sent after commit. A delivery failure leaves the member in a pending state that an authorized Account actor can regenerate, but persistent delivery status and automatic retry do not exist yet.
 
 **Risk**
 
-A misconfigured non-development environment creates invitations that users never receive while sensitive one-click login/invitation tokens are exposed in logs.
+A delivery failure can still require a manager to regenerate access manually because persistent delivery status, retry scheduling, and UI feedback are not implemented.
 
 **Required fix direction**
 
-Restrict the logging implementation to local/test profiles and redact tokens. Production startup should require a real mail transport when invitations are enabled. Track delivery attempt/status and provide retry/resend behavior without coupling email delivery to the database transaction.
+Complete `EMAIL-001` later with persistent delivery attempt/status, safe retry/resend, and Account-member UI feedback. Keep it independent from the already-correct post-commit identity transaction.
 
 ---
 
 ### EMAIL-002 — Invitation HTML embeds unescaped user/configuration values and hard-codes expiry text
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED BY REPLACEMENT — 2026-07-16`
 
 **Evidence**
 
@@ -2422,6 +2435,10 @@ Names containing markup can alter the email body, malformed/configured URLs can 
 **Required fix direction**
 
 Use a safe template/escaping mechanism, validate the configured HTTPS frontend origin in production, and render the actual expiry deadline/duration supplied by the invitation workflow.
+
+**Implementation evidence — 2026-07-16**
+
+The replacement activation/reset template HTML-escapes member name, workspace name, action URL, and ISO expiry deadline. `ActivationProperties` validates an HTTP(S) origin, forbids user-info/query/fragment, normalizes trailing slashes, requires HTTPS in production, and rejects non-positive expiry. A focused template test proves escaping and verifies the configured absolute deadline replaces the old hard-coded seven-day copy.
 
 ---
 

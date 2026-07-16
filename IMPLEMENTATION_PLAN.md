@@ -544,15 +544,19 @@ flowchart TD
 ---
 
 ### Batch 1.5: Direct Creation Replacing Invitations
+
+**Execution status — 2026-07-16:** Completed for the current unpublished, generated-schema stage. The invitation subsystem and redeemable invitation routes are gone. Account actors now create a User and Member atomically with quota, tenant, initial-role, plan-entitlement, and actor-delegation checks. Email members use hashed one-time activation/reset links; members without email use one-time-visible temporary passwords that force a restricted password-change session. Manager regeneration/reset/unlock, username/email/Account-code-plus-employee-number login, attempt locking, session revocation, safe post-commit email delivery, origin validation, and escaped deadline-aware templates are implemented. Focused lifecycle/role/template tests and the clean full 265-test backend suite pass with zero failures/errors; centralized audit remains assigned to `AUDIT-001`, delivery tracking/retry remains in `EMAIL-001`, and production schema migration begins only when a deployment baseline exists.
+
 #### [IMPLEMENT] INVITE-000 — Remove the invitation subsystem and replace it with direct member creation
 - **Prerequisites**: MEMBER-002.
 - **Unlocks**: INVITE-001_007, EMAIL-002.
 - **Order Rationale**: Completely removes the legacy invitation entities and adds direct creation endpoints. Carry safe template HTML escaping, validated origin URLs, and accurate deadlines (from EMAIL-002) into the replacement activation/reset emails.
 - **Affected Backend Areas**: All invitation files, controllers, services.
-- **Database Migration**: Yes (drop `invitations` table).
-- **Acceptance Criteria**: Invitation controller/services are deleted. Direct creation is exposed.
-- **Tests**: Remove invitation tests, add direct member addition tests.
+- **Database Migration**: No for the current generated disposable schema. The invitation model has been deleted; a production retirement migration is only needed if a future deployment baseline ever contains invitation rows.
+- **Acceptance Criteria**: Invitation controller/services are deleted. Direct creation and the complete decided initial-access lifecycle are exposed.
+- **Tests**: Removed invitation tests; direct creation, temporary/email activation, replay, lock/unlock, regeneration, reset, employee login, and session-revocation tests added.
 - **Future UI Flow**: Add Member screen.
+- **Execution Status**: Completed. Direct creation is transactional and Account-scoped; all credential material is hashed or one-time-visible, ordinary access is blocked until activation completes, and management actions are Permissionizer-protected on the member surface.
 
 #### [REMOVE AS OBSOLETE] INVITE-001 — Invitation acceptance bypasses member quota enforcement
 - **Prerequisites**: INVITE-000.
@@ -563,6 +567,7 @@ flowchart TD
 - **Acceptance Criteria**: Removed.
 - **Tests**: Delete corresponding tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Removed with the invitation subsystem; direct creation uses the quota-aware Account-locked member admission path.
 
 #### [REMOVE AS OBSOLETE] INVITE-002 — Invitation token acts as a seven-day login credential for existing users
 - **Prerequisites**: INVITE-000.
@@ -573,6 +578,7 @@ flowchart TD
 - **Acceptance Criteria**: Removed.
 - **Tests**: Delete corresponding tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Removed. No invitation token can authenticate an existing User; replacement credential tokens are purpose-bound, expiring, hashed, and one-time.
 
 #### [REMOVE AS OBSOLETE] INVITE-003 — Invitation token is stored in plaintext
 - **Prerequisites**: INVITE-000.
@@ -583,6 +589,7 @@ flowchart TD
 - **Acceptance Criteria**: Removed.
 - **Tests**: Delete corresponding tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Removed. Replacement activation/reset tokens are stored only as SHA-256 hashes.
 
 #### [REMOVE AS OBSOLETE] INVITE-004 — Stored invitation role/scope is not safely revalidated on acceptance
 - **Prerequisites**: INVITE-000.
@@ -593,6 +600,7 @@ flowchart TD
 - **Acceptance Criteria**: Removed.
 - **Tests**: Delete corresponding tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Removed. Initial roles on direct creation are revalidated transactionally against active tenant/scope/role state, plan entitlement, and actor ceiling.
 
 #### [REMOVE AS OBSOLETE] INVITE-005 — Invitation email normalization and duplicate protection are incomplete
 - **Prerequisites**: INVITE-000.
@@ -603,6 +611,7 @@ flowchart TD
 - **Acceptance Criteria**: Removed.
 - **Tests**: Delete corresponding tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Removed. Replacement identity creation canonicalizes optional email and enforces database-backed username/email/Account employee-number uniqueness.
 
 #### [REMOVE AS OBSOLETE] INVITE-006 — Expiration maintenance scans other accounts and mutates inside a read-only flow
 - **Prerequisites**: INVITE-000.
@@ -613,6 +622,7 @@ flowchart TD
 - **Acceptance Criteria**: Removed.
 - **Tests**: Delete corresponding tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Removed. No invitation-expiration scan or read-only mutation path remains.
 
 #### [REMOVE AS OBSOLETE] INVITE-007 — Email delivery and database commit are not coordinated
 - **Prerequisites**: INVITE-000.
@@ -623,16 +633,18 @@ flowchart TD
 - **Acceptance Criteria**: Removed.
 - **Tests**: Delete corresponding tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Removed. Replacement email dispatch occurs after commit; failure preserves recoverable pending access for explicit regeneration.
 
 #### [REMOVE AS OBSOLETE] EMAIL-002 — Invitation HTML embeds unescaped user/configuration values and hard-codes expiry text
 - **Prerequisites**: INVITE-000.
 - **Unlocks**: None.
 - **Order Rationale**: Replaced by safe escaping, URL validation, and dynamic expiry deadlines inside the new user activation templates under direct creation (`INVITE-000`).
-- **Affected Backend Areas**: Invitations.
+- **Affected Backend Areas**: Credential activation/reset email and activation configuration.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Removed.
-- **Tests**: Delete corresponding tests.
+- **Acceptance Criteria**: Replacement templates escape dynamic HTML values, validate origin configuration, and render the actual expiry deadline.
+- **Tests**: Focused credential-template escaping/deadline test.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed by replacement. The old invitation template is deleted and its safety requirements are enforced in activation/reset email.
 
 ---
 
@@ -1604,8 +1616,8 @@ flowchart TD
 ---
 
 # Obsolete/removal work
-- `INVITE-001` through `INVITE-007`: Replaced by `INVITE-000` (Direct Member Creation).
-- `EMAIL-002`: Invitation templates (replaced by activation emails under `INVITE-000`).
+- `INVITE-001` through `INVITE-007`: Removed and replaced by completed `INVITE-000` (Direct Member Creation).
+- `EMAIL-002`: Removed invitation template; safety requirements completed in activation/reset emails under `INVITE-000`.
 - `EVENT-001`: Legacy event.
 - `EVENT-002`: Legacy event.
 
@@ -1689,14 +1701,14 @@ flowchart TD
 | **ROLE-003** | Lifecycle enums | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-002 | State column |
 | **ROLE-004** | Key matching validation | PARTIAL | VERIFY FIRST | Phase 2 | Batch 2.3 | ROLE-003 | Validation check |
 | **ROLE-005** | Edit Warnings | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-004 | Count warning |
-| **INVITE-000** | Replace invites | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.5 | MEMBER-002 | API deleted |
-| **INVITE-001** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
-| **INVITE-002** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
-| **INVITE-003** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
-| **INVITE-004** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
-| **INVITE-005** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
-| **INVITE-006** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
-| **INVITE-007** | Obsolete invite | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Deleted |
+| **INVITE-000** | Replace invites | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.5 | MEMBER-002 | Atomic direct creation and credential lifecycle tests |
+| **INVITE-001** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Quota bypass removed |
+| **INVITE-002** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Magic-login path removed |
+| **INVITE-003** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Plaintext invitation token removed |
+| **INVITE-004** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Initial roles revalidated on creation |
+| **INVITE-005** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Canonical identity and unique identifiers |
+| **INVITE-006** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Expiration mutation path removed |
+| **INVITE-007** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Post-commit credential email |
 | **COLLAB-001** | Collaboration unique | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | TENANCY-003 | Unique Index |
 | **COLLAB-002** | Actor ceiling | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-001 | Ceiling validation |
 | **COLLAB-003** | Revalidate active | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-002 | Context checks |
@@ -1714,7 +1726,7 @@ flowchart TD
 | **ADMIN-DATA-002**| Page parameters | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Paginated metrics |
 | **BILLING-002** | Simulated payments | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | BILLING-001 | Configurable returns |
 | **EMAIL-001** | Mail error report | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.6 | None | Exception propagate |
-| **EMAIL-002** | Escape templates | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Safe activation emails |
+| **EMAIL-002** | Escape templates | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Escaped, validated, deadline-aware activation emails |
 | **API-ERROR-001**| Error codes payload | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.5 | None | Code mapping returned |
 | **CONFIG-001** | Profile configs | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | None | Destructive dev only |
 | **AUTHZ-001** | Explicit service guards | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | PERM-002 | Guarded services enforced |
