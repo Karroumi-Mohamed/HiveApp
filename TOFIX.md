@@ -207,7 +207,7 @@ Make removal scope explicit, or deliberately define the operation as "remove thi
 
 ### DATA-001 — Join/grant tables may allow duplicate relationships
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED FOR CURRENT GENERATED SCHEMA — 2026-07-16`
 
 **Evidence**
 
@@ -238,6 +238,16 @@ Duplicate permission grants, assignments, overrides, or plan features can produc
 **Possible fix direction**
 
 Add database unique constraints matching the domain invariants, then make service operations idempotent and translate constraint violations into clear API errors. Nullable company scope may require a PostgreSQL-specific null-safe strategy.
+
+**Implementation evidence — 2026-07-16**
+
+- Verification confirmed that every listed join/grant entity lacked explicit composite uniqueness.
+- Generated schemas now constrain `AdminUserRole`, `AdminRolePermission`, `RolePermission`, `MemberPermissionOverride`, `CollaborationPermission`, and `PlanFeature` by their domain pairs/triples. The AdminUser-to-User one-to-one join is explicitly unique.
+- `MemberRole` uses a derived, non-null `scope_key`: the zero UUID represents Account scope and a Company ID represents Company scope. Uniqueness on member, role, and this key closes the nullable-company loophole portably.
+- Member and role assignment services retain friendly pre-checks, flush inside the transaction, and translate a losing database race to a clear 409 conflict.
+- Integration tests prove duplicate account-scoped MemberRole and RolePermission inserts are rejected. The complete generated schema starts successfully under H2.
+
+Versioned forms of these constraints will be created when `CONFIG-001` establishes the first persistent production schema; no Flyway history is maintained during the current disposable in-memory stage.
 
 ---
 
@@ -1497,7 +1507,7 @@ Return `AccountDto` or an application read model from the API-facing service whe
 
 ### QUOTA-001 — Member/company quota checks are inefficient and race-prone
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR CURRENT STAGE — 2026-07-16`
 
 **Evidence**
 
@@ -1517,6 +1527,14 @@ Large workspaces incur unnecessary row loading. Concurrent requests can both pas
 - Use database count queries matching each lifecycle rule.
 - Serialize quota-sensitive creation per account or use an atomic reservation/constraint strategy.
 - Add concurrent request tests at the exact quota boundary.
+
+**Implementation evidence — 2026-07-16**
+
+- Member quota usage is now `countByAccountIdAndIsActiveTrue()`, so the owner and every other active member count while deactivated history does not.
+- Company quota usage is now `countByAccountIdAndIsActiveTrue()`, so ordinary deactivation releases the active-company slot.
+- Both creation services acquire the same Account pessimistic write lock before counting and keep it through insertion, serializing quota decisions without introducing reservation infrastructure.
+- Integration coverage proves inactive records release capacity and simultaneous requests at the exact FREE boundary yield one success and one quota rejection rather than exceeding the plan.
+- Company reactivation still requires the broader lifecycle validation assigned to `COMPANY-001`; this batch does not add a partial reactivation endpoint.
 
 ---
 
@@ -1577,7 +1595,7 @@ The Company can be created without jurisdiction, legal identity updates may sile
 
 ### MEMBER-001 — Authorized members can deactivate the workspace owner
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -1591,11 +1609,15 @@ A delegated staff administrator with `platform.staff.delete` can deactivate the 
 
 Protect the owner/last owner. If ownership transfer is introduced, require explicit transfer before owner deactivation. Add owner-target abuse tests.
 
+**Implementation evidence — 2026-07-16**
+
+`MemberServiceImpl` now rejects both ordinary self-deactivation and any request targeting `Member.isOwner`, returning an explicit ownership-transfer requirement. Focused tests cover a different actor targeting the owner so the protection does not depend only on the self-check. Ownership transfer remains a deliberate future flow; until then the owner cannot be deactivated.
+
 ---
 
 ### MEMBER-002 — Direct member addition allows duplicate memberships
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR CURRENT GENERATED SCHEMA — 2026-07-16`
 
 **Evidence**
 
@@ -1611,11 +1633,19 @@ The same user can receive multiple member rows in one workspace, causing ambiguo
 
 Add a database unique constraint for `(account_id, user_id)`, make add/invitation acceptance idempotent or conflict clearly, and translate concurrent insert violations.
 
+**Implementation evidence — 2026-07-16**
+
+- `members(account_id, user_id)` is unique in the generated schema.
+- Direct addition checks an existing membership in the requested Account before checking the separate one-active-workspace rule.
+- `saveAndFlush()` makes the constraint authoritative and converts a losing insert race to the same clear 409 workspace-membership conflict.
+- Account serialization also makes concurrent same-user additions deterministic; integration coverage proves exactly one row and one conflict.
+- The obsolete invitation acceptance path is removed in Batch 1.5 rather than extended.
+
 ---
 
 ### MEMBER-003 — Member role assignment allows duplicates and inactive roles
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR CURRENT GENERATED SCHEMA — 2026-07-16`
 
 **Evidence**
 
@@ -1630,6 +1660,14 @@ Duplicate assignments distort UI/counts and complicate precise removal. Inactive
 **Required fix direction**
 
 Enforce a null-safe unique assignment key, define inactive-role assignment behavior, and return an idempotent result or clear conflict.
+
+**Implementation evidence — 2026-07-16**
+
+- Inactive roles are rejected before assignment.
+- Account-wide and Company-scoped duplicates are detected through scope-specific repository checks and return a clear 409 conflict.
+- The database uses the non-null `scope_key` described under DATA-001, so concurrent account-wide assignments cannot evade uniqueness through nullable `company_id` behavior.
+- Flush-time constraint failures are translated to the same conflict. Integration coverage proves the database rejects a duplicate account-scoped assignment.
+- Invitation acceptance is intentionally not patched because Batch 1.5 removes that subsystem.
 
 ---
 
@@ -1653,7 +1691,7 @@ Define separate member summary and member access-detail read models with safe us
 
 ### MEMBER-005 — Member deactivation does not implement the decided offboarding lifecycle
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR THE CURRENT AVAILABLE LIFECYCLE — 2026-07-16`
 
 **Evidence**
 
@@ -1669,6 +1707,14 @@ Define separate member summary and member access-detail read models with safe us
 - Continue rejecting self-deactivation for ordinary members; only a separately authorized Account actor within the target member's management scope may deactivate/reactivate membership.
 - Permit hard deletion only for a mistaken, never-activated member with no login, audit, approval, or business history and only after a transactional impact check.
 - Add actor/reason/result audit and future module-specific reassignment/impact previews rather than deleting or silently reassigning owned records.
+
+**Implementation evidence — 2026-07-16**
+
+- Deactivation remains a reversible state change: the Member row, identity, roles, overrides, and business references are preserved.
+- The target is flushed inactive before every current CLIENT refresh session for its User is revoked. Existing access tokens also fail immediately because security context requires an active membership.
+- Active-member quota excludes the suspended record, while owner and self-deactivation protections prevent accidental workspace lockout.
+- Integration coverage proves both an existing access token and an issued refresh token fail after deactivation.
+- Temporary activation credentials do not exist yet; their invalidation belongs to the direct-creation/activation implementation in Batch 1.5. Reactivation impact validation, reason/audit capture, hard-delete eligibility, and module-contributed reassignment previews remain in the later lifecycle, audit, and operations batches rather than being approximated here.
 
 ---
 

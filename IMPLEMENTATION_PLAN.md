@@ -472,6 +472,9 @@ flowchart TD
 ---
 
 ### Batch 1.4: Workspace Membership & Quotas
+
+**Execution status — 2026-07-16:** Completed for the current unpublished, generated-schema stage. Workspace owners are protected from delegated deactivation; membership and scoped role assignments are duplicate-safe; inactive roles cannot be assigned; deactivation revokes CLIENT refresh sessions while active-token context rejects the suspended member; active member/company quotas use database counts under an Account write lock; and all seven verified join/grant relationships have database uniqueness. Focused tests and the full 271-test backend suite pass. Activation-material cleanup, reactivation impact checks, audit/reason capture, and production migrations remain assigned to their later lifecycle/deployment work rather than this batch.
+
 #### [IMPLEMENT] MEMBER-001 — Authorized members can deactivate the workspace owner
 - **Prerequisites**: TENANCY-002.
 - **Unlocks**: MEMBER-002.
@@ -481,16 +484,18 @@ flowchart TD
 - **Acceptance Criteria**: Lockout requests target owner throw 403.
 - **Tests**: Owner lockout block integration tests.
 - **Future UI Flow**: Team configurations settings.
+- **Execution Status**: Completed. Self-deactivation remains forbidden, and any different actor targeting the workspace owner receives 403 with an explicit ownership-transfer requirement.
 
 #### [IMPLEMENT] MEMBER-002 — Direct member addition allows duplicate memberships
 - **Prerequisites**: MEMBER-001.
 - **Unlocks**: MEMBER-003, INVITE-000.
 - **Order Rationale**: Restricts multi-tenant membership duplication.
 - **Affected Backend Areas**: `members` table.
-- **Database Migration**: Yes (unique index on `members(account_id, user_id)`).
+- **Database Migration**: No for the current generated in-memory schema; the entity constraint is authoritative until the production migration baseline exists.
 - **Acceptance Criteria**: Workspace addition fails on existing user.
 - **Tests**: Concurrency membership addition tests.
 - **Future UI Flow**: Team addition panel.
+- **Execution Status**: Completed. A friendly same-workspace pre-check, database uniqueness, flush-time conflict translation, and concurrent same-user requests produce exactly one membership.
 
 #### [IMPLEMENT] MEMBER-003 — Member role assignment allows duplicates and inactive roles
 - **Prerequisites**: MEMBER-002.
@@ -501,6 +506,7 @@ flowchart TD
 - **Acceptance Criteria**: Adding duplicate or deactivated assignments throws validation errors.
 - **Tests**: Assignment checks.
 - **Future UI Flow**: Team role assignments.
+- **Execution Status**: Completed. Assignment rejects inactive roles and an existing account/company-scoped grant; a derived non-null scope key makes account-wide uniqueness database-safe despite nullable `company_id`.
 
 #### [IMPLEMENT] MEMBER-005 — Member deactivation does not implement the decided offboarding lifecycle
 - **Prerequisites**: MEMBER-003.
@@ -511,6 +517,7 @@ flowchart TD
 - **Acceptance Criteria**: Active JWT sessions are immediately invalidated on deactivation.
 - **Tests**: Token revocation checks.
 - **Future UI Flow**: Team manager dashboard.
+- **Execution Status**: Completed for the available lifecycle. Suspension preserves the Member and access configuration, removes it from runtime context/quota, and revokes every current CLIENT refresh session. Activation credential cleanup and reactivation validation follow the direct-creation lifecycle in Batch 1.5 and later operational/audit batches.
 
 #### [IMPLEMENT] QUOTA-001 — Member/company quota checks are inefficient and race-prone
 - **Prerequisites**: MEMBER-002.
@@ -521,16 +528,18 @@ flowchart TD
 - **Acceptance Criteria**: Queries use optimized database counts.
 - **Tests**: Load limit checks.
 - **Future UI Flow**: Team member addition.
+- **Execution Status**: Completed. Active-only database counts replace row loading, and an Account pessimistic lock serializes member/company creation across the quota check and insert. Exact-boundary concurrency tests pass.
 
 #### [VERIFY FIRST] DATA-001 — Join/grant tables may allow duplicate relationships
 - **Prerequisites**: MEMBER-003.
 - **Unlocks**: None.
 - **Order Rationale**: Join table constraint check. Verification: Check if duplicate `member_roles` or `role_permissions` can be saved. Remediation: Add unique database constraints on join tables.
 - **Affected Backend Areas**: Database schemas.
-- **Database Migration**: Yes (unique constraints on join tables).
+- **Database Migration**: No for the current generated in-memory schema; versioned equivalents belong to the future production migration baseline.
 - **Acceptance Criteria**: Database rejects duplicate mapping inserts.
 - **Tests**: Constraint integrity tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed. Verification confirmed the gap. Generated schemas now reject duplicates for admin user roles, admin role permissions, client role permissions, null-safe member-role scopes, member overrides, collaboration permissions, and plan features; AdminUser-to-User uniqueness is explicit.
 
 ---
 
@@ -1611,7 +1620,7 @@ flowchart TD
 | **RBAC-002** | Inactive roles grant permissions | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-001 | Ignored in evaluation |
 | **RBAC-003** | Ceiling for assignments | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-002 | Actor ceiling enforced |
 | **RBAC-004** | Role removal ignores scope | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-003 | Scope checked |
-| **DATA-001** | Duplicate relationships | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.4 | MEMBER-003 | Unique DB index |
+| **DATA-001** | Duplicate relationships | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.4 | MEMBER-003 | Seven generated-schema unique constraints and duplicate-insert tests |
 | **TENANCY-003** | Mismatched parent accounts | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.1 | TENANCY-002 | `@PrePersist` validator |
 | **ORG-001** | Support generic Group model | MISSING | IMPLEMENT | Phase 2 | Batch 2.2 | COMPANY-002 | Hierarchy table |
 | **ORG-002** | Groups stay outside authz | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | ORG-001 | Security check ignore |
@@ -1666,14 +1675,14 @@ flowchart TD
 | **ACCOUNT-003** | Slug constraints | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.3 | ACCOUNT-002 | User-bound slug collision tests |
 | **ACCOUNT-004** | Idempotency token | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.3 | ACCOUNT-003 | Internal provisioning retry test |
 | **ACCOUNT-005** | DTO in interface | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.3 | ACCOUNT-004 | DTO service response integration test |
-| **QUOTA-001** | Fast count | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Optimized query |
+| **QUOTA-001** | Fast count | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Active database counts and exact-boundary concurrency tests |
 | **COMPANY-001** | Access blocking | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.1 | TENANCY-003 | Interception blocks |
 | **COMPANY-002** | Safe edits | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.1 | COMPANY-001 | Guard checks |
-| **MEMBER-001** | Owner lockout block | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | TENANCY-002 | Rejected deactivations |
-| **MEMBER-002** | Unique memberships | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-001 | Unique index |
-| **MEMBER-003** | Active role check | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Validate role status |
+| **MEMBER-001** | Owner lockout block | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | TENANCY-002 | Owner-target and self-target deactivation rejection |
+| **MEMBER-002** | Unique memberships | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-001 | Generated-schema unique constraint and concurrent conflict translation |
+| **MEMBER-003** | Active role check | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Inactive and duplicate scoped assignment rejection |
 | **MEMBER-004** | Member DTO clean | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Align fields |
-| **MEMBER-005** | Token revocation | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-003 | Revoked JWTs |
+| **MEMBER-005** | Token revocation | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-003 | Access-context denial and CLIENT refresh-session revocation |
 | **EVENT-002** | Dead Event | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Deleted file |
 | **ROLE-001** | Role check delete | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | MEMBER-003 | Validation warning |
 | **ROLE-002** | System roles locks | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-001 | 403 Forbidden |
