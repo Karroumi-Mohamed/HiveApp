@@ -6,5 +6,6 @@ import java.util.List;
 import java.util.Optional;
 public interface CompanyRepository extends JpaRepository<Company, UUID> {
     List<Company> findAllByAccountId(UUID accountId);
+    long countByAccountIdAndIsActiveTrue(UUID accountId);
     Optional<Company> findByIdAndAccountId(UUID id, UUID accountId);
 }

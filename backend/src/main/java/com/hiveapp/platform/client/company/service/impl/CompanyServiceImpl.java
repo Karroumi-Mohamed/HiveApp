@@ -39,14 +39,14 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
     @Transactional
     public Company createCompany(UUID accountId, String name, String legalName, String taxId, String industry, String country, String address) {
         requireCurrentAccount(accountId);
-        var account = accountRepository.findById(accountId)
+        var account = accountRepository.findByIdForQuotaUpdate(accountId)
             .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
 
         quotaEnforcer.check(
                 WorkspaceFeature.definition(),
                 WorkspaceFeature.COMPANIES,
                 accountId,
-                () -> (long) companyRepository.findAllByAccountId(accountId).size()
+                () -> companyRepository.countByAccountIdAndIsActiveTrue(accountId)
         );
             
         Company comp = new Company();

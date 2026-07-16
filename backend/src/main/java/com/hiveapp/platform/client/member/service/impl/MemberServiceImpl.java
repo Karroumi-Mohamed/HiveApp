@@ -22,9 +22,12 @@ import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
+import com.hiveapp.shared.security.TokenAudience;
+import com.hiveapp.shared.security.TokenSessionService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +49,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     private final PermissionRepository permissionRepository;
     private final PermissionGrantValidator permissionGrantValidator;
     private final QuotaEnforcer quotaEnforcer;
+    private final TokenSessionService tokenSessionService;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -71,10 +75,13 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @PermissionNode(key = "add", description = "Add member to account")
     public Member addMember(UUID accountId, UUID userId, String displayName) {
         requireCurrentAccount(accountId);
-        var account = accountRepository.findById(accountId)
+        var account = accountRepository.findByIdForQuotaUpdate(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
         var user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+        if (memberRepository.existsByAccountIdAndUserId(accountId, userId)) {
+            throw new InvalidStateException("User is already a member of this workspace");
+        }
         if (memberRepository.existsByUserIdAndIsActiveTrue(userId)) {
             throw new InvalidStateException("User already has an active workspace membership");
         }
@@ -83,7 +90,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
                 WorkspaceFeature.definition(),
                 WorkspaceFeature.MEMBERS,
                 accountId,
-                () -> (long) memberRepository.findAllByAccountId(accountId).size()
+                () -> memberRepository.countByAccountIdAndIsActiveTrue(accountId)
         );
 
         Member member = new Member();
@@ -91,7 +98,11 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         member.setUser(user);
         member.setDisplayName(displayName);
         member.setActive(true);
-        return memberRepository.save(member);
+        try {
+            return memberRepository.saveAndFlush(member);
+        } catch (DataIntegrityViolationException ex) {
+            throw new InvalidStateException("User is already a member of this workspace");
+        }
     }
 
     @Override
@@ -116,8 +127,12 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         if (member.getUser().getId().equals(actorUserId)) {
             throw new ForbiddenException("Members cannot deactivate themselves");
         }
+        if (member.isOwner()) {
+            throw new ForbiddenException("Workspace owner cannot be deactivated. Transfer ownership first.");
+        }
         member.setActive(false);
-        memberRepository.save(member);
+        memberRepository.saveAndFlush(member);
+        tokenSessionService.revokeAll(List.of(member.getUser().getId()), TokenAudience.CLIENT);
     }
 
     @Override
@@ -141,12 +156,25 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         if (role.getCompany() != null && (company == null || !role.getCompany().getId().equals(company.getId()))) {
             throw new ForbiddenException("Company-scoped role can only be assigned inside its company");
         }
+        if (!role.isActive()) {
+            throw new InvalidStateException("Inactive roles cannot be assigned");
+        }
+        boolean duplicate = company == null
+                ? memberRoleRepository.existsByMemberIdAndRoleIdAndCompanyIsNull(memberId, roleId)
+                : memberRoleRepository.existsByMemberIdAndRoleIdAndCompanyId(memberId, roleId, companyId);
+        if (duplicate) {
+            throw new InvalidStateException("Role is already assigned to this member in the requested scope");
+        }
 
         MemberRole mr = new MemberRole();
         mr.setMember(member);
         mr.setRole(role);
         mr.setCompany(company);
-        memberRoleRepository.save(mr);
+        try {
+            memberRoleRepository.saveAndFlush(mr);
+        } catch (DataIntegrityViolationException ex) {
+            throw new InvalidStateException("Role is already assigned to this member in the requested scope");
+        }
     }
 
     @Override
