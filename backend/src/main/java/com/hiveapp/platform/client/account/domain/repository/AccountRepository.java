@@ -10,9 +10,7 @@ import java.util.UUID;
 import java.util.Optional;
 
 public interface AccountRepository extends JpaRepository<Account, UUID> {
-    boolean existsByOwner_Id(UUID ownerId);
     Optional<Account> findByOwner_Id(UUID ownerId);
-    boolean existsBySlug(String slug);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select account from Account account where account.id = :accountId")
