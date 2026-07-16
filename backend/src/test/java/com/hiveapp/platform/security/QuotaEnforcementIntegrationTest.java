@@ -1,9 +1,8 @@
 package com.hiveapp.platform.security;
 
-import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.platform.client.company.dto.CreateCompanyRequest;
-import com.hiveapp.platform.client.member.dto.AddMemberRequest;
+import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
@@ -54,14 +53,14 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
     @Test
     void freePlanMemberLimitCountsOwnerAndDeniesThirdAddition() throws Exception {
         String ownerToken = registerClientAndGetToken();
-        UUID firstUserId = createUnattachedUser("First");
-        UUID secondUserId = createUnattachedUser("Second");
-        UUID thirdUserId = createUnattachedUser("Third");
+        String first = username("first");
+        String second = username("second");
+        String third = username("third");
 
-        addMember(ownerToken, firstUserId, "First Member").andExpect(status().isCreated());
-        addMember(ownerToken, secondUserId, "Second Member").andExpect(status().isCreated());
+        addMember(ownerToken, first, "First Member").andExpect(status().isCreated());
+        addMember(ownerToken, second, "Second Member").andExpect(status().isCreated());
 
-        addMember(ownerToken, thirdUserId, "Over Limit")
+        addMember(ownerToken, third, "Over Limit")
                 .andExpect(status().isPaymentRequired())
                 .andExpect(jsonPath("$.error").value("Quota Exceeded"))
                 .andExpect(jsonPath("$.details[0]").value("resource: members"))
@@ -72,19 +71,20 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
     @Test
     void deactivatedMemberStopsConsumingActiveMemberQuota() throws Exception {
         String ownerToken = registerClientAndGetToken();
-        UUID firstUserId = createUnattachedUser("First");
-        UUID secondUserId = createUnattachedUser("Second");
-        UUID replacementUserId = createUnattachedUser("Replacement");
+        String first = username("first");
+        String second = username("second");
+        String replacement = username("replacement");
 
-        addMember(ownerToken, firstUserId, "First Member").andExpect(status().isCreated());
-        addMember(ownerToken, secondUserId, "Second Member").andExpect(status().isCreated());
+        addMember(ownerToken, first, "First Member").andExpect(status().isCreated());
+        addMember(ownerToken, second, "Second Member").andExpect(status().isCreated());
+        UUID firstUserId = userRepository.findByUsername(first).orElseThrow().getId();
         UUID firstMemberId = memberRepository.findByUserIdAndIsActiveTrue(firstUserId).orElseThrow().getId();
 
         mockMvc.perform(delete("/api/v1/members/{id}", firstMemberId)
                         .header("Authorization", bearer(ownerToken)))
                 .andExpect(status().isNoContent());
 
-        addMember(ownerToken, replacementUserId, "Replacement Member")
+        addMember(ownerToken, replacement, "Replacement Member")
                 .andExpect(status().isCreated());
     }
 
@@ -115,31 +115,31 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
     @Test
     void concurrentMemberCreationCannotExceedExactFreePlanBoundary() throws Exception {
         String token = registerClientAndGetToken();
-        addMember(token, createUnattachedUser("Existing"), "Existing Member")
+        addMember(token, username("existing"), "Existing Member")
                 .andExpect(status().isCreated());
-        UUID firstUserId = createUnattachedUser("Concurrent First");
-        UUID secondUserId = createUnattachedUser("Concurrent Second");
+        String first = username("concurrent-first");
+        String second = username("concurrent-second");
 
-        CompletableFuture<Integer> first = addMemberAsync(token, firstUserId, "Concurrent First");
-        CompletableFuture<Integer> second = addMemberAsync(token, secondUserId, "Concurrent Second");
+        CompletableFuture<Integer> firstResult = addMemberAsync(token, first, "Concurrent First");
+        CompletableFuture<Integer> secondResult = addMemberAsync(token, second, "Concurrent Second");
 
-        assertThat(List.of(first.join(), second.join()))
+        assertThat(List.of(firstResult.join(), secondResult.join()))
                 .containsExactlyInAnyOrder(201, 402);
     }
 
     @Test
     void concurrentAdditionOfSameUserCreatesOnlyOneWorkspaceMembership() throws Exception {
         String token = registerClientAndGetToken();
-        UUID userId = createUnattachedUser("Concurrent Duplicate");
+        String username = username("concurrent-duplicate");
 
-        CompletableFuture<Integer> first = addMemberAsync(token, userId, "Concurrent Duplicate");
-        CompletableFuture<Integer> second = addMemberAsync(token, userId, "Concurrent Duplicate");
+        CompletableFuture<Integer> first = addMemberAsync(token, username, "Concurrent Duplicate");
+        CompletableFuture<Integer> second = addMemberAsync(token, username, "Concurrent Duplicate");
 
         assertThat(List.of(first.join(), second.join()))
                 .containsExactlyInAnyOrder(201, 409);
+        UUID userId = userRepository.findByUsername(username).orElseThrow().getId();
         assertThat(memberRepository.findAll().stream()
-                .filter(member -> member.getUser().getId().equals(userId)))
-                .hasSize(1);
+                .filter(member -> member.getUser().getId().equals(userId))).hasSize(1);
     }
 
     @Test
@@ -187,34 +187,29 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
                 .andExpect(jsonPath("$.details[2]").value("current: 6"));
     }
 
-    private UUID createUnattachedUser(String firstName) {
-        User user = User.builder()
-                .email("quota-user-" + UUID.randomUUID() + "@example.com")
-                .passwordHash("not-used")
-                .firstName(firstName)
-                .lastName("Member")
-                .build();
-        return userRepository.save(user).getId();
-    }
-
     private org.springframework.test.web.servlet.ResultActions addMember(
-            String token, UUID userId, String displayName) throws Exception {
-        AddMemberRequest request = new AddMemberRequest(userId, displayName);
+            String token, String username, String displayName) throws Exception {
+        CreateMemberRequest request = new CreateMemberRequest(
+                username, null, displayName, "Member", displayName, null, null, List.of());
         return mockMvc.perform(post("/api/v1/members")
                 .header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)));
     }
 
-    private CompletableFuture<Integer> addMemberAsync(String token, UUID userId, String displayName) {
+    private CompletableFuture<Integer> addMemberAsync(String token, String username, String displayName) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return addMember(token, userId, displayName)
+                return addMember(token, username, displayName)
                         .andReturn().getResponse().getStatus();
             } catch (Exception ex) {
                 throw new IllegalStateException(ex);
             }
         });
+    }
+
+    private String username(String prefix) {
+        return prefix + "-" + UUID.randomUUID().toString().substring(0, 8);
     }
 
     private CompletableFuture<Integer> createCompanyAsync(String token, String name) {

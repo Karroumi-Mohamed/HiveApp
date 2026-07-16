@@ -3,7 +3,8 @@ package com.hiveapp.identity.service.impl;
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.dto.RegisterRequest;
-import com.hiveapp.identity.service.CredentialAuthenticationService;
+import com.hiveapp.identity.service.ClientCredentialAuthenticationService;
+import com.hiveapp.identity.service.CredentialLifecycleService;
 import com.hiveapp.platform.client.account.service.WorkspaceProvisioningService;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.security.IssuedTokens;
@@ -30,7 +31,8 @@ class AuthServiceImplTest {
 
     @Mock UserRepository userRepository;
     @Mock PasswordEncoder passwordEncoder;
-    @Mock CredentialAuthenticationService credentialAuthenticationService;
+    @Mock ClientCredentialAuthenticationService clientCredentialAuthenticationService;
+    @Mock CredentialLifecycleService credentialLifecycleService;
     @Mock TokenSessionService tokenSessionService;
     @Mock WorkspaceProvisioningService workspaceProvisioningService;
 
@@ -68,7 +70,8 @@ class AuthServiceImplTest {
         return new AuthServiceImpl(
                 userRepository,
                 passwordEncoder,
-                credentialAuthenticationService,
+                clientCredentialAuthenticationService,
+                credentialLifecycleService,
                 tokenSessionService,
                 workspaceProvisioningService);
     }

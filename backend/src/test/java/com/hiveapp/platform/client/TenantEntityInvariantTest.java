@@ -9,7 +9,6 @@ import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.platform.client.collaboration.domain.entity.Collaboration;
 import com.hiveapp.platform.client.company.domain.entity.Department;
-import com.hiveapp.platform.client.invitation.domain.entity.Invitation;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
@@ -32,7 +31,6 @@ class TenantEntityInvariantTest {
                 Role.class,
                 MemberRole.class,
                 MemberPermissionOverride.class,
-                Invitation.class,
                 Department.class,
                 Collaboration.class
         }) {
@@ -89,16 +87,6 @@ class TenantEntityInvariantTest {
         override.setCompany(company(account(user())));
 
         assertInvalid(override, "Member permission override company must belong to the member account");
-    }
-
-    @Test
-    void invitationRelationshipsMustBelongToInvitationAccount() {
-        Account invitationAccount = account(user());
-        Invitation invitation = new Invitation();
-        invitation.setAccount(invitationAccount);
-        invitation.setInvitedBy(member(account(user()), user()));
-
-        assertInvalid(invitation, "Invitation sender must belong to the invitation account");
     }
 
     @Test

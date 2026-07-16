@@ -2,6 +2,10 @@ package com.hiveapp.platform.client.member.service.impl;
 
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.domain.constant.CredentialState;
+import com.hiveapp.identity.domain.constant.InitialAccessMethod;
+import com.hiveapp.identity.service.CredentialAccessMaterial;
+import com.hiveapp.identity.service.MemberCredentialService;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
@@ -10,17 +14,22 @@ import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
+import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
+import com.hiveapp.platform.client.member.dto.InitialRoleAssignmentRequest;
+import com.hiveapp.platform.client.member.dto.MemberPermissionDto;
+import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.client.role.domain.entity.Role;
+import com.hiveapp.platform.client.role.domain.entity.RolePermission;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
+import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
-import com.hiveapp.shared.security.TokenAudience;
-import com.hiveapp.shared.security.TokenSessionService;
+import com.hiveapp.shared.security.EffectivePermissionService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import org.junit.jupiter.api.AfterEach;
@@ -34,6 +43,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.LongSupplier;
 
@@ -58,7 +68,9 @@ class MemberServiceImplTest {
     @Mock private PermissionRepository permissionRepository;
     @Mock private PermissionGrantValidator permissionGrantValidator;
     @Mock private QuotaEnforcer quotaEnforcer;
-    @Mock private TokenSessionService tokenSessionService;
+    @Mock private MemberCredentialService memberCredentialService;
+    @Mock private PlanEntitlementService planEntitlementService;
+    @Mock private EffectivePermissionService effectivePermissionService;
 
     @InjectMocks
     private MemberServiceImpl memberService;
@@ -69,23 +81,27 @@ class MemberServiceImplTest {
     }
 
     @Test
-    void addMemberChecksMemberQuotaInsideService() {
+    void createMemberChecksQuotaAndCreatesIdentityAndMembershipAtomically() {
         UUID accountId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
         setContext(accountId);
 
         Account account = account(accountId);
-        User user = user(userId);
         when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account));
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(memberRepository.countByAccountIdAndIsActiveTrue(accountId)).thenReturn(2L);
+        when(memberCredentialService.initialize(any(User.class), eq(account)))
+                .thenReturn(new CredentialAccessMaterial(
+                        InitialAccessMethod.TEMPORARY_PASSWORD,
+                        CredentialState.TEMPORARY_PASSWORD,
+                        "temporary-secret", null));
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(memberRepository.saveAndFlush(any(Member.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Member result = memberService.addMember(accountId, userId, "Nora");
+        var result = memberService.createMember(accountId, createRequest("nora"));
 
-        assertThat(result.getAccount()).isSameAs(account);
-        assertThat(result.getUser()).isSameAs(user);
-        assertThat(result.getDisplayName()).isEqualTo("Nora");
+        assertThat(result.member().getAccount()).isSameAs(account);
+        assertThat(result.member().getUser().getUsername()).isEqualTo("nora");
+        assertThat(result.member().getDisplayName()).isEqualTo("Nora Stone");
+        assertThat(result.initialAccess().temporaryPassword()).isEqualTo("temporary-secret");
 
         ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
         verify(quotaEnforcer).check(
@@ -99,12 +115,12 @@ class MemberServiceImplTest {
     }
 
     @Test
-    void addMemberRejectsDifferentAccountBeforeQuotaCheck() {
+    void createMemberRejectsDifferentAccountBeforeQuotaCheck() {
         UUID currentAccountId = UUID.randomUUID();
         UUID requestedAccountId = UUID.randomUUID();
         setContext(currentAccountId);
 
-        assertThatThrownBy(() -> memberService.addMember(requestedAccountId, UUID.randomUUID(), "Nora"))
+        assertThatThrownBy(() -> memberService.createMember(requestedAccountId, createRequest("nora")))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Member does not belong to your account");
 
@@ -112,35 +128,99 @@ class MemberServiceImplTest {
     }
 
     @Test
-    void addMemberRejectsUserWhoAlreadyHasAnActiveWorkspaceMembership() {
+    void createMemberRejectsDuplicateUsernameBeforeQuotaCheck() {
         UUID accountId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
         setContext(accountId);
         when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account(accountId)));
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user(userId)));
-        when(memberRepository.existsByUserIdAndIsActiveTrue(userId)).thenReturn(true);
+        when(userRepository.existsByUsername("nora")).thenReturn(true);
 
-        assertThatThrownBy(() -> memberService.addMember(accountId, userId, "Nora"))
+        assertThatThrownBy(() -> memberService.createMember(accountId, createRequest("nora")))
                 .isInstanceOf(InvalidStateException.class)
-                .hasMessage("User already has an active workspace membership");
+                .hasMessage("Username is already in use");
 
         verifyNoInteractions(quotaEnforcer);
     }
 
     @Test
-    void addMemberRejectsExistingMembershipInRequestedWorkspace() {
+    void createMemberRejectsDuplicateEmployeeNumberBeforeQuotaCheck() {
         UUID accountId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
         setContext(accountId);
         when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account(accountId)));
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user(userId)));
-        when(memberRepository.existsByAccountIdAndUserId(accountId, userId)).thenReturn(true);
+        when(memberRepository.existsByAccountIdAndEmployeeNumber(accountId, "EMP-1")).thenReturn(true);
 
-        assertThatThrownBy(() -> memberService.addMember(accountId, userId, "Nora"))
+        assertThatThrownBy(() -> memberService.createMember(
+                        accountId,
+                        new CreateMemberRequest(
+                                "nora", null, "Nora", "Stone", null, null, "EMP-1", List.of())))
                 .isInstanceOf(InvalidStateException.class)
-                .hasMessage("User is already a member of this workspace");
+                .hasMessage("Employee number is already in use in this workspace");
 
         verifyNoInteractions(quotaEnforcer);
+    }
+
+    @Test
+    void createMemberPersistsValidatedInitialRoleInsideTheSameAdmission() {
+        UUID accountId = UUID.randomUUID();
+        UUID actorUserId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        setContext(accountId, actorUserId);
+        Account account = account(accountId);
+        Role role = role(roleId, account, true);
+        addPermission(role, "platform.company.read_single");
+
+        when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account));
+        when(effectivePermissionService.getEffectivePermissions(actorUserId, accountId))
+                .thenReturn(new MemberPermissionDto(
+                        UUID.randomUUID(), false,
+                        Set.of("platform.staff.assign_role", "platform.company.read_single")));
+        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(planEntitlementService.isPermissionEntitled(accountId, "platform.company.read_single"))
+                .thenReturn(true);
+        when(memberCredentialService.initialize(any(User.class), eq(account)))
+                .thenReturn(new CredentialAccessMaterial(
+                        InitialAccessMethod.TEMPORARY_PASSWORD,
+                        CredentialState.TEMPORARY_PASSWORD,
+                        "temporary-secret", null));
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(memberRepository.saveAndFlush(any(Member.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        memberService.createMember(accountId, new CreateMemberRequest(
+                "nora", null, "Nora", "Stone", null, null, null,
+                List.of(new InitialRoleAssignmentRequest(roleId, null))));
+
+        ArgumentCaptor<MemberRole> assignment = ArgumentCaptor.forClass(MemberRole.class);
+        verify(memberRoleRepository).save(assignment.capture());
+        verify(memberRoleRepository).flush();
+        assertThat(assignment.getValue().getRole()).isSameAs(role);
+        assertThat(assignment.getValue().getCompany()).isNull();
+    }
+
+    @Test
+    void createMemberRejectsInitialRoleAboveActorDelegationCeilingBeforeIdentityInsert() {
+        UUID accountId = UUID.randomUUID();
+        UUID actorUserId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        setContext(accountId, actorUserId);
+        Account account = account(accountId);
+        Role role = role(roleId, account, true);
+        addPermission(role, "platform.company.delete");
+
+        when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account));
+        when(effectivePermissionService.getEffectivePermissions(actorUserId, accountId))
+                .thenReturn(new MemberPermissionDto(
+                        UUID.randomUUID(), false, Set.of("platform.staff.assign_role")));
+        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(planEntitlementService.isPermissionEntitled(accountId, "platform.company.delete"))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> memberService.createMember(accountId, new CreateMemberRequest(
+                "nora", null, "Nora", "Stone", null, null, null,
+                List.of(new InitialRoleAssignmentRequest(roleId, null)))))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("acting member does not hold");
+
+        verify(userRepository, org.mockito.Mockito.never()).saveAndFlush(any(User.class));
+        verify(memberRepository, org.mockito.Mockito.never()).saveAndFlush(any(Member.class));
     }
 
     @Test
@@ -155,7 +235,7 @@ class MemberServiceImplTest {
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Transfer ownership first");
 
-        verifyNoInteractions(tokenSessionService);
+        verifyNoInteractions(memberCredentialService);
     }
 
     @Test
@@ -171,7 +251,8 @@ class MemberServiceImplTest {
         memberService.deactivateMember(memberId);
 
         assertThat(member.isActive()).isFalse();
-        verify(tokenSessionService).revokeAll(List.of(userId), TokenAudience.CLIENT);
+        verify(memberCredentialService).invalidatePendingAccess(member.getUser());
+        verify(userRepository).saveAndFlush(member.getUser());
     }
 
     @Test
@@ -212,8 +293,12 @@ class MemberServiceImplTest {
     }
 
     private static void setContext(UUID accountId) {
+        setContext(accountId, UUID.randomUUID());
+    }
+
+    private static void setContext(UUID accountId, UUID actorUserId) {
         HiveAppContextHolder.setContext(new HiveAppPermissionContext(
-                UUID.randomUUID(),
+                actorUserId,
                 accountId,
                 accountId,
                 null,
@@ -234,10 +319,16 @@ class MemberServiceImplTest {
         User user = new User();
         ReflectionTestUtils.setField(user, "id", id);
         user.setEmail("nora@example.com");
+        user.setUsername("nora");
         user.setFirstName("Nora");
         user.setLastName("Stone");
         user.setPasswordHash("hash");
         return user;
+    }
+
+    private static CreateMemberRequest createRequest(String username) {
+        return new CreateMemberRequest(
+                username, null, "Nora", "Stone", null, null, null, List.of());
     }
 
     private static Member member(UUID id, Account account, User user, boolean owner) {
@@ -257,6 +348,15 @@ class MemberServiceImplTest {
         role.setName("Manager");
         role.setActive(active);
         return role;
+    }
+
+    private static void addPermission(Role role, String code) {
+        Permission permission = new Permission();
+        permission.setCode(code);
+        RolePermission rolePermission = new RolePermission();
+        rolePermission.setRole(role);
+        rolePermission.setPermission(permission);
+        role.getPermissions().add(rolePermission);
     }
 
 }

@@ -25,13 +25,13 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void invalidStateReturnsStableConflictBody() {
-        var response = handler.handleInvalidState(new InvalidStateException("Invitation is expired"));
+        var response = handler.handleInvalidState(new InvalidStateException("Credential link is expired"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().status()).isEqualTo(409);
         assertThat(response.getBody().error()).isEqualTo("Conflict");
-        assertThat(response.getBody().message()).isEqualTo("Invitation is expired");
+        assertThat(response.getBody().message()).isEqualTo("Credential link is expired");
     }
 
     @Test

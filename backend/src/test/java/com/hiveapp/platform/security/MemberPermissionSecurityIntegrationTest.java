@@ -4,10 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
-import com.hiveapp.platform.client.invitation.domain.repository.InvitationRepository;
-import com.hiveapp.platform.client.invitation.dto.AcceptInvitationRequest;
-import com.hiveapp.platform.client.invitation.dto.SendInvitationRequest;
+import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.dto.OverridePermissionRequest;
+import com.hiveapp.identity.dto.InitialPasswordChangeRequest;
+import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
 import com.hiveapp.platform.registry.definition.B2bFeature;
 import com.hiveapp.platform.registry.definition.CompanyFeature;
@@ -28,9 +28,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTestSupport {
-
-    @Autowired
-    private InvitationRepository invitationRepository;
 
     @Autowired
     private SubscriptionRepository subscriptionRepository;
@@ -130,21 +127,21 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
     @Test
     void deactivatedMemberCannotContinueUsingExistingAccessToken() throws Exception {
         String ownerToken = registerClientAndGetToken();
-        AcceptedMemberTokens invitedTokens = inviteAndAcceptMember(ownerToken);
-        UUID invitedMemberId = memberIdForNonOwner(ownerToken);
+        AcceptedMemberTokens memberTokens = createAndActivateMember(ownerToken);
+        UUID createdMemberId = memberIdForNonOwner(ownerToken);
 
-        mockMvc.perform(delete("/api/v1/members/{id}", invitedMemberId)
+        mockMvc.perform(delete("/api/v1/members/{id}", createdMemberId)
                         .header("Authorization", bearer(ownerToken)))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/members")
-                        .header("Authorization", bearer(invitedTokens.accessToken())))
+                        .header("Authorization", bearer(memberTokens.accessToken())))
                 .andExpect(status().isUnauthorized());
 
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new RefreshTokenRequest(invitedTokens.refreshToken()))))
+                                new RefreshTokenRequest(memberTokens.refreshToken()))))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -194,26 +191,35 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
         subscriptionRepository.saveAndFlush(subscription);
     }
 
-    private AcceptedMemberTokens inviteAndAcceptMember(String ownerToken) throws Exception {
-        String email = "invited-" + UUID.randomUUID() + "@example.com";
-        SendInvitationRequest invitationRequest = new SendInvitationRequest(email, null, null);
-        String response = mockMvc.perform(post("/api/v1/invitations")
+    private AcceptedMemberTokens createAndActivateMember(String ownerToken) throws Exception {
+        String username = "member-" + UUID.randomUUID().toString().substring(0, 8);
+        CreateMemberRequest request = new CreateMemberRequest(
+                username, null, "Created", "Member", "Created Member", null, null, java.util.List.of());
+        String response = mockMvc.perform(post("/api/v1/members")
                         .header("Authorization", bearer(ownerToken))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(invitationRequest)))
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        UUID invitationId = UUID.fromString(objectMapper.readTree(response).get("id").asText());
-        String token = invitationRepository.findById(invitationId).orElseThrow().getToken();
+        String temporaryPassword = objectMapper.readTree(response).get("temporaryPassword").asText();
 
-        AcceptInvitationRequest acceptRequest = new AcceptInvitationRequest(
-                token, "Invited", "Member", CLIENT_PASSWORD);
-        String accepted = mockMvc.perform(post("/api/v1/invitations/accept")
+        String restricted = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(acceptRequest)))
+                        .content(objectMapper.writeValueAsString(new LoginRequest(username, temporaryPassword))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passwordChangeRequired").value(true))
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        String restrictedToken = objectMapper.readTree(restricted).get("accessToken").asText();
+
+        String activated = mockMvc.perform(post("/api/v1/auth/initial-password/change")
+                        .header("Authorization", bearer(restrictedToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new InitialPasswordChangeRequest(CLIENT_PASSWORD))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        JsonNode tokens = objectMapper.readTree(accepted);
+        JsonNode tokens = objectMapper.readTree(activated);
         return new AcceptedMemberTokens(
                 tokens.get("accessToken").asText(),
                 tokens.get("refreshToken").asText());
@@ -226,7 +232,7 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
                 return UUID.fromString(member.get("id").asText());
             }
         }
-        throw new AssertionError("Expected invited non-owner member");
+        throw new AssertionError("Expected a created non-owner member");
     }
 
     private record AcceptedMemberTokens(String accessToken, String refreshToken) {
