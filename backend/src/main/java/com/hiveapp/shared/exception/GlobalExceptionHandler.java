@@ -89,6 +89,13 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(409, "Conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(OperationBlockedException.class)
+    public ResponseEntity<ApiError> handleOperationBlocked(OperationBlockedException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, "Conflict", ex.getMessage(), ex.getDetails()));
+    }
+
     @ExceptionHandler(InvalidPermissionGrantException.class)
     public ResponseEntity<ApiError> handleInvalidGrant(InvalidPermissionGrantException ex) {
         return ResponseEntity

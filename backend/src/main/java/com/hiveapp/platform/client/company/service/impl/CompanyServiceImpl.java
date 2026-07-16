@@ -7,6 +7,7 @@ import com.hiveapp.platform.client.company.service.CompanyService;
 import com.hiveapp.platform.client.company.service.CompanyCountryChangeGuard;
 import com.hiveapp.platform.client.company.service.CompanyMutationResult;
 import com.hiveapp.platform.client.company.service.CompanyReactivationValidator;
+import com.hiveapp.platform.client.company.service.OrganizationInitializer;
 import com.hiveapp.platform.registry.definition.CompanyFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
@@ -39,6 +40,7 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
     private final QuotaEnforcer quotaEnforcer;
     private final CompanyCountryChangeGuard countryChangeGuard;
     private final CompanyReactivationValidator reactivationValidator;
+    private final OrganizationInitializer organizationInitializer;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -82,6 +84,7 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
         comp.setLogoUrl(normalizeOptional(logoUrl));
         comp.setActive(true);
         var saved = companyRepository.save(comp);
+        organizationInitializer.initialize(saved);
         return new CompanyMutationResult(
                 saved,
                 taxIdWarnings(accountId, normalizedCountry, normalizedTaxId, saved.getId()));
