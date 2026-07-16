@@ -134,7 +134,7 @@ The current duplicate nullable Company fields must be replaced or renamed into e
 
 ### RBAC-002 — Inactive client roles still grant permissions
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-16`
 
 **Evidence**
 
@@ -325,11 +325,22 @@ Expanding this entity would hard-code one organizational vocabulary, one manager
 - Keep `Member` Account-owned and operational access independent through Account/Company roles and B2B delegation.
 - Design Group deletion/reparenting, template conflict UX, archive/history, and limits during implementation.
 
+**Implementation evidence — 2026-07-16**
+
+- The special `Department` entity/repository are removed. `OrganizationGroup` now provides a Company-owned, auditable, ordered, multi-root tree with optional parent, active/archived lifecycle, normalized sibling-name uniqueness, and persistence-time same-Company validation.
+- Company creation initializes one ordinary, deletable `Departments` root. No code assigns special behavior to that name.
+- `GroupMembership` supports several explicit Group placements for one Account-owned Member, each with its own optional free-text position. Same-Account validation is enforced without requiring a Company role; cross-Account placement is rejected.
+- Permissionizer-protected APIs cover list/create/update/move/reorder/archive/restore/delete, direct and descendant membership views, member placement updates, and template operations. Cross-Company moves, cycles, archived mutations, inactive Companies, and B2B access outside the collaboration target Company are blocked.
+- Empty-only deletion reports child and membership blockers and never cascades into children or members. Reordering and hierarchy changes preserve explicit placements.
+- Platform, Account, and Company template ownership is represented. Client creation is limited to Account/Company templates, while Platform creation is reserved for platform administration. Templates copy only structure metadata and position suggestions; preview reports conflicts, instantiation is atomic and independent, and real members/roles/credentials/permissions are excluded.
+- The current disposable H2 schema is generated directly from these mappings. Per project decision, no Flyway history is maintained until persistent production-schema work begins.
+- Mapping, service, Permissionizer boundary, tenant, lifecycle, membership, template, atomic-conflict, deletion, and HTTP isolation coverage passes in the complete backend suite: 285 tests, 0 failures, 0 errors, 0 skipped.
+
 ---
 
 ### ORG-002 — Organization Groups must stay outside automatic authorization
 
-**Status:** `DECIDED PRODUCT BOUNDARY`
+**Status:** `IMPLEMENTED — 2026-07-16`
 
 **Context**
 
@@ -344,6 +355,13 @@ Generic Groups mirror customer organization folders. Names, positions, nesting, 
 - Keep authorization scopes at Account and Company, plus separate B2B collaboration delegation where applicable.
 - If future target-aware management references one member, set, or Group, model that as a separate explicit assignment with visible impact; never infer it automatically.
 - Add regression tests proving Group membership, position, rename, and reparenting have no effect on the member's own roles/permissions.
+
+**Implementation evidence — 2026-07-16**
+
+- Organization persistence and services have no role, permission, override, or effective-permission mutation path. Group names, positions, nesting, membership, ordering, lifecycle, and template origin remain display/organization data only.
+- Organization operations themselves use a dedicated `platform.organization` feature with unique Permissionizer action keys and an explicitly enabled guard boundary.
+- Account/Company ownership checks and the B2B target-Company boundary control which organization data may be operated on without deriving authority from the Group tree.
+- Regression coverage compares effective permissions before and after membership creation, position change, rename, and reparenting and proves the set is unchanged.
 
 ---
 

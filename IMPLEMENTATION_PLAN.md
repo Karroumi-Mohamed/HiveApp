@@ -707,25 +707,30 @@ flowchart TD
 ---
 
 ### Batch 2.2: Organizational Hierarchy Model
+
+**Execution status — 2026-07-16:** Completed for the current platform shell. The Department-specific draft is replaced by a generic Company-owned Group tree, explicit multi-placement memberships with per-placement positions, safe lifecycle and hierarchy commands, and member-free Platform/Account/Company structure templates with previewed all-or-nothing instantiation. Organization actions are individually Permissionizer-protected, while Group structure and placement remain deliberately absent from effective-permission evaluation. Generated H2 schema mappings were updated directly; versioned migration history remains deferred until the application enters a persistent production-schema stage.
+
 #### [IMPLEMENT] ORG-001 — Department entity cannot support the decided generic Group model
 - **Prerequisites**: COMPANY-002.
 - **Unlocks**: ORG-002.
 - **Order Rationale**: Implements nested groups model structure.
-- **Affected Backend Areas**: `Department.java` (rename/replace to `Group.java`).
-- **Database Migration**: Yes (schema migrations).
-- **Acceptance Criteria**: Groups database layout supports hierarchy linkages.
-- **Tests**: Tree mappings validation.
+- **Affected Backend Areas**: Organization entities/repositories, Company initialization, organization service/controller/DTOs, registry feature, and blocker error contract.
+- **Database Migration**: Generated schema updated from entity mappings; no versioned migration during the current disposable in-memory stage by project decision.
+- **Acceptance Criteria**: Generic multi-root hierarchy, explicit memberships/positions, normalized sibling uniqueness, cycle and cross-Company protection, safe reorder/archive/restore/empty-only deletion, and independent member-free structure templates are available through stable APIs.
+- **Tests**: Entity invariants plus HTTP hierarchy, reorder, archive/restore, cycle, cross-Company, membership, blocker, template conflict/atomicity/copy/delete, and tenant-isolation coverage.
 - **Future UI Flow**: Organization hierarchy manager.
+- **Execution Status**: Implemented. Company creation adds a deletable ordinary `Departments` root; Group operations preserve explicit placements and return actionable deletion blockers; templates support Platform/Account/Company ownership boundaries and all-or-nothing independent structure copies. Platform template authoring stays reserved for a platform-admin surface.
 
 #### [IMPLEMENT] ORG-002 — Organization Groups must stay outside automatic authorization
 - **Prerequisites**: ORG-001.
 - **Unlocks**: None.
 - **Order Rationale**: Decouples group movements from security clearances.
-- **Affected Backend Areas**: `UserRolePolicy.java`.
+- **Affected Backend Areas**: `OrganizationServiceImpl`, `OrganizationFeature`, Permissionizer boundary tests, and effective-permission integration coverage. `UserRolePolicy` remains unchanged because it has no Group dependency.
 - **Database Migration**: No.
 - **Acceptance Criteria**: Security checks evaluate permissions independently of group placement.
-- **Tests**: Security integration test.
+- **Tests**: Permission guard registration, B2B target-Company scoping, and effective-permission equality across membership, position, rename, and reparent operations.
 - **Future UI Flow**: Organization hierarchy manager.
+- **Execution Status**: Implemented. Organization commands require explicit `platform.organization.*` actions, but no Group field or operation participates in role/override evaluation or grants operational access.
 
 ---
 
@@ -1644,8 +1649,8 @@ flowchart TD
 | **RBAC-004** | Role removal ignores scope | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-003 | Scope checked |
 | **DATA-001** | Duplicate relationships | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.4 | MEMBER-003 | Seven generated-schema unique constraints and duplicate-insert tests |
 | **TENANCY-003** | Mismatched parent accounts | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.1 | TENANCY-002 | `@PrePersist` validator |
-| **ORG-001** | Support generic Group model | MISSING | IMPLEMENT | Phase 2 | Batch 2.2 | COMPANY-002 | Hierarchy table |
-| **ORG-002** | Groups stay outside authz | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | ORG-001 | Security check ignore |
+| **ORG-001** | Support generic Group model | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | COMPANY-002 | Generic hierarchy, memberships, lifecycle, templates, and verified APIs |
+| **ORG-002** | Groups stay outside authz | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | ORG-001 | Permissionized operations with unchanged effective permissions |
 | **AUTHZ-006** | Context evaluation checks | MISSING | DESIGN FIRST | Phase 5 | Batch 5.3 | AUTHZ-003 | Design document |
 | **RBAC-006** | Exception override lifecycle | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-003 | Expire column |
 | **SUBSCRIPTION-001**| Terminological alignment | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | PLAN-006 | Enums corrected |
