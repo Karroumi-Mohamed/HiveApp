@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.Collection;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -45,6 +47,13 @@ public class TokenSessionService {
 
     public void revoke(String refreshToken, TokenAudience expectedAudience) {
         consume(refreshToken, expectedAudience);
+    }
+
+    public void revokeAll(Collection<UUID> userIds, TokenAudience audience) {
+        Set<UUID> revokedUserIds = Set.copyOf(userIds);
+        activeRefreshTokens.entrySet().removeIf(entry ->
+                entry.getValue().audience() == audience
+                        && revokedUserIds.contains(entry.getValue().userId()));
     }
 
     private void removeExpiredSessions() {
