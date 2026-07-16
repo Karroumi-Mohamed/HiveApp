@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.company.service.CompanyCountryChangeGuard;
 import com.hiveapp.platform.client.company.service.CompanyReactivationValidator;
+import com.hiveapp.platform.client.company.service.OrganizationInitializer;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.shared.exception.ForbiddenException;
@@ -41,6 +42,7 @@ class CompanyServiceImplTest {
     @Mock private QuotaEnforcer quotaEnforcer;
     @Mock private CompanyCountryChangeGuard countryChangeGuard;
     @Mock private CompanyReactivationValidator reactivationValidator;
+    @Mock private OrganizationInitializer organizationInitializer;
 
     @InjectMocks
     private CompanyServiceImpl companyService;
@@ -68,6 +70,7 @@ class CompanyServiceImplTest {
         assertThat(result.company().getCountry()).isEqualTo("US");
         assertThat(result.company().getLogoUrl()).isEqualTo("logo");
         assertThat(result.warnings()).isEmpty();
+        verify(organizationInitializer).initialize(result.company());
         ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
         verify(quotaEnforcer).check(
                 any(FeatureDefinition.class),

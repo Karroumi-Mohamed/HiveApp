@@ -8,7 +8,10 @@ import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.platform.client.collaboration.domain.entity.Collaboration;
-import com.hiveapp.platform.client.company.domain.entity.Department;
+import com.hiveapp.platform.client.company.domain.entity.GroupMembership;
+import com.hiveapp.platform.client.company.domain.entity.GroupStructureTemplate;
+import com.hiveapp.platform.client.company.domain.entity.GroupTemplateNode;
+import com.hiveapp.platform.client.company.domain.entity.OrganizationGroup;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
@@ -21,6 +24,7 @@ import java.lang.reflect.Field;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.util.ReflectionUtils;
 
 class TenantEntityInvariantTest {
 
@@ -31,10 +35,19 @@ class TenantEntityInvariantTest {
                 Role.class,
                 MemberRole.class,
                 MemberPermissionOverride.class,
-                Department.class,
                 Collaboration.class
         }) {
             var callback = entity.getDeclaredMethod("validateTenantInvariant");
+            assertThat(callback.getAnnotation(PrePersist.class)).as(entity.getSimpleName()).isNotNull();
+            assertThat(callback.getAnnotation(PreUpdate.class)).as(entity.getSimpleName()).isNotNull();
+        }
+        for (Class<?> entity : new Class<?>[] {
+                OrganizationGroup.class,
+                GroupMembership.class,
+                GroupStructureTemplate.class,
+                GroupTemplateNode.class
+        }) {
+            var callback = entity.getDeclaredMethod("validateInvariant");
             assertThat(callback.getAnnotation(PrePersist.class)).as(entity.getSimpleName()).isNotNull();
             assertThat(callback.getAnnotation(PreUpdate.class)).as(entity.getSimpleName()).isNotNull();
         }
@@ -90,14 +103,25 @@ class TenantEntityInvariantTest {
     }
 
     @Test
-    void departmentParentMustBelongToTheSameCompany() {
-        Department department = new Department();
-        department.setCompany(company(account(user())));
-        Department parent = new Department();
+    void groupParentMustBelongToTheSameCompany() {
+        OrganizationGroup group = new OrganizationGroup();
+        group.setCompany(company(account(user())));
+        OrganizationGroup parent = new OrganizationGroup();
         parent.setCompany(company(account(user())));
-        department.setParent(parent);
+        group.setParent(parent);
 
-        assertInvalid(department, "Department parent must belong to the same company");
+        assertInvalid(group, "Group parent must belong to the same company");
+    }
+
+    @Test
+    void groupMembershipMemberMustBelongToTheCompanyAccount() {
+        OrganizationGroup group = new OrganizationGroup();
+        group.setCompany(company(account(user())));
+        GroupMembership membership = new GroupMembership();
+        membership.setGroup(group);
+        membership.setMember(member(account(user()), user()));
+
+        assertInvalid(membership, "Group member must belong to the company account");
     }
 
     @Test
@@ -140,7 +164,11 @@ class TenantEntityInvariantTest {
     }
 
     private static void validate(Object entity) {
-        ReflectionTestUtils.invokeMethod(entity, "validateTenantInvariant");
+        if (ReflectionUtils.findMethod(entity.getClass(), "validateTenantInvariant") != null) {
+            ReflectionTestUtils.invokeMethod(entity, "validateTenantInvariant");
+        } else {
+            ReflectionTestUtils.invokeMethod(entity, "validateInvariant");
+        }
     }
 
     private static User user() {
