@@ -1224,7 +1224,7 @@ When API contracts are stabilized, return purpose-built summary/detail read mode
 
 ### AUTH-001 — Email identity is not canonicalized
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -1240,11 +1240,17 @@ Case and surrounding whitespace can create duplicate-looking users or make login
 
 Define one email canonicalization policy and apply it before uniqueness checks, persistence, login, invitations, and searches. Preserve a display form separately only if needed.
 
+**Implementation evidence — 2026-07-16**
+
+- `EmailIdentity` defines one trim-and-lowercase policy using `Locale.ROOT`.
+- Registration, credential lookup, admin authentication, invitation creation, and persisted `User` email callbacks use the same policy.
+- Integration coverage proves a mixed-case registration is stored canonically and can be authenticated with different casing.
+
 ---
 
 ### AUTH-002 — Refresh-token type and revocation behavior are not visible at the service boundary
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR CURRENT IN-MEMORY STAGE — 2026-07-16`
 
 **Evidence**
 
@@ -1260,11 +1266,18 @@ An access token is accepted at the refresh endpoint. Stolen refresh tokens also 
 
 Add explicit audience/token-use claims, require `refresh` use at refresh endpoints, preserve ADMIN versus CLIENT audience, and define rotation/reuse detection/revocation behavior.
 
+**Implementation evidence — 2026-07-16**
+
+- Every token now has explicit `CLIENT`/`ADMIN` audience and `ACCESS`/`REFRESH` use; refresh tokens also have a unique token ID.
+- `TokenSessionService` registers refresh sessions, consumes each token atomically once, rotates it on refresh, rejects reuse and audience mismatch, and revokes it on logout.
+- Both security filters require an audience-matching access token, so refresh tokens cannot authenticate API requests and access tokens cannot be exchanged at refresh endpoints.
+- Current refresh-session state is intentionally process-local while the application is unpublished and uses disposable in-memory data. Restart invalidates all refresh sessions safely. A shared persistent session store is deployment hardening for future multi-instance production, not a current Flyway task.
+
 ---
 
 ### AUTH-003 — Client authentication is user-based while authorization is membership/workspace-based
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -1282,11 +1295,18 @@ If request context later selects an arbitrary membership, the same token may ope
 
 The product decision is one active client Account membership per user. Enforce it with database constraints and invitation/provisioning validation, replace `findFirstByUserId()` with an unambiguous lookup, require active Account and Member state on every client request, and remove multi-workspace-shaped client APIs/UI assumptions. B2B access must remain delegation rather than provider-account membership.
 
+**Implementation evidence — 2026-07-16**
+
+- Batch 1.1 replaced arbitrary membership selection with the single-active-membership contract and rejects a second active workspace membership in application flows.
+- `SecurityContextService` resolves authorization context transactionally from the authenticated user, requires active membership, and rejects a suspended direct, client, or provider Account before permission evaluation.
+- B2B continues to use collaboration delegation rather than creating provider-account membership.
+- Integration coverage proves a suspended workspace returns 403 even when the user still holds a valid access token.
+
 ---
 
 ### AUTH-004 — Registration uniqueness check is race-prone unless database errors are translated
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -1300,11 +1320,15 @@ The losing request may receive an internal database error rather than the intend
 
 Inspect global exception handling and registration concurrency tests. Keep the friendly pre-check, but treat the database unique constraint as the final authority.
 
+**Implementation evidence — 2026-07-16**
+
+Registration retains the friendly canonical-email pre-check, then uses `saveAndFlush()` so the unique constraint is evaluated before provisioning. A `DataIntegrityViolationException` is translated to the same structured `DuplicateResourceException`, and a focused test proves provisioning does not run for the losing request.
+
 ---
 
 ### AUTH-005 — User-details lookup leaks invalid UUID parsing behavior
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -1319,6 +1343,10 @@ An invalid authentication principal string can escape through a different except
 **Possible fix direction**
 
 Parse defensively and translate invalid or unknown identifiers into the same authentication-safe exception.
+
+**Implementation evidence — 2026-07-16**
+
+Both client and admin user-details services translate malformed UUIDs to the same non-disclosing `UsernameNotFoundException` path used for unknown identities. Focused tests prove malformed input never reaches either repository.
 
 ---
 
@@ -2123,7 +2151,7 @@ Bootstrap now checks the explicit `AdminUser` record. If the configured email be
 
 ### ADMIN-AUTH-001 — Admin refresh tokens have no matching admin refresh flow
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -2139,11 +2167,15 @@ The admin refresh token cannot renew an ADMIN session. Passing it to the availab
 
 Give refresh tokens an explicit audience/token type and implement separate, validated ADMIN and CLIENT refresh behavior—or one refresh service that preserves and validates the original audience.
 
+**Implementation evidence — 2026-07-16**
+
+`POST /api/admin/auth/refresh` rotates only an active ADMIN refresh session and issues another ADMIN pair. Client tokens, access tokens, and reused admin refresh tokens are rejected. `POST /api/admin/auth/logout` revokes the supplied active admin refresh session.
+
 ---
 
 ### ADMIN-AUTH-002 — Admin login duplicates authentication logic and skips DTO validation
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -2158,6 +2190,10 @@ Admin and client authentication can drift in normalization, validation, throttli
 **Possible fix direction**
 
 Centralize credential verification and token issuance while preserving explicit ADMIN versus CLIENT audience checks. Keep controllers thin and apply `@Valid` consistently.
+
+**Implementation evidence — 2026-07-16**
+
+`AdminAuthController` now validates request DTOs and delegates login, refresh, and logout to `AdminAuthenticationService`. Client and admin login share canonical credential verification, while the service explicitly verifies active `AdminUser` state and requests ADMIN-scoped tokens.
 
 ---
 

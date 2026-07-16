@@ -328,25 +328,30 @@ flowchart TD
 ---
 
 ### Batch 1.2: Identity & Authentication
+
+**Execution status — 2026-07-16:** Completed for the current unpublished, single-process, in-memory development stage. Canonical email identity, database-race translation, audience/use-bound access and refresh tokens, single-use rotation, logout revocation, admin refresh/logout, active workspace context checks, safe malformed-ID handling, and validated admin DTOs are implemented. Ten focused tests and the full 251-test backend suite pass. Refresh-session persistence/coordination across application instances remains future deployment hardening; restart currently invalidates all sessions safely.
+
 #### [VERIFY FIRST] AUTH-001 — Email identity is not canonicalized
 - **Prerequisites**: None.
 - **Unlocks**: AUTH-002.
 - **Order Rationale**: Email validation check. Verification: Check if casing differences create duplicates. Remediation: Enforce lower-casing on read/write in repository.
 - **Affected Backend Areas**: `UserServiceImpl.java`, `UserRepository.java`.
-- **Database Migration**: Yes (index casing conversion).
+- **Database Migration**: No for the current disposable in-memory database. Normalize existing rows and add the production index only when a persistent deployment baseline exists.
 - **Acceptance Criteria**: Email fields are saved in lower-case.
 - **Tests**: Registration unit tests.
 - **Future UI Flow**: Signup / Login.
+- **Execution Status**: Completed. One canonicalizer covers writes and lookups, with a persistence callback as the final write boundary and integration coverage for mixed-case registration/login.
 
 #### [IMPLEMENT] AUTH-002 — Refresh-token type and revocation behavior are not visible at the service boundary
 - **Prerequisites**: AUTH-001.
 - **Unlocks**: AUTH-003.
 - **Order Rationale**: Secures refresh token scope before resolving member security principal.
 - **Affected Backend Areas**: Token Service, Security Filters.
-- **Database Migration**: Yes (token schemas).
+- **Database Migration**: No for the current single-process in-memory stage. A shared persistent refresh-session store is required before multi-instance production.
 - **Acceptance Criteria**: Active token validation checks match service layer definitions.
 - **Tests**: Refresh token validation tests.
 - **Future UI Flow**: Logout / session expiry.
+- **Execution Status**: Completed for the current stage. Refresh sessions are audience-bound, single-use, rotated, revocable, and cleaned after expiry; restart invalidates all sessions.
 
 #### [IMPLEMENT] AUTH-003 — Client authentication is user-based while authorization is membership/workspace-based
 - **Prerequisites**: AUTH-002.
@@ -357,6 +362,7 @@ flowchart TD
 - **Acceptance Criteria**: Context principal resolves to workspace member roles.
 - **Tests**: Authentication context tests.
 - **Future UI Flow**: Dashboard loading.
+- **Execution Status**: Completed. The user principal resolves one active membership transactionally, and direct/B2B context rejects inactive client or provider Accounts before authorization.
 
 #### [VERIFY FIRST] AUTH-004 — Registration uniqueness check is race-prone unless database errors are translated
 - **Prerequisites**: AUTH-003.
@@ -367,6 +373,7 @@ flowchart TD
 - **Acceptance Criteria**: Mismatched parallel registrations throw clear exception mappings.
 - **Tests**: Registration concurrency tests.
 - **Future UI Flow**: Registration page.
+- **Execution Status**: Completed. `saveAndFlush()` makes the database constraint authoritative and translates a losing unique-email race before workspace provisioning.
 
 #### [IMPLEMENT] AUTH-005 — User-details lookup leaks invalid UUID parsing behavior
 - **Prerequisites**: AUTH-004.
@@ -374,9 +381,10 @@ flowchart TD
 - **Order Rationale**: Resolves payload validation crashes on malformed queries.
 - **Affected Backend Areas**: Controllers.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Malformed ID requests return 400 bad request.
+- **Acceptance Criteria**: Malformed and unknown authentication principal IDs use the same non-disclosing authentication failure path.
 - **Tests**: URL parser check tests.
 - **Future UI Flow**: User detail lookup.
+- **Execution Status**: Completed. Client and admin UUID parsing is defensive and covered by focused repository-noninteraction tests.
 
 #### [IMPLEMENT] ADMIN-AUTH-001 — Admin refresh tokens have no matching admin refresh flow
 - **Prerequisites**: None.
@@ -387,6 +395,7 @@ flowchart TD
 - **Acceptance Criteria**: Active admin sessions are renewable via refresh tokens.
 - **Tests**: Refresh token integration tests.
 - **Future UI Flow**: Admin Portal dashboard refresh.
+- **Execution Status**: Completed. Admin refresh preserves ADMIN audience, rotates once, rejects client/reused tokens, and supports explicit logout revocation.
 
 #### [IMPLEMENT] ADMIN-AUTH-002 — Admin login duplicates authentication logic and skips DTO validation
 - **Prerequisites**: ADMIN-AUTH-001.
@@ -397,6 +406,7 @@ flowchart TD
 - **Acceptance Criteria**: Admin endpoint matches normal login schema validations.
 - **Tests**: Authentication validation tests.
 - **Future UI Flow**: Admin Portal login.
+- **Execution Status**: Completed. The controller uses `@Valid`, delegates to an admin authentication service, and shares canonical credential verification with client login.
 
 ---
 
@@ -1557,8 +1567,6 @@ flowchart TD
 - `PERM-003`: Verification of overloaded methods key resolution.
 - `PERM-004`: Verification of PermissionCollector exception propagation.
 - `TENANCY-003`: Verification of cross-account parent-child boundary leakage.
-- `AUTH-001`: Verification of email login case sensitivity duplicates.
-- `AUTH-004`: Verification of registration uniqueness concurrency checks.
 - `ACCOUNT-003`: Verification of slug creation uniqueness concurrency race.
 - `ACCOUNT-004`: Verification of provisioning idempotency checks.
 - `DATA-001`: Verification of join table mapping duplicates.
@@ -1641,11 +1649,11 @@ flowchart TD
 | **SERVICE-001** | Expose DTOs | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.3 | None | UserDTO return |
 | **SERVICE-002** | Expose DTOs | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-001 | AdminDTO return |
 | **SERVICE-003** | Expose DTOs | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-002 | MemberDTO return |
-| **AUTH-001** | Email Canonicalized | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.2 | None | Lower-case matches |
-| **AUTH-002** | Invalidate sessions | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-001 | Token revoked |
-| **AUTH-003** | Align Security Context | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-002 | Principal matches |
-| **AUTH-004** | Db error translation | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.2 | AUTH-003 | Handled constraints |
-| **AUTH-005** | Malformed UUID check | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-004 | Return 400 |
+| **AUTH-001** | Email Canonicalized | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.2 | None | Mixed-case registration/login test |
+| **AUTH-002** | Invalidate sessions | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-001 | Rotation, reuse, logout, purpose and audience tests |
+| **AUTH-003** | Align Security Context | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-002 | Active membership/account context test |
+| **AUTH-004** | Db error translation | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.2 | Unique-constraint translation unit test |
+| **AUTH-005** | Malformed UUID check | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | Safe client/admin principal parsing tests |
 | **EVENT-001** | Dead Event | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Deleted file |
 | **ACCOUNT-001** | Require Subscription | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.3 | TENANCY-003 | Mandatory setup |
 | **ACCOUNT-002** | Account check filters | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.3 | ACCOUNT-001 | Blocked access |
@@ -1684,8 +1692,8 @@ flowchart TD
 | **COLLAB-008** | Connection codes | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-007 | Share code verified |
 | **ADMIN-001** | Safe seeding logging | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | CONFIG-001 | Secure env password |
 | **ADMIN-002** | User existing seed | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.3 | ADMIN-001 | Context matches |
-| **ADMIN-AUTH-001**| Token refresh | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.2 | None | Access refresh flow |
-| **ADMIN-AUTH-002**| DTO validate admin | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.2 | ADMIN-AUTH-001 | Standard validations |
+| **ADMIN-AUTH-001**| Token refresh | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | None | ADMIN rotation, audience and reuse tests |
+| **ADMIN-AUTH-002**| DTO validate admin | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | ADMIN-AUTH-001 | Validated thin controller test |
 | **ADMIN-RBAC-001**| SuperAdmin checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.3 | ADMIN-002 | Access denied blocks |
 | **ADMIN-DATA-001**| Query join | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Bulk load mapping |
 | **ADMIN-DATA-002**| Page parameters | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Paginated metrics |
