@@ -19,7 +19,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.LongSupplier;
@@ -52,8 +51,8 @@ class CompanyServiceImplTest {
         UUID accountId = UUID.randomUUID();
         setContext(accountId);
         Account account = account(accountId);
-        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
-        when(companyRepository.findAllByAccountId(accountId)).thenReturn(List.of(new Company()));
+        when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account));
+        when(companyRepository.countByAccountIdAndIsActiveTrue(accountId)).thenReturn(1L);
         when(companyRepository.save(any(Company.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         Company result = companyService.createCompany(accountId, "Acme", "Acme LLC", null, null, null, null);
