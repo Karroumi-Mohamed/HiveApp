@@ -1538,13 +1538,13 @@ Large workspaces incur unnecessary row loading. Concurrent requests can both pas
 - Company quota usage is now `countByAccountIdAndIsActiveTrue()`, so ordinary deactivation releases the active-company slot.
 - Both creation services acquire the same Account pessimistic write lock before counting and keep it through insertion, serializing quota decisions without introducing reservation infrastructure.
 - Integration coverage proves inactive records release capacity and simultaneous requests at the exact FREE boundary yield one success and one quota rejection rather than exceeding the plan.
-- Company reactivation still requires the broader lifecycle validation assigned to `COMPANY-001`; this batch does not add a partial reactivation endpoint.
+- Company reactivation is now implemented by `COMPANY-001` as a distinct quota- and entitlement-checked lifecycle action.
 
 ---
 
 ### COMPANY-001 — Company deactivation has no defined dependent-data behavior
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR REVERSIBLE LIFECYCLE — 2026-07-16` (`PERMANENT PURGE DEFERRED`)
 
 **Evidence**
 
@@ -1569,11 +1569,20 @@ An inactive company may remain usable through permissions or B2B paths unless al
 - Execute large purges as tracked jobs after suspending writes. Preserve a minimal deletion receipt outside the deleted Company. On partial failure, keep the Company suspended, expose the exact failed stage, support idempotent retry, and never report success.
 - Add inactive-context, quota/reactivation race, B2B cutoff, owner-only purge, stale preview, shared dependency, retention blocker, partial failure, and cross-tenant deletion tests.
 
+**Implementation evidence — 2026-07-16**
+
+- `SecurityContextService` rejects an inactive Company after verifying the direct member or B2B collaboration participant, so Company-scoped roles, overrides, owner authority, and delegated B2B permissions cannot operate through that scope and the inactive state is not disclosed before participant validation.
+- Deactivation remains reversible and preserves Company-owned records, role assignments, overrides, and collaborations. New member-role grants, direct permission grants, role-permission grants, B2B requests/acceptance, and B2B permission grants are blocked while inactive; read/removal paths remain available so administrators can repair stored configuration.
+- `POST /api/v1/companies/{id}/reactivate` is protected by the distinct Permissionizer action `platform.company.reactivate`. Reactivation locks the Account and Company, requires an active Account, atomically rechecks active-Company quota, and validates the current plan entitlement of positive member-role, override, and active B2B grants before restoring operation.
+- Active-company quota creation and reactivation share the Account pessimistic lock, so reusing a released quota slot prevents later reactivation instead of exceeding the limit. Inactive roles are also excluded from runtime and effective-permission evaluation.
+- Tests cover direct inactive-context rejection, B2B cutoff and preserved-grant restoration, reused-quota rejection, lock/validator invocation, inactive-company grant prevention, country-independent lifecycle behavior, and unavailable preserved B2B permissions.
+- Permanent purge is deliberately not disguised as ordinary deletion. The owner-only preview/fresh-auth/seven-day job, retention, partial-failure, and deletion-receipt workflow remains deferred to the Phase 5 operational-lifecycle work and does not block reversible Company management or the Group model.
+
 ---
 
 ### COMPANY-002 — Company identity editing does not implement the decided field-sensitive contract
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR CURRENT SHELL — 2026-07-16` (`CENTRAL AUDIT DEFERRED TO AUDIT-001`)
 
 **Evidence**
 
@@ -1594,6 +1603,15 @@ The Company can be created without jurisdiction, legal identity updates may sile
 - Normalize tax ID and warn—not globally reject—when the same Account/country already contains it. Never reveal another Account's use of the value.
 - Allow ordinary country edits only before country-dependent payroll/accounting/tax/legal records exist. Otherwise require a later controlled jurisdiction-change/new-Company flow.
 - Add creation-validation, partial-update, blank-field, duplicate-warning, cross-tenant privacy, sensitive-impact, audit, and country-lock tests.
+
+**Implementation evidence — 2026-07-16**
+
+- Company creation now requires bounded, nonblank name and two-letter country inputs. The service trims names and optional text, uppercases country/tax ID, and enforces the same required rules when called outside controller validation.
+- Create, patch, and read contracts now consistently expose legal name, tax ID, industry, country, address, and logo URL. Patch supports field-sensitive updates through the existing single `platform.company.update` Permissionizer action.
+- Duplicate normalized tax IDs are warnings rather than rejection. Queries are scoped to the same Account and country and exclude the edited Company, with integration coverage proving another Account's use is never disclosed.
+- Country changes go through `CompanyCountryChangeGuard`. Business packages that own payroll/accounting/tax/legal records implement the small `CompanyCountryDependency` contract to name a blocker; ordinary edits remain allowed while no country-dependent domain reports records.
+- Focused and integration tests cover normalization, complete metadata, required-country validation, partial service updates, duplicate warnings, cross-Account privacy, and a contributed country-dependent blocker.
+- Central actor-aware before/after audit infrastructure remains owned by `AUDIT-001`; this batch does not create a second Company-only audit mechanism. A future controlled jurisdiction-change/new-Company flow will build on the dependency guard when such business records exist.
 
 ---
 

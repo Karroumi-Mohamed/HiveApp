@@ -679,15 +679,19 @@ flowchart TD
 # Phase 2: Company, Groups, roles, assignments and permission overrides
 
 ### Batch 2.1: Company Lifecycle & Safe Metadata Edits
+
+**Execution status — 2026-07-16:** Completed for the current platform shell. Ordinary deactivation is reversible but immediately cuts off direct and B2B operation; explicit Permissionizer-protected reactivation atomically rechecks Account state, active-Company quota, and preserved grant entitlements. Company identity commands/read models now cover the decided fields with normalization, same-tenant tax warnings, cross-tenant privacy, and an extensible country-dependent-record guard. Permanent Company purge remains a distinct deferred Phase 5 operational workflow, and centralized actor-aware auditing remains under `AUDIT-001`.
+
 #### [IMPLEMENT] COMPANY-001 — Company deactivation has no defined dependent-data behavior
 - **Prerequisites**: TENANCY-003.
 - **Unlocks**: COMPANY-002.
 - **Order Rationale**: Restricts access on deactivated workspace scopes.
 - **Affected Backend Areas**: `CompanyServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Inactive company checks block B2B connection actions and operations.
-- **Tests**: Company deactivation validation tests.
+- **Acceptance Criteria**: Inactive Company context and new grants are blocked; preserved data is reversible; reactivation is separately authorized and atomically validates Account state, quota, and saved entitlements.
+- **Tests**: Direct/B2B inactive-context, preserved-grant restoration, reused-quota rejection, inactive-grant prevention, and entitlement-conflict tests.
 - **Future UI Flow**: Company configurations page.
+- **Execution Status**: Implemented for reversible lifecycle. `SecurityContextService` cuts off inactive scope, grant paths refuse new inactive-Company delegation, and `platform.company.reactivate` runs under Account/Company locks with quota and saved-permission validation. Permanent owner-only purge is explicitly deferred to the operational-lifecycle phase rather than coupled to ordinary `company.delete`.
 
 #### [IMPLEMENT] COMPANY-002 — Company identity editing does not implement the decided field-sensitive contract
 - **Prerequisites**: COMPANY-001.
@@ -695,9 +699,10 @@ flowchart TD
 - **Order Rationale**: Implements safe edits validation rules.
 - **Affected Backend Areas**: `CompanyServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Modifications to sensitive properties require high-level authorization.
-- **Tests**: Edit authorization tests.
+- **Acceptance Criteria**: Required identity fields and all decided optional metadata are coherent across create/update/read; tax duplicates warn only inside the Account; country-dependent domains can block ordinary jurisdiction edits.
+- **Tests**: Validation, normalization, full metadata, partial update, duplicate warning, cross-tenant privacy, and country-dependency guard tests.
 - **Future UI Flow**: Company settings form.
+- **Execution Status**: Implemented for the current shell. The existing Company update permission remains the single authorization action while service validation is field-sensitive. Central before/after actor auditing remains under `AUDIT-001` and does not justify a Company-only audit subsystem.
 
 ---
 
@@ -1693,8 +1698,8 @@ flowchart TD
 | **ACCOUNT-004** | Idempotency token | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.3 | ACCOUNT-003 | Internal provisioning retry test |
 | **ACCOUNT-005** | DTO in interface | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.3 | ACCOUNT-004 | DTO service response integration test |
 | **QUOTA-001** | Fast count | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Active database counts and exact-boundary concurrency tests |
-| **COMPANY-001** | Access blocking | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.1 | TENANCY-003 | Interception blocks |
-| **COMPANY-002** | Safe edits | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.1 | COMPANY-001 | Guard checks |
+| **COMPANY-001** | Access blocking | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.1 | TENANCY-003 | Inactive context/B2B cutoff and locked reactivation tests |
+| **COMPANY-002** | Safe edits | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.1 | COMPANY-001 | Metadata, privacy, validation and country-guard tests |
 | **MEMBER-001** | Owner lockout block | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | TENANCY-002 | Owner-target and self-target deactivation rejection |
 | **MEMBER-002** | Unique memberships | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-001 | Generated-schema unique constraint and concurrent conflict translation |
 | **MEMBER-003** | Active role check | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Inactive and duplicate scoped assignment rejection |
