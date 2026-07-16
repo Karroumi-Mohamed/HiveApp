@@ -9,7 +9,9 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "members")
+@Table(name = "members", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_members_account_user", columnNames = {"account_id", "user_id"})
+})
 @Getter @Setter
 public class Member extends BaseEntity {
 

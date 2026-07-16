@@ -6,7 +6,11 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "admin_user_roles")
+@Table(name = "admin_user_roles", uniqueConstraints = {
+        @UniqueConstraint(
+                name = "uk_admin_user_roles_user_role",
+                columnNames = {"admin_user_id", "admin_role_id"})
+})
 @Getter @Setter
 public class AdminUserRole extends BaseEntity {
 

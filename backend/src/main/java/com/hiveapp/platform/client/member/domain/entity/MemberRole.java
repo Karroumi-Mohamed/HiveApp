@@ -8,10 +8,18 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.UUID;
+
 @Entity
-@Table(name = "member_roles")
+@Table(name = "member_roles", uniqueConstraints = {
+        @UniqueConstraint(
+                name = "uk_member_roles_member_role_scope",
+                columnNames = {"member_id", "role_id", "scope_key"})
+})
 @Getter @Setter
 public class MemberRole extends BaseEntity {
+
+    private static final UUID ACCOUNT_SCOPE_KEY = new UUID(0L, 0L);
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "member_id", nullable = false)
@@ -24,6 +32,9 @@ public class MemberRole extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id")
     private Company company; // Null = Account-wide, Value = Company-scoped
+
+    @Column(name = "scope_key", nullable = false, updatable = false)
+    private UUID scopeKey;
 
     @PrePersist
     @PreUpdate
@@ -44,5 +55,6 @@ public class MemberRole extends BaseEntity {
                     company,
                     "A company-scoped role must be assigned inside its company");
         }
+        scopeKey = company == null ? ACCOUNT_SCOPE_KEY : company.getId();
     }
 }

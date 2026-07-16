@@ -9,7 +9,11 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "member_permission_overrides")
+@Table(name = "member_permission_overrides", uniqueConstraints = {
+        @UniqueConstraint(
+                name = "uk_member_permission_overrides_scope",
+                columnNames = {"member_id", "company_id", "permission_id"})
+})
 @Getter @Setter
 public class MemberPermissionOverride extends BaseEntity {
 

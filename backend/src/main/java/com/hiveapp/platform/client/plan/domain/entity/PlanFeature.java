@@ -26,7 +26,9 @@ import java.util.List;
  *                Empty list = feature has boolean access (no quota).
  */
 @Entity
-@Table(name = "plan_features")
+@Table(name = "plan_features", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_plan_features_plan_feature", columnNames = {"plan_id", "feature_id"})
+})
 @Getter @Setter
 public class PlanFeature extends BaseEntity {
 

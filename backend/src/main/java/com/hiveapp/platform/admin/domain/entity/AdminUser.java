@@ -12,7 +12,7 @@ import lombok.Setter;
 public class AdminUser extends BaseEntity {
 
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "user_id", nullable = false, unique = true)
     private User user;
 
     @Column(name = "is_super_admin", nullable = false)

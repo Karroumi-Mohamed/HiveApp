@@ -7,7 +7,11 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Entity
-@Table(name = "collaboration_permissions")
+@Table(name = "collaboration_permissions", uniqueConstraints = {
+        @UniqueConstraint(
+                name = "uk_collaboration_permissions_pair",
+                columnNames = {"collaboration_id", "permission_id"})
+})
 @Getter @Setter
 public class CollaborationPermission extends BaseEntity {
 
