@@ -1374,7 +1374,7 @@ Keep synchronous provisioning for the organized monolith if that is the chosen t
 
 ### ACCOUNT-001 — Registration can succeed with no subscription
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -1390,11 +1390,18 @@ The user receives a successful registration and an active workspace with no enti
 
 Make the FREE plan a verified startup invariant or fail and roll back registration when required initial entitlement cannot be created. Add an end-to-end registration test proving that every successful registration has exactly one usable subscription snapshot.
 
+**Implementation evidence — 2026-07-16**
+
+- Provisioning now requires an existing active FREE plan before creating the Account, owner Member, or Subscription.
+- Missing or inactive FREE configuration throws a controlled conflict and the surrounding registration transaction rolls back the newly inserted User.
+- The initial Subscription is flushed with an immutable entitlement snapshot before registration can issue tokens.
+- Integration coverage proves every successful registration has exactly one ACTIVE/TRIALING subscription with a non-empty FREE snapshot and that unavailable FREE configuration leaves no User behind.
+
 ---
 
 ### ACCOUNT-002 — Workspace deactivation consequences are not implemented in the account service
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR CURRENT STAGE — 2026-07-16`
 
 **Evidence**
 
@@ -1410,11 +1417,18 @@ If request context/security checks do not reject an inactive account on every re
 
 Make active-account validation a shared request/security invariant and define the lifecycle effects on members, tokens, subscriptions, collaborations, data access, and reactivation.
 
+**Implementation evidence — 2026-07-16**
+
+- Batch 1.2 made active Account state a shared request-context invariant for direct and B2B access; existing access tokens receive 403 immediately after suspension.
+- Account deactivation now revokes every current CLIENT refresh session belonging to members of that Account.
+- Members, subscriptions, collaborations, and business data are deliberately preserved rather than cascade-mutated. Suspension is an access boundary, allowing a future explicit reactivation operation without reconstructing business state.
+- Integration coverage exercises the real deactivation endpoint, immediate access denial, and refresh rejection.
+
 ---
 
 ### ACCOUNT-003 — Workspace slug creation is check-then-insert and race-prone
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -1428,11 +1442,15 @@ Concurrent registrations can select the same available slug and one will fail at
 
 Keep the database unique constraint authoritative and use a collision-resistant identifier/retry strategy with translated constraint failures.
 
+**Implementation evidence — 2026-07-16**
+
+The check-then-insert loop and `Math.random()` suffix are removed. Initial slugs combine a bounded readable email prefix with the complete unique User UUID, so two different registrations cannot calculate the same slug. The existing generated-schema unique constraint remains the final persistence invariant. Tests prove identical email prefixes produce distinct user-bound slugs. No Flyway migration is added during the disposable in-memory stage.
+
 ---
 
 ### ACCOUNT-004 — Workspace provisioning is not explicitly idempotent
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED BY PRODUCT/IMPLEMENTATION DECISION — 2026-07-16`
 
 **Evidence**
 
@@ -1446,11 +1464,18 @@ A retried or accidentally duplicated provisioning call relies on database failur
 
 Decide whether provisioning must be exactly-once through the registration transaction or safely idempotent. Test retries and partial-state recovery according to that decision.
 
+**Implementation evidence — 2026-07-16**
+
+- Registration remains intentionally non-idempotent: repeating credentials is a duplicate identity request and must not silently return an existing user's authentication material.
+- The internal provisioning operation is retry-safe: if the User already owns a complete workspace, it returns the existing account ID/slug with `created=false` and creates no duplicate Account, owner Member, or usable Subscription.
+- An existing but structurally incomplete workspace fails explicitly instead of guessing, reactivating suspended records, or creating a second partial aggregate.
+- Atomic registration/provisioning uses one transaction, so ordinary failures roll back rather than requiring an idempotency-log table. No extra database infrastructure is justified at the current stage.
+
 ---
 
 ### ACCOUNT-005 — Account service contract still exposes a persistence entity
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED — 2026-07-16`
 
 **Evidence**
 
@@ -1463,6 +1488,10 @@ This repeats the entity-to-controller coupling found in platform admin, though t
 **Possible fix direction**
 
 Return `AccountDto` or an application read model from the API-facing service when service contracts are cleaned up.
+
+**Implementation evidence — 2026-07-16**
+
+`AccountShellService.getAccount()` now returns `AccountDto`, mapping inside the service transaction. `AccountController` no longer receives or maps a persistence entity, and the unused duplicate `AccountService` interface was removed.
 
 ---
 

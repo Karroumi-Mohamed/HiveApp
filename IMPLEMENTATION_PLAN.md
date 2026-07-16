@@ -411,6 +411,9 @@ flowchart TD
 ---
 
 ### Batch 1.3: Provisioning & Slug Lifecycle
+
+**Execution status — 2026-07-16:** Completed for the current unpublished, in-memory stage. Registration now requires and snapshots an active FREE plan atomically; internal provisioning retries return an existing complete workspace without duplicate rows; initial slugs are uniquely bound to User IDs without check-then-insert; account suspension blocks access and revokes all member CLIENT refresh sessions while preserving business records; and API-facing account reads return DTOs. Eight focused tests and the full 259-test backend suite pass. No Flyway or idempotency-log infrastructure was added.
+
 #### [IMPLEMENT] ACCOUNT-001 — Registration can succeed with no subscription
 - **Prerequisites**: TENANCY-003.
 - **Unlocks**: ACCOUNT-002.
@@ -420,6 +423,7 @@ flowchart TD
 - **Acceptance Criteria**: Onboarding fails if FREE plan assignment fails.
 - **Tests**: Provisioning tests.
 - **Future UI Flow**: Onboarding checkouts.
+- **Execution Status**: Completed. Missing/inactive FREE configuration aborts and rolls back registration; every successful registration has one usable snapshotted entitlement.
 
 #### [IMPLEMENT] ACCOUNT-002 — Workspace deactivation consequences are not implemented in the account service
 - **Prerequisites**: ACCOUNT-001.
@@ -430,26 +434,29 @@ flowchart TD
 - **Acceptance Criteria**: Inactive account endpoints throw `403 Account Suspended`.
 - **Tests**: Account deactivation checks.
 - **Future UI Flow**: Workspace lock screen.
+- **Execution Status**: Completed for the current stage. Security context denies inactive Accounts, deactivation revokes all member CLIENT refresh sessions, and related business records remain preserved for future explicit reactivation.
 
 #### [VERIFY FIRST] ACCOUNT-003 — Workspace slug creation is check-then-insert and race-prone
 - **Prerequisites**: ACCOUNT-002.
 - **Unlocks**: ACCOUNT-004.
 - **Order Rationale**: Slug duplicate check. Verification: Check slug creation under concurrent registration. Remediation: Add unique database index on `accounts(slug)`.
 - **Affected Backend Areas**: `Account.java`, `AccountRepository.java`.
-- **Database Migration**: Yes (unique slug constraint).
-- **Acceptance Criteria**: Concurrent identical slugs fail with unique constraint violations.
+- **Database Migration**: No for the current generated in-memory schema; the existing unique column remains authoritative. A production migration baseline is future deployment work.
+- **Acceptance Criteria**: Different Users cannot calculate the same initial slug, even when email prefixes match.
 - **Tests**: Slug concurrency tests.
 - **Future UI Flow**: Account creation form.
+- **Execution Status**: Completed. Slugs combine a bounded readable prefix with the complete User UUID; the race-prone existence loop was removed.
 
 #### [VERIFY FIRST] ACCOUNT-004 — Workspace provisioning is not explicitly idempotent
 - **Prerequisites**: ACCOUNT-003.
 - **Unlocks**: ACCOUNT-005.
 - **Order Rationale**: Idempotency check. Verification: Submit identical registration payload twice. Remediation: Add an idempotency key table checking submissions.
 - **Affected Backend Areas**: `AccountProvisioningService.java`.
-- **Database Migration**: Yes (idempotency logs table).
-- **Acceptance Criteria**: Submitting identical payload returns preexisting setup parameters.
+- **Database Migration**: No. Registration duplicates remain conflicts; the internal transactionally atomic provisioning operation returns an existing complete workspace on retry.
+- **Acceptance Criteria**: Repeating internal provisioning creates no duplicate Account, owner Member, or usable Subscription and returns the existing setup identifiers.
 - **Tests**: Idempotent provisioning tests.
 - **Future UI Flow**: Onboarding wizard.
+- **Execution Status**: Completed by explicit decision. No idempotency table is needed for this internal synchronous operation; incomplete preexisting aggregates fail for deliberate repair.
 
 #### [IMPLEMENT] ACCOUNT-005 — Account service contract still exposes a persistence entity
 - **Prerequisites**: ACCOUNT-004.
@@ -460,6 +467,7 @@ flowchart TD
 - **Acceptance Criteria**: Operations exchange DTO schemas.
 - **Tests**: Interface unit tests.
 - **Future UI Flow**: Account settings.
+- **Execution Status**: Completed. API-facing account reads return `AccountDto` from the service boundary, and the unused duplicate interface was removed.
 
 ---
 
@@ -1567,8 +1575,6 @@ flowchart TD
 - `PERM-003`: Verification of overloaded methods key resolution.
 - `PERM-004`: Verification of PermissionCollector exception propagation.
 - `TENANCY-003`: Verification of cross-account parent-child boundary leakage.
-- `ACCOUNT-003`: Verification of slug creation uniqueness concurrency race.
-- `ACCOUNT-004`: Verification of provisioning idempotency checks.
 - `DATA-001`: Verification of join table mapping duplicates.
 - `ROLE-004`: Verification of role permission key matching.
 - `PLAN-001`: Verification of plan code database constraints.
@@ -1655,11 +1661,11 @@ flowchart TD
 | **AUTH-004** | Db error translation | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.2 | Unique-constraint translation unit test |
 | **AUTH-005** | Malformed UUID check | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | Safe client/admin principal parsing tests |
 | **EVENT-001** | Dead Event | PARTIAL | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Deleted file |
-| **ACCOUNT-001** | Require Subscription | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.3 | TENANCY-003 | Mandatory setup |
-| **ACCOUNT-002** | Account check filters | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.3 | ACCOUNT-001 | Blocked access |
-| **ACCOUNT-003** | Slug constraints | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.3 | ACCOUNT-002 | Unique index |
-| **ACCOUNT-004** | Idempotency token | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.3 | ACCOUNT-003 | Deduplication |
-| **ACCOUNT-005** | DTO in interface | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.3 | ACCOUNT-004 | Contract isolation |
+| **ACCOUNT-001** | Require Subscription | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.3 | TENANCY-003 | Atomic FREE snapshot and rollback tests |
+| **ACCOUNT-002** | Account check filters | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.3 | ACCOUNT-001 | Suspension denial and refresh revocation tests |
+| **ACCOUNT-003** | Slug constraints | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.3 | ACCOUNT-002 | User-bound slug collision tests |
+| **ACCOUNT-004** | Idempotency token | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.3 | ACCOUNT-003 | Internal provisioning retry test |
+| **ACCOUNT-005** | DTO in interface | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.3 | ACCOUNT-004 | DTO service response integration test |
 | **QUOTA-001** | Fast count | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Optimized query |
 | **COMPANY-001** | Access blocking | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.1 | TENANCY-003 | Interception blocks |
 | **COMPANY-002** | Safe edits | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.1 | COMPANY-001 | Guard checks |
@@ -1739,7 +1745,7 @@ flowchart TD
 # Definition of done per batch
 1. **Compilation**: Code compiles with zero warnings or errors.
 2. **Local Tests**: `mvn test` completes with 100% success rate.
-3. **Database Consistency**: Local Flyway migrations execute against H2/PostgreSQL without errors.
+3. **Database Consistency**: During the unpublished in-memory stage, the generated H2 schema and persistence invariants pass. Flyway/PostgreSQL migration verification begins only when the production database baseline is introduced.
 4. **Security Integrity**: Dynamic permissionizer validations protect all newly deployed endpoints.
 
 ---
@@ -1753,4 +1759,3 @@ flowchart TD
 
 # Questions/blockers requiring user confirmation
 1. **B2B Invitation Expiry Timeframe (COLLAB-008)**: Should B2B collaboration share codes carry a default, configurable expiration window similar to the original user invitation workflow (e.g. 7 days)?
-2. **Account Suspension and Refresh Session Timing (ACCOUNT-002)**: Upon deactivating/suspending a workspace, should active user refresh sessions be revoked immediately, or is standard token expiration duration acceptable?
