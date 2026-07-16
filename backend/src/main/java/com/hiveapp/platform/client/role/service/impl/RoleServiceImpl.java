@@ -18,6 +18,7 @@ import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
+import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import dev.karroumi.permissionizer.PermissionNode;
@@ -125,6 +126,9 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     @PermissionNode(key = "grant", description = "Grant permission brick to role")
     public void addPermissionToRole(UUID roleId, String permissionCode) {
         var role = getRole(roleId);
+        if (role.getCompany() != null && !role.getCompany().isActive()) {
+            throw new InvalidStateException("Permissions cannot be added to a role while its company is inactive");
+        }
 
         if (rolePermissionRepository.existsByRoleIdAndPermissionCode(roleId, permissionCode)) {
             throw new DuplicateResourceException("RolePermission", "permissionCode", permissionCode);

@@ -54,12 +54,14 @@ public class SecurityContextService {
                     
                     collaborationId = collaboration.getId();
                     currentAccountId = providerAccountId;
+                    requireActiveCompany(company);
                 } else {
                     currentAccountId = providerAccountId;
                     clientAccountId = currentAccountId;
                     var member = memberRepository.findByAccountIdAndUserId(currentAccountId, userId)
                         .orElseThrow(() -> new ForbiddenException("Access Denied: You are not a member of this account/company"));
                     requireActiveMember(member);
+                    requireActiveCompany(company);
                 }
             } catch (IllegalArgumentException e) {
                 throw new InvalidRequestException("Invalid UUID format in X-Company-ID header");
@@ -88,6 +90,12 @@ public class SecurityContextService {
     private void requireActiveAccount(com.hiveapp.platform.client.account.domain.entity.Account account) {
         if (!account.isActive()) {
             throw new ForbiddenException("Access Denied: Workspace account is suspended");
+        }
+    }
+
+    private void requireActiveCompany(Company company) {
+        if (!company.isActive()) {
+            throw new ForbiddenException("Access Denied: Company is inactive");
         }
     }
 }

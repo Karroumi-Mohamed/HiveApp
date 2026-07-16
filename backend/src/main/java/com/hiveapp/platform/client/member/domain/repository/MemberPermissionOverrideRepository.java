@@ -7,6 +7,7 @@ import java.util.Optional;
 
 public interface MemberPermissionOverrideRepository extends JpaRepository<MemberPermissionOverride, UUID> {
     List<MemberPermissionOverride> findAllByMemberId(UUID memberId);
+    List<MemberPermissionOverride> findAllByCompanyId(UUID companyId);
     List<MemberPermissionOverride> findAllByMemberIdAndCompanyId(UUID memberId, UUID companyId);
     Optional<MemberPermissionOverride> findByMemberIdAndCompanyIdAndPermissionId(UUID memberId, UUID companyId, UUID permissionId);
 }

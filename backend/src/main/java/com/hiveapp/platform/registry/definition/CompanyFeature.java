@@ -9,6 +9,7 @@ public final class CompanyFeature {
     public static final String READ_SINGLE = "read_single";
     public static final String UPDATE = "update";
     public static final String DELETE = "delete";
+    public static final String REACTIVATE = "reactivate";
 
     private CompanyFeature() {
     }

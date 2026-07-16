@@ -29,10 +29,10 @@ public class CompanyController {
     @ResponseStatus(HttpStatus.CREATED)
     public CompanyDto createCompany(@Valid @RequestBody CreateCompanyRequest req) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        var company = companyService.createCompany(
-            accountId, req.name(), req.legalName(), req.taxId(), req.industry(), req.country(), req.address()
+        var result = companyService.createCompany(
+            accountId, req.name(), req.legalName(), req.taxId(), req.industry(), req.country(), req.address(), req.logoUrl()
         );
-        return companyMapper.toDto(company);
+        return companyMapper.toDto(result.company(), result.warnings());
     }
 
     @GetMapping
@@ -53,8 +53,10 @@ public class CompanyController {
     @PatchMapping("/{id}")
     public CompanyDto updateCompany(@PathVariable UUID id, @Valid @RequestBody UpdateCompanyRequest req) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        var updated = companyService.updateCompany(accountId, id, req.name(), req.legalName(), req.industry(), req.country());
-        return companyMapper.toDto(updated);
+        var result = companyService.updateCompany(
+                accountId, id, req.name(), req.legalName(), req.taxId(), req.industry(),
+                req.country(), req.address(), req.logoUrl());
+        return companyMapper.toDto(result.company(), result.warnings());
     }
 
     @DeleteMapping("/{id}")
@@ -62,5 +64,11 @@ public class CompanyController {
     public void deactivateCompany(@PathVariable UUID id) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
         companyService.deactivateCompany(accountId, id);
+    }
+
+    @PostMapping("/{id}/reactivate")
+    public CompanyDto reactivateCompany(@PathVariable UUID id) {
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return companyMapper.toDto(companyService.reactivateCompany(accountId, id));
     }
 }

@@ -14,20 +14,25 @@ public class Company extends BaseEntity {
     @JoinColumn(name = "account_id", nullable = false)
     private Account account;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 160)
     private String name;
 
-    @Column(name = "legal_name")
+    @Column(name = "legal_name", length = 240)
     private String legalName;
 
-    @Column(name = "tax_id")
+    @Column(name = "tax_id", length = 100)
     private String taxId;
 
+    @Column(length = 120)
     private String industry;
+
+    @Column(nullable = false, length = 2)
     private String country;
+
+    @Column(length = 1000)
     private String address;
 
-    @Column(name = "logo_url")
+    @Column(name = "logo_url", length = 2048)
     private String logoUrl;
 
     @Column(name = "is_active", nullable = false)

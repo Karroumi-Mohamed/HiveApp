@@ -47,12 +47,21 @@ public class EffectivePermissionService {
 
         Set<String> permissions = new HashSet<>();
         for (MemberRole mr : memberRoleRepository.findAllByMemberId(member.getId())) {
+            if (!mr.getRole().isActive()) {
+                continue;
+            }
+            if (mr.getCompany() != null && !mr.getCompany().isActive()) {
+                continue;
+            }
             for (RolePermission rp : mr.getRole().getPermissions()) {
                 permissions.add(rp.getPermission().getCode());
             }
         }
 
         for (var override : memberOverrideRepository.findAllByMemberId(member.getId())) {
+            if (!override.getCompany().isActive()) {
+                continue;
+            }
             if (override.isDecision()) {
                 permissions.add(override.getPermission().getCode());
             } else {

@@ -234,6 +234,9 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         requireSameAccount(member, role);
         if (company != null) {
             requireSameAccount(member, company);
+            if (!company.isActive()) {
+                throw new InvalidStateException("Roles cannot be assigned inside an inactive company");
+            }
         }
         if (role.getCompany() != null && (company == null || !role.getCompany().getId().equals(company.getId()))) {
             throw new ForbiddenException("Company-scoped role can only be assigned inside its company");
@@ -283,6 +286,9 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         permissionGrantValidator.requireClientRoleGrantable(permission);
         requireCurrentAccount(member);
         requireSameAccount(member, company);
+        if (!company.isActive()) {
+            throw new InvalidStateException("Permission overrides cannot be granted inside an inactive company");
+        }
 
         var override = memberOverrideRepository
                 .findByMemberIdAndCompanyIdAndPermissionId(memberId, companyId, permission.getId())

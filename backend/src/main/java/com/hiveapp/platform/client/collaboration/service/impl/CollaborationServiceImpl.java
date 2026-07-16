@@ -68,6 +68,7 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", clientAccountId));
         var company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
+        requireActiveCompany(company);
 
         var provider = company.getAccount();
         if (provider.getId().equals(clientAccountId)) {
@@ -91,6 +92,7 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
         var collab = getProviderCollaboration(id, providerAccountId);
         requireProvider(collab, providerAccountId, "Not authorized to accept this collaboration request");
         requireStatus(collab, CollaborationStatus.PENDING, "Only pending collaborations can be accepted");
+        requireActiveCompany(collab.getCompany());
         collab.setStatus(CollaborationStatus.ACTIVE);
         collab.setAcceptedAt(LocalDateTime.now());
         collaborationRepository.save(collab);
@@ -133,6 +135,7 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
         var collab = getProviderCollaboration(collaborationId, providerAccountId);
         requireProvider(collab, providerAccountId, "Only the provider can grant B2B permissions");
         requireStatus(collab, CollaborationStatus.ACTIVE, "Permissions can only be granted to an active collaboration");
+        requireActiveCompany(collab.getCompany());
 
         var perm = regPermissionRepository.findByCode(permissionCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
@@ -183,6 +186,7 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
         var collab = getProviderCollaboration(collaborationId, providerAccountId);
         requireProvider(collab, providerAccountId, "Only the provider can view grantable B2B permissions");
         requireStatus(collab, CollaborationStatus.ACTIVE, "Permissions can only be granted to an active collaboration");
+        requireActiveCompany(collab.getCompany());
         return permissionPickerCatalogService.b2bDelegationCatalog(providerAccountId);
     }
 
@@ -227,6 +231,12 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     private void requireStatus(Collaboration collaboration, CollaborationStatus status, String message) {
         if (collaboration.getStatus() != status) {
             throw new InvalidStateException(message);
+        }
+    }
+
+    private void requireActiveCompany(com.hiveapp.platform.client.account.domain.entity.Company company) {
+        if (!company.isActive()) {
+            throw new InvalidStateException("B2B collaboration operations are unavailable while the company is inactive");
         }
     }
 }

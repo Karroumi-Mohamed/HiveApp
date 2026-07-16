@@ -5,9 +5,10 @@ import java.util.UUID;
 import com.hiveapp.platform.client.account.domain.entity.Company;
 
 public interface CompanyService {
-    Company createCompany(UUID accountId, String name, String legalName, String taxId, String industry, String country, String address);
+    CompanyMutationResult createCompany(UUID accountId, String name, String legalName, String taxId, String industry, String country, String address, String logoUrl);
     List<Company> getAccountCompanies(UUID accountId);
     Company getCompany(UUID accountId, UUID id);
-    Company updateCompany(UUID accountId, UUID id, String name, String legalName, String industry, String country);
+    CompanyMutationResult updateCompany(UUID accountId, UUID id, String name, String legalName, String taxId, String industry, String country, String address, String logoUrl);
     void deactivateCompany(UUID accountId, UUID id);
+    Company reactivateCompany(UUID accountId, UUID id);
 }
