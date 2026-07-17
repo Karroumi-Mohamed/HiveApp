@@ -2779,7 +2779,7 @@ Current priority decision: do not build alias/replacement flags or advanced rena
 
 ### REGISTRY-002 — Stale permission actions still pass role-grant validation
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2799,11 +2799,18 @@ Any old database permission under a currently grantable feature remains selectab
 
 Build an authoritative current action set from a strict Permissionizer collection result and require membership in that set for all grant targets. Catalogs must exclude retired/orphaned actions, and startup must report every stale grant before retirement.
 
+**Implementation evidence — 2026-07-17**
+
+- `CurrentRegistrySnapshot` holds only the action codes from the last fully validated and successfully synchronized source snapshot.
+- `PermissionGrantValidator` rejects any client-role, platform-admin-role, or B2B grant code absent from that snapshot before applying audience rules.
+- Registry catalogs and client/B2B permission pickers filter database rows through the same action set, so an orphaned row is neither visible nor grantable.
+- Advanced rename/removal migration remains explicitly deferred under `REGISTRY-001`; action codes remain stable developer contracts.
+
 ---
 
 ### REGISTRY-003 — A partial or empty Permissionizer collection is accepted as successful seeding
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2816,6 +2823,13 @@ Broken discovery can produce a deceptively successful startup with missing new p
 **Required fix direction**
 
 Make collection diagnostics explicit and startup-fatal in production when indexes/classes cannot be read, codes are ambiguous, guarded features unexpectedly lack actions, or the complete registry graph is invalid. Validate the whole discovered snapshot before writing. Add guarded-service/action-set integration tests and persist a structured synchronization report rather than relying only on logs.
+
+**Implementation evidence — 2026-07-17**
+
+- `RegistrySnapshotFactory` validates the complete definition/action graph before database writes and computes a deterministic canonical SHA-256 hash.
+- Guarded actions are independently reflected from Spring target classes and compared exactly with Permissionizer collection output. A missing single action fails even when its feature still has other actions.
+- Empty definitions/actions, duplicate actions, malformed paths, missing definitions, module mismatches, and guarded features without actions are startup-fatal.
+- Failed discovery is recorded safely in a separate transaction and is never installed as the current runtime grant snapshot.
 
 ---
 
@@ -2885,7 +2899,7 @@ Resolve the account's effective entitled feature/action set once, then join/filt
 
 ### REGISTRY-007 — Existing feature rows are not fully repaired from their code definition
 
-**Status:** `OBSERVED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2898,6 +2912,13 @@ Corrupt or migrated registry data may remain inconsistent, especially for a feat
 **Possible fix direction**
 
 Synchronize all code-owned relationships and metadata deterministically, and verify the complete registry graph after seeding.
+
+**Implementation evidence — 2026-07-17**
+
+- Existing Features repair module relationship, lifecycle status, quota schema, and sort order from code definitions.
+- Existing Permissions repair Feature relationship, name, description, resource, and action from collected annotations.
+- Admin-owned activation values are preserved, and synchronization reports count only rows whose code-owned fields actually changed.
+- Integration coverage corrupts both layers and verifies complete repair from the validated snapshot.
 
 ---
 
@@ -2924,7 +2945,7 @@ Classify eligibility per action in HiveApp feature/registry definitions without 
 
 ### REGISTRY-009 — Startup synchronization is split, non-atomic across registry layers, and not inspectable
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2946,6 +2967,15 @@ HiveApp can start with features committed but permissions incomplete, different 
 - Persist each run with build/version, snapshot hash, timestamps, status, discovered/created/updated/invalid/missing details, and safe failure information. Provide a platform-admin operational summary and restricted developer diagnostics.
 - Reuse the same validator for CI/pre-deployment dry runs. Add partial-collector, mid-write rollback, existing-row repair, admin-state preservation, concurrent-node, retry, report-authorization, and snapshot-version tests.
 - Keep advanced code rename/removal migration deferred under the current stable-code decision; this synchronization work must not introduce Permissionizer alias/replacement flags.
+
+**Implementation evidence — 2026-07-17**
+
+- The separate feature/permission startup listeners are replaced by one ordered coordinator. Discovery and graph validation complete before the transactional writers run.
+- A committed singleton lock row plus pessimistic database locking serializes concurrent nodes; simultaneous first-start inserts converge through the unique lock key. Retry is idempotent.
+- Feature and permission writes plus the success report share one transaction. A simulated permission-layer failure proves Feature/module writes and the success report roll back together.
+- Each success/failure stores build version, deterministic snapshot hash when available, timestamps, status, discovered/created/updated counts, and bounded safe details.
+- `GET /api/admin/registry/synchronization/latest` is protected by the dedicated `platform.registry.sync_status` Permissionizer action and returns an admin-safe DTO.
+- No Flyway history is introduced while the project uses disposable generated H2 mappings. The complete backend suite passes: 328 tests, 0 failures, 0 errors, 0 skipped.
 
 ---
 

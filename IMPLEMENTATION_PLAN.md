@@ -892,6 +892,7 @@ flowchart TD
 - **Acceptance Criteria**: Mismatched codes reject role updates.
 - **Tests**: Action validation integration tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented. Every grant target now requires membership in the validated current Permissionizer action snapshot before feature/audience rules are evaluated. Stale database actions are rejected and excluded from admin, client-role, and B2B permission catalogs.
 
 #### [IMPLEMENT] REGISTRY-003 — A partial or empty Permissionizer collection is accepted as successful seeding
 - **Prerequisites**: REGISTRY-002.
@@ -902,6 +903,7 @@ flowchart TD
 - **Acceptance Criteria**: Empty scanned keys cause context exit.
 - **Tests**: Verification checks.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented. Startup independently reflects every guarded service action and compares that complete set with Permissionizer collection output before any writes. Empty, partial, duplicate, malformed, unmapped, and module-mismatched snapshots fail startup and are never installed as the runtime grant catalog.
 
 #### [IMPLEMENT] REGISTRY-007 — Existing feature rows are not fully repaired from their code definition
 - **Prerequisites**: REGISTRY-003.
@@ -912,16 +914,18 @@ flowchart TD
 - **Acceptance Criteria**: Database metadata is overwritten by code annotations.
 - **Tests**: Sync repair tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented. Synchronization repairs Feature module/status/quota/order and Permission feature/name/description/resource/action from the validated code snapshot while preserving admin-owned activation state. Only actual changes are counted.
 
 #### [IMPLEMENT] REGISTRY-009 — Startup synchronization is split, non-atomic across registry layers, and not inspectable
 - **Prerequisites**: REGISTRY-007.
 - **Unlocks**: REGISTRY-004.
 - **Order Rationale**: Wraps synchronize routines into single transaction.
 - **Affected Backend Areas**: `FeatureSeeder.java`, `PermissionSeeder.java`.
-- **Database Migration**: No.
+- **Database Migration**: No for the current unpublished disposable H2 schema; generated mappings include synchronization lock/run tables directly.
 - **Acceptance Criteria**: Sync executes transactionally and writes a sync log row.
 - **Tests**: Concurrency synchronization locks checks.
 - **Future UI Flow**: System status logs.
+- **Execution Status**: Implemented. One ordered startup listener validates a deterministic SHA-256 snapshot, converges the first lock-row insert, serializes writers with a pessimistic database lock, and applies feature plus permission repairs in one transaction. Mid-write failure rolls back both layers and the success report; failure summaries use a separate transaction. Every run records build/hash/timestamps/status/counts/details, and a dedicated Permissionizer-protected platform-admin endpoint returns the latest safe summary.
 
 ---
 
@@ -1763,14 +1767,14 @@ flowchart TD
 | **AUTHZ-003** | Dynamic validation | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-002 | Keys filter checks |
 | **AUTHZ-005** | CORS headers | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-003 | Header verification |
 | **REGISTRY-001** | Deleted keys clean | PARTIAL | DEFERRED | Phase 3 | None | AUTHZ-001 | Revisit on requirement |
-| **REGISTRY-002** | Stale actions block | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | AUTHZ-001 | Grant check matches |
-| **REGISTRY-003** | Corrupt discovery crash| PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-002 | Startup validation exit |
+| **REGISTRY-002** | Stale actions block | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | AUTHZ-001 | Current-snapshot grant rejection and catalog exclusion |
+| **REGISTRY-003** | Corrupt discovery crash| IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-002 | Reflected action-set equality and fatal startup validation |
 | **REGISTRY-004** | Visibility enums | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-009 | State column mapping |
 | **REGISTRY-005** | Clean catalog services | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-004 | Disagreeing API removed |
 | **REGISTRY-006** | Bulk picker query | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-005 | Bulk query execution |
-| **REGISTRY-007** | Repair metadata | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-003 | Sync updates columns |
+| **REGISTRY-007** | Repair metadata | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-003 | Code-owned Feature and Permission metadata repair |
 | **REGISTRY-008** | destructive block | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-006 | Action level validator |
-| **REGISTRY-009** | Seeding transaction | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-007 | Startup lock logs |
+| **REGISTRY-009** | Seeding transaction | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-007 | Atomic synchronization, database lock, durable run summary |
 | **REGISTRY-010** | Picker DTO | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-008 | Decoupled payload |
 | **PERM-001** | AspectJ matching | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Target node proxy |
 | **PERM-002** | Startup guard checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | None | Alignment check |
