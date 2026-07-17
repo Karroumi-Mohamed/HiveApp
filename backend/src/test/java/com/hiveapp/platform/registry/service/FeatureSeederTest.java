@@ -67,6 +67,7 @@ class FeatureSeederTest {
 
         assertThat(existing.getStatus()).isEqualTo(FeatureStatus.PUBLIC);
         assertThat(existing.isActive()).isFalse();
+        assertThat(existing.getModule()).isSameAs(module);
     }
 
     private FeatureSeeder seeder(List<FeatureDefinition> definitions) {

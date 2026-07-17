@@ -80,6 +80,26 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void latestRegistrySynchronizationIsPermissionProtectedAndInspectable() throws Exception {
+        LimitedAdmin unrelated = createLimitedAdmin("platform.plans.list");
+        LimitedAdmin registryOperator = createLimitedAdmin("platform.registry.sync_status");
+
+        mockMvc.perform(get("/api/admin/registry/synchronization/latest")
+                        .header("Authorization", bearer(unrelated.token())))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/admin/registry/synchronization/latest")
+                        .header("Authorization", bearer(registryOperator.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.snapshotHash").isNotEmpty())
+                .andExpect(jsonPath("$.discoveredFeatures").isNumber())
+                .andExpect(jsonPath("$.discoveredPermissions").isNumber())
+                .andExpect(jsonPath("$.details").value(
+                        "Authoritative registry snapshot synchronized"));
+    }
+
+    @Test
     void planAssignableFeatureCatalogDoesNotExposeControlPlaneFeatures() throws Exception {
         LimitedAdmin admin = createLimitedAdmin("platform.registry.feature_catalog");
 

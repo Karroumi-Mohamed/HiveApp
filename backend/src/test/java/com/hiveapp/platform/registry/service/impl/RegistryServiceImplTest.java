@@ -6,14 +6,19 @@ import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.PlansFeature;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
+import com.hiveapp.platform.registry.domain.constant.RegistrySyncStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.entity.Permission;
+import com.hiveapp.platform.registry.domain.entity.RegistrySyncRun;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.platform.registry.domain.repository.ModuleRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
+import com.hiveapp.platform.registry.domain.repository.RegistrySyncRunRepository;
 import com.hiveapp.platform.registry.dto.FeatureCatalogAudience;
 import com.hiveapp.platform.registry.dto.PermissionCatalogAudience;
 import com.hiveapp.shared.exception.BusinessException;
+import com.hiveapp.platform.registry.service.CurrentRegistrySnapshot;
+import com.hiveapp.platform.registry.service.RegistrySnapshot;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.junit.jupiter.api.Test;
@@ -24,6 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -36,6 +42,7 @@ class RegistryServiceImplTest {
     @Mock private ModuleRepository moduleRepository;
     @Mock private FeatureRepository featureRepository;
     @Mock private PermissionRepository permissionRepository;
+    @Mock private RegistrySyncRunRepository registrySyncRunRepository;
 
     @Test
     void planAssignableCatalogExposesOnlyPlanAssignableWorkspaceFeatures() {
@@ -82,6 +89,22 @@ class RegistryServiceImplTest {
         assertThat(catalog.get(0).features().get(0).permissions())
                 .extracting(permission -> permission.code())
                 .containsExactly("platform.plans.create");
+    }
+
+    @Test
+    void permissionCatalogExcludesStaleDatabaseActionsAbsentFromCurrentSnapshot() {
+        RegistryServiceImpl service = service();
+        when(featureRepository.findAll()).thenReturn(List.of(
+                feature(CompanyFeature.CODE, FeatureStatus.PUBLIC)));
+        when(permissionRepository.findAll()).thenReturn(List.of(
+                permission("platform.company.create"),
+                permission("platform.company.removed_action")));
+
+        var catalog = service.getPermissionCatalog(PermissionCatalogAudience.CLIENT_ROLE_GRANTABLE);
+
+        assertThat(catalog.get(0).features().get(0).permissions())
+                .extracting(permission -> permission.code())
+                .containsExactly("platform.company.create");
     }
 
     @Test
@@ -156,19 +179,66 @@ class RegistryServiceImplTest {
                 .hasMessage("Feature platform.workspace is code-owned and cannot be activated or deactivated through registry controls.");
     }
 
+    @Test
+    void latestSynchronizationReturnsAdminSafePersistentSummary() {
+        RegistryServiceImpl service = service();
+        RegistrySyncRun run = new RegistrySyncRun();
+        run.setBuildVersion("build-42");
+        run.setSnapshotHash("hash");
+        run.setStatus(RegistrySyncStatus.SUCCEEDED);
+        run.setStartedAt(Instant.parse("2026-07-17T00:00:00Z"));
+        run.setCompletedAt(Instant.parse("2026-07-17T00:00:01Z"));
+        run.setDiscoveredModules(1);
+        run.setDiscoveredFeatures(12);
+        run.setDiscoveredPermissions(96);
+        run.setOrphanedPermissions(2);
+        run.setDetails("Authoritative registry snapshot synchronized");
+        when(registrySyncRunRepository.findFirstByOrderByStartedAtDesc())
+                .thenReturn(Optional.of(run));
+
+        var result = service.getLatestSynchronizationRun();
+
+        assertThat(result.buildVersion()).isEqualTo("build-42");
+        assertThat(result.snapshotHash()).isEqualTo("hash");
+        assertThat(result.status()).isEqualTo(RegistrySyncStatus.SUCCEEDED);
+        assertThat(result.discoveredFeatures()).isEqualTo(12);
+        assertThat(result.discoveredPermissions()).isEqualTo(96);
+        assertThat(result.orphanedPermissions()).isEqualTo(2);
+    }
+
     private RegistryServiceImpl service() {
         return service(List.of(CompanyFeature.definition(), PlansFeature.definition()));
     }
 
     private RegistryServiceImpl service(List<FeatureDefinition> definitions) {
         FeatureDefinitionCollector collector = new FeatureDefinitionCollector(List.of(() -> definitions));
-        return new RegistryServiceImpl(moduleRepository, featureRepository, permissionRepository, provider(collector));
+        return new RegistryServiceImpl(
+                moduleRepository,
+                featureRepository,
+                permissionRepository,
+                registrySyncRunRepository,
+                provider(collector),
+                currentSnapshot(definitions));
     }
 
     private static ObjectProvider<FeatureDefinitionCollector> provider(FeatureDefinitionCollector collector) {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
         beanFactory.registerSingleton("featureDefinitionCollector", collector);
         return beanFactory.getBeanProvider(FeatureDefinitionCollector.class);
+    }
+
+    private static CurrentRegistrySnapshot currentSnapshot(List<FeatureDefinition> definitions) {
+        CurrentRegistrySnapshot current = new CurrentRegistrySnapshot();
+        current.install(new RegistrySnapshot(
+                definitions,
+                List.of(),
+                java.util.Set.of(
+                        "platform.company.create",
+                        "platform.company.read_single",
+                        "platform.company.delete",
+                        "platform.plans.create"),
+                "test"));
+        return current;
     }
 
     private static Feature feature(String code, FeatureStatus status) {
