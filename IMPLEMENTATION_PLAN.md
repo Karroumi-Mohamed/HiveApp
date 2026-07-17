@@ -735,6 +735,9 @@ flowchart TD
 ---
 
 ### Batch 2.3: Custom & System Role Constraints
+
+**Execution status — 2026-07-17:** Completed for the current platform shell. Custom roles now have explicit inactive/active/archived lifecycle, system roles are tenant-read-only, used roles cannot be hard-deleted, shared-role changes require fresh impact confirmation, and Duplicate supports staged rollout/adoption. Permissionizer generation verified every role action key, including intentional distinct `read` and `view` actions. Generated H2 schema mappings were updated directly; versioned migration history remains deferred until persistent production-schema work begins. Actor delegation ceilings and central mutation audit remain in their planned owners, `RBAC-003` and `AUDIT-001`.
+
 #### [IMPLEMENT] ROLE-001 — Deleting a role does not deliberately handle member assignments
 - **Prerequisites**: MEMBER-003.
 - **Unlocks**: ROLE-002.
@@ -744,6 +747,7 @@ flowchart TD
 - **Acceptance Criteria**: Deleting active role returns validation warnings.
 - **Tests**: Role deletion check tests.
 - **Future UI Flow**: Roles settings manager.
+- **Execution Status**: Implemented. Only never-assigned custom roles without current references can be hard-deleted; a persistent first-assignment marker keeps used roles in deactivate/archive lifecycle even after assignments are removed.
 
 #### [IMPLEMENT] ROLE-002 — System-role permissions can still be modified
 - **Prerequisites**: ROLE-001.
@@ -754,16 +758,18 @@ flowchart TD
 - **Acceptance Criteria**: Modifying roles marked `isSystemRole = true` returns 403.
 - **Tests**: System roles integrity checks.
 - **Future UI Flow**: Roles dashboard.
+- **Execution Status**: Implemented. Tenant metadata, permission, lifecycle, and deletion mutations all reject system roles; Duplicate creates an independent inactive custom adoption copy.
 
 #### [IMPLEMENT] ROLE-003 — Role activation state is incomplete and internally inconsistent
 - **Prerequisites**: ROLE-002.
 - **Unlocks**: ROLE-004, RBAC-001.
 - **Order Rationale**: Adds role lifecycles (ACTIVE, INACTIVE, ARCHIVED).
 - **Affected Backend Areas**: `Role.java`.
-- **Database Migration**: Yes (add role state columns).
+- **Database Migration**: Generated schema updated from entity mappings; no versioned migration during the current disposable in-memory stage by project decision.
 - **Acceptance Criteria**: Role states transition according to enum rules.
 - **Tests**: State transition tests.
 - **Future UI Flow**: Role lifecycle toggles.
+- **Execution Status**: Implemented. `ACTIVE`, `INACTIVE`, and terminal `ARCHIVED` are exposed in the API; assignment/runtime evaluation ignores non-active roles, and activation revalidates current scope, grantability, and entitlement.
 
 #### [VERIFY FIRST] ROLE-004 — Role permission keys may not match the declared feature contract
 - **Prerequisites**: ROLE-003.
@@ -774,6 +780,7 @@ flowchart TD
 - **Acceptance Criteria**: Invalid key mappings reject with `ResourceNotFoundException`.
 - **Tests**: Key validation tests.
 - **Future UI Flow**: Permission picker.
+- **Execution Status**: Verified with no defect. All annotated role keys are emitted in Permissionizer's generated catalog; `read` and `view` intentionally protect detail and list actions, and unknown grant keys return 404.
 
 #### [IMPLEMENT] ROLE-005 — Shared custom-role edits have no impact workflow
 - **Prerequisites**: ROLE-004.
@@ -784,6 +791,7 @@ flowchart TD
 - **Acceptance Criteria**: Editing role alerts downstream subscriber impact count.
 - **Tests**: Save role warning tests.
 - **Future UI Flow**: Custom roles save dialog.
+- **Execution Status**: Implemented for the impact workflow. Preview exposes assignment/member/scope and permission deltas; assigned-role mutations require matching role version plus assignment count, and Duplicate is the staged-rollout path. Delegation ceiling and central auditing remain under `RBAC-003` and `AUDIT-001`.
 
 ---
 
@@ -1711,11 +1719,11 @@ flowchart TD
 | **MEMBER-004** | Member DTO clean | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Align fields |
 | **MEMBER-005** | Token revocation | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-003 | Access-context denial and CLIENT refresh-session revocation |
 | **EVENT-002** | Dead Event | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Account event/listener artifacts deleted |
-| **ROLE-001** | Role check delete | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | MEMBER-003 | Validation warning |
-| **ROLE-002** | System roles locks | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-001 | 403 Forbidden |
-| **ROLE-003** | Lifecycle enums | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-002 | State column |
-| **ROLE-004** | Key matching validation | PARTIAL | VERIFY FIRST | Phase 2 | Batch 2.3 | ROLE-003 | Validation check |
-| **ROLE-005** | Edit Warnings | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-004 | Count warning |
+| **ROLE-001** | Role check delete | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.3 | MEMBER-003 | Never-assigned-only hard delete and retained used-role history |
+| **ROLE-002** | System roles locks | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-001 | 403 across every tenant mutation; independent adoption copy |
+| **ROLE-003** | Lifecycle enums | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-002 | State machine, assignment/runtime cutoff, activation revalidation |
+| **ROLE-004** | Key matching validation | VERIFIED — NO DEFECT | VERIFY FIRST | Phase 2 | Batch 2.3 | ROLE-003 | Generated Permissionizer catalog and unknown-key 404 tests |
+| **ROLE-005** | Edit Warnings | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.3 | ROLE-004 | Versioned impact preview/confirmation and Duplicate workflow |
 | **INVITE-000** | Replace invites | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.5 | MEMBER-002 | Atomic direct creation and credential lifecycle tests |
 | **INVITE-001** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Quota bypass removed |
 | **INVITE-002** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Magic-login path removed |

@@ -1786,7 +1786,7 @@ Remove dead event/listener/service artifacts after confirming tests and external
 
 ### ROLE-001 — Deleting a role does not deliberately handle member assignments
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-07-17`
 
 **Evidence**
 
@@ -1802,11 +1802,17 @@ Depending on database foreign keys, deletion will either fail unexpectedly or re
 
 Implement the decided lifecycle. Permit hard deletion only for a never-assigned custom role with no history/reference. Used roles become inactive or archived, stop granting immediately, and retain assignments/audit. Add transactional impact checks plus previews of affected members, Account/Company scopes, lost permissions, and workflow ownership.
 
+**Implementation evidence — 2026-07-17**
+
+- Role mutation and assignment paths share a pessimistic role lock. The persistent `everAssigned` marker is set on first assignment and is never cleared.
+- Hard deletion is limited to custom roles with `everAssigned=false` and no current assignment. Used roles return an actionable conflict directing the operator to deactivate or archive instead.
+- Impact previews report current assignments, distinct/active members, Account and Company scopes, and permissions gained or lost. Used-role lifecycle tests prove assignments are retained after deactivation and removal does not make the role hard-deletable.
+
 ---
 
 ### ROLE-002 — System-role permissions can still be modified
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-07-17`
 
 **Evidence**
 
@@ -1820,11 +1826,17 @@ An actor can change the effective meaning of a supposedly protected system role 
 
 System/Platform templates are fully read-only to tenant role-management operations, including permission add/remove. Platform evolution uses immutable versions and explicit Account adoption/copy rather than in-place tenant mutation.
 
+**Implementation evidence — 2026-07-17**
+
+- Every tenant mutation path—metadata update, permission grant/revoke, lifecycle change, and deletion—rejects `isSystemRole=true` with HTTP 403.
+- The explicit Duplicate operation may copy a system template into an independent `INACTIVE`, unassigned custom role for tenant adoption; it never changes the source template.
+- Integration coverage exercises the system boundary across update, permission mutation, archive, delete, and duplicate.
+
 ---
 
 ### ROLE-003 — Role activation state is incomplete and internally inconsistent
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED FOR CURRENT SHELL — 2026-07-17` (`CENTRAL AUDIT DEFERRED TO AUDIT-001`)
 
 **Evidence**
 
@@ -1841,11 +1853,18 @@ The field cannot be managed or understood by clients, yet stale/inactive databas
 
 Implement `ACTIVE`, `INACTIVE`, and `ARCHIVED` behavior in the API/read models, assignment validation, runtime permission queries, impact UX, and audit. Inactive/archived roles grant nothing and cannot be newly assigned. Reactivation revalidates current version, entitlement, grantability, member, and scope rules.
 
+**Implementation evidence — 2026-07-17**
+
+- `RoleStatus` replaces the unmanaged boolean with `ACTIVE`, `INACTIVE`, and terminal `ARCHIVED`; new and duplicated roles start inactive. Role DTOs expose status, scope, system/custom identity, assignment history, definition revision, and optimistic version.
+- Explicit activate/deactivate/archive actions enforce the state machine. Activation revalidates Account/Company activity, a non-empty permission set, client-role grantability, and current plan entitlement. Inactive/archived roles cannot be assigned and grant no runtime permissions.
+- Existing assignments are deliberately retained through deactivation/archive. Archived roles are read-only and cannot be reactivated.
+- Central actor-aware before/after audit remains owned by `AUDIT-001`; the role model now exposes the version/revision and impact data that audit can record.
+
 ---
 
 ### ROLE-004 — Role permission keys may not match the declared feature contract
 
-**Status:** `VERIFY`
+**Status:** `VERIFIED — NO DEFECT — 2026-07-17`
 
 **Evidence**
 
@@ -1855,15 +1874,15 @@ Implement `ACTIVE`, `INACTIVE`, and `ARCHIVED` behavior in the API/read models, 
 
 The detail endpoint may generate an undeclared/unmapped permission, fail strict registry seeding, or require a permission no role picker can grant.
 
-**Verify later**
+**Verification result — 2026-07-17**
 
-Compare all annotated role keys with `WorkspaceRolesFeature`, generated Permissionizer output, permission seeding, and tests.
+`read` and `view` are intentional distinct actions for detail and list access. Every annotated RoleService action is declared in `WorkspaceRolesFeature` and appears as a fully qualified `platform.rbac.*` key in Permissionizer's generated `PlatformPermissions` catalog. Unknown permission codes fail with `ResourceNotFoundException`/HTTP 404, while known but non-client-grantable codes fail grant validation. No Permissionizer modification was required.
 
 ---
 
 ### ROLE-005 — Shared custom-role edits have no impact workflow
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED FOR IMPACT WORKFLOW — 2026-07-17` (`DELEGATION CEILING: RBAC-003`; `CENTRAL AUDIT: AUDIT-001`)
 
 **Evidence**
 
@@ -1877,6 +1896,14 @@ Current role permission add/remove operations mutate the shared role directly. T
 - Provide Duplicate as the explicit staged-rollout path; do not create hidden custom-role versions.
 - Audit before/after permission sets, actor, template boundary, affected scopes, and result.
 - Keep published Platform templates out of this mutation path; they use immutable versions and explicit adoption.
+
+**Implementation evidence — 2026-07-17**
+
+- Shared-role update, permission grant/revoke, deactivate, archive, and activate operations calculate impact under a role write lock. If assignments exist, the mutation is blocked until the caller supplies the exact previewed role version and assignment count; stale confirmation is rejected and must be previewed again.
+- Preview contracts expose assignment/member/scope counts plus current, granted, and lost permissions. Each definition change increments a separate definition revision, while JPA optimistic versioning detects stale role state.
+- Duplicate provides the explicit staged-rollout path and creates an independent inactive custom role with copied permissions and no assignments/history. No hidden role versions are introduced.
+- Permission mutations still validate registry existence, client-role grantability, current plan entitlement, system/custom boundary, archive state, Company activity, and Account/B2B scope. The actor delegation ceiling will be implemented in the ordered next batch under `RBAC-003`, and central mutation auditing remains under `AUDIT-001`.
+- The complete backend suite passes: 290 tests, 0 failures, 0 errors, 0 skipped.
 
 ---
 
