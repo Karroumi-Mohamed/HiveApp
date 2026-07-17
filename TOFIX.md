@@ -420,7 +420,7 @@ A generic management permission authorizes the action without defining which mem
 
 ### RBAC-006 — Direct member overrides cannot support the decided exception lifecycle
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -438,6 +438,16 @@ A generic management permission authorizes the action without defining which mem
 - Make applicable `DENY` win over role/direct grants. Enforce expiry and inactive-scope checks at authorization time.
 - Build a source-aware effective-access read model showing role sources, grants, denies, scope, reason, creator, expiry/effect status, and history.
 - Audit create/edit/revoke/expire/failed attempts and add cross-scope, expired-grant, deny-precedence, self-escalation, owner-target, and entitlement tests.
+
+**Implementation evidence — 2026-07-17**
+
+- The persisted boolean is replaced by explicit `GRANT`/`DENY`, with Account/Company scope and exact-scope uniqueness.
+- Both decisions require a reason and creator. Grants require a future expiry; denies may be permanent or expire. Runtime resolution ignores expired exceptions and exceptions inside inactive Companies.
+- Creation and removal reject owner targets and self-mutation, validate tenant/scope containment and code grantability, and enforce the actor's management action plus scoped delegation ceiling. Stale exception cleanup remains possible when a permission leaves entitlement.
+- Exception reads expose decision, scope, Company, reason, creator, expiry, timestamps, and current effect for the future admin UI.
+- Applicable active denies remove authority from both roles and direct grants. Owners remain protected from ordinary exceptions.
+- Central actor-event history and failed-attempt audit remain part of the shared `AUDIT-001` work rather than a private exception log.
+- Entity, service, Permissionizer-policy, effective-permission, lifecycle, abuse, and request-level scope coverage passes in the complete backend suite: 311 tests, 0 failures, 0 errors, 0 skipped.
 
 ---
 
@@ -2698,7 +2708,7 @@ Runtime must intersect persisted grants with the current code-owned B2B action a
 
 ### AUTHZ-004 — Account-wide member overrides do not apply inside company context
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2713,6 +2723,14 @@ An account-wide DENY can be bypassed by sending a company context, while an acco
 **Required decision/fix direction**
 
 Define precedence among account-wide and company-specific decisions. Query both applicable scopes and resolve conflicts deterministically—normally a specific deny/decision rule documented and tested across all combinations.
+
+**Implementation evidence — 2026-07-17**
+
+- Applicable-exception queries return Account scope plus only the exact selected Company scope.
+- Account grants and denies cascade into Company evaluation; Company exceptions never affect Account or sibling-Company evaluation.
+- Any applicable active deny wins over Account/Company grants and roles in both Permissionizer runtime policy and effective-permission reads.
+- Expired exceptions and exceptions belonging to inactive Companies have no authorization effect.
+- End-to-end tests verify Account cascade, exact Company isolation, deny precedence, lifecycle rules, and source-aware exception responses.
 
 ---
 

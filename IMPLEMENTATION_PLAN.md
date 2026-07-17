@@ -848,10 +848,11 @@ flowchart TD
 - **Unlocks**: AUTHZ-004.
 - **Order Rationale**: Exception override details.
 - **Affected Backend Areas**: `MemberPermissionOverride.java`.
-- **Database Migration**: Yes (add reason, expiry columns).
+- **Database Migration**: No for the current unpublished disposable H2 schema; update generated mappings directly.
 - **Acceptance Criteria**: Overrides support description reasons and expiration dates.
 - **Tests**: Overrides expiration tests.
 - **Future UI Flow**: User exceptions settings.
+- **Execution Status**: Implemented. Direct access changes are explicit `GRANT`/`DENY` exceptions with Account/Company scope, mandatory reason, immutable creator, required future expiry for grants, optional future expiry for denies, exact-scope uniqueness, runtime expiry, inactive-Company cutoff, owner/self protection, grantability, entitlement, and scoped delegation ceilings. The exception DTO exposes its source, scope, decision, reason, creator, expiry, and current effect. Central actor-event history remains owned by `AUDIT-001`.
 
 #### [IMPLEMENT] AUTHZ-004 — Account-wide member overrides do not apply inside company context
 - **Prerequisites**: RBAC-006.
@@ -862,6 +863,7 @@ flowchart TD
 - **Acceptance Criteria**: Account-wide overrides cascade to sub-company operations.
 - **Tests**: Scoped cascade validation tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented. Runtime and effective-permission reads load Account plus exact-Company exceptions; Account decisions cascade into Company context, Company decisions never escape their exact Company, and any applicable active `DENY` wins over direct grants and roles. Cross-scope, expiry, inactive-Company, and HTTP-context tests pass.
 
 ---
 
@@ -1664,7 +1666,7 @@ flowchart TD
 | **ORG-001** | Support generic Group model | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | COMPANY-002 | Generic hierarchy, memberships, lifecycle, templates, and verified APIs |
 | **ORG-002** | Groups stay outside authz | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | ORG-001 | Permissionized operations with unchanged effective permissions |
 | **AUTHZ-006** | Context evaluation checks | MISSING | DESIGN FIRST | Phase 5 | Batch 5.3 | AUTHZ-003 | Design document |
-| **RBAC-006** | Exception override lifecycle | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-003 | Expire column |
+| **RBAC-006** | Exception override lifecycle | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-003 | Explicit scoped exception lifecycle, provenance, expiry, and abuse tests |
 | **SUBSCRIPTION-001**| Terminological alignment | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | PLAN-006 | Enums corrected |
 | **SUBSCRIPTION-002**| JSON strings | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | SUBSCRIPTION-001 | Converter classes |
 | **PLAN-001** | Database constraints | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.2 | BILLING-003 | Unique code |
@@ -1776,7 +1778,7 @@ flowchart TD
 | **PERM-004** | Swallowed reflection | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Exception throws |
 | **PERM-005** | Precedence chain | PARTIAL | LOCK WITH TESTS | Phase 0 | Batch 0.4 | AUTHZ-001 | Precedence evaluation |
 | **TEST-001** | Negative test audit | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Verified negative coverage |
-| **AUTHZ-004** | Cascade overrides | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-006 | Dynamic context check |
+| **AUTHZ-004** | Cascade overrides | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-006 | Account cascade, exact Company scope, and deny-precedence tests |
 
 ---
 
