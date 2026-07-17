@@ -2,6 +2,8 @@ package com.hiveapp.shared.security;
 
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.platform.client.account.domain.entity.Account;
+import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
@@ -95,6 +97,38 @@ class EffectivePermissionServiceTest {
         assertThat(result.permissions()).isEmpty();
     }
 
+    @Test
+    void companyEvaluationIncludesAccountAndMatchingCompanyAssignmentsOnly() {
+        UUID accountId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID firstCompanyId = UUID.randomUUID();
+        UUID secondCompanyId = UUID.randomUUID();
+        Account account = account(accountId);
+        Member member = member(memberId, account, user(userId), false);
+        Permission accountPermission = permission("platform.staff.read");
+        Permission firstPermission = permission("platform.company.read_single");
+        Permission secondPermission = permission("platform.company.delete");
+        Company first = company(firstCompanyId, account);
+        Company second = company(secondCompanyId, account);
+
+        when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(member));
+        when(memberRoleRepository.findAllByMemberId(memberId)).thenReturn(List.of(
+                assignment(member, role(accountId, RoleStatus.ACTIVE, accountPermission)),
+                assignment(member, role(accountId, RoleStatus.ACTIVE, firstPermission), first),
+                assignment(member, role(accountId, RoleStatus.ACTIVE, secondPermission), second)));
+        when(memberOverrideRepository.findAllByMemberId(memberId)).thenReturn(List.of());
+        when(planEntitlementService.isPermissionEntitled(accountId, accountPermission.getCode())).thenReturn(true);
+        when(planEntitlementService.isPermissionEntitled(accountId, firstPermission.getCode())).thenReturn(true);
+
+        var companyAccess = service.getEffectivePermissions(userId, accountId, firstCompanyId);
+        var accountAccess = service.getEffectivePermissions(userId, accountId, null);
+
+        assertThat(companyAccess.permissions())
+                .containsExactlyInAnyOrder(accountPermission.getCode(), firstPermission.getCode());
+        assertThat(accountAccess.permissions()).containsExactly(accountPermission.getCode());
+    }
+
     private static Account account(UUID id) {
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", id);
@@ -111,6 +145,16 @@ class EffectivePermissionServiceTest {
         user.setLastName("Stone");
         user.setPasswordHash("hash");
         return user;
+    }
+
+    private static Company company(UUID id, Account account) {
+        Company company = new Company();
+        ReflectionTestUtils.setField(company, "id", id);
+        company.setAccount(account);
+        company.setName("Company " + id);
+        company.setCountry("MA");
+        company.setActive(true);
+        return company;
     }
 
     private static Member member(UUID id, Account account, User user, boolean owner) {
@@ -147,6 +191,13 @@ class EffectivePermissionServiceTest {
         MemberRole assignment = new MemberRole();
         assignment.setMember(member);
         assignment.setRole(role);
+        return assignment;
+    }
+
+    private static MemberRole assignment(Member member, Role role, Company company) {
+        MemberRole assignment = assignment(member, role);
+        assignment.setEffectScope(RoleAssignmentScope.COMPANY);
+        assignment.setScopeCompany(company);
         return assignment;
     }
 }

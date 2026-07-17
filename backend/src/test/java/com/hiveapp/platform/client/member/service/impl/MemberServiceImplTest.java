@@ -17,7 +17,6 @@ import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.dto.InitialRoleAssignmentRequest;
-import com.hiveapp.platform.client.member.dto.MemberPermissionDto;
 import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.client.role.domain.entity.Role;
@@ -31,7 +30,8 @@ import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
-import com.hiveapp.shared.security.EffectivePermissionService;
+import com.hiveapp.shared.security.DelegationCeilingService;
+import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import org.junit.jupiter.api.AfterEach;
@@ -45,7 +45,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.LongSupplier;
 
@@ -72,7 +71,7 @@ class MemberServiceImplTest {
     @Mock private QuotaEnforcer quotaEnforcer;
     @Mock private MemberCredentialService memberCredentialService;
     @Mock private PlanEntitlementService planEntitlementService;
-    @Mock private EffectivePermissionService effectivePermissionService;
+    @Mock private DelegationCeilingService delegationCeilingService;
 
     @InjectMocks
     private MemberServiceImpl memberService;
@@ -171,10 +170,6 @@ class MemberServiceImplTest {
         addPermission(role, "platform.company.read_single");
 
         when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account));
-        when(effectivePermissionService.getEffectivePermissions(actorUserId, accountId))
-                .thenReturn(new MemberPermissionDto(
-                        UUID.randomUUID(), false,
-                        Set.of("platform.staff.assign_role", "platform.company.read_single")));
         when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
         when(planEntitlementService.isPermissionEntitled(accountId, "platform.company.read_single"))
                 .thenReturn(true);
@@ -194,7 +189,8 @@ class MemberServiceImplTest {
         verify(memberRoleRepository).save(assignment.capture());
         verify(memberRoleRepository).flush();
         assertThat(assignment.getValue().getRole()).isSameAs(role);
-        assertThat(assignment.getValue().getCompany()).isNull();
+        assertThat(assignment.getValue().getScopeCompany()).isNull();
+        assertThat(assignment.getValue().getEffectScope()).isEqualTo(RoleAssignmentScope.ACCOUNT);
     }
 
     @Test
@@ -208,12 +204,14 @@ class MemberServiceImplTest {
         addPermission(role, "platform.company.delete");
 
         when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account));
-        when(effectivePermissionService.getEffectivePermissions(actorUserId, accountId))
-                .thenReturn(new MemberPermissionDto(
-                        UUID.randomUUID(), false, Set.of("platform.staff.assign_role")));
         when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
         when(planEntitlementService.isPermissionEntitled(accountId, "platform.company.delete"))
                 .thenReturn(true);
+        org.mockito.Mockito.doThrow(new ForbiddenException(
+                        "Cannot delegate a permission the acting member does not hold"))
+                .when(delegationCeilingService)
+                .requireActorCanDelegate(accountId, null,
+                        List.of("platform.staff.assign_role", "platform.company.delete"));
 
         assertThatThrownBy(() -> memberService.createMember(accountId, new CreateMemberRequest(
                 "nora", null, "Nora", "Stone", null, null, null,
@@ -269,7 +267,7 @@ class MemberServiceImplTest {
         when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(member));
         when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
 
-        assertThatThrownBy(() -> memberService.assignRole(memberId, roleId, null))
+        assertThatThrownBy(() -> memberService.assignRole(memberId, roleId, RoleAssignmentScope.ACCOUNT, null))
                 .isInstanceOf(InvalidStateException.class)
                 .hasMessage("Inactive roles cannot be assigned");
     }
@@ -285,9 +283,9 @@ class MemberServiceImplTest {
         Role role = role(roleId, account, true);
         when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(member));
         when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
-        when(memberRoleRepository.existsByMemberIdAndRoleIdAndCompanyIsNull(memberId, roleId)).thenReturn(true);
+        when(memberRoleRepository.existsByMemberIdAndRoleIdAndScopeCompanyIsNull(memberId, roleId)).thenReturn(true);
 
-        assertThatThrownBy(() -> memberService.assignRole(memberId, roleId, null))
+        assertThatThrownBy(() -> memberService.assignRole(memberId, roleId, RoleAssignmentScope.ACCOUNT, null))
                 .isInstanceOf(InvalidStateException.class)
                 .hasMessageContaining("already assigned");
 
@@ -309,11 +307,60 @@ class MemberServiceImplTest {
         when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
         when(companyRepository.findByIdAndAccountId(companyId, accountId)).thenReturn(Optional.of(company));
 
-        assertThatThrownBy(() -> memberService.assignRole(memberId, roleId, companyId))
+        assertThatThrownBy(() -> memberService.assignRole(
+                memberId, roleId, RoleAssignmentScope.COMPANY, companyId))
                 .isInstanceOf(InvalidStateException.class)
                 .hasMessageContaining("inactive company");
 
         verify(memberRoleRepository, org.mockito.Mockito.never()).saveAndFlush(any(MemberRole.class));
+    }
+
+    @Test
+    void removeRoleDeletesOnlyTheRequestedAssignmentScope() {
+        UUID accountId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        setContext(accountId);
+        Account account = account(accountId);
+        Member member = member(memberId, account, user(UUID.randomUUID()), false);
+        Role role = role(roleId, account, true);
+        when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(member));
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
+        when(memberRoleRepository.deleteAccountAssignment(memberId, roleId)).thenReturn(1);
+
+        memberService.removeRole(memberId, roleId, RoleAssignmentScope.ACCOUNT, null);
+
+        verify(memberRoleRepository).deleteAccountAssignment(memberId, roleId);
+        verify(memberRoleRepository, org.mockito.Mockito.never())
+                .deleteCompanyAssignment(any(), any(), any());
+    }
+
+    @Test
+    void roleAndOverrideManagementCannotTargetTheWorkspaceOwner() {
+        UUID accountId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        UUID companyId = UUID.randomUUID();
+        setContext(accountId);
+        Account account = account(accountId);
+        Member owner = member(memberId, account, user(UUID.randomUUID()), true);
+        Role role = role(roleId, account, true);
+        Company company = company(companyId, account, true);
+        Permission permission = new Permission();
+        permission.setCode("platform.company.read_single");
+        when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(owner));
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
+        when(companyRepository.findByIdAndAccountId(companyId, accountId)).thenReturn(Optional.of(company));
+        when(permissionRepository.findByCode(permission.getCode())).thenReturn(Optional.of(permission));
+
+        assertThatThrownBy(() -> memberService.assignRole(
+                memberId, roleId, RoleAssignmentScope.ACCOUNT, null))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("owner access");
+        assertThatThrownBy(() -> memberService.grantPermissionOverride(
+                memberId, permission.getCode(), companyId, true))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("owner access");
     }
 
     private static void setContext(UUID accountId) {

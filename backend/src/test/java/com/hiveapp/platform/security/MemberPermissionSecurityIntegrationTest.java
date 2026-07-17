@@ -38,7 +38,7 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
     @Test
     void memberPermissionOverrideCanBeGrantedAndReadWithinCurrentWorkspace() throws Exception {
         String token = registerClientAndGetToken();
-        UUID memberId = currentMemberId(token);
+        UUID memberId = createOrdinaryMember(token);
         UUID companyId = UUID.fromString(createCompany(token, "Owner Company").get("id").asText());
 
         grantOverride(token, memberId, companyId, "platform.company.read_single")
@@ -66,7 +66,7 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
     @Test
     void memberPermissionOverrideRejectsPlatformControlPermission() throws Exception {
         String token = registerClientAndGetToken();
-        UUID memberId = currentMemberId(token);
+        UUID memberId = createOrdinaryMember(token);
         UUID companyId = UUID.fromString(createCompany(token, "Owner Company").get("id").asText());
 
         grantOverride(token, memberId, companyId, "platform.plans.create")

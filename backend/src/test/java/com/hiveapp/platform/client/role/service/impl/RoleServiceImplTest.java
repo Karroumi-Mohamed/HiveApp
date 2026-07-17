@@ -15,8 +15,11 @@ import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.platform.registry.service.PermissionPickerCatalogService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
+import com.hiveapp.shared.security.DelegationCeilingService;
+import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
 import com.hiveapp.shared.exception.InvalidStateException;
+import com.hiveapp.shared.exception.ForbiddenException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,6 +48,8 @@ class RoleServiceImplTest {
     @Mock private PermissionGrantValidator permissionGrantValidator;
     @Mock private PermissionPickerCatalogService permissionPickerCatalogService;
     @Mock private PlanEntitlementService planEntitlementService;
+    @Mock private MemberRoleRepository memberRoleRepository;
+    @Mock private DelegationCeilingService delegationCeilingService;
 
     @InjectMocks
     private RoleServiceImpl roleService;
@@ -107,7 +113,8 @@ class RoleServiceImplTest {
         company.setName("Inactive Company");
         company.setCountry("US");
         company.setActive(false);
-        role.setCompany(company);
+        role.setTemplateBoundary(com.hiveapp.platform.client.role.domain.constant.RoleTemplateBoundary.COMPANY);
+        role.setBoundaryCompany(company);
         when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
 
         assertThatThrownBy(() -> roleService.addPermissionToRole(roleId, "platform.company.read_single"))
@@ -115,6 +122,27 @@ class RoleServiceImplTest {
                 .hasMessageContaining("company is inactive");
 
         verify(rolePermissionRepository, never()).save(org.mockito.ArgumentMatchers.any(RolePermission.class));
+    }
+
+    @Test
+    void addPermissionToRoleRejectsGrantAboveActorCeiling() {
+        UUID accountId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        String permissionCode = "platform.company.delete";
+        setContext(accountId);
+        Role role = role(roleId, accountId);
+        Permission permission = permission(permissionCode);
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
+        when(permissionRepository.findByCode(permissionCode)).thenReturn(Optional.of(permission));
+        when(planEntitlementService.isPermissionEntitled(accountId, permissionCode)).thenReturn(true);
+        org.mockito.Mockito.doThrow(new ForbiddenException("above actor ceiling"))
+                .when(delegationCeilingService)
+                .requireActorCanDelegate(accountId, null, List.of(permissionCode));
+
+        assertThatThrownBy(() -> roleService.addPermissionToRole(roleId, permissionCode))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("actor ceiling");
+        verify(rolePermissionRepository, never()).saveAndFlush(org.mockito.ArgumentMatchers.any());
     }
 
     private static void setContext(UUID accountId) {

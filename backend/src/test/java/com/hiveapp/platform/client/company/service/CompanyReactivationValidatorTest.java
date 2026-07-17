@@ -43,7 +43,7 @@ class CompanyReactivationValidatorTest {
         MemberPermissionOverrideRepository overrides = mock(MemberPermissionOverrideRepository.class);
         CollaborationPermissionRepository collaborations = mock(CollaborationPermissionRepository.class);
         PlanEntitlementService entitlements = mock(PlanEntitlementService.class);
-        when(roles.findAllByCompanyId(companyId)).thenReturn(List.of());
+        when(roles.findAllByScopeCompanyId(companyId)).thenReturn(List.of());
         when(overrides.findAllByCompanyId(companyId)).thenReturn(List.of());
         when(collaborations.findAllByCollaborationCompanyIdAndCollaborationStatus(
                 companyId, CollaborationStatus.ACTIVE)).thenReturn(List.of(grant));

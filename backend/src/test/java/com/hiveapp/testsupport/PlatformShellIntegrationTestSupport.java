@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hiveapp.platform.client.company.dto.CreateCompanyRequest;
 import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
+import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,6 +15,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.UUID;
+import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -94,6 +96,19 @@ public abstract class PlatformShellIntegrationTestSupport {
     protected UUID currentMemberId(String token) throws Exception {
         JsonNode members = listMembers(token);
         return UUID.fromString(members.get(0).get("id").asText());
+    }
+
+    protected UUID createOrdinaryMember(String token) throws Exception {
+        CreateMemberRequest request = new CreateMemberRequest(
+                "member-" + UUID.randomUUID().toString().substring(0, 8), null,
+                "Created", "Member", "Created Member", null, null, List.of());
+        String response = mockMvc.perform(post("/api/v1/members")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return UUID.fromString(objectMapper.readTree(response).get("member").get("id").asText());
     }
 
     private String accessToken(ResultActions resultActions) throws Exception {

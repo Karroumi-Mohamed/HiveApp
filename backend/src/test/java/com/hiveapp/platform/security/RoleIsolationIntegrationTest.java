@@ -150,7 +150,7 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
     void assignedRoleLifecycleRequiresFreshImpactConfirmationAndRetainsHistory() throws Exception {
         String token = registerClientAndGetToken();
         UUID roleId = createRole(token, null, "Lifecycle Manager");
-        UUID memberId = currentMemberId(token);
+        UUID memberId = createOrdinaryMember(token);
 
         mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
                         .header("Authorization", bearer(token))
@@ -215,7 +215,8 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
                 .andExpect(jsonPath("$.status").value("INACTIVE"));
 
         mockMvc.perform(delete("/api/v1/members/{id}/roles/{roleId}", memberId, roleId)
-                        .header("Authorization", bearer(token)))
+                        .header("Authorization", bearer(token))
+                        .param("scope", "ACCOUNT"))
                 .andExpect(status().isNoContent());
         mockMvc.perform(delete("/api/v1/roles/{id}", roleId)
                         .header("Authorization", bearer(token)))

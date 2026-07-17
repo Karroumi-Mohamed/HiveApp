@@ -64,7 +64,7 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
     void companyScopedRoleCanOnlyBeAssignedInsideItsCompany() throws Exception {
         String token = registerClientAndGetToken();
         assignPlan(token, "PRO");
-        UUID memberId = currentMemberId(token);
+        UUID memberId = createOrdinaryMember(token);
         UUID companyOneId = UUID.fromString(createCompany(token, "Company One").get("id").asText());
         UUID companyTwoId = UUID.fromString(createCompany(token, "Company Two").get("id").asText());
         UUID companyRoleId = createRole(token, companyOneId, "Company One Manager");
@@ -88,7 +88,8 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
         UUID ownerRoleId = createRole(ownerToken, null, "Owner Manager");
 
         mockMvc.perform(delete("/api/v1/members/{id}/roles/{roleId}", otherMemberId, ownerRoleId)
-                        .header("Authorization", bearer(otherToken)))
+                        .header("Authorization", bearer(otherToken))
+                        .param("scope", "ACCOUNT"))
                 .andExpect(status().isNotFound());
     }
 
