@@ -4,6 +4,8 @@ import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
@@ -44,6 +46,7 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
@@ -308,71 +311,151 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @Override
     @Transactional
     @PermissionNode(key = "grant_permission", description = "Grant or deny direct permission override")
-    public void grantPermissionOverride(UUID memberId, String permissionCode, UUID companyId, boolean decision) {
+    public void grantPermissionOverride(
+            UUID memberId, String permissionCode, PermissionOverrideScope scope,
+            UUID companyId, PermissionOverrideDecision decision,
+            String reason, Instant expiresAt) {
         var member = getMember(memberId);
-        var company = companyRepository.findByIdAndAccountId(companyId, member.getAccount().getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
+        UUID accountId = member.getAccount().getId();
+        var company = resolveExceptionCompany(accountId, scope, companyId);
         var permission = permissionRepository.findByCode(permissionCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
         permissionGrantValidator.requireClientRoleGrantable(permission);
         requireCurrentAccount(member);
-        requireSameAccount(member, company);
         requireNonOwnerTarget(member);
-        if (!company.isActive()) {
+        requireNonSelfTarget(member);
+        if (company != null && !company.isActive()) {
             throw new InvalidStateException("Permission overrides cannot be granted inside an inactive company");
         }
+        String normalizedReason = normalizeOptional(reason);
+        if (normalizedReason == null) {
+            throw new InvalidStateException("Permission exceptions require a reason");
+        }
+        if (normalizedReason.length() > 500) {
+            throw new InvalidStateException("Permission exception reasons cannot exceed 500 characters");
+        }
+        if (decision == null) {
+            throw new InvalidStateException("Permission exception decision is required");
+        }
+        if (decision == PermissionOverrideDecision.GRANT && expiresAt == null) {
+            throw new InvalidStateException("Permission GRANT exceptions require an expiry");
+        }
+        if (expiresAt != null && !expiresAt.isAfter(Instant.now())) {
+            throw new InvalidStateException("Permission exception expiry must be in the future");
+        }
         delegationCeilingService.requireActorCanDelegate(
-                member.getAccount().getId(), companyId,
+                accountId, companyId,
                 List.of(StaffFeature.CODE + ".grant_permission", permissionCode));
 
-        var override = memberOverrideRepository
-                .findByMemberIdAndCompanyIdAndPermissionId(memberId, companyId, permission.getId())
+        var override = findException(memberId, companyId, permission.getId())
                 .orElseGet(MemberPermissionOverride::new);
 
         override.setMember(member);
-        override.setCompany(company);
+        override.setScope(scope);
+        override.setScopeCompany(company);
         override.setPermission(permission);
         override.setDecision(decision);
-        memberOverrideRepository.save(override);
+        override.setReason(normalizedReason);
+        override.setExpiresAt(expiresAt);
+        if (override.getCreatedBy() == null) {
+            override.setCreatedBy(currentActorMember(accountId));
+        }
+        try {
+            memberOverrideRepository.saveAndFlush(override);
+        } catch (DataIntegrityViolationException ex) {
+            throw new InvalidStateException(
+                    "A permission exception already exists in the requested scope");
+        }
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "revoke_permission", description = "Remove direct permission override")
-    public void revokePermissionOverride(UUID memberId, String permissionCode, UUID companyId) {
+    public void revokePermissionOverride(
+            UUID memberId, String permissionCode, PermissionOverrideScope scope, UUID companyId) {
         var member = getMember(memberId);
-        var company = companyRepository.findByIdAndAccountId(companyId, member.getAccount().getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
+        UUID accountId = member.getAccount().getId();
+        resolveExceptionCompany(accountId, scope, companyId);
         var permission = permissionRepository.findByCode(permissionCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
         requireCurrentAccount(member);
-        requireSameAccount(member, company);
         requireNonOwnerTarget(member);
+        requireNonSelfTarget(member);
+        var exception = findException(memberId, companyId, permission.getId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "MemberPermissionOverride", "scope", scope));
+        List<String> requiredPermissions = new java.util.ArrayList<>();
+        requiredPermissions.add(StaffFeature.CODE + ".revoke_permission");
+        if (exception.getDecision() == PermissionOverrideDecision.DENY
+                && planEntitlementService.isPermissionEntitled(accountId, permissionCode)) {
+            requiredPermissions.add(permissionCode);
+        }
         delegationCeilingService.requireActorCanDelegate(
-                member.getAccount().getId(), companyId,
-                List.of(StaffFeature.CODE + ".revoke_permission", permissionCode));
-
-        memberOverrideRepository
-                .findByMemberIdAndCompanyIdAndPermissionId(memberId, companyId, permission.getId())
-                .ifPresent(memberOverrideRepository::delete);
+                accountId, companyId, requiredPermissions);
+        memberOverrideRepository.delete(exception);
     }
 
     @Override
     @PermissionNode(key = "read_overrides", description = "View member permission overrides")
-    public List<MemberPermissionOverrideDto> getMemberOverrides(UUID memberId, UUID companyId) {
+    @Transactional(readOnly = true)
+    public List<MemberPermissionOverrideDto> getMemberOverrides(
+            UUID memberId, PermissionOverrideScope scope, UUID companyId) {
         var member = getMember(memberId);
-        var company = companyRepository.findByIdAndAccountId(companyId, member.getAccount().getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
+        resolveExceptionCompany(member.getAccount().getId(), scope, companyId);
         requireCurrentAccount(member);
-        requireSameAccount(member, company);
-        return memberOverrideRepository.findAllByMemberIdAndCompanyId(memberId, companyId)
+        List<MemberPermissionOverride> exceptions = scope == PermissionOverrideScope.ACCOUNT
+                ? memberOverrideRepository.findAllByMemberIdAndScopeCompanyIsNull(memberId)
+                : memberOverrideRepository.findAllByMemberIdAndScopeCompanyId(memberId, companyId);
+        Instant now = Instant.now();
+        return exceptions
                 .stream()
                 .map(override -> new MemberPermissionOverrideDto(
+                        override.getId(),
                         override.getMember().getId(),
-                        override.getCompany().getId(),
+                        override.getScope(),
+                        override.getScopeCompany() == null ? null : override.getScopeCompany().getId(),
                         override.getPermission().getCode(),
-                        override.isDecision()))
+                        override.getDecision(),
+                        override.getReason(),
+                        override.getCreatedBy().getId(),
+                        override.getExpiresAt(),
+                        override.isEffectiveAt(now),
+                        override.getCreatedAt(),
+                        override.getUpdatedAt()))
                 .toList();
+    }
+
+    private com.hiveapp.platform.client.account.domain.entity.Company resolveExceptionCompany(
+            UUID accountId, PermissionOverrideScope scope, UUID companyId) {
+        if (scope == null) {
+            throw new InvalidStateException("Permission exception scope is required");
+        }
+        if (scope == PermissionOverrideScope.ACCOUNT) {
+            if (companyId != null) {
+                throw new InvalidStateException("Account permission exceptions cannot declare a company");
+            }
+            return null;
+        }
+        if (companyId == null) {
+            throw new InvalidStateException("Company permission exceptions require a company");
+        }
+        return companyRepository.findByIdAndAccountId(companyId, accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
+    }
+
+    private java.util.Optional<MemberPermissionOverride> findException(
+            UUID memberId, UUID companyId, UUID permissionId) {
+        return companyId == null
+                ? memberOverrideRepository.findByMemberIdAndScopeCompanyIsNullAndPermissionId(
+                        memberId, permissionId)
+                : memberOverrideRepository.findByMemberIdAndScopeCompanyIdAndPermissionId(
+                        memberId, companyId, permissionId);
+    }
+
+    private Member currentActorMember(UUID accountId) {
+        UUID actorUserId = HiveAppContextHolder.getContext().actorUserId();
+        return memberRepository.findByAccountIdAndUserId(accountId, actorUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member", "userId", actorUserId));
     }
 
     private void requireCurrentAccount(Member member) {
@@ -442,6 +525,13 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     private void requireNonOwnerTarget(Member member) {
         if (member.isOwner()) {
             throw new ForbiddenException("Workspace owner access cannot be changed through role or override management");
+        }
+    }
+
+    private void requireNonSelfTarget(Member member) {
+        UUID actorUserId = HiveAppContextHolder.getContext().actorUserId();
+        if (member.getUser().getId().equals(actorUserId)) {
+            throw new ForbiddenException("Members cannot create, edit, or revoke their own permission exceptions");
         }
     }
 

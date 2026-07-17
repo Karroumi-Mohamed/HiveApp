@@ -11,6 +11,7 @@ import com.hiveapp.platform.client.member.dto.UpdateMemberRequest;
 import com.hiveapp.platform.client.member.mapper.MemberMapper;
 import com.hiveapp.platform.client.member.service.MemberService;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -100,19 +101,25 @@ public class MemberController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void grantPermissionOverride(@PathVariable UUID id,
                                         @Valid @RequestBody OverridePermissionRequest req) {
-        memberService.grantPermissionOverride(id, req.permissionCode(), req.companyId(), req.decision());
+        memberService.grantPermissionOverride(
+                id, req.permissionCode(), req.scope(), req.companyId(),
+                req.decision(), req.reason(), req.expiresAt());
     }
 
     @DeleteMapping("/{id}/permissions/{permissionCode}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void revokePermissionOverride(@PathVariable UUID id,
                                          @PathVariable String permissionCode,
-                                         @RequestParam UUID companyId) {
-        memberService.revokePermissionOverride(id, permissionCode, companyId);
+                                         @RequestParam PermissionOverrideScope scope,
+                                         @RequestParam(required = false) UUID companyId) {
+        memberService.revokePermissionOverride(id, permissionCode, scope, companyId);
     }
 
     @GetMapping("/{id}/permissions")
-    public List<MemberPermissionOverrideDto> getMemberOverrides(@PathVariable UUID id, @RequestParam UUID companyId) {
-        return memberService.getMemberOverrides(id, companyId);
+    public List<MemberPermissionOverrideDto> getMemberOverrides(
+            @PathVariable UUID id,
+            @RequestParam PermissionOverrideScope scope,
+            @RequestParam(required = false) UUID companyId) {
+        return memberService.getMemberOverrides(id, scope, companyId);
     }
 }

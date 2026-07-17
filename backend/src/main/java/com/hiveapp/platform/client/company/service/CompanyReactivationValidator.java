@@ -32,9 +32,11 @@ public class CompanyReactivationValidator {
                 .map(rolePermission -> rolePermission.getPermission().getCode())
                 .forEach(permissionsToRestore::add);
 
-        memberOverrideRepository.findAllByCompanyId(company.getId()).stream()
+        memberOverrideRepository.findAllByScopeCompanyId(company.getId()).stream()
                 .filter(override -> override.getMember().isActive())
-                .filter(override -> override.isDecision())
+                .filter(override -> override.getDecision()
+                        == com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision.GRANT)
+                .filter(override -> override.isEffectiveAt(java.time.Instant.now()))
                 .map(override -> override.getPermission().getCode())
                 .forEach(permissionsToRestore::add);
 

@@ -18,6 +18,8 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.time.Instant;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
 
 @Service
 @RequiredArgsConstructor
@@ -65,17 +67,22 @@ public class EffectivePermissionService {
             }
         }
 
-        for (var override : memberOverrideRepository.findAllByMemberId(member.getId())) {
-            if (!override.getCompany().isActive()
-                    || !override.getCompany().getId().equals(targetCompanyId)) {
+        Set<String> denied = new HashSet<>();
+        Instant now = Instant.now();
+        for (var override : memberOverrideRepository.findApplicable(member.getId(), targetCompanyId)) {
+            if (!override.isEffectiveAt(now)) {
                 continue;
             }
-            if (override.isDecision()) {
+            if (override.getScopeCompany() != null && !override.getScopeCompany().isActive()) {
+                continue;
+            }
+            if (override.getDecision() == PermissionOverrideDecision.GRANT) {
                 permissions.add(override.getPermission().getCode());
             } else {
-                permissions.remove(override.getPermission().getCode());
+                denied.add(override.getPermission().getCode());
             }
         }
+        permissions.removeAll(denied);
 
         permissions.removeIf(permissionCode -> !planEntitlementService.isPermissionEntitled(accountId, permissionCode));
         return new MemberPermissionDto(member.getId(), false, permissions);
