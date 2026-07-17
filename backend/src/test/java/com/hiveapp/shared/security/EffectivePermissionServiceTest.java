@@ -6,6 +6,8 @@ import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
+import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
@@ -24,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -90,7 +93,7 @@ class EffectivePermissionServiceTest {
         when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(member));
         when(memberRoleRepository.findAllByMemberId(memberId))
                 .thenReturn(Stream.of(inactive, archived).map(role -> assignment(member, role)).toList());
-        when(memberOverrideRepository.findAllByMemberId(memberId)).thenReturn(List.of());
+        when(memberOverrideRepository.findApplicable(memberId, null)).thenReturn(List.of());
 
         var result = service.getEffectivePermissions(userId, accountId);
 
@@ -117,7 +120,8 @@ class EffectivePermissionServiceTest {
                 assignment(member, role(accountId, RoleStatus.ACTIVE, accountPermission)),
                 assignment(member, role(accountId, RoleStatus.ACTIVE, firstPermission), first),
                 assignment(member, role(accountId, RoleStatus.ACTIVE, secondPermission), second)));
-        when(memberOverrideRepository.findAllByMemberId(memberId)).thenReturn(List.of());
+        when(memberOverrideRepository.findApplicable(memberId, firstCompanyId)).thenReturn(List.of());
+        when(memberOverrideRepository.findApplicable(memberId, null)).thenReturn(List.of());
         when(planEntitlementService.isPermissionEntitled(accountId, accountPermission.getCode())).thenReturn(true);
         when(planEntitlementService.isPermissionEntitled(accountId, firstPermission.getCode())).thenReturn(true);
 
@@ -127,6 +131,49 @@ class EffectivePermissionServiceTest {
         assertThat(companyAccess.permissions())
                 .containsExactlyInAnyOrder(accountPermission.getCode(), firstPermission.getCode());
         assertThat(accountAccess.permissions()).containsExactly(accountPermission.getCode());
+    }
+
+    @Test
+    void anyActiveApplicableDenyRemovesRoleAndGrantAuthority() {
+        UUID accountId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID companyId = UUID.randomUUID();
+        Account account = account(accountId);
+        Member member = member(memberId, account, user(userId), false);
+        Permission permission = permission("platform.company.delete");
+        Company company = company(companyId, account);
+
+        when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(member));
+        when(memberRoleRepository.findAllByMemberId(memberId)).thenReturn(List.of(
+                assignment(member, role(accountId, RoleStatus.ACTIVE, permission))));
+        when(memberOverrideRepository.findApplicable(memberId, companyId)).thenReturn(List.of(
+                permissionException(member, null, permission, PermissionOverrideDecision.GRANT,
+                        Instant.now().plusSeconds(3600)),
+                permissionException(member, company, permission, PermissionOverrideDecision.DENY, null)));
+        var result = service.getEffectivePermissions(userId, accountId, companyId);
+
+        assertThat(result.permissions()).doesNotContain(permission.getCode());
+    }
+
+    @Test
+    void expiredGrantDoesNotProvideRuntimeAuthority() {
+        UUID accountId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        Account account = account(accountId);
+        Member member = member(memberId, account, user(userId), false);
+        Permission permission = permission("platform.company.delete");
+
+        when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(member));
+        when(memberRoleRepository.findAllByMemberId(memberId)).thenReturn(List.of());
+        when(memberOverrideRepository.findApplicable(memberId, null)).thenReturn(List.of(
+                permissionException(member, null, permission, PermissionOverrideDecision.GRANT,
+                        Instant.now().minusSeconds(1))));
+
+        var result = service.getEffectivePermissions(userId, accountId);
+
+        assertThat(result.permissions()).doesNotContain(permission.getCode());
     }
 
     private static Account account(UUID id) {
@@ -172,6 +219,21 @@ class EffectivePermissionServiceTest {
         permission.setCode(code);
         permission.setName(code);
         return permission;
+    }
+
+    private static MemberPermissionOverride permissionException(
+            Member member,
+            Company company,
+            Permission permission,
+            PermissionOverrideDecision decision,
+            Instant expiresAt) {
+        MemberPermissionOverride exception = new MemberPermissionOverride();
+        exception.setMember(member);
+        exception.setScopeCompany(company);
+        exception.setPermission(permission);
+        exception.setDecision(decision);
+        exception.setExpiresAt(expiresAt);
+        return exception;
     }
 
     private static Role role(UUID accountId, RoleStatus status, Permission permission) {

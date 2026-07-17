@@ -12,6 +12,7 @@ import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
+import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
@@ -32,6 +33,8 @@ import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
 import com.hiveapp.shared.security.DelegationCeilingService;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import org.junit.jupiter.api.AfterEach;
@@ -47,6 +50,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.LongSupplier;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -358,9 +362,87 @@ class MemberServiceImplTest {
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("owner access");
         assertThatThrownBy(() -> memberService.grantPermissionOverride(
-                memberId, permission.getCode(), companyId, true))
+                memberId, permission.getCode(), PermissionOverrideScope.COMPANY, companyId,
+                PermissionOverrideDecision.GRANT, "Temporary access", Instant.now().plusSeconds(3600)))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("owner access");
+    }
+
+    @Test
+    void memberCannotCreateOwnPermissionException() {
+        UUID accountId = UUID.randomUUID();
+        UUID actorUserId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        setContext(accountId, actorUserId);
+        Member actor = member(memberId, account(accountId), user(actorUserId), false);
+        Permission permission = permission(UUID.randomUUID(), "platform.company.delete");
+        when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(actor));
+        when(permissionRepository.findByCode(permission.getCode())).thenReturn(Optional.of(permission));
+
+        assertThatThrownBy(() -> memberService.grantPermissionOverride(
+                memberId, permission.getCode(), PermissionOverrideScope.ACCOUNT, null,
+                PermissionOverrideDecision.GRANT, "Self escalation", Instant.now().plusSeconds(3600)))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("own permission exceptions");
+
+        verifyNoInteractions(delegationCeilingService);
+    }
+
+    @Test
+    void grantPermissionExceptionRequiresFutureExpiry() {
+        UUID accountId = UUID.randomUUID();
+        UUID actorUserId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        setContext(accountId, actorUserId);
+        Member target = member(memberId, account(accountId), user(UUID.randomUUID()), false);
+        Permission permission = permission(UUID.randomUUID(), "platform.company.delete");
+        when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(target));
+        when(permissionRepository.findByCode(permission.getCode())).thenReturn(Optional.of(permission));
+
+        assertThatThrownBy(() -> memberService.grantPermissionOverride(
+                memberId, permission.getCode(), PermissionOverrideScope.ACCOUNT, null,
+                PermissionOverrideDecision.GRANT, "Temporary access", null))
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessageContaining("require an expiry");
+        assertThatThrownBy(() -> memberService.grantPermissionOverride(
+                memberId, permission.getCode(), PermissionOverrideScope.ACCOUNT, null,
+                PermissionOverrideDecision.DENY, "Expired restriction", Instant.now().minusSeconds(1)))
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessageContaining("future");
+    }
+
+    @Test
+    void permissionExceptionRecordsCreatorDecisionReasonAndScope() {
+        UUID accountId = UUID.randomUUID();
+        UUID actorUserId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        setContext(accountId, actorUserId);
+        Account account = account(accountId);
+        Member target = member(memberId, account, user(UUID.randomUUID()), false);
+        Member actor = member(UUID.randomUUID(), account, user(actorUserId), false);
+        Permission permission = permission(UUID.randomUUID(), "platform.company.delete");
+        Instant expiry = Instant.now().plusSeconds(3600);
+        when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(target));
+        when(memberRepository.findByAccountIdAndUserId(accountId, actorUserId)).thenReturn(Optional.of(actor));
+        when(permissionRepository.findByCode(permission.getCode())).thenReturn(Optional.of(permission));
+        when(memberOverrideRepository.findByMemberIdAndScopeCompanyIsNullAndPermissionId(
+                memberId, permission.getId())).thenReturn(Optional.empty());
+        when(memberOverrideRepository.saveAndFlush(any(MemberPermissionOverride.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        memberService.grantPermissionOverride(
+                memberId, permission.getCode(), PermissionOverrideScope.ACCOUNT, null,
+                PermissionOverrideDecision.GRANT, "  Temporary access  ", expiry);
+
+        ArgumentCaptor<MemberPermissionOverride> saved =
+                ArgumentCaptor.forClass(MemberPermissionOverride.class);
+        verify(memberOverrideRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getCreatedBy()).isSameAs(actor);
+        assertThat(saved.getValue().getDecision()).isEqualTo(PermissionOverrideDecision.GRANT);
+        assertThat(saved.getValue().getReason()).isEqualTo("Temporary access");
+        assertThat(saved.getValue().getScope()).isEqualTo(PermissionOverrideScope.ACCOUNT);
+        assertThat(saved.getValue().getScopeCompany()).isNull();
+        assertThat(saved.getValue().getExpiresAt()).isEqualTo(expiry);
     }
 
     private static void setContext(UUID accountId) {
@@ -429,6 +511,14 @@ class MemberServiceImplTest {
         company.setCountry("US");
         company.setActive(active);
         return company;
+    }
+
+    private static Permission permission(UUID id, String code) {
+        Permission permission = new Permission();
+        ReflectionTestUtils.setField(permission, "id", id);
+        permission.setCode(code);
+        permission.setName(code);
+        return permission;
     }
 
     private static void addPermission(Role role, String code) {

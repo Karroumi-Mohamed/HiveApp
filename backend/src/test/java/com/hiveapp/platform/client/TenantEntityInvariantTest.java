@@ -14,6 +14,8 @@ import com.hiveapp.platform.client.company.domain.entity.GroupTemplateNode;
 import com.hiveapp.platform.client.company.domain.entity.OrganizationGroup;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import com.hiveapp.platform.client.role.domain.entity.Role;
 import jakarta.persistence.JoinColumn;
@@ -128,10 +130,15 @@ class TenantEntityInvariantTest {
     @Test
     void permissionOverrideCompanyMustBelongToMemberAccount() {
         MemberPermissionOverride override = new MemberPermissionOverride();
-        override.setMember(member(account(user()), user()));
-        override.setCompany(company(account(user())));
+        Account memberAccount = account(user());
+        override.setMember(member(memberAccount, user()));
+        override.setCreatedBy(member(memberAccount, user()));
+        override.setScope(PermissionOverrideScope.COMPANY);
+        override.setScopeCompany(company(account(user())));
+        override.setDecision(PermissionOverrideDecision.DENY);
+        override.setReason("Security exception");
 
-        assertInvalid(override, "Member permission override company must belong to the member account");
+        assertInvalid(override, "Member permission exception company must belong to the member account");
     }
 
     @Test

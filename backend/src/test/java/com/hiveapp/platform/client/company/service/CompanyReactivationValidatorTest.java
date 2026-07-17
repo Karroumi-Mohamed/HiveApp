@@ -44,7 +44,7 @@ class CompanyReactivationValidatorTest {
         CollaborationPermissionRepository collaborations = mock(CollaborationPermissionRepository.class);
         PlanEntitlementService entitlements = mock(PlanEntitlementService.class);
         when(roles.findAllByScopeCompanyId(companyId)).thenReturn(List.of());
-        when(overrides.findAllByCompanyId(companyId)).thenReturn(List.of());
+        when(overrides.findAllByScopeCompanyId(companyId)).thenReturn(List.of());
         when(collaborations.findAllByCollaborationCompanyIdAndCollaborationStatus(
                 companyId, CollaborationStatus.ACTIVE)).thenReturn(List.of(grant));
         when(entitlements.isPermissionEntitled(accountId, permission.getCode())).thenReturn(false);
