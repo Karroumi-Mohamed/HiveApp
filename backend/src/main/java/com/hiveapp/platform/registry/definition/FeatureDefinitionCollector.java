@@ -4,11 +4,14 @@ import dev.karroumi.permissionizer.PermissionNode;
 import dev.karroumi.permissionizer.PermissionResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.Arrays;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -35,6 +38,27 @@ public class FeatureDefinitionCollector {
     public Map<String, FeatureDefinition> collectByCode() {
         return collect().stream()
                 .collect(Collectors.toUnmodifiableMap(FeatureDefinition::code, Function.identity()));
+    }
+
+    public Set<String> guardedFeatureCodes() {
+        validateContributorRoots(contributors);
+        return contributors.stream()
+                .filter(contributor -> AopUtils.getTargetClass(contributor)
+                        .getAnnotation(PermissionNode.class) != null)
+                .map(contributor -> contributor.featureDefinitions().get(0).code())
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    public Set<String> guardedActionCodes() {
+        validateContributorRoots(contributors);
+        return contributors.stream()
+                .map(AopUtils::getTargetClass)
+                .flatMap(type -> Arrays.stream(type.getMethods()))
+                .filter(method -> AnnotationUtils.findAnnotation(method, PermissionNode.class) != null)
+                .map(PermissionResolver::resolve)
+                .filter(PermissionResolver.Result::shouldCheck)
+                .map(PermissionResolver.Result::path)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     private void validateUniqueCodes(List<FeatureDefinition> definitions) {

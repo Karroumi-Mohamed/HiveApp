@@ -27,6 +27,7 @@ public class PermissionPickerCatalogService {
     private final ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
     private final PermissionRepository permissionRepository;
     private final PlanEntitlementService planEntitlementService;
+    private final CurrentRegistrySnapshot currentRegistrySnapshot;
 
     public List<PermissionPickerModuleDto> clientRoleCatalog(UUID accountId) {
         return catalog(
@@ -50,6 +51,7 @@ public class PermissionPickerCatalogService {
             BiPredicate<FeatureDefinition, Permission> permissionFilter
     ) {
         Map<String, List<Permission>> permissionsByFeature = permissionRepository.findAll().stream()
+                .filter(permission -> currentRegistrySnapshot.containsAction(permission.getCode()))
                 .filter(permission -> planEntitlementService.isPermissionEntitled(accountId, permission.getCode()))
                 .collect(Collectors.groupingBy(permission -> featureCode(permission.getCode())));
 

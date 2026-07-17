@@ -1,6 +1,7 @@
 package com.hiveapp.platform.registry.definition;
 
 import com.hiveapp.platform.registry.domain.entity.Permission;
+import com.hiveapp.platform.registry.service.CurrentRegistrySnapshot;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -11,9 +12,13 @@ import java.util.Map;
 public class PermissionGrantValidator {
 
     private final ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
+    private final CurrentRegistrySnapshot currentRegistrySnapshot;
 
-    public PermissionGrantValidator(ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider) {
+    public PermissionGrantValidator(
+            ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider,
+            CurrentRegistrySnapshot currentRegistrySnapshot) {
         this.featureDefinitionCollectorProvider = featureDefinitionCollectorProvider;
+        this.currentRegistrySnapshot = currentRegistrySnapshot;
     }
 
     public void requireClientRoleGrantable(Permission permission) {
@@ -40,6 +45,9 @@ public class PermissionGrantValidator {
     }
 
     private boolean isGrantable(String permissionCode, GrantTarget target) {
+        if (!currentRegistrySnapshot.containsAction(permissionCode)) {
+            return false;
+        }
         FeatureDefinition definition = findDefinition(permissionCode);
         return definition != null && switch (target) {
             case CLIENT_ROLE -> definition.clientRoleGrantable();

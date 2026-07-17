@@ -6,20 +6,17 @@ import com.hiveapp.platform.registry.definition.FeatureDefinitionException;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import dev.karroumi.permissionizer.CollectedPermission;
-import dev.karroumi.permissionizer.PermissionCollector;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * Runs at startup (Order 2, after FeatureSeeder) to sync Permission rows
- * collected from @PermissionNode annotations via Permissionizer.
+ * Internal writer used by RegistryStartupSynchronizer inside one registry transaction.
  *
  * Only concrete action permissions are persisted:
  *   "<module>.<feature>.<action>"
@@ -36,16 +33,10 @@ public class PermissionSeeder {
     private final PermissionRepository permissionRepository;
     private final FeatureRepository featureRepository;
 
-    @EventListener(ApplicationReadyEvent.class)
-    @Order(2)
-    @Transactional
-    public void seedPermissions() {
+    SeedResult seedPermissions(List<CollectedPermission> collected) {
         log.info("Starting Permission Seeder...");
-        seedPermissions(PermissionCollector.collect());
-    }
-
-    void seedPermissions(List<CollectedPermission> collected) {
         int created = 0;
+        int updated = 0;
         int skippedStructural = 0;
 
         for (CollectedPermission cp : collected) {
@@ -73,10 +64,21 @@ public class PermissionSeeder {
 
             var existing = permissionRepository.findByCode(cp.path());
             if (existing.isPresent()) {
-                if (existing.get().getFeature() == null
-                        || !featureCode.equals(existing.get().getFeature().getCode())) {
-                    throw invalid("Persisted permission '" + cp.path()
-                            + "' is not linked to Feature '" + featureCode + "'.");
+                Permission permission = existing.get();
+                boolean changed = permission.getFeature() == null
+                        || !featureCode.equals(permission.getFeature().getCode())
+                        || !Objects.equals(permission.getName(), cp.path())
+                        || !Objects.equals(permission.getDescription(), cp.description())
+                        || !Objects.equals(permission.getResource(), featureCode)
+                        || !Objects.equals(permission.getAction(), cp.key());
+                if (changed) {
+                    permission.setName(cp.path());
+                    permission.setDescription(cp.description());
+                    permission.setResource(featureCode);
+                    permission.setAction(cp.key());
+                    permission.setFeature(feature);
+                    permissionRepository.save(permission);
+                    updated++;
                 }
                 continue;
             }
@@ -92,8 +94,19 @@ public class PermissionSeeder {
             created++;
         }
 
-        log.info("Permission Seeder complete — created: {}, skipped structural: {}",
-                created, skippedStructural);
+        Set<String> currentActionCodes = collected.stream()
+                .filter(permission -> isStrictActionPermission(permission.path()))
+                .map(CollectedPermission::path)
+                .collect(Collectors.toUnmodifiableSet());
+        List<String> orphanedPermissionCodes = permissionRepository.findAll().stream()
+                .map(Permission::getCode)
+                .filter(code -> !currentActionCodes.contains(code))
+                .sorted()
+                .toList();
+
+        log.info("Permission Seeder complete — created: {}, updated: {}, orphaned: {}",
+                created, updated, orphanedPermissionCodes.size());
+        return new SeedResult(created, updated, skippedStructural, orphanedPermissionCodes);
     }
 
     static boolean isStructuralNode(String permissionCode) {
@@ -125,5 +138,19 @@ public class PermissionSeeder {
             return 0;
         }
         return value.chars().filter(c -> c == '.').count();
+    }
+
+    public record SeedResult(
+            int permissionsCreated,
+            int permissionsUpdated,
+            int structuralNodesSkipped,
+            List<String> orphanedPermissionCodes) {
+        public SeedResult(int permissionsCreated, int permissionsUpdated, int structuralNodesSkipped) {
+            this(permissionsCreated, permissionsUpdated, structuralNodesSkipped, List.of());
+        }
+
+        public SeedResult {
+            orphanedPermissionCodes = List.copyOf(orphanedPermissionCodes);
+        }
     }
 }

@@ -10,17 +10,15 @@ import com.hiveapp.platform.registry.domain.repository.ModuleRepository;
 import com.hiveapp.shared.quota.QuotaSlot;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
- * Runs at startup (Order 1, before PermissionSeeder) to sync Module and Feature rows
- * from code-owned FeatureDefinition contributors.
+ * Internal writer used by RegistryStartupSynchronizer inside one registry transaction.
  *
  * Module code is derived from the first segment of each feature code:
  *   "hr.employees" -> module "hr"
@@ -37,22 +35,25 @@ public class FeatureSeeder {
     private final FeatureRepository featureRepository;
     private final FeatureDefinitionCollector featureDefinitionCollector;
 
-    @EventListener(ApplicationReadyEvent.class)
-    @Order(1)
-    @Transactional
-    public void seedFeatures() {
+    public SeedResult seedFeatures() {
+        return synchronize(featureDefinitionCollector.collect());
+    }
+
+    SeedResult synchronize(List<FeatureDefinition> definitions) {
         log.info("Starting Feature Seeder...");
         int modulesCreated = 0;
         int featuresCreated = 0;
         int featuresUpdated = 0;
+        Map<String, Module> modules = new HashMap<>();
 
-        for (FeatureDefinition definition : featureDefinitionCollector.collect()) {
+        for (FeatureDefinition definition : definitions) {
             SeedResult result = syncFeature(
                     definition.code(),
                     definition.moduleCode(),
                     definition.lifecycleStatus(),
                     definition.quotaSlots(),
-                    definition.sortOrder());
+                    definition.sortOrder(),
+                    modules);
             modulesCreated += result.modulesCreated();
             featuresCreated += result.featuresCreated();
             featuresUpdated += result.featuresUpdated();
@@ -60,22 +61,28 @@ public class FeatureSeeder {
 
         log.info("Feature Seeder complete — modules created: {}, features created: {}, quota schemas synced: {}",
                 modulesCreated, featuresCreated, featuresUpdated);
+        return new SeedResult(modulesCreated, featuresCreated, featuresUpdated);
     }
 
     private SeedResult syncFeature(String featureCode, String moduleCode, FeatureStatus lifecycleStatus,
-                                   List<QuotaSlot> quotaSlots, int sortOrder) {
+                                   List<QuotaSlot> quotaSlots, int sortOrder,
+                                   Map<String, Module> modules) {
         int modulesCreated = 0;
         int featuresCreated = 0;
         int featuresUpdated = 0;
 
-        var moduleLookup = moduleRepository.findByCode(moduleCode);
-        Module module = moduleLookup.orElseGet(() -> {
-            Module m = new Module();
-            m.setCode(moduleCode);
-            return moduleRepository.save(m);
-        });
-        if (moduleLookup.isEmpty()) {
-            modulesCreated++;
+        Module module = modules.get(moduleCode);
+        if (module == null) {
+            var moduleLookup = moduleRepository.findByCode(moduleCode);
+            module = moduleLookup.orElseGet(() -> {
+                Module created = new Module();
+                created.setCode(moduleCode);
+                return moduleRepository.save(created);
+            });
+            modules.put(moduleCode, module);
+            if (moduleLookup.isEmpty()) {
+                modulesCreated++;
+            }
         }
 
         var existing = featureRepository.findByCode(featureCode);
@@ -90,16 +97,24 @@ public class FeatureSeeder {
             featuresCreated++;
         } else {
             Feature feature = existing.get();
-            feature.setStatus(lifecycleStatus);
-            feature.setQuotaSchema(quotaSlots);
-            feature.setSortOrder(sortOrder);
-            featureRepository.save(feature);
-            featuresUpdated++;
+            boolean changed = feature.getModule() == null
+                    || !moduleCode.equals(feature.getModule().getCode())
+                    || feature.getStatus() != lifecycleStatus
+                    || !Objects.equals(feature.getQuotaSchema(), quotaSlots)
+                    || feature.getSortOrder() != sortOrder;
+            if (changed) {
+                feature.setModule(module);
+                feature.setStatus(lifecycleStatus);
+                feature.setQuotaSchema(quotaSlots);
+                feature.setSortOrder(sortOrder);
+                featureRepository.save(feature);
+                featuresUpdated++;
+            }
         }
 
         return new SeedResult(modulesCreated, featuresCreated, featuresUpdated);
     }
 
-    private record SeedResult(int modulesCreated, int featuresCreated, int featuresUpdated) {
+    public record SeedResult(int modulesCreated, int featuresCreated, int featuresUpdated) {
     }
 }

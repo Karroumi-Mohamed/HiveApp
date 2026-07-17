@@ -11,12 +11,15 @@ import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureSe
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.platform.registry.domain.repository.ModuleRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
+import com.hiveapp.platform.registry.domain.repository.RegistrySyncRunRepository;
 import com.hiveapp.platform.registry.dto.FeatureCatalogAudience;
 import com.hiveapp.platform.registry.dto.PermissionCatalogAudience;
 import com.hiveapp.platform.registry.dto.RegistryFeatureReadModelDto;
 import com.hiveapp.platform.registry.dto.RegistryModuleReadModelDto;
 import com.hiveapp.platform.registry.dto.RegistryPermissionDto;
+import com.hiveapp.platform.registry.dto.RegistrySyncRunDto;
 import com.hiveapp.platform.registry.service.RegistryService;
+import com.hiveapp.platform.registry.service.CurrentRegistrySnapshot;
 import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import dev.karroumi.permissionizer.PermissionNode;
@@ -40,7 +43,9 @@ public class RegistryServiceImpl extends PlatformControlFeatureService implement
     private final ModuleRepository moduleRepository;
     private final FeatureRepository featureRepository;
     private final PermissionRepository permissionRepository;
+    private final RegistrySyncRunRepository registrySyncRunRepository;
     private final ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
+    private final CurrentRegistrySnapshot currentRegistrySnapshot;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -112,6 +117,32 @@ public class RegistryServiceImpl extends PlatformControlFeatureService implement
                                 .toList()))
                 .filter(module -> !module.features().isEmpty())
                 .toList();
+    }
+
+    @Override
+    @PermissionNode(key = "sync_status", description = "View the latest registry synchronization summary")
+    @Transactional(readOnly = true)
+    public RegistrySyncRunDto getLatestSynchronizationRun() {
+        var run = registrySyncRunRepository.findFirstByOrderByStartedAtDesc()
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "RegistrySyncRun", "latest", "synchronization"));
+        return new RegistrySyncRunDto(
+                run.getId(),
+                run.getBuildVersion(),
+                run.getSnapshotHash(),
+                run.getStatus(),
+                run.getStartedAt(),
+                run.getCompletedAt(),
+                run.getDiscoveredModules(),
+                run.getDiscoveredFeatures(),
+                run.getDiscoveredPermissions(),
+                run.getCreatedModules(),
+                run.getCreatedFeatures(),
+                run.getUpdatedFeatures(),
+                run.getCreatedPermissions(),
+                run.getUpdatedPermissions(),
+                run.getOrphanedPermissions(),
+                run.getDetails());
     }
 
     @Override
@@ -203,6 +234,7 @@ public class RegistryServiceImpl extends PlatformControlFeatureService implement
 
     private Map<String, List<Permission>> permissionsByFeatureCode(List<Permission> permissions) {
         return permissions.stream()
+                .filter(permission -> currentRegistrySnapshot.containsAction(permission.getCode()))
                 .filter(permission -> featureCode(permission.getCode()) != null)
                 .collect(Collectors.groupingBy(permission -> Objects.requireNonNull(featureCode(permission.getCode()))));
     }

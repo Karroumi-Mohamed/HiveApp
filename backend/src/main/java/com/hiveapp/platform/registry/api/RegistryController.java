@@ -4,6 +4,7 @@ import com.hiveapp.platform.registry.domain.entity.Module;
 import com.hiveapp.platform.registry.dto.FeatureCatalogAudience;
 import com.hiveapp.platform.registry.dto.PermissionCatalogAudience;
 import com.hiveapp.platform.registry.dto.RegistryModuleReadModelDto;
+import com.hiveapp.platform.registry.dto.RegistrySyncRunDto;
 import com.hiveapp.platform.registry.service.RegistryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -41,6 +42,11 @@ public class RegistryController {
             @RequestParam(defaultValue = "ALL") PermissionCatalogAudience audience
     ) {
         return ResponseEntity.ok(registryService.getPermissionCatalog(audience));
+    }
+
+    @GetMapping("/synchronization/latest")
+    public ResponseEntity<RegistrySyncRunDto> getLatestSynchronizationRun() {
+        return ResponseEntity.ok(registryService.getLatestSynchronizationRun());
     }
 
     @PatchMapping("/features/{id}/active")

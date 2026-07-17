@@ -4,6 +4,7 @@ import com.hiveapp.platform.registry.domain.entity.Module;
 import com.hiveapp.platform.registry.dto.FeatureCatalogAudience;
 import com.hiveapp.platform.registry.dto.PermissionCatalogAudience;
 import com.hiveapp.platform.registry.dto.RegistryModuleReadModelDto;
+import com.hiveapp.platform.registry.dto.RegistrySyncRunDto;
 import java.util.List;
 import java.util.UUID;
 
@@ -17,5 +18,6 @@ public interface RegistryService {
     List<Module> getPublicCatalog();
     List<RegistryModuleReadModelDto> getFeatureCatalog(FeatureCatalogAudience audience);
     List<RegistryModuleReadModelDto> getPermissionCatalog(PermissionCatalogAudience audience);
+    RegistrySyncRunDto getLatestSynchronizationRun();
     void updateFeatureActive(UUID featureId, boolean active);
 }
