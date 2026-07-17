@@ -22,6 +22,7 @@ import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.client.role.domain.entity.Role;
 import com.hiveapp.platform.client.role.domain.entity.RolePermission;
+import com.hiveapp.platform.client.role.domain.constant.RoleStatus;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
@@ -174,7 +175,7 @@ class MemberServiceImplTest {
                 .thenReturn(new MemberPermissionDto(
                         UUID.randomUUID(), false,
                         Set.of("platform.staff.assign_role", "platform.company.read_single")));
-        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
         when(planEntitlementService.isPermissionEntitled(accountId, "platform.company.read_single"))
                 .thenReturn(true);
         when(memberCredentialService.initialize(any(User.class), eq(account)))
@@ -210,7 +211,7 @@ class MemberServiceImplTest {
         when(effectivePermissionService.getEffectivePermissions(actorUserId, accountId))
                 .thenReturn(new MemberPermissionDto(
                         UUID.randomUUID(), false, Set.of("platform.staff.assign_role")));
-        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
         when(planEntitlementService.isPermissionEntitled(accountId, "platform.company.delete"))
                 .thenReturn(true);
 
@@ -266,7 +267,7 @@ class MemberServiceImplTest {
         Member member = member(memberId, account, user(UUID.randomUUID()), false);
         Role role = role(roleId, account, false);
         when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(member));
-        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
 
         assertThatThrownBy(() -> memberService.assignRole(memberId, roleId, null))
                 .isInstanceOf(InvalidStateException.class)
@@ -283,7 +284,7 @@ class MemberServiceImplTest {
         Member member = member(memberId, account, user(UUID.randomUUID()), false);
         Role role = role(roleId, account, true);
         when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(member));
-        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
         when(memberRoleRepository.existsByMemberIdAndRoleIdAndCompanyIsNull(memberId, roleId)).thenReturn(true);
 
         assertThatThrownBy(() -> memberService.assignRole(memberId, roleId, null))
@@ -305,7 +306,7 @@ class MemberServiceImplTest {
         Role role = role(roleId, account, true);
         Company company = company(companyId, account, false);
         when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(member));
-        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
         when(companyRepository.findByIdAndAccountId(companyId, accountId)).thenReturn(Optional.of(company));
 
         assertThatThrownBy(() -> memberService.assignRole(memberId, roleId, companyId))
@@ -369,7 +370,7 @@ class MemberServiceImplTest {
         ReflectionTestUtils.setField(role, "id", id);
         role.setAccount(account);
         role.setName("Manager");
-        role.setActive(active);
+        role.setStatus(active ? RoleStatus.ACTIVE : RoleStatus.INACTIVE);
         return role;
     }
 

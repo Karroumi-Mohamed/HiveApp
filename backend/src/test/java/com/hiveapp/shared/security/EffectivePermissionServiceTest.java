@@ -3,10 +3,14 @@ package com.hiveapp.shared.security;
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.member.domain.entity.Member;
+import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
+import com.hiveapp.platform.client.role.domain.constant.RoleStatus;
+import com.hiveapp.platform.client.role.domain.entity.Role;
+import com.hiveapp.platform.client.role.domain.entity.RolePermission;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
@@ -20,6 +24,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -70,6 +75,26 @@ class EffectivePermissionServiceTest {
         assertThat(result.permissions()).containsExactly(included.getCode());
     }
 
+    @Test
+    void inactiveAndArchivedRolesGrantNoRuntimePermissions() {
+        UUID accountId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        Member member = member(memberId, account(accountId), user(userId), false);
+        Permission permission = permission("platform.company.read_single");
+        Role inactive = role(accountId, RoleStatus.INACTIVE, permission);
+        Role archived = role(accountId, RoleStatus.ARCHIVED, permission);
+
+        when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(member));
+        when(memberRoleRepository.findAllByMemberId(memberId))
+                .thenReturn(Stream.of(inactive, archived).map(role -> assignment(member, role)).toList());
+        when(memberOverrideRepository.findAllByMemberId(memberId)).thenReturn(List.of());
+
+        var result = service.getEffectivePermissions(userId, accountId);
+
+        assertThat(result.permissions()).isEmpty();
+    }
+
     private static Account account(UUID id) {
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", id);
@@ -103,5 +128,25 @@ class EffectivePermissionServiceTest {
         permission.setCode(code);
         permission.setName(code);
         return permission;
+    }
+
+    private static Role role(UUID accountId, RoleStatus status, Permission permission) {
+        Role role = new Role();
+        ReflectionTestUtils.setField(role, "id", UUID.randomUUID());
+        role.setAccount(account(accountId));
+        role.setName(status + " role");
+        role.setStatus(status);
+        RolePermission grant = new RolePermission();
+        grant.setRole(role);
+        grant.setPermission(permission);
+        role.getPermissions().add(grant);
+        return role;
+    }
+
+    private static MemberRole assignment(Member member, Role role) {
+        MemberRole assignment = new MemberRole();
+        assignment.setMember(member);
+        assignment.setRole(role);
+        return assignment;
     }
 }

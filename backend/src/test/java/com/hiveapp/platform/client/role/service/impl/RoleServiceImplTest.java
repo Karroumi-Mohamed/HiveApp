@@ -62,7 +62,7 @@ class RoleServiceImplTest {
 
         Role role = role(roleId, accountId);
         Permission permission = permission(permissionCode);
-        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
         when(rolePermissionRepository.existsByRoleIdAndPermissionCode(roleId, permissionCode)).thenReturn(false);
         when(permissionRepository.findByCode(permissionCode)).thenReturn(Optional.of(permission));
         org.mockito.Mockito.doThrow(new InvalidPermissionGrantException("Permission cannot be granted to a client role."))
@@ -84,7 +84,7 @@ class RoleServiceImplTest {
 
         Role role = role(roleId, accountId);
         Permission permission = permission(permissionCode);
-        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
         when(rolePermissionRepository.existsByRoleIdAndPermissionCode(roleId, permissionCode)).thenReturn(false);
         when(permissionRepository.findByCode(permissionCode)).thenReturn(Optional.of(permission));
         when(planEntitlementService.isPermissionEntitled(accountId, permissionCode)).thenReturn(false);
@@ -108,7 +108,7 @@ class RoleServiceImplTest {
         company.setCountry("US");
         company.setActive(false);
         role.setCompany(company);
-        when(roleRepository.findByIdAndAccountId(roleId, accountId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)).thenReturn(Optional.of(role));
 
         assertThatThrownBy(() -> roleService.addPermissionToRole(roleId, "platform.company.read_single"))
                 .isInstanceOf(InvalidStateException.class)

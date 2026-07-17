@@ -68,6 +68,7 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
         UUID companyOneId = UUID.fromString(createCompany(token, "Company One").get("id").asText());
         UUID companyTwoId = UUID.fromString(createCompany(token, "Company Two").get("id").asText());
         UUID companyRoleId = createRole(token, companyOneId, "Company One Manager");
+        addPermissionAndActivate(token, companyRoleId, "platform.company.read_single");
 
         assignRole(token, memberId, companyRoleId, null)
                 .andExpect(status().isForbidden());
@@ -111,6 +112,16 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
                 .getResponse()
                 .getContentAsString();
         return UUID.fromString(objectMapper.readTree(response).get("id").asText());
+    }
+
+    private void addPermissionAndActivate(String token, UUID roleId, String permissionCode) throws Exception {
+        mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
+                        .header("Authorization", bearer(token))
+                        .param("permissionCode", permissionCode))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/roles/{id}/activate", roleId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
     }
 
     private void assignPlan(String clientToken, String planCode) throws Exception {

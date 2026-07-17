@@ -8,6 +8,7 @@ import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.platform.client.role.domain.entity.Role;
 import com.hiveapp.platform.client.role.domain.entity.RolePermission;
+import com.hiveapp.platform.client.role.domain.constant.RoleStatus;
 import com.hiveapp.platform.client.role.domain.repository.RolePermissionRepository;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
@@ -65,7 +66,7 @@ class MembershipGrantIntegrityIntegrationTest extends PlatformShellIntegrationTe
         Role role = new Role();
         role.setAccount(account);
         role.setName("Integrity " + UUID.randomUUID());
-        role.setActive(true);
+        role.setStatus(RoleStatus.ACTIVE);
         return roleRepository.saveAndFlush(role);
     }
 
