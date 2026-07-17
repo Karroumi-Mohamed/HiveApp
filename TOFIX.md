@@ -105,7 +105,7 @@ The current unpublished application uses disposable in-memory H2 schemas generat
 
 ### RBAC-001 — Company scope is represented twice for role assignment
 
-**Status:** `CONFIRMED — DESIGN DECIDED`
+**Status:** `IMPLEMENTED FOR CURRENT PLATFORM SHELL — 2026-07-17`
 
 **Evidence**
 
@@ -130,6 +130,16 @@ A company-scoped role can be assigned with a null or different `MemberRole.compa
 
 The current duplicate nullable Company fields must be replaced or renamed into explicit concepts: template boundary versus assignment effect scope. An Account template may be assigned Account-wide or to a Company; a Company template may be assigned only to its owning Company. Enforce containment in service validation and database constraints where possible.
 
+**Implementation evidence — 2026-07-17**
+
+- `Role.templateBoundary` and `Role.boundaryCompany` now express Account/Company template availability independently from assignment effect.
+- `MemberRole.effectScope` and `MemberRole.scopeCompany` now express the exact Account/Company authorization effect, with a stable exact-scope uniqueness key.
+- Account templates can be reused at Account or Company effect scope. Company templates are rejected outside their boundary Company.
+- Effective-permission resolution includes Account assignments plus only the requested Company assignments and overrides; it no longer unions unrelated Companies.
+- Non-owner mutation from a Company context is limited to a template bounded to that Company. B2B role operations retain the collaboration-Company boundary.
+- Published Platform starter templates remain a future platform-admin source/adoption model; the current tenant shell intentionally implements only assignable Account and Company templates.
+- Because the application is unpublished and its H2 database is disposable, the generated entity/schema mappings were updated directly without introducing versioned migration history.
+
 ---
 
 ### RBAC-002 — Inactive client roles still grant permissions
@@ -152,7 +162,7 @@ Filter inactive roles in the runtime authorization query and add request-level t
 
 ### RBAC-003 — Client role assignment and direct grants have no actor permission ceiling
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -183,11 +193,20 @@ Implement the decided owner/delegation model:
 
 Enforce these rules in Permissionizer/runtime authorization, role assignment, direct GRANT overrides, and B2B delegation, with boundary and abuse tests.
 
+**Implementation evidence — 2026-07-17**
+
+- A central `DelegationCeilingService` evaluates the authenticated actor's effective permissions at the requested Account/Company effect scope.
+- Normal role assignment and member-creation initial assignments require the actor to hold the scoped management action and every permission contained in the role.
+- Direct GRANT/DENY override mutation requires the matching scoped management action and delegated permission. Owners remain unaffected by overrides, and ordinary role/override APIs reject the owner as a target.
+- Role permission addition, activation, and duplication enforce the ceiling at every currently affected assignment scope, or at the template's default boundary when it has no assignments.
+- B2B permission grants require the provider actor to personally hold the delegated permission in the collaboration Company.
+- Owner-only action classification/picker exclusion remains owned by the later registry action-metadata work (`REGISTRY-008`/`REGISTRY-010`); atomic ownership transfer remains a separate future flow.
+
 ---
 
 ### RBAC-004 — Removing a member role ignores company scope
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -202,6 +221,12 @@ Removing a role intended for Company A can also remove the same role assignment 
 **Required resolution**
 
 Make removal scope explicit, or deliberately define the operation as "remove this role from all scopes" and name/confirm it accordingly. Prefer precise assignment IDs or member+role+scope keys.
+
+**Implementation evidence — 2026-07-17**
+
+- Role removal now requires an explicit `ACCOUNT` or `COMPANY` effect scope and requires `companyId` exactly for Company removal.
+- Repository deletion targets only the exact member/role/scope key and returns not found when that assignment does not exist; sibling Company and Account assignments are retained.
+- Focused unit and request-level integration tests cover exact-scope removal and the updated API contract.
 
 ---
 
@@ -1902,8 +1927,8 @@ Current role permission add/remove operations mutate the shared role directly. T
 - Shared-role update, permission grant/revoke, deactivate, archive, and activate operations calculate impact under a role write lock. If assignments exist, the mutation is blocked until the caller supplies the exact previewed role version and assignment count; stale confirmation is rejected and must be previewed again.
 - Preview contracts expose assignment/member/scope counts plus current, granted, and lost permissions. Each definition change increments a separate definition revision, while JPA optimistic versioning detects stale role state.
 - Duplicate provides the explicit staged-rollout path and creates an independent inactive custom role with copied permissions and no assignments/history. No hidden role versions are introduced.
-- Permission mutations still validate registry existence, client-role grantability, current plan entitlement, system/custom boundary, archive state, Company activity, and Account/B2B scope. The actor delegation ceiling will be implemented in the ordered next batch under `RBAC-003`, and central mutation auditing remains under `AUDIT-001`.
-- The complete backend suite passes: 290 tests, 0 failures, 0 errors, 0 skipped.
+- Permission mutations validate registry existence, client-role grantability, current plan entitlement, system/custom boundary, archive state, Company activity, Account/B2B scope, and the actor delegation ceiling implemented under `RBAC-003`. Central mutation auditing remains under `AUDIT-001`.
+- The complete backend suite passes: 300 tests, 0 failures, 0 errors, 0 skipped.
 
 ---
 

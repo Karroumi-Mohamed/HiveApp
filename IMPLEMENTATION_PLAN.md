@@ -799,12 +799,13 @@ flowchart TD
 #### [IMPLEMENT] RBAC-001 — Company scope is represented twice for role assignment
 - **Prerequisites**: ROLE-003.
 - **Unlocks**: RBAC-002.
-- **Order Rationale**: Cleans duplicate scope columns in database.
-- **Affected Backend Areas**: `MemberRole.java`, `Role.java`.
-- **Database Migration**: Yes (consolidate company scope mappings).
+- **Order Rationale**: Separates template availability from assignment effect scope.
+- **Affected Backend Areas**: `MemberRole.java`, `Role.java`, role/member DTOs and repositories, effective permission evaluation.
+- **Database Migration**: No for the current unpublished disposable H2 schema; update generated mappings directly.
 - **Acceptance Criteria**: Role assignments declare company boundaries uniquely.
 - **Tests**: Database schema mappings check.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented. Account/Company template boundary and Account/Company assignment effect scope are explicit, containment is enforced, exact-scope uniqueness is retained, and effective permissions never union unrelated Companies. Platform-published starter-template adoption remains future platform-admin work.
 
 #### [IMPLEMENT] RBAC-002 — Inactive client roles still grant permissions
 - **Prerequisites**: RBAC-001.
@@ -815,16 +816,18 @@ flowchart TD
 - **Acceptance Criteria**: Deactivated roles are excluded from permission resolution.
 - **Tests**: Active role runtime checks.
 - **Future UI Flow**: Access logs.
+- **Execution Status**: Implemented and retained. Runtime policy and effective-permission reads exclude inactive/archived roles, and inactive roles cannot be newly assigned.
 
 #### [IMPLEMENT] RBAC-003 — Client role assignment and direct grants have no actor permission ceiling
 - **Prerequisites**: RBAC-002.
 - **Unlocks**: RBAC-004, RBAC-006.
 - **Order Rationale**: Backend validation ceiling check.
-- **Affected Backend Areas**: `RoleServiceImpl.java`.
+- **Affected Backend Areas**: `DelegationCeilingService`, `MemberServiceImpl`, `RoleServiceImpl`, `CollaborationServiceImpl`.
 - **Database Migration**: No.
 - **Acceptance Criteria**: User cannot grant permission keys they do not hold.
 - **Tests**: Assignment ceiling tests.
 - **Future UI Flow**: Admin role edit panel.
+- **Execution Status**: Implemented. Scoped actor ceilings cover assignment, initial assignment, direct override mutation, role permission addition/activation/duplication, and B2B delegation. Owner targets are protected from ordinary role/override mutation.
 
 #### [IMPLEMENT] RBAC-004 — Removing a member role ignores company scope
 - **Prerequisites**: RBAC-003.
@@ -835,6 +838,7 @@ flowchart TD
 - **Acceptance Criteria**: Removing role assignment respects target company boundaries.
 - **Tests**: Scoped removal tests.
 - **Future UI Flow**: Role assignment tables.
+- **Execution Status**: Implemented. Removal requires an explicit effect scope and deletes only the exact Account or Company assignment.
 
 ---
 
@@ -1651,10 +1655,10 @@ flowchart TD
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **TENANCY-001** | Establish Account boundary | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.1 | AUTHZ-001 | Context ID scoping |
 | **TENANCY-002** | Account owner id relationship | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.1 | TENANCY-001 | User relationship and active-member guard |
-| **RBAC-001** | Company scope represented twice | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | ROLE-003 | Consolidated columns |
-| **RBAC-002** | Inactive roles grant permissions | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-001 | Ignored in evaluation |
-| **RBAC-003** | Ceiling for assignments | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-002 | Actor ceiling enforced |
-| **RBAC-004** | Role removal ignores scope | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-003 | Scope checked |
+| **RBAC-001** | Company scope represented twice | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.4 | ROLE-003 | Explicit template boundary and assignment effect scope |
+| **RBAC-002** | Inactive roles grant permissions | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-001 | Runtime and assignment exclusion tests |
+| **RBAC-003** | Ceiling for assignments | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-002 | Scoped assignment, override, role-mutation, and B2B ceiling tests |
+| **RBAC-004** | Role removal ignores scope | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-003 | Exact Account/Company removal tests |
 | **DATA-001** | Duplicate relationships | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.4 | MEMBER-003 | Seven generated-schema unique constraints and duplicate-insert tests |
 | **TENANCY-003** | Mismatched parent accounts | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.1 | TENANCY-002 | `@PrePersist` validator |
 | **ORG-001** | Support generic Group model | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | COMPANY-002 | Generic hierarchy, memberships, lifecycle, templates, and verified APIs |
