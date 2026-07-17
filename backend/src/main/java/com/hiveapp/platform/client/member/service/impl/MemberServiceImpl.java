@@ -152,8 +152,13 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
             memberRole.setRole(assignment.role());
             memberRole.setCompany(assignment.company());
             memberRoleRepository.save(memberRole);
+            if (!assignment.role().isEverAssigned()) {
+                assignment.role().setEverAssigned(true);
+                roleRepository.save(assignment.role());
+            }
         }
         memberRoleRepository.flush();
+        roleRepository.flush();
         return new MemberCreationResult(member, initialAccess);
     }
 
@@ -223,7 +228,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     public void assignRole(UUID memberId, UUID roleId, UUID companyId) {
         var member = getMember(memberId);
         UUID accountId = member.getAccount().getId();
-        var role = roleRepository.findByIdAndAccountId(roleId, accountId)
+        var role = roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
         var company = companyId != null
                 ? companyRepository.findByIdAndAccountId(companyId, accountId)
@@ -260,6 +265,10 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         } catch (DataIntegrityViolationException ex) {
             throw new InvalidStateException("Role is already assigned to this member in the requested scope");
         }
+        if (!role.isEverAssigned()) {
+            role.setEverAssigned(true);
+            roleRepository.saveAndFlush(role);
+        }
     }
 
     @Override
@@ -267,7 +276,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @PermissionNode(key = "remove_role", description = "Remove role from member")
     public void removeRole(UUID memberId, UUID roleId) {
         var member = getMember(memberId);
-        var role = roleRepository.findByIdAndAccountId(roleId, member.getAccount().getId())
+        var role = roleRepository.findByIdAndAccountIdForUpdate(roleId, member.getAccount().getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
         requireCurrentAccount(member);
         requireSameAccount(member, role);
@@ -360,7 +369,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
             if (!assignmentKeys.add(key)) {
                 throw new InvalidStateException("Duplicate initial role assignment");
             }
-            var role = roleRepository.findByIdAndAccountId(requested.roleId(), accountId)
+            var role = roleRepository.findByIdAndAccountIdForUpdate(requested.roleId(), accountId)
                     .orElseThrow(() -> new ResourceNotFoundException("Role", "id", requested.roleId()));
             if (!role.isActive()) {
                 throw new InvalidStateException("Inactive roles cannot be assigned");

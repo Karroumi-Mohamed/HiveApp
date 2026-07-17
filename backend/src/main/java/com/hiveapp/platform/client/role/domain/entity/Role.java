@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.role.domain.entity;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.role.domain.constant.RoleStatus;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.domain.TenantInvariant;
 import jakarta.persistence.*;
@@ -34,8 +35,23 @@ public class Role extends BaseEntity {
     @Column(name = "is_system_role", nullable = false)
     private boolean isSystemRole = false;
 
-    @Column(name = "is_active", nullable = false)
-    private boolean isActive = true;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private RoleStatus status = RoleStatus.INACTIVE;
+
+    @Column(name = "ever_assigned", nullable = false)
+    private boolean everAssigned;
+
+    @Column(name = "definition_revision", nullable = false)
+    private long definitionRevision;
+
+    @Version
+    @Column(nullable = false)
+    private long version;
+
+    public boolean isActive() {
+        return status == RoleStatus.ACTIVE;
+    }
 
     @PrePersist
     @PreUpdate

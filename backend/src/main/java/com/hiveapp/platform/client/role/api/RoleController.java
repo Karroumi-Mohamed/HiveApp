@@ -3,6 +3,10 @@ package com.hiveapp.platform.client.role.api;
 import com.hiveapp.platform.client.role.dto.CreateRoleRequest;
 import com.hiveapp.platform.client.role.dto.RoleDto;
 import com.hiveapp.platform.client.role.dto.UpdateRoleRequest;
+import com.hiveapp.platform.client.role.dto.DuplicateRoleRequest;
+import com.hiveapp.platform.client.role.dto.RoleImpactConfirmationRequest;
+import com.hiveapp.platform.client.role.dto.RoleImpactDto;
+import com.hiveapp.platform.client.role.domain.constant.RoleChangeType;
 import com.hiveapp.platform.client.role.mapper.RoleMapper;
 import com.hiveapp.platform.client.role.service.RoleService;
 import com.hiveapp.platform.registry.dto.PermissionPickerModuleDto;
@@ -38,6 +42,13 @@ public class RoleController {
         return roleService.getPermissionCatalog(accountId);
     }
 
+    @GetMapping("/company/{companyId}")
+    public List<RoleDto> getCompanyRoles(@PathVariable UUID companyId) {
+        return roleService.getCompanyRoles(companyId).stream()
+                .map(roleMapper::toDto)
+                .collect(Collectors.toList());
+    }
+
     @GetMapping("/{id}")
     public RoleDto getRole(@PathVariable UUID id) {
         return roleMapper.toDto(roleService.getRole(id));
@@ -52,7 +63,8 @@ public class RoleController {
 
     @PutMapping("/{id}")
     public RoleDto updateRole(@PathVariable UUID id, @Valid @RequestBody UpdateRoleRequest req) {
-        return roleMapper.toDto(roleService.updateRole(id, req.name(), req.description()));
+        return roleMapper.toDto(roleService.updateRole(
+                id, req.name(), req.description(), req.expectedVersion(), req.confirmedAssignmentCount()));
     }
 
     @DeleteMapping("/{id}")
@@ -61,17 +73,73 @@ public class RoleController {
         roleService.deleteRole(id);
     }
 
+    @GetMapping("/{id}/impact")
+    public RoleImpactDto previewImpact(
+            @PathVariable UUID id,
+            @RequestParam RoleChangeType changeType,
+            @RequestParam(required = false) String permissionCode) {
+        return roleService.previewRoleImpact(id, changeType, permissionCode);
+    }
+
+    @PostMapping("/{id}/activate")
+    public RoleDto activateRole(
+            @PathVariable UUID id,
+            @Valid @RequestBody(required = false) RoleImpactConfirmationRequest confirmation) {
+        return roleMapper.toDto(roleService.activateRole(
+                id, expectedVersion(confirmation), confirmedAssignments(confirmation)));
+    }
+
+    @PostMapping("/{id}/deactivate")
+    public RoleDto deactivateRole(
+            @PathVariable UUID id,
+            @Valid @RequestBody(required = false) RoleImpactConfirmationRequest confirmation) {
+        return roleMapper.toDto(roleService.deactivateRole(
+                id, expectedVersion(confirmation), confirmedAssignments(confirmation)));
+    }
+
+    @PostMapping("/{id}/archive")
+    public RoleDto archiveRole(
+            @PathVariable UUID id,
+            @Valid @RequestBody(required = false) RoleImpactConfirmationRequest confirmation) {
+        return roleMapper.toDto(roleService.archiveRole(
+                id, expectedVersion(confirmation), confirmedAssignments(confirmation)));
+    }
+
+    @PostMapping("/{id}/duplicate")
+    @ResponseStatus(HttpStatus.CREATED)
+    public RoleDto duplicateRole(
+            @PathVariable UUID id,
+            @Valid @RequestBody DuplicateRoleRequest request) {
+        return roleMapper.toDto(roleService.duplicateRole(id, request.name(), request.description()));
+    }
+
     // ── Permissions on a role ─────────────────────────────────────────────────
 
     @PostMapping("/{id}/permissions")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void addPermission(@PathVariable UUID id, @RequestParam String permissionCode) {
-        roleService.addPermissionToRole(id, permissionCode);
+    public RoleDto addPermission(
+            @PathVariable UUID id,
+            @RequestParam String permissionCode,
+            @RequestParam(required = false) Long expectedVersion,
+            @RequestParam(required = false) Long confirmedAssignmentCount) {
+        return roleMapper.toDto(roleService.addPermissionToRole(
+                id, permissionCode, expectedVersion, confirmedAssignmentCount));
     }
 
     @DeleteMapping("/{id}/permissions/{permissionCode}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void removePermission(@PathVariable UUID id, @PathVariable String permissionCode) {
-        roleService.removePermissionFromRole(id, permissionCode);
+    public RoleDto removePermission(
+            @PathVariable UUID id,
+            @PathVariable String permissionCode,
+            @RequestParam(required = false) Long expectedVersion,
+            @RequestParam(required = false) Long confirmedAssignmentCount) {
+        return roleMapper.toDto(roleService.removePermissionFromRole(
+                id, permissionCode, expectedVersion, confirmedAssignmentCount));
+    }
+
+    private Long expectedVersion(RoleImpactConfirmationRequest confirmation) {
+        return confirmation == null ? null : confirmation.expectedVersion();
+    }
+
+    private Long confirmedAssignments(RoleImpactConfirmationRequest confirmation) {
+        return confirmation == null ? null : confirmation.confirmedAssignmentCount();
     }
 }
