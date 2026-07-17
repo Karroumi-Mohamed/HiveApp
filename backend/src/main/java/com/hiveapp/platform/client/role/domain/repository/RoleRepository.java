@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Optional;
 public interface RoleRepository extends JpaRepository<Role, UUID> {
     List<Role> findAllByAccountId(UUID accountId);
-    List<Role> findAllByCompanyId(UUID companyId);
+    List<Role> findAllByBoundaryCompanyId(UUID companyId);
     Optional<Role> findByIdAndAccountId(UUID id, UUID accountId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

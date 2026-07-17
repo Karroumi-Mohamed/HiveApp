@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.role.domain.entity.Role;
 import com.hiveapp.platform.client.role.domain.entity.RolePermission;
 import com.hiveapp.platform.client.role.domain.constant.RoleChangeType;
 import com.hiveapp.platform.client.role.domain.constant.RoleStatus;
+import com.hiveapp.platform.client.role.domain.constant.RoleTemplateBoundary;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.client.role.domain.repository.RolePermissionRepository;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
@@ -29,6 +30,7 @@ import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.OperationBlockedException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
+import com.hiveapp.shared.security.DelegationCeilingService;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -55,6 +57,7 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     private final PermissionGrantValidator permissionGrantValidator;
     private final PermissionPickerCatalogService permissionPickerCatalogService;
     private final PlanEntitlementService planEntitlementService;
+    private final DelegationCeilingService delegationCeilingService;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -88,33 +91,45 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
         var company = companyRepository.findByIdAndAccountId(companyId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
         requireB2bTargetCompany(companyId);
-        return roleRepository.findAllByCompanyId(companyId);
+        return roleRepository.findAllByBoundaryCompanyId(companyId);
     }
 
     @Override
     @Transactional
     @PermissionNode(key = WorkspaceRolesFeature.CREATE, description = "Create custom role")
-    public Role createRole(UUID accountId, UUID companyId, String name, String description) {
+    public Role createRole(UUID accountId, RoleTemplateBoundary templateBoundary, UUID boundaryCompanyId,
+                           String name, String description) {
         requireCurrentAccount(accountId);
+        if (templateBoundary == null) {
+            throw new InvalidRequestException("Role template boundary is required");
+        }
+        if (templateBoundary == RoleTemplateBoundary.ACCOUNT && boundaryCompanyId != null) {
+            throw new InvalidRequestException("Account role templates cannot declare a boundary company");
+        }
+        if (templateBoundary == RoleTemplateBoundary.COMPANY && boundaryCompanyId == null) {
+            throw new InvalidRequestException("Company role templates require a boundary company");
+        }
         var account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
-        var company = companyId != null
-                ? companyRepository.findByIdAndAccountId(companyId, accountId)
-                        .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId))
+        var company = boundaryCompanyId != null
+                ? companyRepository.findByIdAndAccountId(boundaryCompanyId, accountId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Company", "id", boundaryCompanyId))
                 : null;
         if (isB2bContext()) {
-            if (companyId == null) {
+            if (boundaryCompanyId == null) {
                 throw new ForbiddenException("B2B access cannot create Account-wide roles");
             }
-            requireB2bTargetCompany(companyId);
+            requireB2bTargetCompany(boundaryCompanyId);
         }
 
         Role role = new Role();
         role.setAccount(account);
-        role.setCompany(company);
+        role.setTemplateBoundary(templateBoundary);
+        role.setBoundaryCompany(company);
         role.setName(normalizeRequired(name, "Role name"));
         role.setDescription(normalizeOptional(description));
         role.setStatus(RoleStatus.INACTIVE);
+        requireRoleManagementScope(role);
         return roleRepository.save(role);
     }
 
@@ -158,7 +173,7 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
             Long expectedVersion, Long confirmedAssignmentCount) {
         Role role = requireLockedRole(roleId);
         requireMutableCustomRole(role);
-        if (role.getCompany() != null && !role.getCompany().isActive()) {
+        if (role.getBoundaryCompany() != null && !role.getBoundaryCompany().isActive()) {
             throw new InvalidStateException("Permissions cannot be added to a role while its company is inactive");
         }
 
@@ -173,6 +188,7 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
             throw new InvalidPermissionGrantException(
                     "Permission " + permissionCode + " is not available in the current plan entitlement.");
         }
+        requireActorCanDelegateForRole(role, List.of(permissionCode));
 
         RoleImpactDto impact = impact(role, RoleChangeType.ADD_PERMISSION, permissionCode);
         requireConfirmedImpact(impact, expectedVersion, confirmedAssignmentCount);
@@ -224,6 +240,8 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
         }
         if (role.getStatus() == RoleStatus.ACTIVE) return role;
         validateActivation(role);
+        requireActorCanDelegateForRole(
+                role, role.getPermissions().stream().map(rp -> rp.getPermission().getCode()).toList());
         RoleImpactDto impact = impact(role, RoleChangeType.ACTIVATE, null);
         requireConfirmedImpact(impact, expectedVersion, confirmedAssignmentCount);
         role.setStatus(RoleStatus.ACTIVE);
@@ -264,9 +282,12 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     @PermissionNode(key = WorkspaceRolesFeature.DUPLICATE, description = "Duplicate role for staged rollout")
     public Role duplicateRole(UUID roleId, String name, String description) {
         Role source = requireLockedRole(roleId);
+        requireActorCanDelegateAtDefaultBoundary(
+                source, source.getPermissions().stream().map(rp -> rp.getPermission().getCode()).toList());
         Role duplicate = new Role();
         duplicate.setAccount(source.getAccount());
-        duplicate.setCompany(source.getCompany());
+        duplicate.setTemplateBoundary(source.getTemplateBoundary());
+        duplicate.setBoundaryCompany(source.getBoundaryCompany());
         duplicate.setName(normalizeRequired(name, "Role name"));
         duplicate.setDescription(normalizeOptional(description));
         duplicate.setStatus(RoleStatus.INACTIVE);
@@ -304,7 +325,38 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
         Role role = roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
         requireB2bRoleScope(role);
+        requireRoleManagementScope(role);
         return role;
+    }
+
+    private void requireRoleManagementScope(Role role) {
+        if (delegationCeilingService.isActorOwner(role.getAccount().getId())) return;
+        UUID contextCompanyId = HiveAppContextHolder.getContext().targetCompanyId();
+        if (contextCompanyId == null) return;
+        if (role.getBoundaryCompany() == null
+                || !Objects.equals(role.getBoundaryCompany().getId(), contextCompanyId)) {
+            throw new ForbiddenException(
+                    "Company context can only manage role templates bounded to that Company");
+        }
+    }
+
+    private void requireActorCanDelegateForRole(Role role, List<String> permissionCodes) {
+        List<MemberRole> assignments = memberRoleRepository.findAllByRoleId(role.getId());
+        if (assignments.isEmpty()) {
+            requireActorCanDelegateAtDefaultBoundary(role, permissionCodes);
+            return;
+        }
+        assignments.stream()
+                .map(MemberRole::getScopeCompany)
+                .map(company -> company == null ? null : company.getId())
+                .distinct()
+                .forEach(companyId -> delegationCeilingService.requireActorCanDelegate(
+                        role.getAccount().getId(), companyId, permissionCodes));
+    }
+
+    private void requireActorCanDelegateAtDefaultBoundary(Role role, List<String> permissionCodes) {
+        UUID companyId = role.getBoundaryCompany() == null ? null : role.getBoundaryCompany().getId();
+        delegationCeilingService.requireActorCanDelegate(role.getAccount().getId(), companyId, permissionCodes);
     }
 
     private void requireCustomRole(Role role, String operation) {
@@ -324,7 +376,7 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
         if (!role.getAccount().isActive()) {
             throw new InvalidStateException("Roles cannot be activated while the Account is suspended");
         }
-        if (role.getCompany() != null && !role.getCompany().isActive()) {
+        if (role.getBoundaryCompany() != null && !role.getBoundaryCompany().isActive()) {
             throw new InvalidStateException("Company-scoped roles cannot be activated while the Company is inactive");
         }
         if (role.getPermissions().isEmpty()) {
@@ -383,10 +435,10 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
             default -> List.of();
         };
 
-        long accountAssignments = assignments.stream().filter(a -> a.getCompany() == null).count();
+        long accountAssignments = assignments.stream().filter(a -> a.getScopeCompany() == null).count();
         Map<UUID, Long> companyAssignments = assignments.stream()
-                .filter(a -> a.getCompany() != null)
-                .collect(Collectors.groupingBy(a -> a.getCompany().getId(), Collectors.counting()));
+                .filter(a -> a.getScopeCompany() != null)
+                .collect(Collectors.groupingBy(a -> a.getScopeCompany().getId(), Collectors.counting()));
         List<RoleImpactScopeDto> scopes = new ArrayList<>();
         if (accountAssignments > 0) {
             scopes.add(new RoleImpactScopeDto("ACCOUNT", null, accountAssignments));
@@ -443,8 +495,8 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
 
     private void requireB2bRoleScope(Role role) {
         if (isB2bContext()
-                && (role.getCompany() == null
-                || !Objects.equals(role.getCompany().getId(), HiveAppContextHolder.getContext().targetCompanyId()))) {
+                && (role.getBoundaryCompany() == null
+                || !Objects.equals(role.getBoundaryCompany().getId(), HiveAppContextHolder.getContext().targetCompanyId()))) {
             throw new ForbiddenException("B2B role access is limited to the collaboration Company");
         }
     }

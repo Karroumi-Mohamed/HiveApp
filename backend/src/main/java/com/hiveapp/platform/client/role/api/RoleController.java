@@ -58,7 +58,8 @@ public class RoleController {
     @ResponseStatus(HttpStatus.CREATED)
     public RoleDto createRole(@Valid @RequestBody CreateRoleRequest req) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return roleMapper.toDto(roleService.createRole(accountId, req.companyId(), req.name(), req.description()));
+        return roleMapper.toDto(roleService.createRole(
+                accountId, req.templateBoundary(), req.boundaryCompanyId(), req.name(), req.description()));
     }
 
     @PutMapping("/{id}")

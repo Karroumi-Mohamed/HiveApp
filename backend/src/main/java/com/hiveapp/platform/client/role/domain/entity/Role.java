@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.role.domain.entity;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.platform.client.role.domain.constant.RoleStatus;
+import com.hiveapp.platform.client.role.domain.constant.RoleTemplateBoundary;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.domain.TenantInvariant;
 import jakarta.persistence.*;
@@ -20,9 +21,13 @@ public class Role extends BaseEntity {
     @JoinColumn(name = "account_id", nullable = false)
     private Account account;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "template_boundary", nullable = false, length = 20)
+    private RoleTemplateBoundary templateBoundary = RoleTemplateBoundary.ACCOUNT;
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id")
-    private Company company;
+    @JoinColumn(name = "boundary_company_id")
+    private Company boundaryCompany;
 
     @OneToMany(mappedBy = "role", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RolePermission> permissions = new ArrayList<>();
@@ -56,11 +61,17 @@ public class Role extends BaseEntity {
     @PrePersist
     @PreUpdate
     void validateTenantInvariant() {
-        if (company != null) {
+        if (templateBoundary == RoleTemplateBoundary.ACCOUNT && boundaryCompany != null) {
+            throw new IllegalStateException("Account role templates cannot declare a boundary company");
+        }
+        if (templateBoundary == RoleTemplateBoundary.COMPANY && boundaryCompany == null) {
+            throw new IllegalStateException("Company role templates require a boundary company");
+        }
+        if (boundaryCompany != null) {
             TenantInvariant.requireSameEntity(
                     account,
-                    company.getAccount(),
-                    "Role company must belong to the role account");
+                    boundaryCompany.getAccount(),
+                    "Role boundary company must belong to the role account");
         }
     }
 }

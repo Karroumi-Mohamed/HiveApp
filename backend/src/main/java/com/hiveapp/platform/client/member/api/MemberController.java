@@ -10,6 +10,7 @@ import com.hiveapp.platform.client.member.dto.OverridePermissionRequest;
 import com.hiveapp.platform.client.member.dto.UpdateMemberRequest;
 import com.hiveapp.platform.client.member.mapper.MemberMapper;
 import com.hiveapp.platform.client.member.service.MemberService;
+import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -82,13 +83,15 @@ public class MemberController {
     @PostMapping("/{id}/roles")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void assignRole(@PathVariable UUID id, @Valid @RequestBody AssignRoleRequest req) {
-        memberService.assignRole(id, req.roleId(), req.companyId());
+        memberService.assignRole(id, req.roleId(), req.scope(), req.companyId());
     }
 
     @DeleteMapping("/{id}/roles/{roleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void removeRole(@PathVariable UUID id, @PathVariable UUID roleId) {
-        memberService.removeRole(id, roleId);
+    public void removeRole(@PathVariable UUID id, @PathVariable UUID roleId,
+                           @RequestParam RoleAssignmentScope scope,
+                           @RequestParam(required = false) UUID companyId) {
+        memberService.removeRole(id, roleId, scope, companyId);
     }
 
     // ── Permission overrides ──────────────────────────────────────────────────

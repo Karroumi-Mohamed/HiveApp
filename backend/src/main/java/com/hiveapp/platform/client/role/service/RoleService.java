@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.role.domain.entity.Role;
 import com.hiveapp.platform.registry.dto.PermissionPickerModuleDto;
 import com.hiveapp.platform.client.role.domain.constant.RoleChangeType;
 import com.hiveapp.platform.client.role.dto.RoleImpactDto;
+import com.hiveapp.platform.client.role.domain.constant.RoleTemplateBoundary;
 
 import java.util.List;
 import java.util.UUID;
@@ -12,7 +13,8 @@ public interface RoleService {
     Role getRole(UUID id);
     List<Role> getAccountRoles(UUID accountId);
     List<Role> getCompanyRoles(UUID companyId);
-    Role createRole(UUID accountId, UUID companyId, String name, String description);
+    Role createRole(UUID accountId, RoleTemplateBoundary templateBoundary, UUID boundaryCompanyId,
+                    String name, String description);
     Role updateRole(UUID roleId, String name, String description, Long expectedVersion, Long confirmedAssignmentCount);
     default Role updateRole(UUID roleId, String name, String description) {
         return updateRole(roleId, name, description, null, null);

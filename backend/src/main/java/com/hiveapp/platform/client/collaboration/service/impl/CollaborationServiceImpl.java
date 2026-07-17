@@ -29,6 +29,7 @@ import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
+import com.hiveapp.shared.security.DelegationCeilingService;
 
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +47,7 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     private final PermissionGrantValidator permissionGrantValidator;
     private final PermissionPickerCatalogService permissionPickerCatalogService;
     private final PlanEntitlementService planEntitlementService;
+    private final DelegationCeilingService delegationCeilingService;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -144,6 +146,8 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
             throw new InvalidPermissionGrantException(
                     "Permission " + permissionCode + " is not available in the provider's current plan entitlement.");
         }
+        delegationCeilingService.requireActorCanDelegate(
+                providerAccountId, collab.getCompany().getId(), List.of(permissionCode));
 
         boolean exists = permissionRepository.existsByCollaborationIdAndPermissionId(collaborationId, perm.getId());
         if (exists) {

@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.dto.MemberAccessResponse;
 import com.hiveapp.platform.client.member.dto.MemberCreationResult;
+import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 
 import java.util.List;
 import java.util.UUID;
@@ -19,8 +20,8 @@ public interface MemberService {
     MemberAccessResponse resetAccess(UUID memberId);
     void unlockInitialAccess(UUID memberId);
 
-    void assignRole(UUID memberId, UUID roleId, UUID companyId);
-    void removeRole(UUID memberId, UUID roleId);
+    void assignRole(UUID memberId, UUID roleId, RoleAssignmentScope scope, UUID companyId);
+    void removeRole(UUID memberId, UUID roleId, RoleAssignmentScope scope, UUID companyId);
 
     void grantPermissionOverride(UUID memberId, String permissionCode, UUID companyId, boolean decision);
     void revokePermissionOverride(UUID memberId, String permissionCode, UUID companyId);

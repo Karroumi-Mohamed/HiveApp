@@ -32,6 +32,11 @@ public class EffectivePermissionService {
 
     @Transactional(readOnly = true)
     public MemberPermissionDto getEffectivePermissions(UUID userId, UUID accountId) {
+        return getEffectivePermissions(userId, accountId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public MemberPermissionDto getEffectivePermissions(UUID userId, UUID accountId, UUID targetCompanyId) {
         var member = memberRepository.findByAccountIdAndUserId(accountId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member", "userId", userId));
 
@@ -50,7 +55,9 @@ public class EffectivePermissionService {
             if (!mr.getRole().isActive()) {
                 continue;
             }
-            if (mr.getCompany() != null && !mr.getCompany().isActive()) {
+            if (mr.getScopeCompany() != null
+                    && (!mr.getScopeCompany().isActive()
+                    || !mr.getScopeCompany().getId().equals(targetCompanyId))) {
                 continue;
             }
             for (RolePermission rp : mr.getRole().getPermissions()) {
@@ -59,7 +66,8 @@ public class EffectivePermissionService {
         }
 
         for (var override : memberOverrideRepository.findAllByMemberId(member.getId())) {
-            if (!override.getCompany().isActive()) {
+            if (!override.getCompany().isActive()
+                    || !override.getCompany().getId().equals(targetCompanyId)) {
                 continue;
             }
             if (override.isDecision()) {

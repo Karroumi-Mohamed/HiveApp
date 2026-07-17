@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.member.service.impl;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
+import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
@@ -30,7 +31,7 @@ import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
-import com.hiveapp.shared.security.EffectivePermissionService;
+import com.hiveapp.shared.security.DelegationCeilingService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
@@ -61,7 +62,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     private final QuotaEnforcer quotaEnforcer;
     private final MemberCredentialService memberCredentialService;
     private final PlanEntitlementService planEntitlementService;
-    private final EffectivePermissionService effectivePermissionService;
+    private final DelegationCeilingService delegationCeilingService;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -150,7 +151,8 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
             MemberRole memberRole = new MemberRole();
             memberRole.setMember(member);
             memberRole.setRole(assignment.role());
-            memberRole.setCompany(assignment.company());
+            memberRole.setEffectScope(assignment.scope());
+            memberRole.setScopeCompany(assignment.company());
             memberRoleRepository.save(memberRole);
             if (!assignment.role().isEverAssigned()) {
                 assignment.role().setEverAssigned(true);
@@ -225,33 +227,42 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @Override
     @Transactional
     @PermissionNode(key = "assign_role", description = "Assign role to member")
-    public void assignRole(UUID memberId, UUID roleId, UUID companyId) {
+    public void assignRole(UUID memberId, UUID roleId, RoleAssignmentScope scope, UUID companyId) {
         var member = getMember(memberId);
         UUID accountId = member.getAccount().getId();
         var role = roleRepository.findByIdAndAccountIdForUpdate(roleId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
-        var company = companyId != null
+        validateAssignmentScope(scope, companyId);
+        var company = scope == RoleAssignmentScope.COMPANY
                 ? companyRepository.findByIdAndAccountId(companyId, accountId)
                         .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId))
                 : null;
 
         requireCurrentAccount(member);
         requireSameAccount(member, role);
+        requireNonOwnerTarget(member);
         if (company != null) {
             requireSameAccount(member, company);
             if (!company.isActive()) {
                 throw new InvalidStateException("Roles cannot be assigned inside an inactive company");
             }
         }
-        if (role.getCompany() != null && (company == null || !role.getCompany().getId().equals(company.getId()))) {
+        if (role.getBoundaryCompany() != null
+                && (company == null || !role.getBoundaryCompany().getId().equals(company.getId()))) {
             throw new ForbiddenException("Company-scoped role can only be assigned inside its company");
         }
         if (!role.isActive()) {
             throw new InvalidStateException("Inactive roles cannot be assigned");
         }
-        boolean duplicate = company == null
-                ? memberRoleRepository.existsByMemberIdAndRoleIdAndCompanyIsNull(memberId, roleId)
-                : memberRoleRepository.existsByMemberIdAndRoleIdAndCompanyId(memberId, roleId, companyId);
+        delegationCeilingService.requireActorCanDelegate(
+                accountId, companyId,
+                java.util.stream.Stream.concat(
+                        java.util.stream.Stream.of(StaffFeature.CODE + ".assign_role"),
+                        role.getPermissions().stream().map(rp -> rp.getPermission().getCode()))
+                        .toList());
+        boolean duplicate = scope == RoleAssignmentScope.ACCOUNT
+                ? memberRoleRepository.existsByMemberIdAndRoleIdAndScopeCompanyIsNull(memberId, roleId)
+                : memberRoleRepository.existsByMemberIdAndRoleIdAndScopeCompanyId(memberId, roleId, companyId);
         if (duplicate) {
             throw new InvalidStateException("Role is already assigned to this member in the requested scope");
         }
@@ -259,7 +270,8 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         MemberRole mr = new MemberRole();
         mr.setMember(member);
         mr.setRole(role);
-        mr.setCompany(company);
+        mr.setEffectScope(scope);
+        mr.setScopeCompany(company);
         try {
             memberRoleRepository.saveAndFlush(mr);
         } catch (DataIntegrityViolationException ex) {
@@ -274,13 +286,23 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @Override
     @Transactional
     @PermissionNode(key = "remove_role", description = "Remove role from member")
-    public void removeRole(UUID memberId, UUID roleId) {
+    public void removeRole(UUID memberId, UUID roleId, RoleAssignmentScope scope, UUID companyId) {
         var member = getMember(memberId);
         var role = roleRepository.findByIdAndAccountIdForUpdate(roleId, member.getAccount().getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
         requireCurrentAccount(member);
         requireSameAccount(member, role);
-        memberRoleRepository.deleteByMemberIdAndRoleId(memberId, roleId);
+        requireNonOwnerTarget(member);
+        validateAssignmentScope(scope, companyId);
+        delegationCeilingService.requireActorCanDelegate(
+                member.getAccount().getId(), companyId,
+                List.of(StaffFeature.CODE + ".remove_role"));
+        int removed = scope == RoleAssignmentScope.ACCOUNT
+                ? memberRoleRepository.deleteAccountAssignment(memberId, roleId)
+                : memberRoleRepository.deleteCompanyAssignment(memberId, roleId, companyId);
+        if (removed == 0) {
+            throw new ResourceNotFoundException("MemberRole", "scope", scope);
+        }
     }
 
     @Override
@@ -295,9 +317,13 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         permissionGrantValidator.requireClientRoleGrantable(permission);
         requireCurrentAccount(member);
         requireSameAccount(member, company);
+        requireNonOwnerTarget(member);
         if (!company.isActive()) {
             throw new InvalidStateException("Permission overrides cannot be granted inside an inactive company");
         }
+        delegationCeilingService.requireActorCanDelegate(
+                member.getAccount().getId(), companyId,
+                List.of(StaffFeature.CODE + ".grant_permission", permissionCode));
 
         var override = memberOverrideRepository
                 .findByMemberIdAndCompanyIdAndPermissionId(memberId, companyId, permission.getId())
@@ -321,6 +347,10 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
         requireCurrentAccount(member);
         requireSameAccount(member, company);
+        requireNonOwnerTarget(member);
+        delegationCeilingService.requireActorCanDelegate(
+                member.getAccount().getId(), companyId,
+                List.of(StaffFeature.CODE + ".revoke_permission", permissionCode));
 
         memberOverrideRepository
                 .findByMemberIdAndCompanyIdAndPermissionId(memberId, companyId, permission.getId())
@@ -356,16 +386,11 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         if (requestedAssignments.isEmpty()) {
             return List.of();
         }
-        UUID actorUserId = HiveAppContextHolder.getContext().actorUserId();
-        var actorAccess = effectivePermissionService.getEffectivePermissions(actorUserId, accountId);
-        if (!actorAccess.permissions().contains(StaffFeature.CODE + ".assign_role")) {
-            throw new ForbiddenException("Initial role assignment requires member role-assignment permission");
-        }
-
         Set<String> assignmentKeys = new HashSet<>();
         java.util.ArrayList<ValidatedRoleAssignment> result = new java.util.ArrayList<>();
         for (InitialRoleAssignmentRequest requested : requestedAssignments) {
-            String key = requested.roleId() + ":" + (requested.companyId() == null ? "account" : requested.companyId());
+            validateAssignmentScope(requested.scope(), requested.companyId());
+            String key = requested.roleId() + ":" + requested.scope() + ":" + requested.companyId();
             if (!assignmentKeys.add(key)) {
                 throw new InvalidStateException("Duplicate initial role assignment");
             }
@@ -374,15 +399,15 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
             if (!role.isActive()) {
                 throw new InvalidStateException("Inactive roles cannot be assigned");
             }
-            var company = requested.companyId() == null ? null
+            var company = requested.scope() == RoleAssignmentScope.ACCOUNT ? null
                     : companyRepository.findByIdAndAccountId(requested.companyId(), accountId)
                             .orElseThrow(() -> new ResourceNotFoundException(
                                     "Company", "id", requested.companyId()));
             if (company != null && !company.isActive()) {
                 throw new InvalidStateException("Roles cannot be assigned inside an inactive company");
             }
-            if (role.getCompany() != null
-                    && (company == null || !role.getCompany().getId().equals(company.getId()))) {
+            if (role.getBoundaryCompany() != null
+                    && (company == null || !role.getBoundaryCompany().getId().equals(company.getId()))) {
                 throw new ForbiddenException("Company-scoped role can only be assigned inside its company");
             }
             role.getPermissions().forEach(rolePermission -> {
@@ -390,11 +415,14 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
                 if (!planEntitlementService.isPermissionEntitled(accountId, code)) {
                     throw new InvalidStateException("Role contains a permission unavailable in the current plan: " + code);
                 }
-                if (!actorAccess.permissions().contains(code)) {
-                    throw new ForbiddenException("Cannot delegate a permission the acting member does not hold: " + code);
-                }
             });
-            result.add(new ValidatedRoleAssignment(role, company));
+            delegationCeilingService.requireActorCanDelegate(
+                    accountId, requested.companyId(),
+                    java.util.stream.Stream.concat(
+                            java.util.stream.Stream.of(StaffFeature.CODE + ".assign_role"),
+                            role.getPermissions().stream().map(rp -> rp.getPermission().getCode()))
+                            .toList());
+            result.add(new ValidatedRoleAssignment(role, requested.scope(), company));
         }
         return List.copyOf(result);
     }
@@ -409,6 +437,24 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
             throw new InvalidStateException("Member is inactive");
         }
         return member;
+    }
+
+    private void requireNonOwnerTarget(Member member) {
+        if (member.isOwner()) {
+            throw new ForbiddenException("Workspace owner access cannot be changed through role or override management");
+        }
+    }
+
+    private void validateAssignmentScope(RoleAssignmentScope scope, UUID companyId) {
+        if (scope == null) {
+            throw new InvalidStateException("Role assignment scope is required");
+        }
+        if (scope == RoleAssignmentScope.ACCOUNT && companyId != null) {
+            throw new InvalidStateException("Account role assignments cannot declare a company");
+        }
+        if (scope == RoleAssignmentScope.COMPANY && companyId == null) {
+            throw new InvalidStateException("Company role assignments require a company");
+        }
     }
 
     private MemberAccessResponse accessResponse(
@@ -431,6 +477,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
 
     private record ValidatedRoleAssignment(
             com.hiveapp.platform.client.role.domain.entity.Role role,
+            RoleAssignmentScope scope,
             com.hiveapp.platform.client.account.domain.entity.Company company
     ) {
     }

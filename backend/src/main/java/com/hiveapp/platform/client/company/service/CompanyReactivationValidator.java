@@ -25,7 +25,7 @@ public class CompanyReactivationValidator {
     public void validate(Company company) {
         Set<String> permissionsToRestore = new LinkedHashSet<>();
 
-        memberRoleRepository.findAllByCompanyId(company.getId()).stream()
+        memberRoleRepository.findAllByScopeCompanyId(company.getId()).stream()
                 .filter(assignment -> assignment.getMember().isActive())
                 .filter(assignment -> assignment.getRole().isActive())
                 .flatMap(assignment -> assignment.getRole().getPermissions().stream())
