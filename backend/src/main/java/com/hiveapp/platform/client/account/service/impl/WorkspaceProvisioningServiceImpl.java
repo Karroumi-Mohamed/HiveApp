@@ -8,6 +8,7 @@ import com.hiveapp.platform.client.account.service.WorkspaceProvisioningService;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.PlanCodes;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
@@ -92,7 +93,7 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
     }
 
     private Plan requireUsableFreePlan() {
-        Plan freePlan = planRepository.findByCode("FREE")
+        Plan freePlan = planRepository.findByCode(PlanCodes.DEFAULT)
                 .orElseThrow(() -> new InvalidStateException(
                         "Workspace registration is unavailable because the required FREE plan is not configured."));
         if (!freePlan.isActive()) {

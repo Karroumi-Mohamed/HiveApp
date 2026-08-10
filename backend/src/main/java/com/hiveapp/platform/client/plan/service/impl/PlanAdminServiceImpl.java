@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.service.impl;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanCodes;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
@@ -26,6 +27,7 @@ import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -140,6 +142,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "toggle_active", description = "Activate or deactivate a plan")
     public Plan toggleActive(UUID planId, boolean active) {
         var plan = requirePlan(planId);
+        if (PlanCodes.DEFAULT.equals(plan.getCode()) && !active) {
+            throw new BusinessException("The default FREE plan cannot be deactivated because workspace provisioning requires it.");
+        }
         plan.setActive(active);
         return planRepository.save(plan);
     }
@@ -149,6 +154,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "delete", description = "Delete an unused plan template")
     public void deletePlan(UUID planId) {
         Plan plan = requirePlan(planId);
+        if (PlanCodes.DEFAULT.equals(plan.getCode())) {
+            throw new BusinessException("The default FREE plan cannot be deleted because workspace provisioning requires it.");
+        }
         long subscriptionHistory = subscriptionRepository.countByPlan_Id(planId);
         if (subscriptionHistory > 0) {
             throw new BusinessException("Plan " + plan.getCode()
@@ -210,7 +218,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 ? Money.of(request.addOnPrice(), request.addOnCurrencyCode())
                 : null);
         pf.setQuotaConfigs(request.quotaConfigs() != null ? request.quotaConfigs() : new ArrayList<>());
-        return planFeatureRepository.save(pf);
+        try {
+            return planFeatureRepository.saveAndFlush(pf);
+        } catch (DataIntegrityViolationException exception) {
+            throw new DuplicateResourceException("PlanFeature", "featureCode", request.featureCode());
+        }
     }
 
     @Override
@@ -294,7 +306,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             return java.util.Optional.of(planRepository.findById(requestedSourcePlanId)
                     .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", requestedSourcePlanId)));
         }
-        return planRepository.findByCode("FREE");
+        return planRepository.findByCode(PlanCodes.DEFAULT);
     }
 
     private Plan requirePlan(UUID planId) {
@@ -323,7 +335,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (billingCycle == null) {
             throw new InvalidRequestException("Plan billing cycle is required.");
         }
-        if (billingCycle == BillingCycle.FOREVER && !"FREE".equals(code)) {
+        if (billingCycle == BillingCycle.FOREVER && !PlanCodes.DEFAULT.equals(code)) {
             throw new InvalidRequestException("BillingCycle.FOREVER is reserved for the FREE plan.");
         }
         return money;

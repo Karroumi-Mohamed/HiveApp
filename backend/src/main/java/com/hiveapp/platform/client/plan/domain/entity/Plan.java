@@ -27,10 +27,10 @@ public class Plan extends BaseEntity {
     private String currencyCode;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "billing_cycle")
+    @Column(name = "billing_cycle", nullable = false)
     private BillingCycle billingCycle;
 
-    @Column(name = "is_active")
+    @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
 
     public Money money() {
