@@ -13,6 +13,7 @@ import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.shared.exception.BusinessException;
+import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.money.Money;
@@ -24,6 +25,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -150,7 +152,27 @@ class PlanAdminServiceImplTest {
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("billing configuration");
 
-        verify(planFeatureRepository, never()).save(any(PlanFeature.class));
+        verify(planFeatureRepository, never()).saveAndFlush(any(PlanFeature.class));
+    }
+
+    @Test
+    void assignFeatureTranslatesDatabaseUniquenessRaceToDuplicateResource() {
+        UUID planId = UUID.randomUUID();
+        Plan plan = plan(planId);
+        Feature workspace = feature("platform.workspace");
+        var request = new AssignPlanFeatureRequest("platform.workspace", null, null, List.of());
+
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(billingConfigurationValidator.validatePlanFeature(
+                "platform.workspace", null, null, List.of(), "USD")).thenReturn(workspace);
+        when(planFeatureRepository.findByPlanIdAndFeature_Code(planId, "platform.workspace"))
+                .thenReturn(Optional.empty());
+        when(planFeatureRepository.saveAndFlush(any(PlanFeature.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate mapping"));
+
+        assertThatThrownBy(() -> planAdminService.assignFeature(planId, request))
+                .isInstanceOf(DuplicateResourceException.class)
+                .hasMessage("PlanFeature already exists with featureCode = platform.workspace");
     }
 
     @Test
@@ -233,6 +255,31 @@ class PlanAdminServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("cannot be deleted");
 
+        verify(planRepository, never()).delete(any(Plan.class));
+    }
+
+    @Test
+    void defaultPlanCannotBeDeactivated() {
+        UUID planId = UUID.randomUUID();
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan(planId, "FREE")));
+
+        assertThatThrownBy(() -> planAdminService.toggleActive(planId, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("default FREE plan cannot be deactivated");
+
+        verify(planRepository, never()).save(any(Plan.class));
+    }
+
+    @Test
+    void defaultPlanCannotBeDeletedEvenWithoutSubscriptionHistory() {
+        UUID planId = UUID.randomUUID();
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan(planId, "FREE")));
+
+        assertThatThrownBy(() -> planAdminService.deletePlan(planId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("default FREE plan cannot be deleted");
+
+        verify(subscriptionRepository, never()).countByPlan_Id(planId);
         verify(planRepository, never()).delete(any(Plan.class));
     }
 

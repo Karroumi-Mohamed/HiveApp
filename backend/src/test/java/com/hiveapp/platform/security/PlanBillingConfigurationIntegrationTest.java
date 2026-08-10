@@ -264,6 +264,12 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(jsonPath("$[*].planCode", hasItem("FREE")))
                 .andExpect(jsonPath("$[*].currentPriceCurrencyCode", hasItem("USD")));
 
+        mockMvc.perform(patch("/api/admin/plans/{planId}/active", freePlanId)
+                        .param("active", "false")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("default FREE plan cannot be deactivated")));
+
         UUID draftPlanId = createPlan(adminToken, new CreatePlanRequest(
                 "TMP_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(),
                 "Temporary Plan",
