@@ -316,7 +316,7 @@ Centralize same-account/same-company invariant checks, query related records thr
 
 ### ORG-001 — Department entity cannot support the decided generic Group model
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — MONEY/CURRENCY FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -2502,6 +2502,18 @@ The UI could display mixed-cycle/mixed-meaning totals as revenue, paid access co
 - At renewal, apply the selected new price version for the new period. For immediate mid-period changes, initially support no automatic proration plus explicit audited operator adjustment/credit; defer automatic tax, discounts, metered charging, proration, FX, and automated refunds.
 - Connect payment failure to `PAST_DUE`, configured grace, and eventual restricted/suspended access without data deletion. Reconciliation/webhook handling must be idempotent and authorization-safe.
 - Store exact purchased terms in subscription history independently from financial records. Add currency mismatch, cycle mismatch, annual exact-price, zero-price, immutable version, itemization, pending-versus-paid, duplicate event, failed renewal/grace, manual settlement, adjustment, refund-state, and mixed-total reporting tests.
+
+**Implementation evidence — 2026-08-10**
+
+- Added an immutable ISO-currency `Money` value type with exact minor-unit validation, normalized currency codes, same-currency arithmetic, and explicit rejection of implicit FX.
+- Plan base prices, PlanFeature add-on prices, quota-unit prices, Subscription current prices, entitlement snapshots, previews, catalogs, admin/client DTOs, and `PaymentRequest` now carry explicit currency.
+- Entity lifecycle validation and billing configuration validation reject missing/invalid currencies and mixed Plan/add-on/quota/subscription amounts. Plan currency cannot change after monetary composition or subscription history exists; unpriced composition may safely be reused across currencies.
+- `BillingCalculator` now returns `Money` for persistence and rejects mixed-currency calculations. Seeded prices are explicitly USD, and focused plus integration tests cover arithmetic, precision, persistence/API exposure, mixed-currency rejection, and safe plan-currency changes.
+- No Flyway history was added because the application is unpublished and currently uses a disposable generated H2 schema, per the agreed pre-production database policy.
+
+**Remaining scope**
+
+Immutable price-book revisions, itemized invoices, payment/refund/credit ledgers, settlement states, renewal processing, reconciliation, and grace/past-due behavior remain intentionally scheduled in the later Plan/Subscription/Billing batches. Therefore the broader `BILLING-003` finding is not marked fully resolved by this foundation batch.
 
 ---
 

@@ -995,10 +995,11 @@ flowchart TD
 - **Unlocks**: PLAN-001.
 - **Order Rationale**: Installs the core money structures before mapping database tables.
 - **Affected Backend Areas**: Domain entities.
-- **Database Migration**: Yes (add explicit currency column).
+- **Database Migration**: No for the current unpublished, disposable H2 database; JPA mappings generate the updated schema directly. Add versioned migration history only when production persistence begins.
 - **Acceptance Criteria**: Prices are saved with explicit currencies (e.g. `USD`).
-- **Tests**: Money value object tests.
+- **Tests**: Money/payment value tests, currency-safe billing calculation and validation tests, and API/persistence integration assertions.
 - **Future UI Flow**: Billing history lists.
+- **Execution Status**: Implemented on 2026-08-10. Plan, add-on, quota-unit, subscription-current, snapshot, preview, catalog, and payment-request amounts now carry normalized ISO currency. Arithmetic rejects mixed currencies and unsafe minor-unit precision; no implicit FX is performed. Immutable price-book revisions and financial ledgers remain in their later scheduled batches.
 
 ---
 
@@ -1682,7 +1683,7 @@ flowchart TD
 | **PLAN-006** | Lifecycle states | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | State column |
 | **PLAN-007** | Branching revisions | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Draft generation |
 | **BILLING-001** | Checkouts activation | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Payment validation |
-| **BILLING-003** | Money prices ledger | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.1 | None | Money type index |
+| **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.1 | None | Explicit ISO Money/currency persistence, calculation, and API tests |
 | **QUOTA-002** | Custom overrides limit | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Cost calculation |
 | **SUBSCRIPTION-003**| Periods scheduler | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-002 | Cron execution |
 | **SUBSCRIPTION-004**| Trial visibility | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-003 | Trial display |
