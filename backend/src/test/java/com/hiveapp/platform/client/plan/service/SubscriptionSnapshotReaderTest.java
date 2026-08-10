@@ -44,7 +44,7 @@ class SubscriptionSnapshotReaderTest {
 
     @Test
     void writesAndReadsSnapshotJson() {
-        var source = SubscriptionEntitlementSnapshot.empty("FREE", BigDecimal.ZERO);
+        var source = SubscriptionEntitlementSnapshot.empty("FREE", BigDecimal.ZERO, "USD");
 
         var json = reader.write(source);
         var parsed = reader.read(json);

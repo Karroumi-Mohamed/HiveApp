@@ -24,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import com.hiveapp.shared.money.Money;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -96,7 +97,7 @@ class WorkspaceProvisioningServiceImplTest {
         UUID accountId = UUID.randomUUID();
         User user = user(userId);
         Plan freePlan = freePlan();
-        SubscriptionEntitlementSnapshot snapshot = SubscriptionEntitlementSnapshot.empty("FREE", BigDecimal.ZERO);
+        SubscriptionEntitlementSnapshot snapshot = SubscriptionEntitlementSnapshot.empty("FREE", BigDecimal.ZERO, "USD");
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(accountRepository.findByOwner_Id(userId)).thenReturn(Optional.empty());
@@ -159,7 +160,7 @@ class WorkspaceProvisioningServiceImplTest {
         Plan plan = new Plan();
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
         plan.setCode("FREE");
-        plan.setPrice(BigDecimal.ZERO);
+        plan.setMoney(Money.zero("USD"));
         plan.setActive(true);
         return plan;
     }

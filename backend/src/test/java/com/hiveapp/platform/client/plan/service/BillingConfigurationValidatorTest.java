@@ -41,7 +41,8 @@ class BillingConfigurationValidatorTest {
 
     @Test
     void rejectsPlatformControlFeatureForPlanAssignment() {
-        assertThatThrownBy(() -> validator.validatePlanFeature("platform.plans", null, List.of()))
+        assertThatThrownBy(() -> validator.validatePlanFeature(
+                "platform.plans", null, null, List.of(), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("cannot be assigned");
     }
@@ -51,7 +52,8 @@ class BillingConfigurationValidatorTest {
         when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
 
         assertThatThrownBy(() -> validator.validatePlanFeature(
-                WorkspaceFeature.CODE, null, List.of(new QuotaLimitEntry("projects", 5L))))
+                WorkspaceFeature.CODE, null, null,
+                List.of(new QuotaLimitEntry("projects", 5L)), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
     }
@@ -61,9 +63,27 @@ class BillingConfigurationValidatorTest {
         when(featureRepository.findByCode(CompanyFeature.CODE)).thenReturn(Optional.of(feature(CompanyFeature.CODE)));
 
         assertThatThrownBy(() -> validator.validatePlanFeature(
-                CompanyFeature.CODE, null, List.of(new QuotaLimitEntry("companies", 1L))))
+                CompanyFeature.CODE, null, null,
+                List.of(new QuotaLimitEntry("companies", 1L)), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
+    }
+
+    @Test
+    void rejectsAddonOrQuotaPricingInAnotherCurrency() {
+        when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
+
+        assertThatThrownBy(() -> validator.validatePlanFeature(
+                WorkspaceFeature.CODE, java.math.BigDecimal.ONE, "EUR", List.of(), "USD"))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessageContaining("must use plan currency USD");
+
+        assertThatThrownBy(() -> validator.validatePlanFeature(
+                WorkspaceFeature.CODE, null, null,
+                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L,
+                        java.math.BigDecimal.ONE, "EUR")), "USD"))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessageContaining("must use plan currency USD");
     }
 
     @Test

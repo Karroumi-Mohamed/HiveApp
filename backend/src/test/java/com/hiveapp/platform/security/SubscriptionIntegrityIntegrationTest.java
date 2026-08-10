@@ -188,7 +188,9 @@ class SubscriptionIntegrityIntegrationTest extends PlatformShellIntegrationTestS
         subscription.setPlan(plan);
         subscription.setStatus(status);
         subscription.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
-        subscription.setCurrentPrice(plan.getPrice() != null ? plan.getPrice() : BigDecimal.ZERO);
+        subscription.setCurrentMoney(plan.getPrice() != null
+                ? plan.money()
+                : com.hiveapp.shared.money.Money.zero(plan.getCurrencyCode()));
         return subscription;
     }
 }

@@ -26,6 +26,7 @@ import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.quota.QuotaOverride;
+import com.hiveapp.shared.money.Money;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -91,7 +92,7 @@ class SubscriptionServiceImplTest {
         List<QuotaOverride> quotaOverrides = List.of(new QuotaOverride("platform.workspace", "members", 10L));
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
         when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any())).thenReturn("{\"quotaOverrides\":[]}");
-        when(billingCalculator.calculate(subscription)).thenReturn(new BigDecimal("39.99"));
+        when(billingCalculator.calculateMoney(subscription)).thenReturn(Money.of(new BigDecimal("39.99"), "USD"));
         when(subscriptionRepository.save(subscription)).thenReturn(subscription);
 
         Subscription result = subscriptionService.updateOverrides(accountId, Set.of(), quotaOverrides);
@@ -118,7 +119,7 @@ class SubscriptionServiceImplTest {
                 .thenReturn(List.of(active, trialing));
         when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any()))
                 .thenReturn("{\"addedFeatures\":[],\"quotaOverrides\":[]}");
-        var snapshot = SubscriptionEntitlementSnapshot.empty("PRO", BigDecimal.ZERO);
+        var snapshot = SubscriptionEntitlementSnapshot.empty("PRO", BigDecimal.ZERO, "USD");
         when(subscriptionSnapshotFactory.fromPlan(pro)).thenReturn(snapshot);
         when(subscriptionSnapshotReader.write(snapshot)).thenReturn("{\"planCode\":\"PRO\"}");
         when(subscriptionRepository.saveAndFlush(any(Subscription.class)))
@@ -199,14 +200,16 @@ class SubscriptionServiceImplTest {
         Plan free = plan("FREE", true);
         Subscription current = subscription(free, SubscriptionStatus.ACTIVE);
         current.setEntitlementSnapshot("{\"planCode\":\"FREE\"}");
-        current.setCurrentPrice(BigDecimal.ZERO);
+        current.setCurrentMoney(Money.zero("USD"));
         PlanFeature workspace = planFeature(pro, WorkspaceFeature.CODE, null,
                 List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)));
         SubscriptionEntitlementSnapshot targetSnapshot = new SubscriptionEntitlementSnapshot(
                 "PRO",
                 BigDecimal.ZERO,
+                "USD",
                 List.of(new SubscriptionFeatureSnapshot(
                         WorkspaceFeature.CODE,
+                        null,
                         null,
                         List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)))));
 
@@ -223,7 +226,7 @@ class SubscriptionServiceImplTest {
         when(subscriptionOverrideReader.write(any())).thenReturn("{\"quotaOverrides\":[]}");
         when(subscriptionUsageService.currentUsage(accountId, WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS))
                 .thenReturn(3L);
-        when(billingCalculator.calculate(any())).thenReturn(BigDecimal.ZERO);
+        when(billingCalculator.calculateMoney(any())).thenReturn(Money.zero("USD"));
 
         var preview = subscriptionService.previewChange(
                 accountId,
@@ -249,14 +252,16 @@ class SubscriptionServiceImplTest {
         current.setAccount(account);
         current.setEntitlementSnapshot("{\"planCode\":\"FREE\"}");
         current.setCustomOverrides("{\"addedFeatures\":[],\"quotaOverrides\":[]}");
-        current.setCurrentPrice(BigDecimal.ZERO);
+        current.setCurrentMoney(Money.zero("USD"));
         PlanFeature workspace = planFeature(pro, WorkspaceFeature.CODE, null,
                 List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)));
         SubscriptionEntitlementSnapshot targetSnapshot = new SubscriptionEntitlementSnapshot(
                 "PRO",
                 BigDecimal.valueOf(29),
+                "USD",
                 List.of(new SubscriptionFeatureSnapshot(
                         WorkspaceFeature.CODE,
+                        null,
                         null,
                         List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)))));
 
@@ -269,12 +274,12 @@ class SubscriptionServiceImplTest {
         when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(workspace));
         when(subscriptionSnapshotFactory.fromPlan(pro, Set.of())).thenReturn(targetSnapshot);
         when(subscriptionSnapshotReader.read(current.getEntitlementSnapshot()))
-                .thenReturn(Optional.of(SubscriptionEntitlementSnapshot.empty("FREE", BigDecimal.ZERO)));
+                .thenReturn(Optional.of(SubscriptionEntitlementSnapshot.empty("FREE", BigDecimal.ZERO, "USD")));
         when(subscriptionSnapshotReader.write(targetSnapshot)).thenReturn("{\"planCode\":\"PRO\"}");
         when(subscriptionOverrideReader.read(current.getCustomOverrides()))
                 .thenReturn(SubscriptionOverrides.empty());
         when(subscriptionOverrideReader.write(any())).thenReturn("{\"addedFeatures\":[],\"quotaOverrides\":[]}");
-        when(billingCalculator.calculate(any())).thenReturn(BigDecimal.valueOf(29));
+        when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.valueOf(29), "USD"));
         when(subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
                 .thenReturn(List.of(current));
@@ -296,7 +301,7 @@ class SubscriptionServiceImplTest {
         plan.setCode(code);
         plan.setName(code);
         plan.setActive(active);
-        plan.setPrice(BigDecimal.ZERO);
+        plan.setMoney(Money.zero("USD"));
         return plan;
     }
 
@@ -315,7 +320,7 @@ class SubscriptionServiceImplTest {
         PlanFeature planFeature = new PlanFeature();
         planFeature.setPlan(plan);
         planFeature.setFeature(feature);
-        planFeature.setAddOnPrice(addOnPrice);
+        planFeature.setAddOnMoney(addOnPrice != null ? Money.of(addOnPrice, "USD") : null);
         planFeature.setQuotaConfigs(quotas);
         return planFeature;
     }

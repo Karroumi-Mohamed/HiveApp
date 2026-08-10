@@ -15,6 +15,7 @@ import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
+import com.hiveapp.shared.money.Money;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,7 +61,7 @@ class PlanAdminServiceImplTest {
         Plan freePlan = plan(freePlanId, "FREE");
         Feature workspace = feature("platform.workspace");
         PlanFeature sourceFeature = planFeature(freePlan, workspace,
-                List.of(new QuotaLimitEntry("members", 3L, new BigDecimal("2.00"))));
+                List.of(new QuotaLimitEntry("members", 3L, new BigDecimal("2.00"), "USD")));
 
         when(planRepository.findByCode("STARTER")).thenReturn(Optional.empty());
         when(planRepository.findByCode("FREE")).thenReturn(Optional.of(freePlan));
@@ -71,6 +72,7 @@ class PlanAdminServiceImplTest {
                 "Starter",
                 null,
                 BigDecimal.TEN,
+                "USD",
                 BillingCycle.MONTHLY,
                 null
         ));
@@ -80,12 +82,14 @@ class PlanAdminServiceImplTest {
         assertThat(inheritedFeatures.getFirst().getFeature()).isSameAs(workspace);
         assertThat(inheritedFeatures.getFirst().getAddOnPrice()).isNull();
         assertThat(inheritedFeatures.getFirst().getQuotaConfigs())
-                .containsExactly(new QuotaLimitEntry("members", 3L, new BigDecimal("2.00")));
+                .containsExactly(new QuotaLimitEntry("members", 3L, new BigDecimal("2.00"), "USD"));
         assertThat(inheritedFeatures.getFirst().getQuotaConfigs()).isNotSameAs(sourceFeature.getQuotaConfigs());
         verify(billingConfigurationValidator).validatePlanFeature(
                 "platform.workspace",
                 null,
-                sourceFeature.getQuotaConfigs());
+                null,
+                sourceFeature.getQuotaConfigs(),
+                "USD");
     }
 
     @Test
@@ -102,6 +106,7 @@ class PlanAdminServiceImplTest {
                 "Team",
                 null,
                 new BigDecimal("49.00"),
+                "USD",
                 BillingCycle.MONTHLY,
                 sourcePlanId
         ));
@@ -112,17 +117,35 @@ class PlanAdminServiceImplTest {
     }
 
     @Test
+    void createPlanCanInheritUnpricedCompositionAcrossCurrencies() {
+        UUID freePlanId = UUID.randomUUID();
+        Plan freePlan = plan(freePlanId, "FREE");
+        PlanFeature includedFeature = planFeature(freePlan, feature("platform.workspace"), List.of());
+
+        when(planRepository.findByCode("EUROPE")).thenReturn(Optional.empty());
+        when(planRepository.findByCode("FREE")).thenReturn(Optional.of(freePlan));
+        when(planFeatureRepository.findAllByPlanId(freePlanId)).thenReturn(List.of(includedFeature));
+
+        Plan created = planAdminService.createPlan(new CreatePlanRequest(
+                "EUROPE", "Europe", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY, null));
+
+        assertThat(created.getCurrencyCode()).isEqualTo("EUR");
+        assertThat(capturedInheritedFeatures()).hasSize(1);
+    }
+
+    @Test
     void assignFeatureRejectsConfigurationRejectedByBillingValidator() {
         UUID planId = UUID.randomUUID();
         String featureCode = "platform.plans";
 
         when(planRepository.findById(planId)).thenReturn(Optional.of(plan(planId)));
         doThrow(new InvalidRequestException("Feature cannot be assigned to billing configuration."))
-                .when(billingConfigurationValidator).validatePlanFeature(featureCode, null, List.of());
+                .when(billingConfigurationValidator).validatePlanFeature(
+                        featureCode, null, null, List.of(), "USD");
 
         assertThatThrownBy(() -> planAdminService.assignFeature(
                 planId,
-                new AssignPlanFeatureRequest(featureCode, null, List.of())
+                new AssignPlanFeatureRequest(featureCode, null, null, List.of())
         ))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("billing configuration");
@@ -138,14 +161,15 @@ class PlanAdminServiceImplTest {
         PlanFeature planFeature = new PlanFeature();
         planFeature.setPlan(plan(planId));
         planFeature.setFeature(feature);
-        var request = new AssignPlanFeatureRequest("platform.workspace", null, List.of());
+        var request = new AssignPlanFeatureRequest("platform.workspace", null, null, List.of());
 
         when(planFeatureRepository.findById(planFeatureId)).thenReturn(Optional.of(planFeature));
         when(planFeatureRepository.save(planFeature)).thenReturn(planFeature);
 
         planAdminService.updateFeature(planId, planFeatureId, request);
 
-        verify(billingConfigurationValidator).validatePlanFeature("platform.workspace", null, List.of());
+        verify(billingConfigurationValidator).validatePlanFeature(
+                "platform.workspace", null, null, List.of(), "USD");
         verify(planFeatureRepository).save(planFeature);
     }
 
@@ -156,12 +180,47 @@ class PlanAdminServiceImplTest {
 
         assertThatThrownBy(() -> planAdminService.updatePlan(
                 planId,
-                new UpdatePlanRequest("Pro", null, BigDecimal.TEN, BillingCycle.FOREVER)
+                new UpdatePlanRequest("Pro", null, BigDecimal.TEN, "USD", BillingCycle.FOREVER)
         ))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessage("BillingCycle.FOREVER is reserved for the FREE plan.");
 
         verify(planRepository, never()).save(any(Plan.class));
+    }
+
+    @Test
+    void updatePlanRejectsCurrencyChangeAfterFeaturePricingExists() {
+        UUID planId = UUID.randomUUID();
+        Plan plan = plan(planId, "PRO");
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+        PlanFeature pricedFeature = planFeature(plan, feature("platform.workspace"), List.of());
+        pricedFeature.setAddOnMoney(Money.of(BigDecimal.ONE, "USD"));
+        when(planFeatureRepository.findAllByPlanId(planId)).thenReturn(List.of(pricedFeature));
+
+        assertThatThrownBy(() -> planAdminService.updatePlan(
+                planId,
+                new UpdatePlanRequest("Pro", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY)
+        ))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("Plan currency cannot change after feature pricing or subscription history exists.");
+
+        verify(planRepository, never()).save(any(Plan.class));
+    }
+
+    @Test
+    void updatePlanAllowsCurrencyChangeWhenCompositionHasNoPricesOrHistory() {
+        UUID planId = UUID.randomUUID();
+        Plan plan = plan(planId, "DRAFT");
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(planFeatureRepository.findAllByPlanId(planId))
+                .thenReturn(List.of(planFeature(plan, feature("platform.workspace"), List.of())));
+
+        Plan updated = planAdminService.updatePlan(
+                planId,
+                new UpdatePlanRequest("Draft", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY));
+
+        assertThat(updated.getCurrencyCode()).isEqualTo("EUR");
+        assertThat(updated.getPrice()).isEqualByComparingTo("10.00");
     }
 
     @Test
@@ -202,6 +261,7 @@ class PlanAdminServiceImplTest {
         ReflectionTestUtils.setField(plan, "id", id);
         plan.setCode(code);
         plan.setName(code);
+        plan.setMoney(Money.zero("USD"));
         return plan;
     }
 

@@ -8,6 +8,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.quota.QuotaOverride;
+import com.hiveapp.shared.money.Money;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,9 +50,11 @@ class BillingCalculatorTest {
         SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
                 "PRO",
                 BigDecimal.valueOf(10),
+                "USD",
                 List.of(new SubscriptionFeatureSnapshot(
                         "platform.company",
                         BigDecimal.valueOf(5),
+                        "USD",
                         List.of())));
 
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
@@ -69,10 +72,12 @@ class BillingCalculatorTest {
         SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
                 "PRO",
                 BigDecimal.valueOf(10),
+                "USD",
                 List.of(new SubscriptionFeatureSnapshot(
                         "platform.workspace",
                         null,
-                        List.of(new QuotaLimitEntry("members", 3L, BigDecimal.valueOf(2))))));
+                        null,
+                        List.of(new QuotaLimitEntry("members", 3L, BigDecimal.valueOf(2), "USD")))));
 
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(snapshot));
@@ -85,11 +90,28 @@ class BillingCalculatorTest {
         verifyNoInteractions(planFeatureRepository);
     }
 
+    @Test
+    void rejectsMixedCurrencySnapshotItemsInsteadOfSilentlyAddingThem() {
+        Subscription subscription = subscription("{\"addedFeatures\":[\"platform.company\"]}");
+        SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
+                "PRO", BigDecimal.TEN, "USD",
+                List.of(new SubscriptionFeatureSnapshot(
+                        "platform.company", BigDecimal.ONE, "EUR", List.of())));
+        when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
+                .thenReturn(Optional.of(snapshot));
+        when(subscriptionOverrideReader.read(subscription.getCustomOverrides()))
+                .thenReturn(new SubscriptionOverrides(Set.of("platform.company"), List.of()));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> billingCalculator.calculateMoney(subscription))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Currency mismatch");
+    }
+
     private Subscription subscription(String overrides) {
         Plan plan = new Plan();
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
         plan.setCode("PRO");
-        plan.setPrice(BigDecimal.ZERO);
+        plan.setMoney(Money.zero("USD"));
 
         Subscription subscription = new Subscription();
         subscription.setPlan(plan);

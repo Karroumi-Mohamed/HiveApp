@@ -288,6 +288,7 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
         var updated = new SubscriptionEntitlementSnapshot(
                 snapshot.planCode(),
                 snapshot.basePrice(),
+                snapshot.currencyCode(),
                 snapshot.features().stream()
                         .filter(feature -> !featureCode.equals(feature.featureCode()))
                         .toList());

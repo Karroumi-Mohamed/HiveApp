@@ -94,8 +94,10 @@ class QuotaEnforcerTest {
                 .thenReturn(Optional.of(new SubscriptionEntitlementSnapshot(
                         "FREE",
                         java.math.BigDecimal.ZERO,
+                        "USD",
                         List.of(new SubscriptionFeatureSnapshot(
                                 WorkspaceFeature.CODE,
+                                null,
                                 null,
                                 List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)))))));
 

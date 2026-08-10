@@ -20,6 +20,8 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -46,6 +48,12 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.currentSubscription.planCode").value("FREE"))
+                .andExpect(jsonPath("$.currentSubscription.currentPriceCurrencyCode").value("USD"))
+                .andExpect(jsonPath("$.plans[*].currencyCode", everyItem(org.hamcrest.Matchers.is("USD"))))
+                .andExpect(jsonPath(
+                        "$.plans[?(@.code == 'PRO')].features[?(@.featureCode == 'platform.workspace')]"
+                                + ".quotas[?(@.resource == 'members')].priceCurrencyCode",
+                        hasItem("USD")))
                 .andExpect(jsonPath("$.plans[0].features[*].featureCode").value(not(containsString("platform.plans"))))
                 .andReturn()
                 .getResponse()
@@ -142,6 +150,9 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         apply(token, new SubscriptionChangeRequest("PRO", Set.of(), List.of()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.subscription.plan.code").value("PRO"))
+                .andExpect(jsonPath("$.subscription.plan.currencyCode").value("USD"))
+                .andExpect(jsonPath("$.subscription.currentPriceCurrencyCode").value("USD"))
+                .andExpect(jsonPath("$.preview.currencyCode").value("USD"))
                 .andExpect(jsonPath("$.preview.immediateAllowed").value(true));
 
         var usable = subscriptionRepository.findAllByAccountIdAndStatusIn(

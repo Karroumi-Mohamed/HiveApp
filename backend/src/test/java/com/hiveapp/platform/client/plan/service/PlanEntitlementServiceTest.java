@@ -96,7 +96,8 @@ class PlanEntitlementServiceTest {
                 .thenReturn(Optional.of(new SubscriptionEntitlementSnapshot(
                         "FREE",
                         java.math.BigDecimal.ZERO,
-                        List.of(new SubscriptionFeatureSnapshot("platform.company", null, List.of())))));
+                        "USD",
+                        List.of(new SubscriptionFeatureSnapshot("platform.company", null, null, List.of())))));
 
         assertThat(service.isPermissionEntitled(accountId, "platform.company.create")).isTrue();
         verifyNoInteractions(planFeatureRepository);
@@ -149,10 +150,10 @@ class PlanEntitlementServiceTest {
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(new SubscriptionEntitlementSnapshot(
-                        "PRO", java.math.BigDecimal.ZERO,
+                        "PRO", java.math.BigDecimal.ZERO, "USD",
                         List.of(
-                                new SubscriptionFeatureSnapshot("platform.company", null, List.of()),
-                                new SubscriptionFeatureSnapshot("platform.staff", null, List.of())))));
+                                new SubscriptionFeatureSnapshot("platform.company", null, null, List.of()),
+                                new SubscriptionFeatureSnapshot("platform.staff", null, null, List.of())))));
         when(subscriptionOverrideReader.read(overrides))
                 .thenReturn(new SubscriptionOverrides(Set.of("platform.organization"), List.of()));
 

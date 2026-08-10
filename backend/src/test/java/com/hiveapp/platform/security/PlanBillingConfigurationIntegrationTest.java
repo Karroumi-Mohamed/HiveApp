@@ -49,12 +49,12 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         String adminToken = loginAdminAndGetToken();
         UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
 
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.plans", null, List.of()))
+        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.plans", null, null, List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Feature platform.plans cannot be assigned to billing configuration."));
 
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.unknown", null, List.of()))
+        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.unknown", null, null, List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Feature platform.unknown cannot be assigned to billing configuration."));
@@ -64,14 +64,14 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         try {
             company.setStatus(FeatureStatus.INTERNAL);
             featureRepository.saveAndFlush(company);
-            assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.company", null, List.of()))
+            assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.company", null, null, List.of()))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message")
                             .value("Feature platform.company is not available for billing configuration."));
 
             company.setStatus(FeatureStatus.DEPRECATED);
             featureRepository.saveAndFlush(company);
-            assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.company", null, List.of()))
+            assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.company", null, null, List.of()))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message")
                             .value("Feature platform.company is not available for billing configuration."));
@@ -87,13 +87,14 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
-                        "platform.workspace", null, List.of(new QuotaLimitEntry("projects", 5L))))
+                        "platform.workspace", null, null, List.of(new QuotaLimitEntry("projects", 5L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Quota resource projects is not declared for feature platform.workspace."));
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
                         "platform.workspace",
+                        null,
                         null,
                         List.of(
                                 new QuotaLimitEntry("members", 3L),
@@ -103,19 +104,20 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .value("Duplicate quota configuration for platform.workspace.members."));
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
-                        "platform.workspace", null, List.of(new QuotaLimitEntry("members", -1L))))
+                        "platform.workspace", null, null, List.of(new QuotaLimitEntry("members", -1L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Quota limit cannot be negative."));
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
                         "platform.workspace",
                         null,
-                        List.of(new QuotaLimitEntry("members", 3L, BigDecimal.valueOf(-1)))))
+                        null,
+                        List.of(new QuotaLimitEntry("members", 3L, BigDecimal.valueOf(-1), "USD"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Quota price per unit cannot be negative."));
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
-                        "platform.company", BigDecimal.valueOf(-1), List.of()))
+                        "platform.company", BigDecimal.valueOf(-1), "USD", List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Feature add-on price cannot be negative."));
     }
@@ -130,13 +132,13 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .getId();
 
         updatePlanFeature(adminToken, freePlanId, workspacePlanFeatureId, new AssignPlanFeatureRequest(
-                        "platform.company", null, List.of()))
+                        "platform.company", null, null, List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("A plan feature update cannot change its feature code."));
 
         updatePlanFeature(adminToken, freePlanId, workspacePlanFeatureId, new AssignPlanFeatureRequest(
-                        "platform.workspace", null, List.of(new QuotaLimitEntry("projects", 5L))))
+                        "platform.workspace", null, null, List.of(new QuotaLimitEntry("projects", 5L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Quota resource projects is not declared for feature platform.workspace."));
@@ -232,7 +234,9 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].featureCode").value("platform.workspace"))
                 .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].resource").value("members"))
                 .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].limit").value(5))
+                .andExpect(jsonPath("$.currentPriceCurrencyCode").value("USD"))
                 .andExpect(jsonPath("$.entitlementSnapshot.planCode").value("FREE"))
+                .andExpect(jsonPath("$.entitlementSnapshot.currencyCode").value("USD"))
                 .andExpect(jsonPath("$.entitlementSnapshot.features[*].featureCode", hasItem("platform.workspace")));
     }
 
@@ -247,6 +251,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("FREE"))
+                .andExpect(jsonPath("$.currencyCode").value("USD"))
+                .andExpect(jsonPath("$.currentRecurringPriceCurrencyCode").value("USD"))
                 .andExpect(jsonPath("$.currentSubscriberCount", greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.warnings", hasItem("HAS_CURRENT_SUBSCRIBERS")))
                 .andExpect(jsonPath("$.warnings", hasItem("TEMPLATE_EDITS_DO_NOT_UPDATE_EXISTING_SNAPSHOTS")));
@@ -255,13 +261,15 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].accountId", hasItem(accountId.toString())))
-                .andExpect(jsonPath("$[*].planCode", hasItem("FREE")));
+                .andExpect(jsonPath("$[*].planCode", hasItem("FREE")))
+                .andExpect(jsonPath("$[*].currentPriceCurrencyCode", hasItem("USD")));
 
         UUID draftPlanId = createPlan(adminToken, new CreatePlanRequest(
                 "TMP_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(),
                 "Temporary Plan",
                 null,
                 new BigDecimal("12.00"),
+                "USD",
                 BillingCycle.MONTHLY,
                 freePlanId
         ));
@@ -273,12 +281,14 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                                 "Temporary Plan Edited",
                                 "Editable plan basics",
                                 new BigDecimal("18.00"),
+                                "USD",
                                 BillingCycle.YEARLY
                         ))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Temporary Plan Edited"))
                 .andExpect(jsonPath("$.description").value("Editable plan basics"))
                 .andExpect(jsonPath("$.price").value(18.00))
+                .andExpect(jsonPath("$.currencyCode").value("USD"))
                 .andExpect(jsonPath("$.billingCycle").value("YEARLY"));
 
         mockMvc.perform(get("/api/admin/plans/{planId}", draftPlanId)
