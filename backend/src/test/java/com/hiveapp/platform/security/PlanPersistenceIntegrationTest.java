@@ -6,8 +6,10 @@ import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
+import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
+import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
@@ -33,6 +35,7 @@ class PlanPersistenceIntegrationTest extends PlatformShellIntegrationTestSupport
     @Autowired private FeatureRepository featureRepository;
     @Autowired private AddOnRepository addOnRepository;
     @Autowired private AddOnFeatureRepository addOnFeatureRepository;
+    @Autowired private QuotaPackageRepository quotaPackageRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
 
     @Test
@@ -107,6 +110,20 @@ class PlanPersistenceIntegrationTest extends PlatformShellIntegrationTestSupport
         }
     }
 
+    @Test
+    void databaseRejectsDuplicateQuotaPackageCodes() {
+        String code = "QUOTA_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        QuotaPackage first = quotaPackage(code);
+        quotaPackageRepository.saveAndFlush(first);
+
+        try {
+            assertThatThrownBy(() -> quotaPackageRepository.saveAndFlush(quotaPackage(code)))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+        } finally {
+            quotaPackageRepository.findByCode(code).ifPresent(quotaPackageRepository::delete);
+        }
+    }
+
     private void insertRawPlan(String billingCycle, String status) {
         Timestamp now = Timestamp.from(Instant.now());
         jdbcTemplate.update("""
@@ -134,5 +151,18 @@ class PlanPersistenceIntegrationTest extends PlatformShellIntegrationTestSupport
         addOn.setMoney(Money.of(BigDecimal.TEN, "USD"));
         addOn.setBillingCycle(BillingCycle.MONTHLY);
         return addOn;
+    }
+
+    private QuotaPackage quotaPackage(String code) {
+        QuotaPackage item = new QuotaPackage();
+        item.setCode(code);
+        item.setName(code);
+        item.setFeature(featureRepository.findByCode("platform.workspace").orElseThrow());
+        item.setResource("members");
+        item.setCapacityPerUnit(5);
+        item.setMoney(Money.of(BigDecimal.ONE, "USD"));
+        item.setBillingCycle(BillingCycle.MONTHLY);
+        item.setMaximumQuantity(1);
+        return item;
     }
 }

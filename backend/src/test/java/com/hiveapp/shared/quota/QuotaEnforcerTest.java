@@ -8,8 +8,7 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
-import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
-import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
+import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
@@ -34,7 +33,6 @@ class QuotaEnforcerTest {
 
     @Mock private PlanFeatureRepository planFeatureRepository;
     @Mock private SubscriptionRepository subscriptionRepository;
-    @Mock private SubscriptionOverrideReader subscriptionOverrideReader;
     @Mock private SubscriptionSnapshotReader subscriptionSnapshotReader;
 
     private QuotaEnforcer quotaEnforcer;
@@ -46,7 +44,6 @@ class QuotaEnforcerTest {
         quotaEnforcer = new QuotaEnforcer(
                 planFeatureRepository,
                 subscriptionRepository,
-                subscriptionOverrideReader,
                 subscriptionSnapshotReader);
         accountId = UUID.randomUUID();
         planId = UUID.randomUUID();
@@ -99,6 +96,7 @@ class QuotaEnforcerTest {
                         List.of(new SubscriptionFeatureSnapshot(
                                 WorkspaceFeature.CODE,
                                 List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)))),
+                        List.of(),
                         List.of())));
 
         assertThatThrownBy(() -> quotaEnforcer.check(
@@ -109,16 +107,25 @@ class QuotaEnforcerTest {
     }
 
     @Test
-    void subscriptionOverrideTakesPrecedenceOverPlanDefault() {
-        Subscription subscription = subscription("{\"quotaOverrides\":[]}");
+    void snapshottedQuotaPackageRaisesTheFeatureQualifiedLimit() {
+        Subscription subscription = subscription(null);
+        subscription.setEntitlementSnapshot("{\"snapshot\":true}");
         when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.ACTIVE))
                 .thenReturn(Optional.of(subscription));
-        when(subscriptionOverrideReader.read(subscription.getCustomOverrides()))
-                .thenReturn(new SubscriptionOverrides(
-                        java.util.Set.of(),
-                        List.of(new QuotaOverride(WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS, 5L))));
+        when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
+                .thenReturn(Optional.of(new SubscriptionEntitlementSnapshot(
+                        "FREE", java.math.BigDecimal.ZERO, "USD",
+                        com.hiveapp.platform.client.plan.domain.constant.BillingCycle.MONTHLY,
+                        List.of(new SubscriptionFeatureSnapshot(
+                                WorkspaceFeature.CODE,
+                                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)))),
+                        List.of(),
+                        List.of(new SubscriptionQuotaPackageSnapshot(
+                                "MEMBERS_2", "Two members", 1, WorkspaceFeature.CODE,
+                                WorkspaceFeature.MEMBERS, 2, 1, java.math.BigDecimal.ONE,
+                                "USD", com.hiveapp.platform.client.plan.domain.constant.BillingCycle.MONTHLY)))));
 
-        quotaEnforcer.check(WorkspaceFeature.definition(), WorkspaceFeature.MEMBERS, accountId, () -> 3L);
+        quotaEnforcer.check(WorkspaceFeature.definition(), WorkspaceFeature.MEMBERS, accountId, () -> 4L);
 
         verifyNoInteractions(planFeatureRepository);
     }

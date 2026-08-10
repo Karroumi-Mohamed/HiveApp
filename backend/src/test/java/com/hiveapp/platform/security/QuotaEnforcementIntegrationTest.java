@@ -5,8 +5,10 @@ import com.hiveapp.platform.client.company.dto.CreateCompanyRequest;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
+import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
+import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
-import com.hiveapp.shared.quota.QuotaOverride;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -187,10 +189,11 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
     }
 
     @Test
-    void proCompanyQuotaOverrideIsPricedAndEnforcedAtTheRaisedLimit() throws Exception {
+    void proCompanyQuotaPackageIsPricedAndEnforcedAtTheRaisedLimit() throws Exception {
         String token = registerClientAndGetToken();
         assignPlan(token, "PRO");
-        applyCompanyQuotaOverride(token, 6L)
+        String packageCode = createCompanyQuotaPackage(loginAdminAndGetToken());
+        applyCompanyQuotaPackage(token, packageCode)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.currentPrice").value(34.99));
 
@@ -261,11 +264,31 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
         return UUID.fromString(objectMapper.readTree(response).get("id").asText());
     }
 
-    private org.springframework.test.web.servlet.ResultActions applyCompanyQuotaOverride(
-            String clientToken, long limit) throws Exception {
+    private String createCompanyQuotaPackage(String adminToken) throws Exception {
+        String code = "PRO_COMPANY_1_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+        var request = new CreateQuotaPackageRequest(
+                code, "One additional company", null, WorkspaceFeature.CODE, WorkspaceFeature.COMPANIES,
+                1, new java.math.BigDecimal("5.00"), "USD", BillingCycle.MONTHLY,
+                false, 1, java.util.Set.of("PRO"), java.util.Set.of());
+        String response = mockMvc.perform(post("/api/admin/quota-packages")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID id = UUID.fromString(objectMapper.readTree(response).get("id").asText());
+        mockMvc.perform(patch("/api/admin/quota-packages/{id}/status", id)
+                        .param("status", "ACTIVE")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
+        return code;
+    }
+
+    private org.springframework.test.web.servlet.ResultActions applyCompanyQuotaPackage(
+            String clientToken, String packageCode) throws Exception {
         UpdateSubscriptionOverridesRequest request = new UpdateSubscriptionOverridesRequest(
                 java.util.Set.of(),
-                java.util.List.of(new QuotaOverride(WorkspaceFeature.CODE, WorkspaceFeature.COMPANIES, limit))
+                java.util.List.of(new QuotaPackageSelection(packageCode, 1))
         );
         return mockMvc.perform(patch("/api/admin/subscriptions/account/{accountId}/overrides", currentAccountId(clientToken))
                 .header("Authorization", bearer(loginAdminAndGetToken()))

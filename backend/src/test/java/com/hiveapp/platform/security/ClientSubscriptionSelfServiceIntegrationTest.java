@@ -3,12 +3,13 @@ package com.hiveapp.platform.security;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
-import com.hiveapp.shared.quota.QuotaOverride;
+import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +39,9 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
     private SubscriptionRepository subscriptionRepository;
 
     @Autowired
+    private PlanFeatureRepository planFeatureRepository;
+
+    @Autowired
     private FeatureRepository featureRepository;
 
     @Test
@@ -53,8 +57,8 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andExpect(jsonPath("$.plans[*].currencyCode", everyItem(org.hamcrest.Matchers.is("USD"))))
                 .andExpect(jsonPath(
                         "$.plans[?(@.code == 'PRO')].features[?(@.featureCode == 'platform.workspace')]"
-                                + ".quotas[?(@.resource == 'members')].priceCurrencyCode",
-                        hasItem("USD")))
+                                + ".quotas[?(@.resource == 'members')].mode",
+                        hasItem("FINITE")))
                 .andExpect(jsonPath("$.plans[0].features[*].featureCode").value(not(containsString("platform.plans"))))
                 .andReturn()
                 .getResponse()
@@ -120,28 +124,38 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
     void previewReportsQuotaConflictAndApplyRejectsItWithoutMutatingSubscription() throws Exception {
         String token = registerClientAndGetToken();
         UUID accountId = currentAccountId(token);
+        var free = planRepository.findByCode("FREE").orElseThrow();
+        var workspace = planFeatureRepository
+                .findByPlanIdAndFeature_Code(free.getId(), WorkspaceFeature.CODE).orElseThrow();
+        List<QuotaLimitEntry> original = List.copyOf(workspace.getQuotaConfigs());
+        try {
+            workspace.setQuotaConfigs(List.of(
+                    new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 0L),
+                    new QuotaLimitEntry(WorkspaceFeature.COMPANIES, 1L)));
+            planFeatureRepository.saveAndFlush(workspace);
+            var request = new SubscriptionChangeRequest("FREE", Set.of(), List.of());
 
-        var request = new SubscriptionChangeRequest(
-                "FREE",
-                Set.of(),
-                List.of(new QuotaOverride(WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS, 0L)));
+            preview(token, request)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.immediateAllowed").value(false))
+                    .andExpect(jsonPath("$.conflicts[0].code").value("QUOTA_BELOW_USAGE"));
 
-        preview(token, request)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.immediateAllowed").value(false))
-                .andExpect(jsonPath("$.conflicts[0].code").value("QUOTA_BELOW_USAGE"));
+            apply(token, request)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value(
+                            "Subscription change cannot be applied until conflicts are resolved."));
 
-        apply(token, request)
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value("Subscription change cannot be applied until conflicts are resolved."));
-
-        assertThat(subscriptionRepository.findAllByAccountIdAndStatusIn(
-                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
-                .hasSize(1)
-                .first()
-                .extracting(subscription -> subscription.getEntitlementSnapshot())
-                .asString()
-                .contains("\"planCode\":\"FREE\"");
+            assertThat(subscriptionRepository.findAllByAccountIdAndStatusIn(
+                    accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
+                    .hasSize(1)
+                    .first()
+                    .extracting(subscription -> subscription.getEntitlementSnapshot())
+                    .asString()
+                    .contains("\"planCode\":\"FREE\"");
+        } finally {
+            workspace.setQuotaConfigs(original);
+            planFeatureRepository.saveAndFlush(workspace);
+        }
     }
 
     @Test

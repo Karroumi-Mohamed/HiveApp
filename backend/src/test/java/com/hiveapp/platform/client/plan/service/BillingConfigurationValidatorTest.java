@@ -10,7 +10,6 @@ import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
-import com.hiveapp.shared.quota.QuotaOverride;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -71,40 +70,20 @@ class BillingConfigurationValidatorTest {
     }
 
     @Test
-    void rejectsAddonOrQuotaPricingInAnotherCurrency() {
+    void rejectsUnknownQuotaResourceForPackageDefinition() {
         when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
 
-        assertThatThrownBy(() -> validator.validateAddOnFeature(
-                WorkspaceFeature.CODE,
-                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L,
-                        java.math.BigDecimal.ONE, "EUR")), "USD"))
-                .isInstanceOf(InvalidRequestException.class)
-                .hasMessageContaining("must use plan currency USD");
-
-        assertThatThrownBy(() -> validator.validatePlanFeature(
-                WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
-                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L,
-                        java.math.BigDecimal.ONE, "EUR")), "USD"))
-                .isInstanceOf(InvalidRequestException.class)
-                .hasMessageContaining("must use plan currency USD");
-    }
-
-    @Test
-    void rejectsUnknownSubscriptionQuotaSlot() {
-        when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
-
-        assertThatThrownBy(() -> validator.validateSubscriptionOverrides(
-                List.of(new QuotaOverride(WorkspaceFeature.CODE, "projects", 10L))))
+        assertThatThrownBy(() -> validator.validateQuotaPackageDefinition(
+                WorkspaceFeature.CODE, "projects"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
     }
 
     @Test
-    void acceptsDeclaredWorkspaceQuotaOverride() {
+    void acceptsDeclaredQuotaPackageDefinition() {
         when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
 
-        validator.validateSubscriptionOverrides(
-                List.of(new QuotaOverride(WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS, 10L)));
+        validator.validateQuotaPackageDefinition(WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS);
     }
 
     private static Feature feature(String code) {

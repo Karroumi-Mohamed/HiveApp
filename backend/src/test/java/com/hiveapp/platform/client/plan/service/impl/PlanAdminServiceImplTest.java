@@ -13,6 +13,7 @@ import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
@@ -59,6 +60,7 @@ class PlanAdminServiceImplTest {
     @Mock private BillingConfigurationValidator billingConfigurationValidator;
     @Mock private AddOnRepository addOnRepository;
     @Mock private AddOnFeatureRepository addOnFeatureRepository;
+    @Mock private QuotaPackageRepository quotaPackageRepository;
 
     @InjectMocks
     private PlanAdminServiceImpl planAdminService;
@@ -74,7 +76,7 @@ class PlanAdminServiceImplTest {
         Plan freePlan = plan(freePlanId, "FREE");
         Feature workspace = feature("platform.workspace");
         PlanFeature sourceFeature = planFeature(freePlan, workspace,
-                List.of(new QuotaLimitEntry("members", 3L, new BigDecimal("2.00"), "USD")));
+                List.of(new QuotaLimitEntry("members", 3L)));
 
         when(planRepository.findByCode("STARTER")).thenReturn(Optional.empty());
         when(planRepository.findByCode("FREE")).thenReturn(Optional.of(freePlan));
@@ -97,7 +99,7 @@ class PlanAdminServiceImplTest {
         assertThat(inheritedFeatures.getFirst().getFeature()).isSameAs(workspace);
         assertThat(inheritedFeatures.getFirst().getMode()).isEqualTo(PlanFeatureMode.INCLUDED);
         assertThat(inheritedFeatures.getFirst().getQuotaConfigs())
-                .containsExactly(new QuotaLimitEntry("members", 3L, new BigDecimal("2.00"), "USD"));
+                .containsExactly(new QuotaLimitEntry("members", 3L));
         assertThat(inheritedFeatures.getFirst().getQuotaConfigs()).isNotSameAs(sourceFeature.getQuotaConfigs());
         verify(billingConfigurationValidator).validatePlanFeature(
                 "platform.workspace",
@@ -223,32 +225,27 @@ class PlanAdminServiceImplTest {
     }
 
     @Test
-    void updatePlanRejectsCurrencyChangeAfterFeaturePricingExists() {
+    void updatePlanRejectsCurrencyChangeAfterSubscriptionHistoryExists() {
         UUID planId = UUID.randomUUID();
         Plan plan = plan(planId, "PRO");
         when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
-        PlanFeature pricedFeature = planFeature(plan, feature("platform.workspace"), List.of(
-                new QuotaLimitEntry("members", 3L, BigDecimal.ONE, "USD")));
-        when(planFeatureRepository.findAllByPlanId(planId)).thenReturn(List.of(pricedFeature));
+        when(subscriptionRepository.countByPlan_Id(planId)).thenReturn(1L);
 
         assertThatThrownBy(() -> planAdminService.updatePlan(
                 planId,
                 new UpdatePlanRequest("Pro", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY)
         ))
                 .isInstanceOf(InvalidRequestException.class)
-                .hasMessage("Plan currency cannot change after feature pricing or subscription history exists.");
+                .hasMessage("Plan currency cannot change after subscription history exists.");
 
         verify(planRepository, never()).save(any(Plan.class));
     }
 
     @Test
-    void updatePlanAllowsCurrencyChangeWhenCompositionHasNoPricesOrHistory() {
+    void updatePlanAllowsCurrencyChangeWithoutSubscriptionHistory() {
         UUID planId = UUID.randomUUID();
         Plan plan = plan(planId, "DRAFT");
         when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
-        when(planFeatureRepository.findAllByPlanId(planId))
-                .thenReturn(List.of(planFeature(plan, feature("platform.workspace"), List.of())));
-
         Plan updated = planAdminService.updatePlan(
                 planId,
                 new UpdatePlanRequest("Draft", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY));

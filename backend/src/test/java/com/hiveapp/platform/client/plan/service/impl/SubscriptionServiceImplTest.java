@@ -6,19 +6,22 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
+import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
+import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.service.BillingCalculator;
-import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
@@ -34,7 +37,6 @@ import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
-import com.hiveapp.shared.quota.QuotaOverride;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import org.junit.jupiter.api.Test;
@@ -68,12 +70,12 @@ class SubscriptionServiceImplTest {
     @Mock private PlanFeatureRepository planFeatureRepository;
     @Mock private AddOnRepository addOnRepository;
     @Mock private AddOnFeatureRepository addOnFeatureRepository;
+    @Mock private QuotaPackageRepository quotaPackageRepository;
     @Mock private AccountRepository accountRepository;
     @Mock private BillingCalculator billingCalculator;
     @Mock private SubscriptionOverrideReader subscriptionOverrideReader;
     @Mock private SubscriptionSnapshotFactory subscriptionSnapshotFactory;
     @Mock private SubscriptionSnapshotReader subscriptionSnapshotReader;
-    @Mock private BillingConfigurationValidator billingConfigurationValidator;
     @Mock private ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
     @Mock private FeatureDefinitionCollector featureDefinitionCollector;
     @Mock private SubscriptionUsageService subscriptionUsageService;
@@ -101,12 +103,13 @@ class SubscriptionServiceImplTest {
     }
 
     @Test
-    void updateOverridesPersistsValidatedWorkspaceQuotaIncrease() {
+    void updateOverridesPersistsValidatedQuotaPackageSelection() {
         UUID accountId = UUID.randomUUID();
         Plan plan = plan("PRO", true);
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
         Subscription subscription = subscription(plan, SubscriptionStatus.ACTIVE);
-        List<QuotaOverride> quotaOverrides = List.of(new QuotaOverride("platform.workspace", "members", 10L));
+        List<QuotaPackageSelection> quotaPackages = List.of(new QuotaPackageSelection("MEMBERS_10", 1));
+        QuotaPackage quotaPackage = quotaPackage("MEMBERS_10", WorkspaceFeature.MEMBERS, plan);
         PlanFeature workspace = planFeature(plan, WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
                 List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)));
         var snapshot = new SubscriptionEntitlementSnapshot(
@@ -120,17 +123,50 @@ class SubscriptionServiceImplTest {
                 .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
         when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of(workspace));
         when(subscriptionSnapshotFactory.fromPlan(plan, Set.of())).thenReturn(snapshot);
+        when(quotaPackageRepository.findAllByCodeIn(Set.of("MEMBERS_10")))
+                .thenReturn(List.of(quotaPackage));
+        when(subscriptionSnapshotFactory.fromPlan(plan, Set.of(), quotaPackages)).thenReturn(snapshot);
         when(subscriptionSnapshotReader.write(snapshot)).thenReturn("{\"planCode\":\"PRO\"}");
-        when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any())).thenReturn("{\"quotaOverrides\":[]}");
+        when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any())).thenReturn("{\"quotaPackages\":[]}");
         when(billingCalculator.calculateMoney(subscription)).thenReturn(Money.of(new BigDecimal("39.99"), "USD"));
         when(subscriptionRepository.save(subscription)).thenReturn(subscription);
 
-        Subscription result = subscriptionService.updateOverrides(accountId, Set.of(), quotaOverrides);
+        Subscription result = subscriptionService.updateOverrides(accountId, Set.of(), quotaPackages);
 
-        verify(billingConfigurationValidator).validateSubscriptionOverrides(quotaOverrides);
-        assertThat(result.getCustomOverrides()).isEqualTo("{\"quotaOverrides\":[]}");
+        assertThat(result.getCustomOverrides()).isEqualTo("{\"quotaPackages\":[]}");
         assertThat(result.getCurrentPrice()).isEqualByComparingTo("39.99");
         verify(subscriptionRepository).save(subscription);
+    }
+
+    @Test
+    void previewRejectsQuotaPackageQuantityAboveConfiguredMaximum() {
+        UUID accountId = UUID.randomUUID();
+        Plan plan = plan("PRO", true);
+        ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
+        PlanFeature workspace = planFeature(plan, WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
+                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)));
+        var baseSnapshot = new SubscriptionEntitlementSnapshot(
+                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                List.of(new SubscriptionFeatureSnapshot(
+                        WorkspaceFeature.CODE, List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)))),
+                List.of());
+        QuotaPackage item = quotaPackage("MEMBERS_10", WorkspaceFeature.MEMBERS, plan);
+        var selection = new QuotaPackageSelection("MEMBERS_10", 2);
+
+        when(subscriptionRepository.findActiveByAccountId(accountId))
+                .thenReturn(Optional.of(subscription(plan, SubscriptionStatus.ACTIVE)));
+        when(planRepository.findByCode("PRO")).thenReturn(Optional.of(plan));
+        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
+        when(featureDefinitionCollector.collectByCode())
+                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+        when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of(workspace));
+        when(subscriptionSnapshotFactory.fromPlan(plan, Set.of())).thenReturn(baseSnapshot);
+        when(quotaPackageRepository.findAllByCodeIn(Set.of("MEMBERS_10"))).thenReturn(List.of(item));
+
+        assertThatThrownBy(() -> subscriptionService.previewChange(
+                accountId, new SubscriptionChangeRequest("PRO", Set.of(), List.of(selection))))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("Quota package MEMBERS_10 quantity must be between 1 and 1.");
     }
 
     @Test
@@ -148,7 +184,7 @@ class SubscriptionServiceImplTest {
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
                 .thenReturn(List.of(active, trialing));
         when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any()))
-                .thenReturn("{\"addOnCodes\":[],\"quotaOverrides\":[]}");
+                .thenReturn("{\"addOnCodes\":[],\"quotaPackages\":[]}");
         var snapshot = SubscriptionEntitlementSnapshot.empty(
                 "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
         when(subscriptionSnapshotFactory.fromPlan(pro)).thenReturn(snapshot);
@@ -224,7 +260,7 @@ class SubscriptionServiceImplTest {
     }
 
     @Test
-    void previewReportsQuotaConflictWhenRequestedLimitIsBelowCurrentUsage() {
+    void previewReportsQuotaConflictWithCompoundFeatureAndResourceIdentity() {
         UUID accountId = UUID.randomUUID();
         Plan pro = plan("PRO", true);
         ReflectionTestUtils.setField(pro, "id", UUID.randomUUID());
@@ -233,7 +269,7 @@ class SubscriptionServiceImplTest {
         current.setEntitlementSnapshot("{\"planCode\":\"FREE\"}");
         current.setCurrentMoney(Money.zero("USD"));
         PlanFeature workspace = planFeature(pro, WorkspaceFeature.CODE, null,
-                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)));
+                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 2L)));
         SubscriptionEntitlementSnapshot targetSnapshot = new SubscriptionEntitlementSnapshot(
                 "PRO",
                 BigDecimal.ZERO,
@@ -241,7 +277,7 @@ class SubscriptionServiceImplTest {
                 BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(
                         WorkspaceFeature.CODE,
-                        List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)))),
+                        List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 2L)))),
                 List.of());
 
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
@@ -251,20 +287,18 @@ class SubscriptionServiceImplTest {
                 .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
         when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(workspace));
         when(subscriptionSnapshotFactory.fromPlan(pro, Set.of())).thenReturn(targetSnapshot);
+        when(subscriptionSnapshotFactory.fromPlan(pro, Set.of(), List.of())).thenReturn(targetSnapshot);
         when(subscriptionSnapshotReader.read(current.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(targetSnapshot));
         when(subscriptionSnapshotReader.write(targetSnapshot)).thenReturn("{\"planCode\":\"PRO\"}");
-        when(subscriptionOverrideReader.write(any())).thenReturn("{\"quotaOverrides\":[]}");
+        when(subscriptionOverrideReader.write(any())).thenReturn("{\"quotaPackages\":[]}");
         when(subscriptionUsageService.currentUsage(accountId, WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS))
                 .thenReturn(3L);
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.zero("USD"));
 
         var preview = subscriptionService.previewChange(
                 accountId,
-                new SubscriptionChangeRequest(
-                        "PRO",
-                        Set.of(),
-                        List.of(new QuotaOverride(WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS, 2L))));
+                new SubscriptionChangeRequest("PRO", Set.of(), List.of()));
 
         assertThat(preview.immediateAllowed()).isFalse();
         assertThat(preview.conflicts()).hasSize(1);
@@ -278,7 +312,7 @@ class SubscriptionServiceImplTest {
         ReflectionTestUtils.setField(free, "id", UUID.randomUUID());
         Subscription current = subscription(free, SubscriptionStatus.ACTIVE);
         current.setCurrentMoney(Money.zero("USD"));
-        current.setCustomOverrides("{\"addOnCodes\":[],\"quotaOverrides\":[]}");
+        current.setCustomOverrides("{\"addOnCodes\":[],\"quotaPackages\":[]}");
         PlanFeature optional = planFeature(
                 free, WorkspaceFeature.CODE, PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
         AddOn addOn = addOn("EXTRA_MEMBERS");
@@ -303,6 +337,7 @@ class SubscriptionServiceImplTest {
         when(addOnRepository.findAllByCodeIn(Set.of("EXTRA_MEMBERS"))).thenReturn(List.of(addOn));
         when(addOnFeatureRepository.findAllByAddOnId(addOn.getId())).thenReturn(List.of(addOnFeature));
         when(subscriptionSnapshotFactory.fromPlan(free, Set.of("EXTRA_MEMBERS"))).thenReturn(snapshot);
+        when(subscriptionSnapshotFactory.fromPlan(free, Set.of("EXTRA_MEMBERS"), List.of())).thenReturn(snapshot);
         when(subscriptionSnapshotReader.write(snapshot)).thenReturn("{\"planCode\":\"FREE\"}");
         when(subscriptionOverrideReader.write(any())).thenReturn("{\"addOnCodes\":[\"EXTRA_MEMBERS\"]}");
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.TEN, "USD"));
@@ -361,7 +396,7 @@ class SubscriptionServiceImplTest {
         Subscription current = subscription(free, SubscriptionStatus.ACTIVE);
         current.setAccount(account);
         current.setEntitlementSnapshot("{\"planCode\":\"FREE\"}");
-        current.setCustomOverrides("{\"addOnCodes\":[],\"quotaOverrides\":[]}");
+        current.setCustomOverrides("{\"addOnCodes\":[],\"quotaPackages\":[]}");
         current.setCurrentMoney(Money.zero("USD"));
         PlanFeature workspace = planFeature(pro, WorkspaceFeature.CODE, null,
                 List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)));
@@ -383,13 +418,14 @@ class SubscriptionServiceImplTest {
                 .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
         when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(workspace));
         when(subscriptionSnapshotFactory.fromPlan(pro, Set.of())).thenReturn(targetSnapshot);
+        when(subscriptionSnapshotFactory.fromPlan(pro, Set.of(), List.of())).thenReturn(targetSnapshot);
         when(subscriptionSnapshotReader.read(current.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(SubscriptionEntitlementSnapshot.empty(
                         "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY)));
         when(subscriptionSnapshotReader.write(targetSnapshot)).thenReturn("{\"planCode\":\"PRO\"}");
         when(subscriptionOverrideReader.read(current.getCustomOverrides()))
                 .thenReturn(SubscriptionOverrides.empty());
-        when(subscriptionOverrideReader.write(any())).thenReturn("{\"addOnCodes\":[],\"quotaOverrides\":[]}");
+        when(subscriptionOverrideReader.write(any())).thenReturn("{\"addOnCodes\":[],\"quotaPackages\":[]}");
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.valueOf(29), "USD"));
         when(subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
@@ -447,5 +483,22 @@ class SubscriptionServiceImplTest {
         addOn.setBillingCycle(BillingCycle.MONTHLY);
         addOn.setStatus(AddOnStatus.ACTIVE);
         return addOn;
+    }
+
+    private QuotaPackage quotaPackage(String code, String resource, Plan plan) {
+        QuotaPackage item = new QuotaPackage();
+        ReflectionTestUtils.setField(item, "id", UUID.randomUUID());
+        item.setCode(code);
+        item.setName(code);
+        item.setFeature(planFeature(plan, WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED, List.of()).getFeature());
+        item.setResource(resource);
+        item.setCapacityPerUnit(10);
+        item.setMoney(Money.of(BigDecimal.TEN, "USD"));
+        item.setBillingCycle(BillingCycle.MONTHLY);
+        item.setRepeatable(false);
+        item.setMaximumQuantity(1);
+        item.setAllowedPlanCodes(Set.of(plan.getCode()));
+        item.setStatus(QuotaPackageStatus.ACTIVE);
+        return item;
     }
 }

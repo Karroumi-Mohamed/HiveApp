@@ -10,11 +10,12 @@ import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
+import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
+import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
-import com.hiveapp.shared.quota.QuotaOverride;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -111,19 +112,6 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .value("Duplicate quota configuration for platform.workspace.members."));
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
-                        "platform.workspace", PlanFeatureMode.INCLUDED,
-                        List.of(new QuotaLimitEntry("members", -1L))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Quota limit cannot be negative."));
-
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
-                        "platform.workspace",
-                        PlanFeatureMode.INCLUDED,
-                        List.of(new QuotaLimitEntry("members", 3L, BigDecimal.valueOf(-1), "USD"))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Quota price per unit cannot be negative."));
-
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
                         "platform.company", PlanFeatureMode.OPTIONAL_ADD_ON,
                         List.of(new QuotaLimitEntry("not-allowed", 1L))))
                 .andExpect(status().isBadRequest())
@@ -155,7 +143,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
-    void adminSubscriptionOverrideUpdateRejectsInvalidFeaturesAndQuotaOverrides() throws Exception {
+    void adminSubscriptionUpdateRejectsUnknownAndDuplicateQuotaPackages() throws Exception {
         String adminToken = loginAdminAndGetToken();
         String clientToken = registerClientAndGetToken();
         UUID accountId = currentAccountId(clientToken);
@@ -174,54 +162,38 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
                         Set.of(),
-                        List.of(new QuotaOverride("platform.workspace", "projects", 10L))))
+                        List.of(new QuotaPackageSelection("MISSING_PACKAGE", 1))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
-                        .value("Quota resource projects is not declared for feature platform.workspace."));
-
-        updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                        Set.of(),
-                        List.of(new QuotaOverride("platform.company", "members", 10L))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message")
-                        .value("Quota resource members is not declared for feature platform.company."));
+                        .value("One or more selected quota packages do not exist."));
 
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
                         Set.of(),
                         List.of(
-                                new QuotaOverride("platform.workspace", "members", 10L),
-                                new QuotaOverride("platform.workspace", "members", 12L))))
+                                new QuotaPackageSelection("DUPLICATE_PACKAGE", 1),
+                                new QuotaPackageSelection("DUPLICATE_PACKAGE", 1))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
-                        .value("Duplicate quota override for platform.workspace.members."));
-
-        updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                        Set.of(),
-                        List.of(new QuotaOverride("platform.workspace", "members", -1L))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Quota override limit cannot be negative."));
+                        .value("Duplicate quota package selection: DUPLICATE_PACKAGE"));
     }
 
     @Test
-    void adminSubscriptionOverrideRejectsUnavailableFeatureStatus() throws Exception {
+    void quotaPackageCreationRejectsUnavailableFeatureStatus() throws Exception {
         String adminToken = loginAdminAndGetToken();
-        String clientToken = registerClientAndGetToken();
-        UUID accountId = currentAccountId(clientToken);
-        Feature company = featureRepository.findByCode("platform.company").orElseThrow();
-        FeatureStatus originalStatus = company.getStatus();
+        Feature workspace = featureRepository.findByCode("platform.workspace").orElseThrow();
+        FeatureStatus originalStatus = workspace.getStatus();
 
         try {
-            company.setStatus(FeatureStatus.INTERNAL);
-            featureRepository.saveAndFlush(company);
+            workspace.setStatus(FeatureStatus.INTERNAL);
+            featureRepository.saveAndFlush(workspace);
 
-            updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                            Set.of(), List.of(new QuotaOverride("platform.company", "members", 1L))))
+            createQuotaPackage(adminToken, "REJECTED_" + shortSuffix(), "FREE")
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message")
-                            .value("Feature platform.company is not available for billing configuration."));
+                            .value("Feature platform.workspace is not available for billing configuration."));
         } finally {
-            company.setStatus(originalStatus);
-            featureRepository.saveAndFlush(company);
+            workspace.setStatus(originalStatus);
+            featureRepository.saveAndFlush(workspace);
         }
     }
 
@@ -231,9 +203,29 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         String clientToken = registerClientAndGetToken();
         UUID accountId = currentAccountId(clientToken);
 
+        String packageCode = "MEMBERS_2_" + shortSuffix();
+        String created = createQuotaPackage(adminToken, packageCode, "FREE")
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID packageId = UUID.fromString(objectMapper.readTree(created).get("id").asText());
+        mockMvc.perform(patch("/api/admin/quota-packages/{id}/status", packageId)
+                        .param("status", "ACTIVE")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/subscriptions/catalog")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plans[?(@.code == 'FREE')].quotaPackages[?(@.code == '"
+                        + packageCode + "')].featureCode")
+                        .value("platform.workspace"))
+                .andExpect(jsonPath("$.plans[?(@.code == 'FREE')].quotaPackages[?(@.code == '"
+                        + packageCode + "')].resource")
+                        .value("members"));
+
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
                         Set.of(),
-                        List.of(new QuotaOverride("platform.workspace", "members", 5L))))
+                        List.of(new QuotaPackageSelection(packageCode, 1))))
                 .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/admin/subscriptions/account/{accountId}", accountId)
@@ -241,12 +233,12 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accountId").value(accountId.toString()))
                 .andExpect(jsonPath("$.customOverrides.addOnCodes").isEmpty())
-                .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].featureCode").value("platform.workspace"))
-                .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].resource").value("members"))
-                .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].limit").value(5))
+                .andExpect(jsonPath("$.customOverrides.quotaPackages[0].packageCode").value(packageCode))
+                .andExpect(jsonPath("$.customOverrides.quotaPackages[0].quantity").value(1))
                 .andExpect(jsonPath("$.currentPriceCurrencyCode").value("USD"))
                 .andExpect(jsonPath("$.entitlementSnapshot.planCode").value("FREE"))
                 .andExpect(jsonPath("$.entitlementSnapshot.currencyCode").value("USD"))
+                .andExpect(jsonPath("$.entitlementSnapshot.quotaPackages[0].code").value(packageCode))
                 .andExpect(jsonPath("$.entitlementSnapshot.features[*].featureCode", hasItem("platform.workspace")));
     }
 
@@ -417,6 +409,25 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions createQuotaPackage(
+            String adminToken,
+            String code,
+            String planCode
+    ) throws Exception {
+        var request = new CreateQuotaPackageRequest(
+                code, "Two more members", null, "platform.workspace", "members",
+                2, BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                false, 1, Set.of(planCode), Set.of());
+        return mockMvc.perform(post("/api/admin/quota-packages")
+                .header("Authorization", bearer(adminToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)));
+    }
+
+    private String shortSuffix() {
+        return UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
     }
 
     private UUID createPlan(String adminToken, CreatePlanRequest request) throws Exception {

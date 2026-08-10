@@ -28,11 +28,11 @@ class SubscriptionOverrideReaderTest {
     void readsStructuredOverrides() {
         var overrides = reader.read(Map.of(
                 "addOnCodes", Set.of("COMPANY_MODULE"),
-                "quotaOverrides", Set.of()
+                "quotaPackages", Set.of()
         ));
 
         assertThat(overrides.addOnCodes()).containsExactly("COMPANY_MODULE");
-        assertThat(overrides.quotaOverrides()).isEmpty();
+        assertThat(overrides.quotaPackages()).isEmpty();
     }
 
     @Test
@@ -46,7 +46,7 @@ class SubscriptionOverrideReaderTest {
     void rejectsInvalidStructuredOverridesAsInvalidRequest() {
         assertThatThrownBy(() -> reader.read(Map.of(
                 "addOnCodes", 42,
-                "quotaOverrides", Set.of()
+                "quotaPackages", Set.of()
         )))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessage("Invalid subscription overrides.");
