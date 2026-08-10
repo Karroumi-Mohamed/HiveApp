@@ -580,33 +580,39 @@ Employee number is optional and unique inside the Account. Using it to log in re
 
 ## B2B-FLOW-001 — Finding and requesting the correct provider company
 
-**Status:** `DECIDED — SOURCE IMPLEMENTATION INCOMPLETE`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 In this flow the **provider Account** owns the Company being shared; the **external client Account** receives delegated access to work in it.
 
 - A provider Company creates a share code/link instead of being exposed through broad global Company search. Exact verified business identifiers may be added later.
 - The provider controls whether the Company accepts incoming requests and may disable/regenerate its code. Regeneration invalidates the old code without changing existing collaborations.
+- A Company share code is reusable and has no implicit expiry. It remains valid until the provider disables or regenerates it; only its SHA-256 hash is stored.
 - The request shows both Account identities, target Company, purpose/message, and optional requested capabilities. Requested capabilities are non-binding; the provider chooses actual grants after acceptance.
 - An authorized external Account actor may request or cancel a pending request. An authorized provider actor may accept or reject it. These are Account-scoped Permissionizer actions.
-- At most one pending or active collaboration exists for the same external Account/provider Account/Company tuple; retries return the existing relationship rather than duplicating it.
+- At most one pending, active, or suspended collaboration exists for the same external Account/provider Account/Company tuple.
+- Request creation has an explicit three-way retry contract after purpose whitespace is trimmed/collapsed and requested capabilities are compared as an unordered set:
+  - an initial successful create, or an identical retry of its live relationship, returns that relationship with `200 OK`;
+  - the same live tuple with different normalized purpose or capabilities returns `409 Conflict`;
+  - after the former relationship becomes terminal, a new request creates a new historical record with `201 Created`.
+- If identical concurrent requests race at the database constraint, the losing insert re-reads and returns the winner with `200 OK`; it must not surface a persistence error.
 
 ---
 
 ## B2B-FLOW-002 — Collaboration lifecycle
 
-**Status:** `DECIDED — COMMUNICATION CHANNEL DETAILS LATER`
+**Status:** `CORE LIFECYCLE IMPLEMENTED — AUDIT/COMMUNICATIONS IN BATCH 5.4`
 
 Possible states need precise transitions and effects:
 
 ```text
 PENDING ──accept──> ACTIVE <──resume── SUSPENDED
-   │                  │                    ▲
- reject            revoke              suspend
-   ▼                  ▼                    │
-REJECTED            REVOKED ───────────────┘ (no transition back)
+   │  │               │                    ▲
+cancel reject      revoke              suspend
+   ▼  ▼               ▼                    │
+CANCELLED REJECTED  REVOKED ───────────────┘ (no transition back)
 ```
 
-- `REJECTED` means a request was never accepted; `REVOKED` means a previously accepted relationship ended.
+- `CANCELLED` means the requester withdrew a pending request, `REJECTED` means the provider refused it, and `REVOKED` means a previously accepted relationship ended.
 - Either participant may permanently revoke/end the relationship. Only the provider may suspend/resume delegated access because it owns the shared Company; the external Account controls its own workers through its roles.
 - Suspension requires a reason and may have an explicit scheduled review or resume time. Automatic resume occurs only when explicitly chosen during suspension.
 - Rejection/revocation preserve immutable history. A later request creates a new collaboration record and never silently restores old permissions.
@@ -619,7 +625,7 @@ Runtime delegated access must require an ACTIVE collaboration.
 
 ## B2B-FLOW-003 — Permission delegation
 
-**Status:** `DECIDED — SOURCE IMPLEMENTATION INCOMPLETE`
+**Status:** `PROVIDER DELEGATION IMPLEMENTED — EXTERNAL OPERATOR SCOPE IN BATCH 5.3`
 
 1. Provider opens collaboration detail.
 2. UI shows currently granted permissions and separately shows eligible additions.
@@ -636,7 +642,7 @@ Two authorization layers are required at use time:
 1. The provider account delegated the action for this active collaboration/company.
 2. The acting person in the client account has a client-side B2B/operator role allowing them to use that delegation.
 
-Current source enforces the first layer but grants before checking the second, so every active member of the client account can currently use all permissions delegated to that collaboration.
+The provider-side layer, historical configured grants, active-scope checks, provider entitlement, and current code eligibility are enforced. The client-side B2B operator layer remains the explicit AUTHZ-002 task in Batch 5.3.
 
 The provider owner may delegate any currently entitled, code-declared B2B action. A non-owner additionally needs delegation-management permission and may delegate only actions they effectively hold. The external Account owner or authorized role manager separately decides which external members may use available B2B delegation.
 
@@ -644,7 +650,7 @@ The provider owner may delegate any currently entitled, code-declared B2B action
 
 ## B2B-FLOW-004 — Entitlement and company lifecycle effects
 
-**Status:** `DECIDED — SOURCE IMPLEMENTATION INCOMPLETE`
+**Status:** `CORE ACTIVE-SCOPE EFFECTS IMPLEMENTED — OPERATOR SCOPE IN BATCH 5.3`
 
 Define behavior when:
 
@@ -659,20 +665,20 @@ Decided safety rule: every use requires active provider and external Accounts, a
 
 Suspension disables configured grants without deleting them. Revocation freezes them as non-reusable history. If a feature/action becomes inactive, deprecated, non-delegatable, or unentitled, runtime stops immediately while the relationship and former grant remain explainable in history.
 
-Current source verifies active collaboration and provider entitlement, but does not verify active account/company state or whether the permission remains code-declared as B2B-delegatable.
+Current source verifies active collaboration, both active Accounts, active Company, provider entitlement, current code-declared B2B eligibility, the exact active persisted grant, and exact Company scope. External-member B2B operator authority remains in Batch 5.3.
 
 ---
 
 ## B2B-FLOW-005 — Concurrent and duplicate operations
 
-**Status:** `DECIDED — SOURCE IMPLEMENTATION INCOMPLETE`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 - At most one live collaboration per client/provider/company.
 - Granting the same permission is idempotent or returns a clear conflict.
 - Accept versus revoke/suspend uses version/locking conflict detection.
 - Retried commands cannot duplicate grants or change a terminal state unexpectedly.
 - UI refreshes from backend state after every command.
-- Treat `PENDING` and `ACTIVE` as the one live relationship slot for a client/provider/company tuple. A new request after rejection/revocation creates new history rather than mutating the terminal record.
+- Treat `PENDING`, `ACTIVE`, and `SUSPENDED` as the one live relationship slot for a client/provider/company tuple. Suspension retains grants and can resume, so releasing its slot could let a newer relationship collide with it when resumed. A new request after cancellation/rejection/revocation creates new history rather than mutating the terminal record.
 - Make request, cancel, accept, reject, suspend, resume, revoke, grant, and permission revoke idempotent or return an explicit already-applied/conflict result.
 
 ---
@@ -1310,6 +1316,8 @@ Record accepted decisions here with date, reason, and affected source areas.
 | 2026-07-15 | Model Account exceptions and subscription cancel/suspend/expire/restore as explicit source-aware states | Customer-specific access and lifecycle actions must remain understandable, reversible where allowed, and separate from data purge | Overrides/exceptions, subscription state machine, restricted access, sessions/B2B, history/audit |
 | 2026-07-15 | Keep client subscription self-service inside explicit Account authority and real commercial confirmation | A client-facing button must not fabricate payment or allow arbitrary internal/unlimited/negotiated entitlement | Subscription visibility/management permissions, pending commercial changes, sellable-option validation, audit |
 | 2026-07-15 | Use provider-controlled Company share links and a complete history-preserving B2B lifecycle | External collaboration must be discoverable without global Company leakage and remain understandable through rejection, suspension, and revocation | B2B discovery, requests, lifecycle, grants, notifications, audit |
+| 2026-08-10 | Include `SUSPENDED` in the single live collaboration slot | A suspended relationship retains grants and can resume; releasing the slot could allow a newer relationship that collides when the suspended one resumes | Collaboration state model, live-tuple database constraint, request retries, lifecycle UI and tests |
+| 2026-08-10 | Company share codes do not expire automatically and are not credentials | A code identifies a Company but grants no access; the provider must still accept each request, so it remains valid until disabled/regenerated and only its SHA-256 hash is stored | Share-code persistence, discovery/request APIs, provider usage metadata, security documentation and tests |
 | 2026-07-15 | Require both provider delegation and external-member authorization for every B2B action | An Account-level grant must not give every external employee the ability to use it | Permissionizer B2B policies, provider delegation ceiling, external operator roles, runtime revalidation |
 | 2026-07-15 | Offer both now and at-renewal timing for client upgrades and downgrades | Timing is an operator/customer choice; actual feature/quota impact, not the plan label or price direction, determines required safeguards | Client plan-change preview, pending renewal operations, conflict handling, Account locking, history/audit |
 | 2026-07-15 | Defer permission-code rename/removal migration machinery and treat annotation codes as stable | Permission codes have no expected normal reason to change after a function is guarded; adding aliases/replacement flags to Permissionizer is premature | Registry retirement flow, Permissionizer scope, future developer migrations |

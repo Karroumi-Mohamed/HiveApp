@@ -1,21 +1,34 @@
 package com.hiveapp.platform.client.collaboration.api;
 
-import com.hiveapp.platform.client.collaboration.dto.CollaborationDto;
-import com.hiveapp.platform.client.collaboration.dto.InitiateCollaborationRequest;
 import com.hiveapp.platform.client.collaboration.dto.B2BPermissionRequest;
-import com.hiveapp.platform.client.collaboration.mapper.CollaborationMapper;
+import com.hiveapp.platform.client.collaboration.dto.CollaborationCommandRequest;
+import com.hiveapp.platform.client.collaboration.dto.CollaborationDto;
+import com.hiveapp.platform.client.collaboration.dto.CollaborationGrantDto;
+import com.hiveapp.platform.client.collaboration.dto.CollaborationInitiationResult;
+import com.hiveapp.platform.client.collaboration.dto.CompanyShareCodeDto;
+import com.hiveapp.platform.client.collaboration.dto.CompanyShareResolutionDto;
+import com.hiveapp.platform.client.collaboration.dto.InitiateCollaborationRequest;
+import com.hiveapp.platform.client.collaboration.dto.ShareCodeRequest;
 import com.hiveapp.platform.client.collaboration.service.CollaborationService;
 import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
-
-import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.http.HttpStatus;
-
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/collaborations")
@@ -23,63 +36,128 @@ import java.util.stream.Collectors;
 public class CollaborationController {
 
     private final CollaborationService collaborationService;
-    private final CollaborationMapper collaborationMapper;
+
+    @PostMapping("/share-code/resolve")
+    public CompanyShareResolutionDto resolveShareCode(@Valid @RequestBody ShareCodeRequest request) {
+        return collaborationService.resolveCompanyShareCode(request.shareCode());
+    }
+
+    @PostMapping("/companies/{companyId}/share-code")
+    public CompanyShareCodeDto regenerateShareCode(@PathVariable UUID companyId) {
+        return collaborationService.regenerateCompanyShareCode(currentAccountId(), companyId);
+    }
+
+    @GetMapping("/companies/{companyId}/share-code")
+    public CompanyShareCodeDto getShareCode(@PathVariable UUID companyId) {
+        return collaborationService.getCompanyShareCode(currentAccountId(), companyId);
+    }
+
+    @PatchMapping("/companies/{companyId}/share-code")
+    public CompanyShareCodeDto setShareCodeEnabled(
+            @PathVariable UUID companyId,
+            @RequestParam boolean enabled
+    ) {
+        return collaborationService.setCompanyShareCodeEnabled(currentAccountId(), companyId, enabled);
+    }
 
     @PostMapping("/initiate")
-    @ResponseStatus(HttpStatus.CREATED)
-    public CollaborationDto initiate(@Valid @RequestBody InitiateCollaborationRequest req) {
-        UUID clientAccountId = HiveAppContextHolder.getContext().currentAccountId();
-        var collab = collaborationService.initiateCollaboration(clientAccountId, req.companyId());
-        return collaborationMapper.toDto(collab);
+    public ResponseEntity<CollaborationDto> initiate(@Valid @RequestBody InitiateCollaborationRequest request) {
+        CollaborationInitiationResult result = collaborationService.initiateCollaboration(
+                currentAccountId(), request);
+        HttpStatus status = result.outcome()
+                == CollaborationInitiationResult.Outcome.CREATED_AFTER_TERMINAL
+                ? HttpStatus.CREATED
+                : HttpStatus.OK;
+        return ResponseEntity.status(status).body(result.collaboration());
+    }
+
+    @GetMapping("/{id}")
+    public CollaborationDto detail(@PathVariable UUID id) {
+        return collaborationService.getCollaboration(id);
     }
 
     @PatchMapping("/{id}/accept")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void accept(@PathVariable UUID id) {
-        UUID providerAccountId = HiveAppContextHolder.getContext().currentAccountId();
-        collaborationService.acceptCollaboration(providerAccountId, id);
+    public CollaborationDto accept(
+            @PathVariable UUID id,
+            @Valid @RequestBody CollaborationCommandRequest request
+    ) {
+        return collaborationService.acceptCollaboration(currentAccountId(), id, request);
+    }
+
+    @PatchMapping("/{id}/reject")
+    public CollaborationDto reject(
+            @PathVariable UUID id,
+            @Valid @RequestBody CollaborationCommandRequest request
+    ) {
+        return collaborationService.rejectCollaboration(currentAccountId(), id, request);
+    }
+
+    @PatchMapping("/{id}/cancel-request")
+    public CollaborationDto cancelRequest(
+            @PathVariable UUID id,
+            @Valid @RequestBody CollaborationCommandRequest request
+    ) {
+        return collaborationService.cancelRequest(currentAccountId(), id, request);
+    }
+
+    @PatchMapping("/{id}/suspend")
+    public CollaborationDto suspend(
+            @PathVariable UUID id,
+            @Valid @RequestBody CollaborationCommandRequest request
+    ) {
+        return collaborationService.suspendCollaboration(currentAccountId(), id, request);
+    }
+
+    @PatchMapping("/{id}/resume")
+    public CollaborationDto resume(
+            @PathVariable UUID id,
+            @Valid @RequestBody CollaborationCommandRequest request
+    ) {
+        return collaborationService.resumeCollaboration(currentAccountId(), id, request);
     }
 
     @DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void revoke(@PathVariable UUID id) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        collaborationService.revokeCollaboration(accountId, id);
+    public CollaborationDto revoke(
+            @PathVariable UUID id,
+            @Valid @RequestBody CollaborationCommandRequest request
+    ) {
+        return collaborationService.revokeCollaboration(currentAccountId(), id, request);
     }
 
     @GetMapping
     public List<CollaborationDto> getCollaborations() {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return collaborationService.getClientCollaborations(accountId).stream()
-                .map(collaborationMapper::toDto)
-                .collect(Collectors.toList());
+        return collaborationService.getClientCollaborations(currentAccountId());
     }
 
     @GetMapping("/incoming")
     public List<CollaborationDto> getIncomingCollaborations() {
-        UUID providerAccountId = HiveAppContextHolder.getContext().currentAccountId();
-        return collaborationService.getProviderCollaborations(providerAccountId).stream()
-                .map(collaborationMapper::toDto)
-                .collect(Collectors.toList());
+        return collaborationService.getProviderCollaborations(currentAccountId());
     }
 
     @PostMapping("/{id}/permissions")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void grantPermission(@PathVariable UUID id, @Valid @RequestBody B2BPermissionRequest req) {
-        UUID providerAccountId = HiveAppContextHolder.getContext().currentAccountId();
-        collaborationService.grantPermission(providerAccountId, id, req.permissionCode(), req.registryVersion());
+    public void grantPermission(@PathVariable UUID id, @Valid @RequestBody B2BPermissionRequest request) {
+        collaborationService.grantPermission(
+                currentAccountId(), id, request.permissionCode(), request.registryVersion());
+    }
+
+    @GetMapping("/{id}/permissions")
+    public List<CollaborationGrantDto> permissions(@PathVariable UUID id) {
+        return collaborationService.getPermissions(id);
     }
 
     @GetMapping("/{id}/permission-catalog")
     public PermissionPickerCatalogDto getPermissionCatalog(@PathVariable UUID id) {
-        UUID providerAccountId = HiveAppContextHolder.getContext().currentAccountId();
-        return collaborationService.getPermissionCatalog(providerAccountId, id);
+        return collaborationService.getPermissionCatalog(currentAccountId(), id);
     }
 
     @DeleteMapping("/{id}/permissions/{permissionCode}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void revokePermission(@PathVariable UUID id, @PathVariable String permissionCode) {
-        UUID providerAccountId = HiveAppContextHolder.getContext().currentAccountId();
-        collaborationService.revokePermission(providerAccountId, id, permissionCode);
+        collaborationService.revokePermission(currentAccountId(), id, permissionCode);
+    }
+
+    private UUID currentAccountId() {
+        return HiveAppContextHolder.getContext().currentAccountId();
     }
 }

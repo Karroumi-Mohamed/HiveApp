@@ -37,4 +37,25 @@ public class Company extends BaseEntity {
 
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
+
+    @Column(name = "b2b_share_code_hash", unique = true, length = 64)
+    private String b2bShareCodeHash;
+
+    @Column(name = "b2b_share_enabled", nullable = false)
+    private boolean b2bShareEnabled;
+
+    @Column(name = "b2b_share_generated_at")
+    private java.time.Instant b2bShareGeneratedAt;
+
+    @Column(name = "b2b_share_resolution_count", nullable = false)
+    private long b2bShareResolutionCount;
+
+    @Column(name = "b2b_share_request_count", nullable = false)
+    private long b2bShareRequestCount;
+
+    @Column(name = "b2b_share_last_resolved_at")
+    private java.time.Instant b2bShareLastResolvedAt;
+
+    @Column(name = "b2b_share_last_requested_at")
+    private java.time.Instant b2bShareLastRequestedAt;
 }

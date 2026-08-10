@@ -1299,10 +1299,11 @@ flowchart TD
 - **Unlocks**: COLLAB-002.
 - **Order Rationale**: Constraints for B2B.
 - **Affected Backend Areas**: `Collaboration.java`.
-- **Database Migration**: Yes (unique index on `collaborations(client_id, provider_id, company_id)`).
-- **Acceptance Criteria**: Duplicate relationships fail DB saves.
+- **Database Migration**: No for the current unpublished/disposable H2 schema; generated schema includes the live-tuple uniqueness constraint.
+- **Acceptance Criteria**: Identical live requests return the existing relationship, changed details conflict, terminal history permits a new record, and concurrent uniqueness losers re-read instead of returning 500.
 - **Tests**: Concurrency collaboration tests.
 - **Future UI Flow**: Collaboration request card.
+- **Execution Status**: Completed on 2026-08-10. A nullable live-tuple key permits one PENDING, ACTIVE, or SUSPENDED relationship per client/provider/company while terminal records remain reusable only as history. Purpose is whitespace-normalized and capability sets are order-insensitive for retry comparison; identical concurrent insert losers return the winning relationship.
 
 #### [IMPLEMENT] COLLAB-002 — B2B delegation lacks an actor permission ceiling
 - **Prerequisites**: COLLAB-001.
@@ -1313,6 +1314,7 @@ flowchart TD
 - **Acceptance Criteria**: Delegator cannot assign permissions they do not hold.
 - **Tests**: Ceiling validation checks.
 - **Future UI Flow**: Delegation pickers.
+- **Execution Status**: Completed on 2026-08-10. Provider entitlement and code eligibility are intersected with the provider actor's effective delegation ceiling; owner and non-owner boundaries are covered.
 
 #### [IMPLEMENT] COLLAB-003 — Collaboration operations do not revalidate active account/company state
 - **Prerequisites**: COLLAB-002.
@@ -1323,6 +1325,7 @@ flowchart TD
 - **Acceptance Criteria**: Mapped records verify status flags.
 - **Tests**: Isolation tests.
 - **Future UI Flow**: Connection grids.
+- **Execution Status**: Completed on 2026-08-10. Initiation, acceptance, lifecycle scheduling, permission changes, catalogs, and share-code management recheck the applicable active Accounts and Company; runtime context also blocks inactive scopes.
 
 #### [IMPLEMENT] COLLAB-004 — `SUSPENDED` status has no management flow
 - **Prerequisites**: COLLAB-003.
@@ -1333,16 +1336,18 @@ flowchart TD
 - **Acceptance Criteria**: Suspend endpoint disables active access.
 - **Tests**: State check tests.
 - **Future UI Flow**: Collaboration management toggles.
+- **Execution Status**: Completed on 2026-08-10. CANCELLED, REJECTED, ACTIVE, SUSPENDED, and REVOKED have explicit participant/state transitions. Suspension requires a reason, preserves grants, supports review or explicitly selected automatic resume, and either participant may permanently end an accepted relationship.
 
 #### [IMPLEMENT] COLLAB-005 — Concurrent lifecycle actions can overwrite each other
 - **Prerequisites**: COLLAB-004.
 - **Unlocks**: COLLAB-006.
 - **Order Rationale**: Locking transitions.
 - **Affected Backend Areas**: `Collaboration.java`.
-- **Database Migration**: Yes (add `@Version` column).
-- **Acceptance Criteria**: Mismatched transitions throw `ObjectOptimisticLockingFailureException`.
+- **Database Migration**: No for the current unpublished/disposable H2 schema; generated schema includes lifecycle/grant versions and unique constraints.
+- **Acceptance Criteria**: Stale and duplicate commands return explicit conflicts without overwriting authoritative state.
 - **Tests**: Concurrency locking tests.
 - **Future UI Flow**: Connection buttons.
+- **Execution Status**: Completed on 2026-08-10. Collaboration and grant rows are versioned, command DTOs carry expected collaboration versions, and database uniqueness protects live tuples and permission pairs. The request insert runs in an isolated transaction so a constraint loser can safely re-read and return the concurrent winner instead of poisoning the request transaction.
 
 #### [IMPLEMENT] COLLAB-006 — UI cannot read the collaboration's currently granted permissions
 - **Prerequisites**: COLLAB-005.
@@ -1353,6 +1358,7 @@ flowchart TD
 - **Acceptance Criteria**: Connection detail endpoint lists grants.
 - **Tests**: API contract integration tests.
 - **Future UI Flow**: Collaboration details inspect panel.
+- **Execution Status**: Completed on 2026-08-10. Authorized detail and current-grant endpoints expose configured versus currently usable grants, lifecycle blockers/actions, participant identity, reasons, and effective timestamps.
 
 #### [IMPLEMENT] COLLAB-007 — Collaboration service exposes persistence entities
 - **Prerequisites**: COLLAB-006.
@@ -1363,16 +1369,20 @@ flowchart TD
 - **Acceptance Criteria**: Services exchange B2BDTOs.
 - **Tests**: Compilation checks.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed on 2026-08-10. API-facing service operations return complete DTOs; the entity-returning boundary and MapStruct persistence mapper were removed.
 
 #### [IMPLEMENT] COLLAB-008 — B2B discovery and lifecycle APIs cannot implement the decided management flow
 - **Prerequisites**: COLLAB-007.
 - **Unlocks**: AUTHZ-002.
 - **Order Rationale**: Implements share-code verification instead of raw UUID lookups.
 - **Affected Backend Areas**: Collaboration controllers.
-- **Database Migration**: Yes (add company share codes column).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; generated schema includes Company share-code and collaboration lifecycle columns.
 - **Acceptance Criteria**: Requests require valid share code matching.
 - **Tests**: Share code verification tests.
 - **Future UI Flow**: Collaboration connector form.
+- **Execution Status**: Core discovery/lifecycle completed on 2026-08-10. Provider-controlled codes have no automatic expiry, are stored only as SHA-256 hashes, rotate/disable safely, resolve privacy-minimal identity, and initiate purpose/capability-aware requests without raw Company UUIDs. Providers can read per-current-code resolution/request counts and last-use times; regeneration resets that metadata. Audit and reusable notifications remain in Batch 5.4.
+
+**Batch 5.2 verification:** `mvn test` passes 402 tests with 0 failures, 0 errors, and 0 skipped. Focused API/H2 and unit coverage verifies Permissionizer discovery, hash-only non-expiring code rotation/disable/privacy and usage metadata, normalized idempotent retries, concurrent uniqueness recovery, changed-detail conflicts, terminal-history replacement requests, duplicate grants, participant transition boundaries, stale versions, review/automatic-resume scheduling, active-scope cutoff, preserved inactive grants, provider delegation ceilings, and DTO-only detail/current-grant reads. No Flyway files were added under the agreed unpublished/disposable-database policy.
 
 ---
 
@@ -1778,14 +1788,14 @@ flowchart TD
 | **INVITE-005** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Canonical identity and unique identifiers |
 | **INVITE-006** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Expiration mutation path removed |
 | **INVITE-007** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Post-commit credential email |
-| **COLLAB-001** | Collaboration unique | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | TENANCY-003 | Unique Index |
-| **COLLAB-002** | Actor ceiling | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-001 | Ceiling validation |
-| **COLLAB-003** | Revalidate active | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-002 | Context checks |
-| **COLLAB-004** | Suspend methods | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-003 | Active state cuts |
-| **COLLAB-005** | Optimistic lock | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-004 | `@Version` checks |
-| **COLLAB-006** | Detail endpoint | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-005 | API lists grants |
-| **COLLAB-007** | Clean services | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-006 | DTO usage |
-| **COLLAB-008** | Connection codes | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-007 | Share code verified |
+| **COLLAB-001** | Collaboration unique | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | TENANCY-003 | Live-tuple DB uniqueness and terminal-history tests |
+| **COLLAB-002** | Actor ceiling | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-001 | Provider effective-permission ceiling validation |
+| **COLLAB-003** | Revalidate active | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-002 | Operation and runtime Account/Company checks |
+| **COLLAB-004** | Suspend methods | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-003 | Explicit lifecycle and scheduled resume |
+| **COLLAB-005** | Optimistic lock | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-004 | Versions, expected-version commands and DB constraints |
+| **COLLAB-006** | Detail endpoint | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-005 | Detail and configured/current grant APIs |
+| **COLLAB-007** | Clean services | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-006 | DTO-only service boundary |
+| **COLLAB-008** | Connection codes | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-007 | Discovery/lifecycle complete; audit/notifications in Batch 5.4 |
 | **ADMIN-001** | Safe seeding logging | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | CONFIG-001 | Secure env password |
 | **ADMIN-002** | User existing seed | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.3 | ADMIN-001 | Context matches |
 | **ADMIN-AUTH-001**| Token refresh | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | None | ADMIN rotation, audience and reuse tests |
@@ -1844,8 +1854,3 @@ flowchart TD
 - **Batch 0.1 (Baseline Security & Verification)**
   - Encompasses `CONFIG-001` (configuration profiles setup), `TEST-001` (negative tests coverage audit), `PERM-001`, `PERM-003`, `PERM-004` (verification steps for standalone Permissionizer aspect behavior), and `ADMIN-001` (securing SuperAdmin startup logging and credentials).
   - This establishes safe configuration, a test baseline, and focused verification of the user-owned Permissionizer behavior before any conditional Permissionizer changes.
-
----
-
-# Questions/blockers requiring user confirmation
-1. **B2B Invitation Expiry Timeframe (COLLAB-008)**: Should B2B collaboration share codes carry a default, configurable expiration window similar to the original user invitation workflow (e.g. 7 days)?

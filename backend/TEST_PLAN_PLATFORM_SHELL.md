@@ -303,11 +303,16 @@ Required service and policy tests:
 
 ```text
 client cannot initiate collaboration with its own account. Covered at request level.
-client can request collaboration only for a provider-owned company
+client can request collaboration only through a valid provider-owned Company share code. Covered for hash-only, non-expiring storage, privacy-minimal resolution, provider-readable usage metadata, rotation, disable, and self-collaboration denial.
 provider only can accept incoming collaboration. Covered at request level.
-provider only can grant or revoke collaboration permissions. Grant and non-participant revoke are covered at request level.
-either participant can revoke collaboration if that remains the accepted rule
-non-participant cannot read collaboration permissions
+provider only can grant or revoke collaboration permissions. Covered at request level.
+provider only can suspend/resume; requester/provider cancellation/rejection boundaries are explicit. Covered at request level.
+either participant can revoke an accepted collaboration. Covered at request level.
+non-participant cannot read collaboration permissions. Participant detail/current-grant reads are covered.
+one PENDING/ACTIVE/SUSPENDED tuple and one grant pair are database-unique; normalized identical retries return the existing relationship, changed details conflict, concurrent insert losers re-read the winner, and terminal history allows a new request. Covered against generated H2 constraints.
+stale lifecycle versions conflict instead of overwriting state. Covered at request level.
+suspension preserves grants, distinguishes review from explicit automatic resume, and automatic resume skips inactive or no-longer-entitled provider scopes. Covered at request and unit levels.
+permission revocation preserves an inactive grant row, regrant reactivates it, and terminal relationships freeze grants. Covered at request level.
 B2bCollaborationPolicy denies when collaborationId is null
 B2bCollaborationPolicy checks permission against exact collaborationId
 permission delegated to collaboration A does not authorize collaboration B with same provider/company

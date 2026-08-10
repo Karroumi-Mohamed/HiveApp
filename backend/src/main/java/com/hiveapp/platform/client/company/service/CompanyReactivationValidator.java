@@ -41,7 +41,7 @@ public class CompanyReactivationValidator {
                 .forEach(permissionsToRestore::add);
 
         collaborationPermissionRepository
-                .findAllByCollaborationCompanyIdAndCollaborationStatus(
+                .findAllByCollaborationCompanyIdAndCollaborationStatusAndIsActiveTrue(
                         company.getId(), CollaborationStatus.ACTIVE)
                 .stream()
                 .map(permission -> permission.getPermission().getCode())

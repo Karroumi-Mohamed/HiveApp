@@ -149,12 +149,17 @@ The current implementation keeps client workspace role management on `platform.r
 |---|-------|----------|------------|
 | B2B-01 | As an owner or authorized member, I can initiate a B2B collaboration request with another workspace for access to one of their companies | `POST /api/v1/collaborations/initiate` | `platform.b2b.request` |
 | B2B-02 | As an owner or authorized member, I can accept an incoming collaboration request, granting the requesting workspace access | `PATCH /api/v1/collaborations/:id/accept` | `platform.b2b.accept` |
-| B2B-03 | As an owner or authorized member, I can revoke an active or pending collaboration (outgoing or incoming) | `DELETE /api/v1/collaborations/:id` | `platform.b2b.revoke` |
+| B2B-03 | As either participant, I can permanently end an active or suspended collaboration | `DELETE /api/v1/collaborations/:id` | `platform.b2b.revoke` |
 | B2B-04 | As an owner or authorized member, I can view all outgoing collaborations I have initiated | `GET /api/v1/collaborations` | `platform.b2b.view` |
 | B2B-05 | As an owner or authorized member, I can view all incoming collaboration requests targeting my workspace | `GET /api/v1/collaborations/incoming` | `platform.b2b.view_incoming` |
 | B2B-06 | As a provider, I can grant a specific permission brick to an active collaboration, allowing the partner's members to act on my resources | `POST /api/v1/collaborations/:id/permissions` | `platform.b2b.grant_permission` |
 | B2B-07 | As a provider, I can revoke a previously granted permission from a collaboration | `DELETE /api/v1/collaborations/:id/permissions/:permissionCode` | `platform.b2b.revoke_permission` |
 | B2B-08 | As a provider, I can view the permission bricks that are safe and available to delegate for an active collaboration | `GET /api/v1/collaborations/:id/permission-catalog` | `platform.b2b.permission_catalog` |
+| B2B-09 | As a provider, I can generate/rotate, enable/disable, or inspect current usage of a Company discovery code | `POST/PATCH/GET /api/v1/collaborations/companies/:companyId/share-code` | `platform.b2b.regenerate_share_code` / `platform.b2b.manage_share_code` / `platform.b2b.read_share_code` |
+| B2B-10 | As an external Account actor, I can resolve a valid code to privacy-minimal provider/Company identity before requesting | `POST /api/v1/collaborations/share-code/resolve` | `platform.b2b.resolve_share_code` |
+| B2B-11 | As either participant, I can inspect relationship detail and configured/current grants | `GET /api/v1/collaborations/:id` and `GET /api/v1/collaborations/:id/permissions` | `platform.b2b.read_detail` / `platform.b2b.read_permissions` |
+| B2B-12 | As the provider, I can reject a pending request; as the requester, I can cancel it | `PATCH /api/v1/collaborations/:id/reject` or `/cancel-request` | `platform.b2b.reject` / `platform.b2b.cancel_request` |
+| B2B-13 | As the provider, I can suspend access with a reason and optional review/automatic-resume schedule, then resume it | `PATCH /api/v1/collaborations/:id/suspend` or `/resume` | `platform.b2b.suspend` / `platform.b2b.resume` |
 
 **Constraints:**
 - B2B management requires the `platform.b2b` feature to be on the actor account's active plan. This includes initiating, accepting, revoking, listing, granting, revoking delegated permissions, and viewing the B2B permission catalog.
@@ -164,8 +169,12 @@ The current implementation keeps client workspace role management on `platform.r
 - Runtime B2B resource access also checks the provider account's current entitlement to the delegated permission. If the provider loses the feature, existing delegated access stops.
 - The B2B permission catalog is provider-only and active-collaboration-only. It returns only permissions whose feature is enabled for the provider account and whose action is explicitly listed as B2B-delegatable in code.
 - B2B delegation is intentionally narrow right now. The only explicitly B2B-delegatable feature is `platform.company`, and the only action currently exposed is `platform.company.read_single`, so this must be revisited before broader B2B product flows are exposed.
-- A partner member's access is entirely determined by the granted collaboration permissions — their own roles in their home workspace are irrelevant here
+- The provider grant is only one authorization layer. Batch 5.3 adds the required client-side B2B operator permission so delegated access is not automatically usable by every active member of the external Account.
 - Revoking a collaboration immediately removes all partner access — no grace period
+- Company share codes are reusable discovery identifiers, are stored only as hashes, and remain valid until disabled or regenerated. They do not expose broad Company search or unrelated business data.
+- Providers can inspect resolution/request counts and last-use times for the current code so unexpected use is visible; rotating the code resets these counters.
+- Identical live requests compare collapsed purpose whitespace and requested capabilities as an unordered set and return the existing relationship. Changed details conflict; after a terminal relationship, a new request creates a new historical record.
+- CANCELLED, REJECTED, and REVOKED relationships remain historical. A later request creates a new record and never reuses former grants.
 
 ---
 

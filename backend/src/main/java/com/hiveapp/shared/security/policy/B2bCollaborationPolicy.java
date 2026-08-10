@@ -29,7 +29,7 @@ public class B2bCollaborationPolicy implements PermissionPolicy {
             return Decision.DENIED;
         }
 
-        boolean isGranted = collaborationPermissionRepository.existsByCollaborationIdAndPermissionCode(
+        boolean isGranted = collaborationPermissionRepository.existsActiveByCollaborationIdAndPermissionCode(
             ctx.collaborationId(), requested.path());
 
         if (!isGranted) {

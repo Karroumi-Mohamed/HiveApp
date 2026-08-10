@@ -40,7 +40,7 @@ class B2bCollaborationPolicyTest {
                 true
         );
 
-        when(collaborationPermissionRepository.existsByCollaborationIdAndPermissionCode(
+        when(collaborationPermissionRepository.existsActiveByCollaborationIdAndPermissionCode(
                 collaborationId, permissionCode)).thenReturn(true);
         when(permissionGrantValidator.isB2bRuntimeEligible(permissionCode)).thenReturn(true);
         when(planEntitlementService.isPermissionEntitled(providerAccountId, permissionCode)).thenReturn(true);
@@ -48,7 +48,7 @@ class B2bCollaborationPolicyTest {
         assertThat(policy.evaluate(new Permission(permissionCode), context))
                 .isEqualTo(PermissionPolicy.Decision.GRANTED);
         verify(collaborationPermissionRepository)
-                .existsByCollaborationIdAndPermissionCode(collaborationId, permissionCode);
+                .existsActiveByCollaborationIdAndPermissionCode(collaborationId, permissionCode);
         verify(planEntitlementService).isPermissionEntitled(providerAccountId, permissionCode);
     }
 
@@ -66,7 +66,7 @@ class B2bCollaborationPolicyTest {
                 true
         );
 
-        when(collaborationPermissionRepository.existsByCollaborationIdAndPermissionCode(
+        when(collaborationPermissionRepository.existsActiveByCollaborationIdAndPermissionCode(
                 collaborationId, permissionCode)).thenReturn(true);
         when(permissionGrantValidator.isB2bRuntimeEligible(permissionCode)).thenReturn(true);
         when(planEntitlementService.isPermissionEntitled(providerAccountId, permissionCode)).thenReturn(false);

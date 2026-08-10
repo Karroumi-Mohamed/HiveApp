@@ -2293,7 +2293,7 @@ Require a valid environment-specific public URL. Decide retry/idempotency behavi
 
 ### COLLAB-001 — Duplicate collaborations are allowed
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2307,13 +2307,13 @@ The same two accounts and company can have several pending or active collaborati
 
 **Required resolution**
 
-Permit at most one live (`PENDING` or `ACTIVE`) collaboration for a client/provider/company tuple. Enforce it with a transaction-safe database strategy; retries return the existing relationship or an explicit conflict. A new request after rejection/revocation creates a new historical record rather than mutating the terminal one.
+Permit at most one live (`PENDING`, `ACTIVE`, or `SUSPENDED`) collaboration for a client/provider/company tuple. Enforce it with a transaction-safe database strategy. After normalizing purpose whitespace and treating capabilities as an unordered set, an identical live retry returns the existing relationship, changed details conflict, and a request after a terminal state creates a new historical record. A concurrent uniqueness loser must re-read the winner rather than return 500.
 
 ---
 
 ### COLLAB-002 — B2B delegation lacks an actor permission ceiling
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2331,7 +2331,7 @@ The provider owner may delegate within current provider entitlement and code-dec
 
 ### COLLAB-003 — Collaboration operations do not revalidate active account/company state
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2349,7 +2349,7 @@ Centralize current provider Account, external Account, target Company, active co
 
 ### COLLAB-004 — `SUSPENDED` status has no management flow
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2367,7 +2367,7 @@ Implement the decided lifecycle: either participant may permanently end the rela
 
 ### COLLAB-005 — Concurrent lifecycle actions can overwrite each other
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2385,7 +2385,7 @@ Use optimistic or command-specific locking, database uniqueness for grants/live 
 
 ### COLLAB-006 — UI cannot read the collaboration's currently granted permissions
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2406,7 +2406,7 @@ Expose an authorized collaboration detail/current-grants read model, preferably 
 
 ### COLLAB-007 — Collaboration service exposes persistence entities
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2424,7 +2424,7 @@ Return complete list/detail/current-grant read models from API-facing applicatio
 
 ### COLLAB-008 — B2B discovery and lifecycle APIs cannot implement the decided management flow
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2446,6 +2446,20 @@ The replacement UI would still require users to exchange database UUIDs, cannot 
 - Preserve grants as disabled configuration during suspension and frozen history after revocation. Runtime always revalidates both Accounts, Company, collaboration, entitlement, current code eligibility, exact provider grant, and external-member operator authority.
 - Add detail/list models showing both Account identities, Company, status/reason/effective dates, requested capabilities, current and inactive historical grants, allowed next actions, and source-visible access blockers without exposing unrelated business data.
 - Audit every command and attach reusable in-app/customer communication events. Add privacy, expired/regenerated code, duplicate tuple, transition authorization, stale version, retry/idempotency, deactivation, entitlement loss, feature retirement, actor permission, and notification tests.
+
+**Implementation evidence — 2026-08-10**
+
+- A nullable live-tuple key with a database uniqueness constraint permits only one PENDING, ACTIVE, or SUSPENDED relationship for each client/provider/company tuple. Terminal CANCELLED, REJECTED, and REVOKED records remain as history, and a later request creates a new record.
+- Provider actors use Company-owned, SHA-256-hashed share codes. Raw codes are returned only on generation, have no automatic expiry, remain valid until the provider disables or regenerates them, and resolve only to privacy-minimal Account/Company identity fields. A code identifies a Company but grants no access; provider acceptance remains mandatory. There is no broad Company search.
+- Providers can inspect resolution/request counts and last-use times for the current code; rotation resets this usage metadata. Identical live retries normalize purpose whitespace and compare requested capabilities as an unordered set. Changed details conflict, a post-terminal request creates new history, and a concurrent constraint loser safely re-reads the winning relationship.
+- Requests persist purpose, optional non-binding requested permission codes, requester identity, and time. Separate accept, reject, cancel, suspend, resume, and either-participant revoke commands enforce explicit states, participant boundaries, reasons, and expected versions.
+- Suspension preserves grants while blocking runtime. Providers explicitly choose no schedule, a review time, or automatic resume; a locked monolith scheduler resumes only due relationships whose client Account, provider Account, and Company are still active and whose provider remains entitled to the resume action.
+- Collaboration and grant rows use optimistic versions. Database constraints remain authoritative for live tuples and permission pairs, and duplicate/stale operations return explicit conflicts.
+- Permission revocation marks a grant inactive instead of deleting it. Detail/current-grant DTOs show configured versus currently usable state, lifecycle blockers, permitted state actions, timestamps, and both participant/Company identities. A terminal relationship freezes its grants as non-reusable history.
+- Initiate, accept, suspend/resume, grant/revoke-permission, catalog, and share-code operations recheck applicable active Account/Company state. Runtime context already rejects inactive Accounts/Companies and requires the exact active relationship.
+- Provider grant writes enforce code-declared B2B eligibility, current provider entitlement, and the acting provider member's delegation ceiling. External-member operator scoping remains explicitly assigned to AUTHZ-002 in Batch 5.3.
+- API-facing collaboration services now exchange DTOs only; the MapStruct persistence-entity mapper was removed.
+- Audit events and reusable notifications remain open under Batch 5.4/AUDIT-001 and are the only unfinished part of COLLAB-008. The clean full backend suite passes 402 tests with zero failures, errors, or skips.
 
 ---
 
