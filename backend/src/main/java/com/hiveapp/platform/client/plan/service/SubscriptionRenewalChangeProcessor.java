@@ -1,0 +1,122 @@
+package com.hiveapp.platform.client.plan.service;
+
+import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.domain.entity.SubscriptionChangeOperation;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
+import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class SubscriptionRenewalChangeProcessor {
+
+    private final SubscriptionChangeOperationRepository operationRepository;
+    private final SubscriptionRepository subscriptionRepository;
+    private final AccountRepository accountRepository;
+    private final AddOnRepository addOnRepository;
+    private final QuotaPackageRepository quotaPackageRepository;
+    private final SubscriptionImpactAnalyzer impactAnalyzer;
+    private final SubscriptionLifecycleManager lifecycleManager;
+    private final SubscriptionPeriodCalculator periodCalculator;
+    private final BillingCalculator billingCalculator;
+
+    @Transactional
+    public void processDue(Instant cutoff) {
+        for (SubscriptionChangeOperation operation : operationRepository.findDueForUpdate(
+                SubscriptionChangeStatus.PENDING, cutoff)) {
+            process(operation);
+        }
+    }
+
+    private void process(SubscriptionChangeOperation operation) {
+        UUID accountId = operation.getAccount().getId();
+        if (accountRepository.findByIdForSubscriptionUpdate(accountId).isEmpty()) {
+            markNeedsAttention(operation, "The Account no longer exists.");
+            return;
+        }
+        Subscription current = subscriptionRepository.findActiveByAccountId(accountId)
+                .or(() -> subscriptionRepository.findByAccountIdAndStatus(
+                        accountId, SubscriptionStatus.TRIALING))
+                .orElse(null);
+        if (current == null || !current.getId().equals(operation.getSourceSubscription().getId())) {
+            markNeedsAttention(operation, "The Account subscription changed after this operation was scheduled.");
+            return;
+        }
+        if (!operation.getTargetPlan().isActive()) {
+            markNeedsAttention(operation, "The target Plan is no longer active.");
+            return;
+        }
+        String unavailableItem = unavailableCommercialItem(operation);
+        if (unavailableItem != null) {
+            markNeedsAttention(operation, unavailableItem);
+            return;
+        }
+        var conflicts = impactAnalyzer.analyze(accountId, current, operation.getTargetSnapshot());
+        if (!conflicts.isEmpty()) {
+            markNeedsAttention(operation, conflicts.stream()
+                    .map(conflict -> conflict.message())
+                    .collect(Collectors.joining(" ")));
+            return;
+        }
+
+        var period = periodCalculator.recurring(
+                operation.getTargetPlan().getBillingCycle(), operation.getEffectiveAt());
+        var usable = subscriptionRepository.findAllByAccountIdAndStatusIn(
+                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
+        usable.forEach(lifecycleManager::closeForReplacement);
+        subscriptionRepository.saveAllAndFlush(usable);
+
+        Subscription replacement = new Subscription();
+        replacement.setAccount(current.getAccount());
+        replacement.setPlan(operation.getTargetPlan());
+        replacement.setCustomOverrides(operation.getRequestedSelection());
+        replacement.setEntitlementSnapshot(operation.getTargetSnapshot());
+        replacement.setCurrentMoney(billingCalculator.calculateMoney(replacement));
+        lifecycleManager.initialize(replacement, SubscriptionStatus.ACTIVE, period);
+        replacement = subscriptionRepository.saveAndFlush(replacement);
+        lifecycleManager.recordOpenPeriod(replacement);
+
+        operation.setResultSubscription(replacement);
+        operation.setStatus(SubscriptionChangeStatus.APPLIED);
+        operation.setAttentionReason(null);
+        operationRepository.save(operation);
+    }
+
+    private String unavailableCommercialItem(SubscriptionChangeOperation operation) {
+        for (var snapshot : operation.getTargetSnapshot().addOns()) {
+            var current = addOnRepository.findByCode(snapshot.code()).orElse(null);
+            if (current == null || current.getStatus() != AddOnStatus.ACTIVE
+                    || current.getDefinitionVersion() != snapshot.definitionVersion()) {
+                return "AddOn " + snapshot.code() + " is unavailable or changed after scheduling.";
+            }
+        }
+        for (var snapshot : operation.getTargetSnapshot().quotaPackages()) {
+            var current = quotaPackageRepository.findByCode(snapshot.code()).orElse(null);
+            if (current == null || current.getStatus() != QuotaPackageStatus.ACTIVE
+                    || current.getDefinitionVersion() != snapshot.definitionVersion()) {
+                return "Quota package " + snapshot.code() + " is unavailable or changed after scheduling.";
+            }
+        }
+        return null;
+    }
+
+    private void markNeedsAttention(SubscriptionChangeOperation operation, String reason) {
+        operation.setStatus(SubscriptionChangeStatus.NEEDS_ATTENTION);
+        operation.setAttentionReason(reason);
+        operationRepository.save(operation);
+    }
+}

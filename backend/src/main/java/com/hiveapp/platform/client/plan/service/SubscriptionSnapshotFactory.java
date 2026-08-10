@@ -109,10 +109,15 @@ public class SubscriptionSnapshotFactory {
                 .toList();
 
         return new SubscriptionEntitlementSnapshot(
+                SubscriptionEntitlementSnapshot.CURRENT_SCHEMA_VERSION,
                 plan.getCode(),
+                plan.getName(),
+                plan.getVersion(),
                 plan.getPrice(),
                 plan.getCurrencyCode(),
                 plan.getBillingCycle(),
+                null,
+                null,
                 features.values().stream()
                         .sorted(Comparator.comparing(SubscriptionFeatureSnapshot::featureCode))
                         .toList(),

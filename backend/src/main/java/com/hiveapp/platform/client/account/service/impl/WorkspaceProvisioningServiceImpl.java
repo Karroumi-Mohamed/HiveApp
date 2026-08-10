@@ -17,6 +17,8 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
+import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleManager;
+import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +43,8 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotFactory subscriptionSnapshotFactory;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
+    private final SubscriptionLifecycleManager subscriptionLifecycleManager;
+    private final SubscriptionPeriodCalculator subscriptionPeriodCalculator;
 
     @Override
     @Transactional
@@ -107,11 +111,13 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
         Subscription sub = new Subscription();
         sub.setAccount(account);
         sub.setPlan(freePlan);
-        sub.setStatus(SubscriptionStatus.ACTIVE);
         sub.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
         sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(subscriptionSnapshotFactory.fromPlan(freePlan)));
         sub.setCurrentMoney(freePlan.money());
-        subscriptionRepository.saveAndFlush(sub);
+        subscriptionLifecycleManager.initialize(
+                sub, SubscriptionStatus.ACTIVE, subscriptionPeriodCalculator.recurring(freePlan.getBillingCycle()));
+        Subscription saved = subscriptionRepository.saveAndFlush(sub);
+        subscriptionLifecycleManager.recordOpenPeriod(saved);
         log.info("FREE subscription provisioned for account={}", account.getId());
     }
 
@@ -125,8 +131,7 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
         List<Subscription> usableSubscriptions = subscriptionRepository.findAllByAccountIdAndStatusIn(
                 account.getId(), List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
         if (usableSubscriptions.size() != 1
-                || usableSubscriptions.getFirst().getEntitlementSnapshot() == null
-                || usableSubscriptions.getFirst().getEntitlementSnapshot().isBlank()) {
+                || usableSubscriptions.getFirst().getEntitlementSnapshot() == null) {
             throw incompleteProvisioning(account);
         }
 

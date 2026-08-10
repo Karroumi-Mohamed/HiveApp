@@ -5,7 +5,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 public record AdminSubscriptionDto(
@@ -17,7 +17,9 @@ public record AdminSubscriptionDto(
         SubscriptionStatus status,
         BigDecimal currentPrice,
         String currentPriceCurrencyCode,
-        LocalDateTime currentPeriodEnd,
+        Instant currentPeriodStart,
+        Instant currentPeriodEnd,
+        boolean cancelAtPeriodEnd,
         SubscriptionOverrides customOverrides,
         SubscriptionEntitlementSnapshot entitlementSnapshot
 ) {}

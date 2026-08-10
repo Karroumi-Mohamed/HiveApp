@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
@@ -12,6 +13,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,6 +22,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/subscriptions")
@@ -51,5 +55,17 @@ public class SubscriptionController {
     public SubscriptionChangeApplyResponse apply(@Valid @RequestBody SubscriptionChangeRequest request) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
         return subscriptionService.applyChange(accountId, request);
+    }
+
+    @GetMapping("/changes")
+    public List<SubscriptionChangeOperationDto> changes() {
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return subscriptionService.listChangeOperations(accountId);
+    }
+
+    @DeleteMapping("/changes/{operationId}")
+    public SubscriptionChangeOperationDto cancelChange(@PathVariable UUID operationId) {
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return subscriptionService.cancelPendingChange(accountId, operationId);
     }
 }

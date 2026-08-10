@@ -20,6 +20,9 @@ public class SubscriptionSnapshotReader {
         if (isEmpty(rawSnapshot)) {
             return Optional.empty();
         }
+        if (rawSnapshot instanceof SubscriptionEntitlementSnapshot snapshot) {
+            return Optional.of(snapshot);
+        }
         if (rawSnapshot instanceof String value) {
             try {
                 return Optional.of(objectMapper.readValue(value, SubscriptionEntitlementSnapshot.class));
@@ -34,12 +37,11 @@ public class SubscriptionSnapshotReader {
         }
     }
 
-    public String write(SubscriptionEntitlementSnapshot snapshot) {
-        try {
-            return objectMapper.writeValueAsString(snapshot);
-        } catch (IOException e) {
-            throw new InvalidRequestException("Invalid subscription entitlement snapshot.", e);
+    public SubscriptionEntitlementSnapshot write(SubscriptionEntitlementSnapshot snapshot) {
+        if (snapshot == null) {
+            throw new InvalidRequestException("Subscription entitlement snapshot is required.");
         }
+        return snapshot;
     }
 
     private static boolean isEmpty(Object rawSnapshot) {

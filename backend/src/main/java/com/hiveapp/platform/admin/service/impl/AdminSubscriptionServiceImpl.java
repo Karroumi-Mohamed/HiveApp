@@ -40,6 +40,12 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     }
 
     @Override
+    @PermissionNode(key = "create_trial", description = "Start a trial subscription for an account")
+    public Subscription createTrial(UUID accountId, String planCode, int trialDays) {
+        return subscriptionService.createTrial(accountId, planCode, trialDays);
+    }
+
+    @Override
     @PermissionNode(key = "update_overrides", description = "Apply AddOn and quota package selections to subscription")
     public Subscription updateOverrides(
             UUID accountId,

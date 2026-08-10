@@ -1,4 +1,9 @@
 package com.hiveapp.platform.client.plan.domain.constant;
 public enum SubscriptionStatus {
-    ACTIVE, PAST_DUE, CANCELLED, TRIALING
+    TRIALING,
+    ACTIVE,
+    PAST_DUE,
+    SUSPENDED,
+    CANCELLED,
+    EXPIRED
 }

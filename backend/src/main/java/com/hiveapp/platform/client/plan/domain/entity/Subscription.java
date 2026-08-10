@@ -2,6 +2,8 @@ package com.hiveapp.platform.client.plan.domain.entity;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
+import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.money.Money;
 import jakarta.persistence.*;
@@ -11,7 +13,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -30,12 +32,12 @@ public class Subscription extends BaseEntity {
     private Plan plan;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "custom_overrides")
-    private String customOverrides;
+    @Column(name = "custom_overrides", nullable = false)
+    private SubscriptionOverrides customOverrides = SubscriptionOverrides.empty();
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "entitlement_snapshot")
-    private String entitlementSnapshot;
+    @Column(name = "entitlement_snapshot", nullable = false)
+    private SubscriptionEntitlementSnapshot entitlementSnapshot;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -51,8 +53,14 @@ public class Subscription extends BaseEntity {
             """)
     private UUID usableAccountId;
 
-    @Column(name = "current_period_end")
-    private LocalDateTime currentPeriodEnd;
+    @Column(name = "current_period_start", nullable = false)
+    private Instant currentPeriodStart;
+
+    @Column(name = "current_period_end", nullable = false)
+    private Instant currentPeriodEnd;
+
+    @Column(name = "cancel_at_period_end", nullable = false)
+    private boolean cancelAtPeriodEnd;
 
     /**
      * Snapshot of the calculated monthly price at the time overrides were last saved.
@@ -85,6 +93,15 @@ public class Subscription extends BaseEntity {
             setCurrentMoney(current);
         } else {
             currentPriceCurrencyCode = null;
+        }
+        if (customOverrides == null) {
+            customOverrides = SubscriptionOverrides.empty();
+        }
+        if (entitlementSnapshot == null) {
+            throw new IllegalStateException("Subscription entitlement snapshot is required");
+        }
+        if (currentPeriodStart == null || currentPeriodEnd == null || !currentPeriodEnd.isAfter(currentPeriodStart)) {
+            throw new IllegalStateException("Subscription requires a valid current period");
         }
     }
 }

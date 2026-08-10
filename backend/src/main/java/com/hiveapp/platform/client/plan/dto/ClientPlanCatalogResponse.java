@@ -7,7 +7,7 @@ import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.shared.quota.QuotaSlot;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -22,7 +22,9 @@ public record ClientPlanCatalogResponse(
             SubscriptionStatus status,
             BigDecimal currentPrice,
             String currentPriceCurrencyCode,
-            LocalDateTime currentPeriodEnd,
+            Instant currentPeriodStart,
+            Instant currentPeriodEnd,
+            boolean cancelAtPeriodEnd,
             Set<String> addOnCodes,
             List<QuotaPackageSelection> quotaPackages
     ) {}

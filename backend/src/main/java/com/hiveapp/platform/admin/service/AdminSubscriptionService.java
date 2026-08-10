@@ -10,5 +10,6 @@ import java.util.UUID;
 public interface AdminSubscriptionService {
     Subscription getSubscription(UUID accountId);
     Subscription createSubscription(UUID accountId, String planCode);
+    Subscription createTrial(UUID accountId, String planCode, int trialDays);
     Subscription updateOverrides(UUID accountId, Set<String> addOnCodes, List<QuotaPackageSelection> quotaPackages);
 }

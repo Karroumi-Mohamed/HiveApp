@@ -42,7 +42,9 @@ public class SubscriptionAdminController {
                 sub.getStatus(),
                 sub.getCurrentPrice(),
                 sub.getCurrentPriceCurrencyCode(),
+                sub.getCurrentPeriodStart(),
                 sub.getCurrentPeriodEnd(),
+                sub.isCancelAtPeriodEnd(),
                 subscriptionOverrideReader.read(sub.getCustomOverrides()),
                 subscriptionSnapshotReader.read(sub.getEntitlementSnapshot()).orElse(null)
         );
@@ -52,6 +54,16 @@ public class SubscriptionAdminController {
     @ResponseStatus(HttpStatus.CREATED)
     public SubscriptionDto create(@PathVariable UUID accountId, @RequestParam String planCode) {
         return subscriptionMapper.toDto(adminSubscriptionService.createSubscription(accountId, planCode));
+    }
+
+    @PostMapping("/account/{accountId}/trial")
+    @ResponseStatus(HttpStatus.CREATED)
+    public SubscriptionDto createTrial(
+            @PathVariable UUID accountId,
+            @RequestParam String planCode,
+            @RequestParam int trialDays
+    ) {
+        return subscriptionMapper.toDto(adminSubscriptionService.createTrial(accountId, planCode, trialDays));
     }
 
     @PatchMapping("/account/{accountId}/overrides")

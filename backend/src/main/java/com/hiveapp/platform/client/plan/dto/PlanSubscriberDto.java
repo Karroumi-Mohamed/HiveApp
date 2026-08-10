@@ -3,7 +3,7 @@ package com.hiveapp.platform.client.plan.dto;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 public record PlanSubscriberDto(
@@ -14,5 +14,5 @@ public record PlanSubscriberDto(
         SubscriptionStatus status,
         BigDecimal currentPrice,
         String currentPriceCurrencyCode,
-        LocalDateTime currentPeriodEnd
+        Instant currentPeriodEnd
 ) {}

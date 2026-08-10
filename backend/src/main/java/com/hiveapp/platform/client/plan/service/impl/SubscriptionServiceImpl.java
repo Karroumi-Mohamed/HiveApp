@@ -2,6 +2,8 @@ package com.hiveapp.platform.client.plan.service.impl;
 
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
@@ -10,12 +12,14 @@ import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
+import com.hiveapp.platform.client.plan.domain.entity.SubscriptionChangeOperation;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict;
@@ -24,6 +28,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.EffectiveQuotaLimit;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.service.BillingCalculator;
@@ -31,7 +36,9 @@ import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
-import com.hiveapp.platform.client.plan.service.SubscriptionUsageService;
+import com.hiveapp.platform.client.plan.service.SubscriptionImpactAnalyzer;
+import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleManager;
+import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.platform.registry.definition.ClientSubscriptionFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
@@ -79,7 +86,10 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final SubscriptionSnapshotFactory subscriptionSnapshotFactory;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
     private final ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
-    private final SubscriptionUsageService subscriptionUsageService;
+    private final SubscriptionImpactAnalyzer subscriptionImpactAnalyzer;
+    private final SubscriptionLifecycleManager subscriptionLifecycleManager;
+    private final SubscriptionPeriodCalculator subscriptionPeriodCalculator;
+    private final SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -91,6 +101,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @PermissionNode(key = "read", description = "View my subscription")
     public Subscription getSubscription(UUID accountId) {
         return subscriptionRepository.findActiveByAccountId(accountId)
+                .or(() -> subscriptionRepository.findByAccountIdAndStatus(
+                        accountId, SubscriptionStatus.TRIALING))
                 .orElseThrow(() -> new ResourceNotFoundException("Subscription", "accountId", accountId));
     }
 
@@ -117,7 +129,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         current.getStatus(),
                         current.getCurrentPrice(),
                         current.getCurrentPriceCurrencyCode(),
+                        current.getCurrentPeriodStart(),
                         current.getCurrentPeriodEnd(),
+                        current.isCancelAtPeriodEnd(),
                         currentOverrides.addOnCodes(),
                         currentOverrides.quotaPackages()),
                 plans);
@@ -133,7 +147,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         ChangeSelection selection = validateSelection(targetPlan, request);
         SubscriptionEntitlementSnapshot targetSnapshot = subscriptionSnapshotFactory.fromPlan(
                 targetPlan, selection.addOnCodes(), selection.quotaPackages());
-        List<SubscriptionChangeConflict> conflicts = findConflicts(accountId, current, targetSnapshot, selection);
+        List<SubscriptionChangeConflict> conflicts = subscriptionImpactAnalyzer.analyze(
+                accountId, current, targetSnapshot);
         Money previewPrice = previewPrice(current, targetPlan, targetSnapshot, selection);
 
         return new SubscriptionChangePreviewResponse(
@@ -146,7 +161,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 targetSnapshot.features().stream()
                         .map(feature -> feature.featureCode())
                         .collect(Collectors.toCollection(LinkedHashSet::new)),
-                effectiveQuotaLimits(targetSnapshot),
+                subscriptionImpactAnalyzer.effectiveQuotaLimits(targetSnapshot),
                 selection.addOnCodes(),
                 selection.quotaPackages(),
                 conflicts);
@@ -159,7 +174,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         accountRepository.findByIdForSubscriptionUpdate(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
         SubscriptionChangePreviewResponse preview = previewChange(accountId, request);
-        if (!preview.immediateAllowed()) {
+        if (request.effectiveTiming() == SubscriptionChangeTiming.IMMEDIATE && !preview.immediateAllowed()) {
             throw new InvalidStateException("Subscription change cannot be applied until conflicts are resolved.");
         }
 
@@ -172,24 +187,54 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         var targetPlan = planRepository.findByCode(request.targetPlanCode()).orElseThrow();
         var targetSnapshot = subscriptionSnapshotFactory.fromPlan(
                 targetPlan, selection.addOnCodes(), selection.quotaPackages());
-        var account = current.getAccount();
+        SubscriptionOverrides requestedSelection = new SubscriptionOverrides(
+                selection.addOnCodes(), selection.quotaPackages());
+        SubscriptionChangeOperation operation = newChangeOperation(
+                current, targetPlan, requestedSelection, targetSnapshot, request.effectiveTiming());
 
-        var usableSubscriptions = subscriptionRepository.findAllByAccountIdAndStatusIn(
-                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
-        usableSubscriptions.forEach(subscription -> subscription.setStatus(SubscriptionStatus.CANCELLED));
-        subscriptionRepository.saveAllAndFlush(usableSubscriptions);
+        if (request.effectiveTiming() == SubscriptionChangeTiming.AT_RENEWAL) {
+            subscriptionChangeOperationRepository.findByAccountIdAndStatus(
+                            accountId, SubscriptionChangeStatus.PENDING)
+                    .ifPresent(existing -> {
+                        throw new InvalidStateException(
+                                "Account already has a pending renewal change. Cancel it before creating another.");
+                    });
+            SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
+            return new SubscriptionChangeApplyResponse(toDto(current), preview, toOperationDto(savedOperation));
+        }
 
-        Subscription replacement = new Subscription();
-        replacement.setAccount(account);
-        replacement.setPlan(targetPlan);
-        replacement.setStatus(SubscriptionStatus.ACTIVE);
-        replacement.setCustomOverrides(subscriptionOverrideReader.write(
-                new SubscriptionOverrides(selection.addOnCodes(), selection.quotaPackages())));
-        replacement.setEntitlementSnapshot(subscriptionSnapshotReader.write(targetSnapshot));
-        replacement.setCurrentMoney(billingCalculator.calculateMoney(replacement));
-        Subscription saved = subscriptionRepository.saveAndFlush(replacement);
+        Subscription saved = replaceSubscription(
+                current, targetPlan, requestedSelection, targetSnapshot,
+                new SubscriptionPeriodCalculator.Period(
+                        operation.getTargetSnapshot().effectiveFrom(),
+                        operation.getTargetSnapshot().effectiveUntil()));
+        operation.setStatus(SubscriptionChangeStatus.APPLIED);
+        operation.setResultSubscription(saved);
+        SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.save(operation);
+        return new SubscriptionChangeApplyResponse(toDto(saved), preview, toOperationDto(savedOperation));
+    }
 
-        return new SubscriptionChangeApplyResponse(toDto(saved), preview);
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_changes", description = "View subscription change operations")
+    public List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId) {
+        return subscriptionChangeOperationRepository.findAllByAccountIdOrderByCreatedAtDesc(accountId).stream()
+                .map(this::toOperationDto)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "cancel_change", description = "Cancel a pending renewal subscription change")
+    public SubscriptionChangeOperationDto cancelPendingChange(UUID accountId, UUID operationId) {
+        SubscriptionChangeOperation operation = subscriptionChangeOperationRepository
+                .findByIdAndAccountId(operationId, accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("SubscriptionChangeOperation", "id", operationId));
+        if (operation.getStatus() != SubscriptionChangeStatus.PENDING) {
+            throw new InvalidStateException("Only pending subscription changes can be cancelled.");
+        }
+        operation.setStatus(SubscriptionChangeStatus.CANCELLED);
+        return toOperationDto(subscriptionChangeOperationRepository.save(operation));
     }
 
     @Override
@@ -213,17 +258,44 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         if (alreadyActiveOnPlan) {
             throw new InvalidStateException("Account is already subscribed to plan " + plan.getCode() + ".");
         }
-        usableSubscriptions.forEach(subscription -> subscription.setStatus(SubscriptionStatus.CANCELLED));
+        usableSubscriptions.forEach(subscriptionLifecycleManager::closeForReplacement);
         subscriptionRepository.saveAllAndFlush(usableSubscriptions);
 
         Subscription sub = new Subscription();
         sub.setAccount(account);
         sub.setPlan(plan);
-        sub.setStatus(SubscriptionStatus.ACTIVE);
         sub.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
         sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(subscriptionSnapshotFactory.fromPlan(plan)));
         sub.setCurrentMoney(billingCalculator.calculateMoney(sub));
-        return subscriptionRepository.saveAndFlush(sub);
+        subscriptionLifecycleManager.initialize(
+                sub, SubscriptionStatus.ACTIVE, subscriptionPeriodCalculator.recurring(plan.getBillingCycle()));
+        Subscription saved = subscriptionRepository.saveAndFlush(sub);
+        subscriptionLifecycleManager.recordOpenPeriod(saved);
+        return saved;
+    }
+
+    @Override
+    @Transactional
+    public Subscription createTrial(UUID accountId, String planCode, int trialDays) {
+        var account = accountRepository.findByIdForSubscriptionUpdate(accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
+        Plan plan = requireActivePlan(planCode);
+        var usableSubscriptions = subscriptionRepository.findAllByAccountIdAndStatusIn(
+                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
+        usableSubscriptions.forEach(subscriptionLifecycleManager::closeForReplacement);
+        subscriptionRepository.saveAllAndFlush(usableSubscriptions);
+
+        Subscription trial = new Subscription();
+        trial.setAccount(account);
+        trial.setPlan(plan);
+        trial.setCustomOverrides(SubscriptionOverrides.empty());
+        trial.setEntitlementSnapshot(subscriptionSnapshotFactory.fromPlan(plan));
+        trial.setCurrentMoney(Money.zero(plan.getCurrencyCode()));
+        subscriptionLifecycleManager.initialize(
+                trial, SubscriptionStatus.TRIALING, subscriptionPeriodCalculator.trial(trialDays));
+        Subscription saved = subscriptionRepository.saveAndFlush(trial);
+        subscriptionLifecycleManager.recordOpenPeriod(saved);
+        return saved;
     }
 
     @Override
@@ -236,9 +308,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 new SubscriptionChangeRequest(sub.getPlan().getCode(), addOnCodes, quotaPackages));
         var overrides = new SubscriptionOverrides(selection.addOnCodes(), selection.quotaPackages());
         sub.setCustomOverrides(subscriptionOverrideReader.write(overrides));
-        sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(
-                subscriptionSnapshotFactory.fromPlan(
-                        sub.getPlan(), selection.addOnCodes(), selection.quotaPackages())));
+        sub.setEntitlementSnapshot(subscriptionSnapshotFactory.fromPlan(
+                        sub.getPlan(), selection.addOnCodes(), selection.quotaPackages())
+                .withEffectivePeriod(sub.getCurrentPeriodStart(), sub.getCurrentPeriodEnd()));
         sub.setCurrentMoney(billingCalculator.calculateMoney(sub));
         return subscriptionRepository.save(sub);
     }
@@ -310,7 +382,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                             limit.mode(),
                             limit.limit(),
                             limit.mode() == QuotaLimitMode.UNLIMITED,
-                            usage.getOrDefault(definition.code() + ":" + slot.resource(), 0L));
+                            usage.get(definition.code() + ":" + slot.resource()));
                 })
                 .toList();
         return new ClientPlanCatalogResponse.CatalogFeature(
@@ -336,7 +408,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                     return new ClientPlanCatalogResponse.CatalogQuota(
                             definition.code(), slot.resource(), slot.unit(), slot,
                             limit.mode(), limit.limit(), limit.mode() == QuotaLimitMode.UNLIMITED,
-                            usage.getOrDefault(definition.code() + ":" + slot.resource(), 0L));
+                            usage.get(definition.code() + ":" + slot.resource()));
                 })
                 .toList();
         return new ClientPlanCatalogResponse.CatalogAddOnFeature(
@@ -396,56 +468,6 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return new ChangeSelection(addOnCodes, packageSelections);
     }
 
-    private List<SubscriptionChangeConflict> findConflicts(
-            UUID accountId,
-            Subscription current,
-            SubscriptionEntitlementSnapshot targetSnapshot,
-            ChangeSelection selection
-    ) {
-        Set<String> currentFeatures = activeFeatureCodes(current);
-        Set<String> targetFeatures = targetSnapshot.features().stream()
-                .map(feature -> feature.featureCode())
-                .collect(Collectors.toSet());
-        List<SubscriptionChangeConflict> conflicts = new ArrayList<>();
-
-        currentFeatures.stream()
-                .filter(featureCode -> !targetFeatures.contains(featureCode))
-                .sorted()
-                .forEach(featureCode -> {
-                    long usage = subscriptionUsageService.featureUsage(accountId, featureCode);
-                    if (usage > 0) {
-                        conflicts.add(new SubscriptionChangeConflict(
-                                "FEATURE_IN_USE",
-                                featureCode,
-                                null,
-                                usage,
-                                null,
-                                "Feature " + featureCode + " is still in use by this account."));
-                    }
-                });
-
-        for (EffectiveQuotaLimit limit : effectiveQuotaLimits(targetSnapshot)) {
-            if (limit.mode() == QuotaLimitMode.UNLIMITED) {
-                continue;
-            }
-            long usage = subscriptionUsageService.currentUsage(
-                    accountId, limit.featureCode(), limit.resource());
-            if (usage > limit.effectiveLimit()) {
-                conflicts.add(new SubscriptionChangeConflict(
-                        "QUOTA_BELOW_USAGE",
-                        limit.featureCode(),
-                        limit.resource(),
-                        usage,
-                        limit.effectiveLimit(),
-                        "Current usage for " + limit.featureCode() + "." + limit.resource()
-                                + " is " + usage + ", above requested limit "
-                                + limit.effectiveLimit() + "."));
-            }
-        }
-
-        return conflicts;
-    }
-
     private Money previewPrice(
             Subscription current,
             Plan targetPlan,
@@ -467,40 +489,6 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return current.getPlan().getCode().equals(preview.targetPlanCode())
                 && Objects.equals(currentOverrides.addOnCodes(), selection.addOnCodes())
                 && Objects.equals(currentOverrides.quotaPackages(), selection.quotaPackages());
-    }
-
-    private List<EffectiveQuotaLimit> effectiveQuotaLimits(SubscriptionEntitlementSnapshot snapshot) {
-        Map<String, Long> purchasedByQuota = (snapshot.quotaPackages() != null
-                ? snapshot.quotaPackages()
-                : List.<com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot>of()).stream()
-                .collect(Collectors.toMap(
-                        item -> item.featureCode() + ":" + item.resource(),
-                        item -> item.purchasedCapacity(),
-                        Math::addExact));
-        List<EffectiveQuotaLimit> limits = new ArrayList<>();
-        for (var feature : snapshot.features()) {
-            for (QuotaLimitEntry base : feature.quotaConfigs()) {
-                long purchased = purchasedByQuota.getOrDefault(
-                        feature.featureCode() + ":" + base.resource(), 0L);
-                Long effective = base.mode() == QuotaLimitMode.UNLIMITED
-                        ? null
-                        : Math.addExact(base.limit(), purchased);
-                limits.add(new EffectiveQuotaLimit(
-                        feature.featureCode(), base.resource(), base.mode(), base.limit(), purchased, effective));
-            }
-        }
-        return limits;
-    }
-
-    private Set<String> activeFeatureCodes(Subscription subscription) {
-        return subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot())
-                .map(snapshot -> snapshot.features().stream()
-                        .map(feature -> feature.featureCode())
-                        .collect(Collectors.toSet()))
-                .orElseGet(() -> planFeatureRepository.findAllByPlanId(subscription.getPlan().getId()).stream()
-                        .filter(planFeature -> planFeature.getMode() == PlanFeatureMode.INCLUDED)
-                        .map(planFeature -> planFeature.getFeature().getCode())
-                        .collect(Collectors.toSet()));
     }
 
     private Plan requireActivePlan(String planCode) {
@@ -527,12 +515,15 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     }
 
     private Map<String, Long> usageByQuotaSlot(UUID accountId, Map<String, FeatureDefinition> definitions) {
-        return definitions.values().stream()
-                .flatMap(definition -> definition.quotaSlots().stream()
-                        .map(slot -> Map.entry(
-                                definition.code() + ":" + slot.resource(),
-                                subscriptionUsageService.currentUsage(accountId, definition.code(), slot.resource()))))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        Map<String, Long> usage = new java.util.LinkedHashMap<>();
+        definitions.values().forEach(definition -> definition.quotaSlots().forEach(slot -> {
+            var measurement = subscriptionImpactAnalyzer.quotaUsage(
+                    accountId, definition.code(), slot.resource());
+            if (measurement.isPresent()) {
+                usage.put(definition.code() + ":" + slot.resource(), measurement.getAsLong());
+            }
+        }));
+        return Map.copyOf(usage);
     }
 
     private List<QuotaLimitEntry> safeQuotaConfigs(PlanFeature planFeature) {
@@ -719,6 +710,68 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 && dependenciesSupported;
     }
 
+    private SubscriptionChangeOperation newChangeOperation(
+            Subscription current,
+            Plan targetPlan,
+            SubscriptionOverrides selection,
+            SubscriptionEntitlementSnapshot targetSnapshot,
+            SubscriptionChangeTiming timing
+    ) {
+        SubscriptionPeriodCalculator.Period targetPeriod = timing == SubscriptionChangeTiming.AT_RENEWAL
+                ? subscriptionPeriodCalculator.recurring(targetPlan.getBillingCycle(), current.getCurrentPeriodEnd())
+                : subscriptionPeriodCalculator.recurring(targetPlan.getBillingCycle());
+        SubscriptionChangeOperation operation = new SubscriptionChangeOperation();
+        operation.setAccount(current.getAccount());
+        operation.setSourceSubscription(current);
+        operation.setTargetPlan(targetPlan);
+        operation.setTiming(timing);
+        operation.setStatus(SubscriptionChangeStatus.PENDING);
+        operation.setEffectiveAt(targetPeriod.startsAt());
+        operation.setRequestedSelection(selection);
+        operation.setBeforeSnapshot(subscriptionSnapshotReader.read(current.getEntitlementSnapshot())
+                .orElseThrow(() -> new InvalidStateException(
+                        "Current subscription has no entitlement snapshot.")));
+        operation.setTargetSnapshot(
+                targetSnapshot.withEffectivePeriod(targetPeriod.startsAt(), targetPeriod.endsAt()));
+        return operation;
+    }
+
+    private Subscription replaceSubscription(
+            Subscription current,
+            Plan targetPlan,
+            SubscriptionOverrides requestedSelection,
+            SubscriptionEntitlementSnapshot targetSnapshot,
+            SubscriptionPeriodCalculator.Period period
+    ) {
+        UUID accountId = current.getAccount().getId();
+        var usableSubscriptions = subscriptionRepository.findAllByAccountIdAndStatusIn(
+                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
+        usableSubscriptions.forEach(subscriptionLifecycleManager::closeForReplacement);
+        subscriptionRepository.saveAllAndFlush(usableSubscriptions);
+
+        Subscription replacement = new Subscription();
+        replacement.setAccount(current.getAccount());
+        replacement.setPlan(targetPlan);
+        replacement.setCustomOverrides(requestedSelection);
+        replacement.setEntitlementSnapshot(targetSnapshot);
+        replacement.setCurrentMoney(billingCalculator.calculateMoney(replacement));
+        subscriptionLifecycleManager.initialize(replacement, SubscriptionStatus.ACTIVE, period);
+        Subscription saved = subscriptionRepository.saveAndFlush(replacement);
+        subscriptionLifecycleManager.recordOpenPeriod(saved);
+        return saved;
+    }
+
+    private SubscriptionChangeOperationDto toOperationDto(SubscriptionChangeOperation operation) {
+        return new SubscriptionChangeOperationDto(
+                operation.getId(),
+                operation.getTiming(),
+                operation.getStatus(),
+                operation.getEffectiveAt(),
+                operation.getSourceSubscription().getPlan().getCode(),
+                operation.getTargetPlan().getCode(),
+                operation.getAttentionReason());
+    }
+
     private SubscriptionDto toDto(Subscription subscription) {
         return new SubscriptionDto(
                 subscription.getId(),
@@ -730,7 +783,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 subscription.getStatus(),
                 subscription.getCurrentPrice(),
                 subscription.getCurrentPriceCurrencyCode(),
-                subscription.getCurrentPeriodEnd());
+                subscription.getCurrentPeriodStart(),
+                subscription.getCurrentPeriodEnd(),
+                subscription.isCancelAtPeriodEnd());
     }
 
     private record ChangeSelection(

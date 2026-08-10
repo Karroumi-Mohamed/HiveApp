@@ -3,6 +3,12 @@ package com.hiveapp.platform.client.plan.domain.repository;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
+import java.time.Instant;
 
 import java.util.Collection;
 import java.util.List;
@@ -19,6 +25,13 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
 
     List<Subscription> findAllByPlan_IdAndStatusInOrderByCreatedAtDesc(UUID planId, Collection<SubscriptionStatus> statuses);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select subscription from Subscription subscription "
+            + "where subscription.status in :statuses and subscription.currentPeriodEnd <= :cutoff")
+    List<Subscription> findDueUsableForUpdate(
+            @Param("statuses") Collection<SubscriptionStatus> statuses,
+            @Param("cutoff") Instant cutoff);
+
     long countByPlan_Id(UUID planId);
 
     long countByPlan_IdAndStatus(UUID planId, SubscriptionStatus status);
@@ -31,5 +44,10 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
 
     default Optional<Subscription> findByAccountIdAndStatus(UUID accountId, SubscriptionStatus status) {
         return findTopByAccountIdAndStatusOrderByCreatedAtDesc(accountId, status);
+    }
+
+    default Optional<Subscription> findUsableByAccountId(UUID accountId) {
+        return findActiveByAccountId(accountId)
+                .or(() -> findByAccountIdAndStatus(accountId, SubscriptionStatus.TRIALING));
     }
 }
