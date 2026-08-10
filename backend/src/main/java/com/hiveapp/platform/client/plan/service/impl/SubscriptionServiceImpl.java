@@ -9,11 +9,13 @@ import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict;
@@ -22,7 +24,8 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
-import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
+import com.hiveapp.platform.client.plan.dto.EffectiveQuotaLimit;
+import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.service.BillingCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
@@ -39,7 +42,7 @@ import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
-import com.hiveapp.shared.quota.QuotaOverride;
+import com.hiveapp.shared.quota.QuotaLimitMode;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -69,12 +72,12 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final PlanFeatureRepository planFeatureRepository;
     private final AddOnRepository addOnRepository;
     private final AddOnFeatureRepository addOnFeatureRepository;
+    private final QuotaPackageRepository quotaPackageRepository;
     private final AccountRepository accountRepository;
     private final BillingCalculator billingCalculator;
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotFactory subscriptionSnapshotFactory;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
-    private final BillingConfigurationValidator billingConfigurationValidator;
     private final ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
     private final SubscriptionUsageService subscriptionUsageService;
 
@@ -116,7 +119,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         current.getCurrentPriceCurrencyCode(),
                         current.getCurrentPeriodEnd(),
                         currentOverrides.addOnCodes(),
-                        currentOverrides.quotaOverrides()),
+                        currentOverrides.quotaPackages()),
                 plans);
     }
 
@@ -129,7 +132,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         requireSameSubscriptionCurrency(current, targetPlan);
         ChangeSelection selection = validateSelection(targetPlan, request);
         SubscriptionEntitlementSnapshot targetSnapshot = subscriptionSnapshotFactory.fromPlan(
-                targetPlan, selection.addOnCodes());
+                targetPlan, selection.addOnCodes(), selection.quotaPackages());
         List<SubscriptionChangeConflict> conflicts = findConflicts(accountId, current, targetSnapshot, selection);
         Money previewPrice = previewPrice(current, targetPlan, targetSnapshot, selection);
 
@@ -143,9 +146,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 targetSnapshot.features().stream()
                         .map(feature -> feature.featureCode())
                         .collect(Collectors.toCollection(LinkedHashSet::new)),
-                effectiveQuotaLimits(targetSnapshot, selection.quotaOverrides()),
+                effectiveQuotaLimits(targetSnapshot),
                 selection.addOnCodes(),
-                selection.quotaOverrides(),
+                selection.quotaPackages(),
                 conflicts);
     }
 
@@ -167,7 +170,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         }
 
         var targetPlan = planRepository.findByCode(request.targetPlanCode()).orElseThrow();
-        var targetSnapshot = subscriptionSnapshotFactory.fromPlan(targetPlan, selection.addOnCodes());
+        var targetSnapshot = subscriptionSnapshotFactory.fromPlan(
+                targetPlan, selection.addOnCodes(), selection.quotaPackages());
         var account = current.getAccount();
 
         var usableSubscriptions = subscriptionRepository.findAllByAccountIdAndStatusIn(
@@ -180,7 +184,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         replacement.setPlan(targetPlan);
         replacement.setStatus(SubscriptionStatus.ACTIVE);
         replacement.setCustomOverrides(subscriptionOverrideReader.write(
-                new SubscriptionOverrides(selection.addOnCodes(), selection.quotaOverrides())));
+                new SubscriptionOverrides(selection.addOnCodes(), selection.quotaPackages())));
         replacement.setEntitlementSnapshot(subscriptionSnapshotReader.write(targetSnapshot));
         replacement.setCurrentMoney(billingCalculator.calculateMoney(replacement));
         Subscription saved = subscriptionRepository.saveAndFlush(replacement);
@@ -226,14 +230,15 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @Transactional
     public Subscription updateOverrides(UUID accountId,
                                         Set<String> addOnCodes,
-                                        List<QuotaOverride> quotaOverrides) {
+                                        List<QuotaPackageSelection> quotaPackages) {
         var sub = getSubscription(accountId);
         ChangeSelection selection = validateSelection(sub.getPlan(),
-                new SubscriptionChangeRequest(sub.getPlan().getCode(), addOnCodes, quotaOverrides));
-        var overrides = new SubscriptionOverrides(selection.addOnCodes(), selection.quotaOverrides());
+                new SubscriptionChangeRequest(sub.getPlan().getCode(), addOnCodes, quotaPackages));
+        var overrides = new SubscriptionOverrides(selection.addOnCodes(), selection.quotaPackages());
         sub.setCustomOverrides(subscriptionOverrideReader.write(overrides));
         sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(
-                subscriptionSnapshotFactory.fromPlan(sub.getPlan(), selection.addOnCodes())));
+                subscriptionSnapshotFactory.fromPlan(
+                        sub.getPlan(), selection.addOnCodes(), selection.quotaPackages())));
         sub.setCurrentMoney(billingCalculator.calculateMoney(sub));
         return subscriptionRepository.save(sub);
     }
@@ -249,10 +254,12 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .sorted(Comparator.comparing(planFeature -> definitions.get(planFeature.getFeature().getCode()).sortOrder()))
                 .map(planFeature -> toCatalogFeature(planFeature, definitions.get(planFeature.getFeature().getCode()), usage))
                 .toList();
-        var addOns = addOnRepository.findAll().stream()
+        var compatibleAddOns = addOnRepository.findAll().stream()
                 .filter(AddOn::isActive)
                 .filter(addOn -> isAddOnCompatibleWithPlan(addOn, plan, definitions))
                 .sorted(Comparator.comparing(AddOn::getCode))
+                .toList();
+        var addOns = compatibleAddOns.stream()
                 .map(addOn -> new ClientPlanCatalogResponse.CatalogAddOn(
                         addOn.getCode(), addOn.getName(), addOn.getDescription(), addOn.getPrice(),
                         addOn.getCurrencyCode(), addOn.getBillingCycle(), addOn.getDefinitionVersion(),
@@ -261,6 +268,15 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                                 .sorted(Comparator.comparing(feature -> feature.getFeature().getCode()))
                                 .map(feature -> toCatalogAddOnFeature(feature, definitions, usage))
                                 .toList()))
+                .toList();
+        var quotaPackages = quotaPackageRepository.findAllByOrderByCodeAsc().stream()
+                .filter(QuotaPackage::isActive)
+                .filter(item -> isQuotaPackageCatalogAvailable(item, plan, compatibleAddOns, definitions))
+                .map(item -> new ClientPlanCatalogResponse.CatalogQuotaPackage(
+                        item.getCode(), item.getName(), item.getDescription(), item.getDefinitionVersion(),
+                        item.getFeature().getCode(), item.getResource(), item.getCapacityPerUnit(),
+                        item.getPrice(), item.getCurrencyCode(), item.getBillingCycle(), item.isRepeatable(),
+                        item.getMaximumQuantity(), item.getAllowedPlanCodes(), item.getAllowedAddOnCodes()))
                 .toList();
         return new ClientPlanCatalogResponse.CatalogPlan(
                 plan.getCode(),
@@ -271,7 +287,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 plan.getBillingCycle(),
                 current.getPlan().getCode().equals(plan.getCode()),
                 features,
-                addOns);
+                addOns,
+                quotaPackages);
     }
 
     private ClientPlanCatalogResponse.CatalogFeature toCatalogFeature(
@@ -282,18 +299,17 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         Map<String, QuotaLimitEntry> quotasByResource = safeQuotaConfigs(planFeature).stream()
                 .collect(Collectors.toMap(QuotaLimitEntry::resource, Function.identity(), (left, right) -> left));
         var quotas = definition.quotaSlots().stream()
+                .filter(slot -> quotasByResource.containsKey(slot.resource()))
                 .map(slot -> {
                     QuotaLimitEntry limit = quotasByResource.get(slot.resource());
-                    Long value = limit != null ? limit.limit() : null;
-                    BigDecimal pricePerUnit = limit != null ? limit.pricePerUnit() : null;
                     return new ClientPlanCatalogResponse.CatalogQuota(
+                            definition.code(),
                             slot.resource(),
                             slot.unit(),
                             slot,
-                            value,
-                            value == null,
-                            pricePerUnit,
-                            limit != null ? limit.priceCurrencyCode() : null,
+                            limit.mode(),
+                            limit.limit(),
+                            limit.mode() == QuotaLimitMode.UNLIMITED,
                             usage.getOrDefault(definition.code() + ":" + slot.resource(), 0L));
                 })
                 .toList();
@@ -314,13 +330,12 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         Map<String, QuotaLimitEntry> quotasByResource = addOnFeature.getQuotaConfigs().stream()
                 .collect(Collectors.toMap(QuotaLimitEntry::resource, Function.identity(), (left, right) -> left));
         var quotas = definition.quotaSlots().stream()
+                .filter(slot -> quotasByResource.containsKey(slot.resource()))
                 .map(slot -> {
                     QuotaLimitEntry limit = quotasByResource.get(slot.resource());
-                    Long value = limit != null ? limit.limit() : null;
                     return new ClientPlanCatalogResponse.CatalogQuota(
-                            slot.resource(), slot.unit(), slot, value, value == null,
-                            limit != null ? limit.pricePerUnit() : null,
-                            limit != null ? limit.priceCurrencyCode() : null,
+                            definition.code(), slot.resource(), slot.unit(), slot,
+                            limit.mode(), limit.limit(), limit.mode() == QuotaLimitMode.UNLIMITED,
                             usage.getOrDefault(definition.code() + ":" + slot.resource(), 0L));
                 })
                 .toList();
@@ -330,8 +345,21 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     private ChangeSelection validateSelection(Plan targetPlan, SubscriptionChangeRequest request) {
         Set<String> addOnCodes = request.addOnCodes() == null ? Set.of() : new LinkedHashSet<>(request.addOnCodes());
-        List<QuotaOverride> quotas = request.quotaOverrides() == null ? List.of() : List.copyOf(request.quotaOverrides());
-        billingConfigurationValidator.validateSubscriptionOverrides(quotas);
+        List<QuotaPackageSelection> packageSelections = request.quotaPackages() == null
+                ? List.of()
+                : List.copyOf(request.quotaPackages());
+        if (packageSelections.stream().anyMatch(Objects::isNull)) {
+            throw new InvalidRequestException("Quota package selection cannot be null.");
+        }
+        Set<String> packageCodes = new LinkedHashSet<>();
+        for (QuotaPackageSelection selection : packageSelections) {
+            if (selection.packageCode() == null || selection.packageCode().isBlank()) {
+                throw new InvalidRequestException("Quota package code is required.");
+            }
+            if (!packageCodes.add(selection.packageCode())) {
+                throw new InvalidRequestException("Duplicate quota package selection: " + selection.packageCode());
+            }
+        }
 
         Map<String, FeatureDefinition> definitions = featureDefinitionCollectorProvider.getObject().collectByCode();
         Map<String, PlanFeature> planFeatures = planFeatureRepository.findAllByPlanId(targetPlan.getId()).stream()
@@ -349,28 +377,23 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             validateSelectedAddOn(addOn, targetPlan, addOnCodes, planFeatures, entitledFeatureCodes, definitions);
         }
 
-        SubscriptionEntitlementSnapshot snapshot = subscriptionSnapshotFactory.fromPlan(targetPlan, addOnCodes);
-        Map<String, List<QuotaLimitEntry>> quotaConfigs = snapshot.features().stream()
+        SubscriptionEntitlementSnapshot baseSnapshot = subscriptionSnapshotFactory.fromPlan(targetPlan, addOnCodes);
+        Map<String, List<QuotaLimitEntry>> quotaConfigs = baseSnapshot.features().stream()
                 .collect(Collectors.toMap(
                         feature -> feature.featureCode(),
                         feature -> feature.quotaConfigs() != null ? feature.quotaConfigs() : List.of()));
 
-        for (QuotaOverride quota : quotas) {
-            if (!entitledFeatureCodes.contains(quota.featureCode())) {
-                throw new InvalidRequestException(
-                        "Quota " + quota.featureCode() + "." + quota.resource()
-                                + " is not available in the selected plan entitlement.");
-            }
-            boolean knownQuota = quotaConfigs.getOrDefault(quota.featureCode(), List.of()).stream()
-                    .anyMatch(limit -> limit.resource().equals(quota.resource()));
-            if (!knownQuota) {
-                throw new InvalidRequestException(
-                        "Quota " + quota.featureCode() + "." + quota.resource()
-                                + " is not configurable for plan " + targetPlan.getCode() + ".");
-            }
+        Map<String, QuotaPackage> packagesByCode = quotaPackageRepository.findAllByCodeIn(packageCodes).stream()
+                .collect(Collectors.toMap(QuotaPackage::getCode, Function.identity()));
+        if (packagesByCode.size() != packageCodes.size()) {
+            throw new InvalidRequestException("One or more selected quota packages do not exist.");
+        }
+        for (QuotaPackageSelection selection : packageSelections) {
+            validateQuotaPackageSelection(
+                    packagesByCode.get(selection.packageCode()), selection, targetPlan, addOnCodes, quotaConfigs);
         }
 
-        return new ChangeSelection(addOnCodes, quotas);
+        return new ChangeSelection(addOnCodes, packageSelections);
     }
 
     private List<SubscriptionChangeConflict> findConflicts(
@@ -401,24 +424,22 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                     }
                 });
 
-        for (QuotaLimitEntry limit : effectiveQuotaLimits(targetSnapshot, selection.quotaOverrides())) {
-            if (limit.limit() == null) {
+        for (EffectiveQuotaLimit limit : effectiveQuotaLimits(targetSnapshot)) {
+            if (limit.mode() == QuotaLimitMode.UNLIMITED) {
                 continue;
             }
-            String featureCode = quotaOwner(targetSnapshot, limit.resource()).orElse(null);
-            if (featureCode == null) {
-                continue;
-            }
-            long usage = subscriptionUsageService.currentUsage(accountId, featureCode, limit.resource());
-            if (usage > limit.limit()) {
+            long usage = subscriptionUsageService.currentUsage(
+                    accountId, limit.featureCode(), limit.resource());
+            if (usage > limit.effectiveLimit()) {
                 conflicts.add(new SubscriptionChangeConflict(
                         "QUOTA_BELOW_USAGE",
-                        featureCode,
+                        limit.featureCode(),
                         limit.resource(),
                         usage,
-                        limit.limit(),
-                        "Current usage for " + featureCode + "." + limit.resource()
-                                + " is " + usage + ", above requested limit " + limit.limit() + "."));
+                        limit.effectiveLimit(),
+                        "Current usage for " + limit.featureCode() + "." + limit.resource()
+                                + " is " + usage + ", above requested limit "
+                                + limit.effectiveLimit() + "."));
             }
         }
 
@@ -437,7 +458,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         preview.setStatus(SubscriptionStatus.ACTIVE);
         preview.setEntitlementSnapshot(subscriptionSnapshotReader.write(targetSnapshot));
         preview.setCustomOverrides(subscriptionOverrideReader.write(
-                new SubscriptionOverrides(selection.addOnCodes(), selection.quotaOverrides())));
+                new SubscriptionOverrides(selection.addOnCodes(), selection.quotaPackages())));
         return billingCalculator.calculateMoney(preview);
     }
 
@@ -445,37 +466,30 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         SubscriptionOverrides currentOverrides = subscriptionOverrideReader.read(current.getCustomOverrides());
         return current.getPlan().getCode().equals(preview.targetPlanCode())
                 && Objects.equals(currentOverrides.addOnCodes(), selection.addOnCodes())
-                && Objects.equals(currentOverrides.quotaOverrides(), selection.quotaOverrides());
+                && Objects.equals(currentOverrides.quotaPackages(), selection.quotaPackages());
     }
 
-    private List<QuotaLimitEntry> effectiveQuotaLimits(
-            SubscriptionEntitlementSnapshot snapshot,
-            List<QuotaOverride> quotaOverrides
-    ) {
-        Map<String, QuotaOverride> overridesByKey = quotaOverrides.stream()
+    private List<EffectiveQuotaLimit> effectiveQuotaLimits(SubscriptionEntitlementSnapshot snapshot) {
+        Map<String, Long> purchasedByQuota = (snapshot.quotaPackages() != null
+                ? snapshot.quotaPackages()
+                : List.<com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot>of()).stream()
                 .collect(Collectors.toMap(
-                        override -> override.featureCode() + ":" + override.resource(),
-                        Function.identity(),
-                        (left, right) -> right));
-        List<QuotaLimitEntry> limits = new ArrayList<>();
+                        item -> item.featureCode() + ":" + item.resource(),
+                        item -> item.purchasedCapacity(),
+                        Math::addExact));
+        List<EffectiveQuotaLimit> limits = new ArrayList<>();
         for (var feature : snapshot.features()) {
             for (QuotaLimitEntry base : feature.quotaConfigs()) {
-                QuotaOverride override = overridesByKey.get(feature.featureCode() + ":" + base.resource());
-                limits.add(override == null
-                        ? base
-                        : new QuotaLimitEntry(
-                                base.resource(), override.limit(), base.pricePerUnit(), base.priceCurrencyCode()));
+                long purchased = purchasedByQuota.getOrDefault(
+                        feature.featureCode() + ":" + base.resource(), 0L);
+                Long effective = base.mode() == QuotaLimitMode.UNLIMITED
+                        ? null
+                        : Math.addExact(base.limit(), purchased);
+                limits.add(new EffectiveQuotaLimit(
+                        feature.featureCode(), base.resource(), base.mode(), base.limit(), purchased, effective));
             }
         }
         return limits;
-    }
-
-    private Optional<String> quotaOwner(SubscriptionEntitlementSnapshot snapshot, String resource) {
-        return snapshot.features().stream()
-                .filter(feature -> feature.quotaConfigs().stream()
-                        .anyMatch(limit -> limit.resource().equals(resource)))
-                .map(feature -> feature.featureCode())
-                .findFirst();
     }
 
     private Set<String> activeFeatureCodes(Subscription subscription) {
@@ -523,6 +537,89 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     private List<QuotaLimitEntry> safeQuotaConfigs(PlanFeature planFeature) {
         return planFeature.getQuotaConfigs() != null ? planFeature.getQuotaConfigs() : List.of();
+    }
+
+    private void validateQuotaPackageSelection(
+            QuotaPackage item,
+            QuotaPackageSelection selection,
+            Plan plan,
+            Set<String> selectedAddOnCodes,
+            Map<String, List<QuotaLimitEntry>> quotaConfigs
+    ) {
+        if (!item.isActive()) {
+            throw new InvalidRequestException("Quota package " + item.getCode() + " is not active.");
+        }
+        if (selection.quantity() <= 0
+                || selection.quantity() > item.getMaximumQuantity()
+                || (!item.isRepeatable() && selection.quantity() != 1)) {
+            throw new InvalidRequestException(
+                    "Quota package " + item.getCode() + " quantity must be between 1 and "
+                            + item.getMaximumQuantity() + ".");
+        }
+        if (!item.getCurrencyCode().equals(plan.getCurrencyCode())
+                || item.getBillingCycle() != plan.getBillingCycle()) {
+            throw new InvalidRequestException(
+                    "Quota package " + item.getCode() + " uses incompatible currency or billing cycle.");
+        }
+        boolean ownedByPlan = item.getAllowedPlanCodes().contains(plan.getCode());
+        boolean ownedBySelectedAddOn = item.getAllowedAddOnCodes().stream().anyMatch(selectedAddOnCodes::contains);
+        if (!ownedByPlan && !ownedBySelectedAddOn) {
+            throw new InvalidRequestException(
+                    "Quota package " + item.getCode() + " is not available for the selected Plan and AddOns.");
+        }
+        QuotaLimitEntry included = quotaConfigs
+                .getOrDefault(item.getFeature().getCode(), List.of()).stream()
+                .filter(limit -> limit.resource().equals(item.getResource()))
+                .findFirst()
+                .orElseThrow(() -> new InvalidRequestException(
+                        "Quota package " + item.getCode() + " has no included quota owner in the selection."));
+        if (included.mode() != QuotaLimitMode.FINITE) {
+            throw new InvalidRequestException(
+                    "Quota package " + item.getCode() + " cannot increase an unlimited quota.");
+        }
+        try {
+            Math.multiplyExact(item.getCapacityPerUnit(), selection.quantity());
+        } catch (ArithmeticException exception) {
+            throw new InvalidRequestException("Quota package capacity exceeds the supported range.");
+        }
+    }
+
+    private boolean isQuotaPackageCatalogAvailable(
+            QuotaPackage item,
+            Plan plan,
+            List<AddOn> compatibleAddOns,
+            Map<String, FeatureDefinition> definitions
+    ) {
+        FeatureDefinition definition = definitions.get(item.getFeature().getCode());
+        boolean featureAvailable = definition != null
+                && definition.planAssignable()
+                && item.getFeature().isNewSalesEnabled()
+                && (item.getFeature().getStatus() == FeatureStatus.PUBLIC
+                || item.getFeature().getStatus() == FeatureStatus.BETA);
+        if (!featureAvailable
+                || !item.getCurrencyCode().equals(plan.getCurrencyCode())
+                || item.getBillingCycle() != plan.getBillingCycle()) {
+            return false;
+        }
+        boolean planOwnsQuota = item.getAllowedPlanCodes().contains(plan.getCode())
+                && planFeatureRepository
+                        .findByPlanIdAndFeature_Code(plan.getId(), item.getFeature().getCode())
+                        .filter(planFeature -> planFeature.getMode() == PlanFeatureMode.INCLUDED)
+                        .map(planFeature -> hasFiniteQuota(planFeature.getQuotaConfigs(), item.getResource()))
+                        .orElse(false);
+        boolean addOnOwnsQuota = compatibleAddOns.stream()
+                .filter(addOn -> item.getAllowedAddOnCodes().contains(addOn.getCode()))
+                .anyMatch(addOn -> addOnFeatureRepository
+                        .findByAddOnIdAndFeature_Code(addOn.getId(), item.getFeature().getCode())
+                        .map(feature -> hasFiniteQuota(feature.getQuotaConfigs(), item.getResource()))
+                        .orElse(false));
+        return planOwnsQuota || addOnOwnsQuota;
+    }
+
+    private boolean hasFiniteQuota(List<QuotaLimitEntry> quotas, String resource) {
+        return quotas != null && quotas.stream()
+                .anyMatch(quota -> quota.resource().equals(resource)
+                        && quota.mode() == QuotaLimitMode.FINITE);
     }
 
     private boolean isSelfServiceAvailable(PlanFeature planFeature, Map<String, FeatureDefinition> definitions) {
@@ -638,6 +735,6 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     private record ChangeSelection(
             Set<String> addOnCodes,
-            List<QuotaOverride> quotaOverrides
+            List<QuotaPackageSelection> quotaPackages
     ) {}
 }

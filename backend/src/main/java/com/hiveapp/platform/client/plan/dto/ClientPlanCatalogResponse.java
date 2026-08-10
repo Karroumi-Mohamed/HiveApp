@@ -3,7 +3,7 @@ package com.hiveapp.platform.client.plan.dto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
-import com.hiveapp.shared.quota.QuotaOverride;
+import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.shared.quota.QuotaSlot;
 
 import java.math.BigDecimal;
@@ -24,7 +24,7 @@ public record ClientPlanCatalogResponse(
             String currentPriceCurrencyCode,
             LocalDateTime currentPeriodEnd,
             Set<String> addOnCodes,
-            List<QuotaOverride> quotaOverrides
+            List<QuotaPackageSelection> quotaPackages
     ) {}
 
     public record CatalogPlan(
@@ -36,7 +36,8 @@ public record ClientPlanCatalogResponse(
             BillingCycle billingCycle,
             boolean current,
             List<CatalogFeature> features,
-            List<CatalogAddOn> addOns
+            List<CatalogAddOn> addOns,
+            List<CatalogQuotaPackage> quotaPackages
     ) {}
 
     public record CatalogFeature(
@@ -68,13 +69,30 @@ public record ClientPlanCatalogResponse(
     ) {}
 
     public record CatalogQuota(
+            String featureCode,
             String resource,
             String unit,
             QuotaSlot slot,
+            QuotaLimitMode mode,
             Long limit,
             boolean unlimited,
-            BigDecimal pricePerUnit,
-            String priceCurrencyCode,
             Long currentUsage
+    ) {}
+
+    public record CatalogQuotaPackage(
+            String code,
+            String name,
+            String description,
+            long definitionVersion,
+            String featureCode,
+            String resource,
+            long capacityPerUnit,
+            BigDecimal price,
+            String currencyCode,
+            BillingCycle billingCycle,
+            boolean repeatable,
+            int maximumQuantity,
+            Set<String> allowedPlanCodes,
+            Set<String> allowedAddOnCodes
     ) {}
 }

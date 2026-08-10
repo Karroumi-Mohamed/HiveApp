@@ -1,8 +1,5 @@
 package com.hiveapp.platform.client.plan.dto;
 
-import com.hiveapp.shared.quota.QuotaLimitEntry;
-import com.hiveapp.shared.quota.QuotaOverride;
-
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
@@ -15,8 +12,8 @@ public record SubscriptionChangePreviewResponse(
         String currencyCode,
         boolean immediateAllowed,
         Set<String> effectiveFeatureCodes,
-        List<QuotaLimitEntry> effectiveQuotaLimits,
+        List<EffectiveQuotaLimit> effectiveQuotaLimits,
         Set<String> addOnCodes,
-        List<QuotaOverride> quotaOverrides,
+        List<QuotaPackageSelection> quotaPackages,
         List<SubscriptionChangeConflict> conflicts
 ) {}

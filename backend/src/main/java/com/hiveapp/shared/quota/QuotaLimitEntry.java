@@ -1,40 +1,37 @@
 package com.hiveapp.shared.quota;
 
-import com.hiveapp.shared.money.Money;
-
-import java.math.BigDecimal;
-
 /**
- * One limit value for a quota slot, stored per plan in PlanFeature.quota_configs JSONB.
+ * One included limit for a feature-owned quota slot.
  *
  * resource      — matches a resource name declared in the Feature's QuotaSlot list.
- * limit         — null = explicitly unlimited for this plan tier.
- * pricePerUnit  — cost per unit above this plan's limit when a client bumps the quota.
- *                 null = this slot cannot be bumped (fixed per tier).
+ * mode          — explicit FINITE or UNLIMITED commercial promise.
+ * limit         — required and non-negative for FINITE; absent for UNLIMITED.
  */
 public record QuotaLimitEntry(
         String resource,
-        Long limit,
-        BigDecimal pricePerUnit,
-        String priceCurrencyCode
+        QuotaLimitMode mode,
+        Long limit
 ) {
     public QuotaLimitEntry {
-        if (pricePerUnit == null && priceCurrencyCode != null) {
-            throw new IllegalArgumentException("Quota price currency requires a price");
+        if (resource == null || resource.isBlank()) {
+            throw new IllegalArgumentException("Quota resource is required");
         }
-        if (pricePerUnit != null) {
-            Money price = Money.of(pricePerUnit, priceCurrencyCode);
-            pricePerUnit = price.amount();
-            priceCurrencyCode = price.currencyCode();
+        if (mode == null) {
+            mode = limit == null ? QuotaLimitMode.UNLIMITED : QuotaLimitMode.FINITE;
+        }
+        if (mode == QuotaLimitMode.FINITE && (limit == null || limit < 0)) {
+            throw new IllegalArgumentException("Finite quota limit must be non-negative");
+        }
+        if (mode == QuotaLimitMode.UNLIMITED && limit != null) {
+            throw new IllegalArgumentException("Unlimited quota cannot define a finite limit");
         }
     }
 
-    /** Convenience constructor — no bump pricing (boolean-access or fixed-tier slots). */
     public QuotaLimitEntry(String resource, Long limit) {
-        this(resource, limit, null, null);
+        this(resource, limit == null ? QuotaLimitMode.UNLIMITED : QuotaLimitMode.FINITE, limit);
     }
 
-    public Money priceMoney() {
-        return pricePerUnit == null ? null : Money.of(pricePerUnit, priceCurrencyCode);
+    public static QuotaLimitEntry unlimited(String resource) {
+        return new QuotaLimitEntry(resource, QuotaLimitMode.UNLIMITED, null);
     }
 }

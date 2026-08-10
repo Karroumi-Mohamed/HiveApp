@@ -21,8 +21,7 @@ import java.util.List;
  *
  * quotaConfigs — one entry per quota slot declared in Feature.quota_schema.
  *                resource must match a resource name in the Feature's QuotaSlot list.
- *                null limit = explicitly unlimited for this plan tier.
- *                pricePerUnit on each entry = cost per unit if client bumps beyond this limit.
+ *                finite and unlimited values use an explicit mode.
  *                Empty list = feature has boolean access (no quota).
  */
 @Entity
@@ -56,11 +55,6 @@ public class PlanFeature extends BaseEntity {
         }
         if (mode != PlanFeatureMode.INCLUDED && quotaConfigs != null && !quotaConfigs.isEmpty()) {
             throw new IllegalStateException("Only included Plan features may define base quota limits");
-        }
-        if (quotaConfigs != null) {
-            quotaConfigs.stream()
-                    .filter(entry -> entry.pricePerUnit() != null)
-                    .forEach(entry -> plan.money().requireSameCurrency(entry.priceMoney()));
         }
     }
 }

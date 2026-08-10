@@ -7,14 +7,11 @@ import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.exception.InvalidRequestException;
-import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
-import com.hiveapp.shared.quota.QuotaOverride;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -33,33 +30,21 @@ public class BillingConfigurationValidator {
             String planCurrencyCode) {
         FeatureDefinition definition = requirePlanAssignableDefinition(featureCode);
         Feature feature = requireConfigurableFeature(featureCode);
-        Money planCurrency = money(BigDecimal.ZERO, planCurrencyCode, "Plan currency");
         if (mode == null) {
             throw invalid("Plan feature mode is required.");
         }
         if (mode != PlanFeatureMode.INCLUDED && quotaConfigs != null && !quotaConfigs.isEmpty()) {
             throw invalid("Only included Plan features may define base quota limits.");
         }
-        validateQuotaConfigs(definition, quotaConfigs, planCurrency);
+        validateQuotaConfigs(definition, quotaConfigs);
         return feature;
     }
 
-    public void validateSubscriptionOverrides(List<QuotaOverride> quotaOverrides) {
-        Set<String> quotaKeys = new HashSet<>();
-        if (quotaOverrides != null) {
-            for (QuotaOverride override : quotaOverrides) {
-                if (override == null) {
-                    throw invalid("Quota override cannot be null.");
-                }
-                FeatureDefinition definition = requirePlanAssignableDefinition(override.featureCode());
-                requireConfigurableFeature(override.featureCode());
-                requireQuotaSlot(definition, override.resource());
-                if (!quotaKeys.add(override.featureCode() + ":" + override.resource())) {
-                    throw invalid("Duplicate quota override for " + override.featureCode() + "." + override.resource() + ".");
-                }
-                validateNonNegative(override.limit(), "Quota override limit");
-            }
-        }
+    public Feature validateQuotaPackageDefinition(String featureCode, String resource) {
+        FeatureDefinition definition = requirePlanAssignableDefinition(featureCode);
+        Feature feature = requireConfigurableFeature(featureCode);
+        requireQuotaSlot(definition, resource);
+        return feature;
     }
 
     public Feature validateAddOnFeature(
@@ -68,17 +53,13 @@ public class BillingConfigurationValidator {
             String addOnCurrencyCode) {
         FeatureDefinition definition = requirePlanAssignableDefinition(featureCode);
         Feature feature = requireConfigurableFeature(featureCode);
-        validateQuotaConfigs(
-                definition,
-                quotaConfigs,
-                money(BigDecimal.ZERO, addOnCurrencyCode, "AddOn currency"));
+        validateQuotaConfigs(definition, quotaConfigs);
         return feature;
     }
 
     private void validateQuotaConfigs(
             FeatureDefinition definition,
-            List<QuotaLimitEntry> quotaConfigs,
-            Money planCurrency) {
+            List<QuotaLimitEntry> quotaConfigs) {
         Set<String> resources = new HashSet<>();
         if (quotaConfigs == null) {
             return;
@@ -91,11 +72,6 @@ public class BillingConfigurationValidator {
             requireQuotaSlot(definition, quotaConfig.resource());
             if (!resources.add(quotaConfig.resource())) {
                 throw invalid("Duplicate quota configuration for " + definition.code() + "." + quotaConfig.resource() + ".");
-            }
-            validateNonNegative(quotaConfig.limit(), "Quota limit");
-            validateNonNegative(quotaConfig.pricePerUnit(), "Quota price per unit");
-            if (quotaConfig.pricePerUnit() != null) {
-                requireSameCurrency(planCurrency, quotaConfig.priceMoney(), "Quota price per unit");
             }
         }
     }
@@ -130,34 +106,6 @@ public class BillingConfigurationValidator {
         if (resource == null || resource.isBlank()
                 || definition.quotaSlots().stream().noneMatch(slot -> slot.resource().equals(resource))) {
             throw invalid("Quota resource " + resource + " is not declared for feature " + definition.code() + ".");
-        }
-    }
-
-    private void validateNonNegative(Long value, String label) {
-        if (value != null && value < 0) {
-            throw invalid(label + " cannot be negative.");
-        }
-    }
-
-    private void validateNonNegative(BigDecimal value, String label) {
-        if (value != null && value.signum() < 0) {
-            throw invalid(label + " cannot be negative.");
-        }
-    }
-
-    private Money money(BigDecimal amount, String currencyCode, String label) {
-        try {
-            return Money.of(amount, currencyCode);
-        } catch (IllegalArgumentException exception) {
-            throw invalid(label + " is invalid: " + exception.getMessage());
-        }
-    }
-
-    private void requireSameCurrency(Money expected, Money actual, String label) {
-        try {
-            expected.requireSameCurrency(actual);
-        } catch (IllegalArgumentException exception) {
-            throw invalid(label + " must use plan currency " + expected.currencyCode() + ".");
         }
     }
 

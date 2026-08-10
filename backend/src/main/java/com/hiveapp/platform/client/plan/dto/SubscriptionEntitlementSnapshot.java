@@ -10,11 +10,23 @@ public record SubscriptionEntitlementSnapshot(
         String currencyCode,
         BillingCycle billingCycle,
         List<SubscriptionFeatureSnapshot> features,
-        List<SubscriptionAddOnSnapshot> addOns
+        List<SubscriptionAddOnSnapshot> addOns,
+        List<SubscriptionQuotaPackageSnapshot> quotaPackages
 ) {
+    public SubscriptionEntitlementSnapshot(
+            String planCode,
+            BigDecimal basePrice,
+            String currencyCode,
+            BillingCycle billingCycle,
+            List<SubscriptionFeatureSnapshot> features,
+            List<SubscriptionAddOnSnapshot> addOns
+    ) {
+        this(planCode, basePrice, currencyCode, billingCycle, features, addOns, List.of());
+    }
+
     public static SubscriptionEntitlementSnapshot empty(
             String planCode, BigDecimal basePrice, String currencyCode, BillingCycle billingCycle) {
         return new SubscriptionEntitlementSnapshot(
-                planCode, basePrice, currencyCode, billingCycle, List.of(), List.of());
+                planCode, basePrice, currencyCode, billingCycle, List.of(), List.of(), List.of());
     }
 }

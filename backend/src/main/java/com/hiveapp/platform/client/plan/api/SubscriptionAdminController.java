@@ -60,7 +60,7 @@ public class SubscriptionAdminController {
         return subscriptionMapper.toDto(adminSubscriptionService.updateOverrides(
                 accountId,
                 request.addOnCodes(),
-                request.quotaOverrides()
+                request.quotaPackages()
         ));
     }
 }

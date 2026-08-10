@@ -6,9 +6,13 @@ import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
+import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
+import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
+import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.PlanDetailDto;
@@ -59,4 +63,16 @@ public interface PlanAdminService {
     AddOnFeature updateAddOnFeature(UUID addOnId, UUID addOnFeatureId, AssignAddOnFeatureRequest request);
 
     void removeAddOnFeature(UUID addOnId, UUID addOnFeatureId);
+
+    List<QuotaPackage> listQuotaPackages();
+
+    QuotaPackage getQuotaPackage(UUID quotaPackageId);
+
+    QuotaPackage createQuotaPackage(CreateQuotaPackageRequest request);
+
+    QuotaPackage updateQuotaPackage(UUID quotaPackageId, UpdateQuotaPackageRequest request);
+
+    QuotaPackage transitionQuotaPackageStatus(UUID quotaPackageId, QuotaPackageStatus targetStatus);
+
+    void deleteQuotaPackage(UUID quotaPackageId);
 }

@@ -5,16 +5,19 @@ import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCodes;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
+import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
@@ -23,6 +26,8 @@ import com.hiveapp.platform.client.plan.dto.PlanDetailDto;
 import com.hiveapp.platform.client.plan.dto.PlanSubscriberDto;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
+import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
+import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
@@ -33,6 +38,7 @@ import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.money.Money;
+import com.hiveapp.shared.quota.QuotaLimitMode;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -60,6 +66,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final BillingConfigurationValidator billingConfigurationValidator;
     private final AddOnRepository addOnRepository;
     private final AddOnFeatureRepository addOnFeatureRepository;
+    private final QuotaPackageRepository quotaPackageRepository;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -144,10 +151,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         Money price = validatePlanBasics(
                 plan.getCode(), request.name(), request.price(), request.currencyCode(), request.billingCycle());
         if (!plan.getCurrencyCode().equals(price.currencyCode())
-                && (planFeatureRepository.findAllByPlanId(planId).stream().anyMatch(this::hasPrice)
-                || subscriptionRepository.countByPlan_Id(planId) > 0)) {
+                && subscriptionRepository.countByPlan_Id(planId) > 0) {
             throw new InvalidRequestException(
-                    "Plan currency cannot change after feature pricing or subscription history exists.");
+                    "Plan currency cannot change after subscription history exists.");
         }
         plan.setName(request.name());
         plan.setDescription(request.description());
@@ -205,6 +211,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (referencedByAddOn) {
             throw new BusinessException(
                     "Plan " + plan.getCode() + " is referenced by an AddOn and cannot be deleted.");
+        }
+        boolean referencedByQuotaPackage = quotaPackageRepository.findAll().stream()
+                .anyMatch(item -> item.getAllowedPlanCodes().contains(plan.getCode()));
+        if (referencedByQuotaPackage) {
+            throw new BusinessException(
+                    "Plan " + plan.getCode() + " is referenced by a quota package and cannot be deleted.");
         }
         planFeatureRepository.deleteAll(planFeatureRepository.findAllByPlanId(planId));
         planRepository.delete(plan);
@@ -389,6 +401,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new BusinessException(
                     "AddOn " + addOn.getCode() + " is referenced by another AddOn and cannot be deleted.");
         }
+        boolean referencedByQuotaPackage = quotaPackageRepository.findAll().stream()
+                .anyMatch(item -> item.getAllowedAddOnCodes().contains(addOn.getCode()));
+        if (referencedByQuotaPackage) {
+            throw new BusinessException(
+                    "AddOn " + addOn.getCode() + " is referenced by a quota package and cannot be deleted.");
+        }
         addOnFeatureRepository.deleteAll(addOnFeatureRepository.findAllByAddOnId(addOnId));
         addOnRepository.delete(addOn);
     }
@@ -442,18 +460,101 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         addOn.touchDefinition();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "list_quota_packages", description = "List commercial quota packages")
+    public List<QuotaPackage> listQuotaPackages() {
+        return quotaPackageRepository.findAllByOrderByCodeAsc();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_quota_package", description = "Read commercial quota package detail")
+    public QuotaPackage getQuotaPackage(UUID quotaPackageId) {
+        return quotaPackageRepository.findDetailedById(quotaPackageId)
+                .orElseThrow(() -> new ResourceNotFoundException("QuotaPackage", "id", quotaPackageId));
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "create_quota_package", description = "Create a commercial quota package draft")
+    public QuotaPackage createQuotaPackage(CreateQuotaPackageRequest request) {
+        String code = normalizeCommercialCode(request.code(), "Quota package code");
+        if (quotaPackageRepository.findByCode(code).isPresent()) {
+            throw new DuplicateResourceException("QuotaPackage", "code", code);
+        }
+        QuotaPackage item = new QuotaPackage();
+        item.setCode(code);
+        applyQuotaPackageBasics(
+                item, request.name(), request.description(), request.featureCode(), request.resource(),
+                request.capacityPerUnit(), request.price(), request.currencyCode(), request.billingCycle(),
+                request.repeatable(), request.maximumQuantity(), request.allowedPlanCodes(),
+                request.allowedAddOnCodes());
+        item.setStatus(QuotaPackageStatus.DRAFT);
+        return quotaPackageRepository.save(item);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "update_quota_package", description = "Update a commercial quota package draft")
+    public QuotaPackage updateQuotaPackage(UUID quotaPackageId, UpdateQuotaPackageRequest request) {
+        QuotaPackage item = requireEditableQuotaPackage(quotaPackageId);
+        applyQuotaPackageBasics(
+                item, request.name(), request.description(), request.featureCode(), request.resource(),
+                request.capacityPerUnit(), request.price(), request.currencyCode(), request.billingCycle(),
+                request.repeatable(), request.maximumQuantity(), request.allowedPlanCodes(),
+                request.allowedAddOnCodes());
+        item.touchDefinition();
+        quotaPackageRepository.saveAndFlush(item);
+        return quotaPackageRepository.findDetailedById(quotaPackageId).orElseThrow();
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "transition_quota_package", description = "Transition a quota package lifecycle state")
+    public QuotaPackage transitionQuotaPackageStatus(UUID quotaPackageId, QuotaPackageStatus targetStatus) {
+        QuotaPackage item = requireQuotaPackage(quotaPackageId);
+        if (targetStatus == null) {
+            throw new InvalidRequestException("Target quota package status is required.");
+        }
+        if (item.getStatus() == targetStatus) {
+            return item;
+        }
+        if (item.getStatus() == QuotaPackageStatus.ARCHIVED) {
+            throw new BusinessException("Archived quota packages are terminal and cannot transition.");
+        }
+        if (targetStatus == QuotaPackageStatus.DRAFT) {
+            throw new BusinessException("A quota package cannot transition back to DRAFT.");
+        }
+        if (item.getStatus() == QuotaPackageStatus.DRAFT && targetStatus == QuotaPackageStatus.INACTIVE) {
+            throw new BusinessException("A draft quota package must be activated or archived.");
+        }
+        if (targetStatus == QuotaPackageStatus.ACTIVE) {
+            validateQuotaPackageActivation(item);
+        }
+        item.setStatus(targetStatus);
+        quotaPackageRepository.saveAndFlush(item);
+        return quotaPackageRepository.findDetailedById(quotaPackageId).orElseThrow();
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "delete_quota_package", description = "Delete an unused quota package draft")
+    public void deleteQuotaPackage(UUID quotaPackageId) {
+        QuotaPackage item = requireQuotaPackage(quotaPackageId);
+        if (item.getStatus() != QuotaPackageStatus.DRAFT) {
+            throw new BusinessException(
+                    "Only quota package drafts may be deleted; deactivate or archive published packages.");
+        }
+        quotaPackageRepository.delete(item);
+    }
+
     private void inheritPlanComposition(Plan targetPlan, UUID requestedSourcePlanId) {
         var sourcePlan = resolveInheritanceSource(requestedSourcePlanId).orElse(null);
         if (sourcePlan == null) {
             return;
         }
         var sourceFeatures = planFeatureRepository.findAllByPlanId(sourcePlan.getId());
-        if (!targetPlan.getCurrencyCode().equals(sourcePlan.getCurrencyCode())
-                && sourceFeatures.stream().anyMatch(this::hasPrice)) {
-            throw new InvalidRequestException(
-                    "Priced plan composition cannot be inherited across currencies without explicit conversion.");
-        }
-
         var inheritedFeatures = sourceFeatures.stream()
                 .map(sourceFeature -> {
                     billingConfigurationValidator.validatePlanFeature(
@@ -475,11 +576,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (!inheritedFeatures.isEmpty()) {
             planFeatureRepository.saveAll(inheritedFeatures);
         }
-    }
-
-    private boolean hasPrice(PlanFeature planFeature) {
-        return planFeature.getQuotaConfigs() != null
-                && planFeature.getQuotaConfigs().stream().anyMatch(quota -> quota.pricePerUnit() != null);
     }
 
     private void requireMutable(Plan plan) {
@@ -536,6 +632,139 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new ResourceNotFoundException("AddOnFeature", "id", addOnFeatureId);
         }
         return item;
+    }
+
+    private QuotaPackage requireQuotaPackage(UUID quotaPackageId) {
+        return quotaPackageRepository.findById(quotaPackageId)
+                .orElseThrow(() -> new ResourceNotFoundException("QuotaPackage", "id", quotaPackageId));
+    }
+
+    private QuotaPackage requireEditableQuotaPackage(UUID quotaPackageId) {
+        QuotaPackage item = requireQuotaPackage(quotaPackageId);
+        if (item.getStatus() == QuotaPackageStatus.ACTIVE) {
+            throw new BusinessException("Active quota packages are immutable; deactivate before editing.");
+        }
+        if (item.getStatus() == QuotaPackageStatus.ARCHIVED) {
+            throw new BusinessException("Archived quota packages are read-only.");
+        }
+        return item;
+    }
+
+    private void applyQuotaPackageBasics(
+            QuotaPackage item,
+            String name,
+            String description,
+            String featureCode,
+            String resource,
+            long capacityPerUnit,
+            BigDecimal price,
+            String currencyCode,
+            BillingCycle billingCycle,
+            boolean repeatable,
+            int maximumQuantity,
+            Set<String> allowedPlanCodes,
+            Set<String> allowedAddOnCodes
+    ) {
+        if (name == null || name.isBlank()) {
+            throw new InvalidRequestException("Quota package name is required.");
+        }
+        if (capacityPerUnit <= 0) {
+            throw new InvalidRequestException("Quota package capacity must be positive.");
+        }
+        if (maximumQuantity <= 0 || (!repeatable && maximumQuantity != 1)) {
+            throw new InvalidRequestException(
+                    "A non-repeatable package must have maximum quantity 1; repeatable packages require a positive maximum.");
+        }
+        Money money;
+        try {
+            money = Money.of(price, currencyCode);
+        } catch (IllegalArgumentException exception) {
+            throw new InvalidRequestException("Quota package price is invalid: " + exception.getMessage());
+        }
+        if (money.isNegative()) {
+            throw new InvalidRequestException("Quota package price cannot be negative.");
+        }
+        if (billingCycle == null || billingCycle == BillingCycle.FOREVER) {
+            throw new InvalidRequestException("Quota packages require a MONTHLY or YEARLY billing cycle.");
+        }
+        var feature = billingConfigurationValidator.validateQuotaPackageDefinition(featureCode, resource);
+        Set<String> plans = normalizeCodes(allowedPlanCodes, "Allowed Plan code");
+        Set<String> addOns = normalizeCodes(allowedAddOnCodes, "Allowed AddOn code");
+        for (String planCode : plans) {
+            if (planRepository.findByCode(planCode).isEmpty()) {
+                throw new InvalidRequestException("Unknown Plan code in quota package availability: " + planCode);
+            }
+        }
+        for (String addOnCode : addOns) {
+            if (addOnRepository.findByCode(addOnCode).isEmpty()) {
+                throw new InvalidRequestException("Unknown AddOn code in quota package availability: " + addOnCode);
+            }
+        }
+
+        item.setName(name);
+        item.setDescription(description);
+        item.setFeature(feature);
+        item.setResource(resource);
+        item.setCapacityPerUnit(capacityPerUnit);
+        item.setMoney(money);
+        item.setBillingCycle(billingCycle);
+        item.setRepeatable(repeatable);
+        item.setMaximumQuantity(maximumQuantity);
+        item.setAllowedPlanCodes(plans);
+        item.setAllowedAddOnCodes(addOns);
+    }
+
+    private void validateQuotaPackageActivation(QuotaPackage item) {
+        if (item.getAllowedPlanCodes().isEmpty() && item.getAllowedAddOnCodes().isEmpty()) {
+            throw new BusinessException("A quota package must be attached to at least one Plan or AddOn.");
+        }
+        for (String planCode : item.getAllowedPlanCodes()) {
+            Plan plan = planRepository.findByCode(planCode)
+                    .orElseThrow(() -> new BusinessException("Allowed Plan no longer exists: " + planCode));
+            if (!plan.isActive()
+                    || !item.getCurrencyCode().equals(plan.getCurrencyCode())
+                    || item.getBillingCycle() != plan.getBillingCycle()) {
+                throw new BusinessException(
+                        "Plan " + planCode + " is not active or uses incompatible currency/billing cycle.");
+            }
+            PlanFeature owner = planFeatureRepository
+                    .findByPlanIdAndFeature_Code(plan.getId(), item.getFeature().getCode())
+                    .orElseThrow(() -> new BusinessException(
+                            "Plan " + planCode + " does not own quota "
+                                    + item.getFeature().getCode() + "." + item.getResource() + "."));
+            if (owner.getMode() != PlanFeatureMode.INCLUDED
+                    || !hasFiniteQuota(owner.getQuotaConfigs(), item.getResource())) {
+                throw new BusinessException(
+                        "Plan " + planCode + " must include a finite base quota for "
+                                + item.getFeature().getCode() + "." + item.getResource() + ".");
+            }
+        }
+        for (String addOnCode : item.getAllowedAddOnCodes()) {
+            AddOn addOn = addOnRepository.findByCode(addOnCode)
+                    .orElseThrow(() -> new BusinessException("Allowed AddOn no longer exists: " + addOnCode));
+            if (!addOn.isActive()
+                    || !item.getCurrencyCode().equals(addOn.getCurrencyCode())
+                    || item.getBillingCycle() != addOn.getBillingCycle()) {
+                throw new BusinessException(
+                        "AddOn " + addOnCode + " is not active or uses incompatible currency/billing cycle.");
+            }
+            AddOnFeature owner = addOnFeatureRepository
+                    .findByAddOnIdAndFeature_Code(addOn.getId(), item.getFeature().getCode())
+                    .orElseThrow(() -> new BusinessException(
+                            "AddOn " + addOnCode + " does not own quota "
+                                    + item.getFeature().getCode() + "." + item.getResource() + "."));
+            if (!hasFiniteQuota(owner.getQuotaConfigs(), item.getResource())) {
+                throw new BusinessException(
+                        "AddOn " + addOnCode + " must include a finite base quota for "
+                                + item.getFeature().getCode() + "." + item.getResource() + ".");
+            }
+        }
+    }
+
+    private boolean hasFiniteQuota(List<com.hiveapp.shared.quota.QuotaLimitEntry> quotas, String resource) {
+        return quotas != null && quotas.stream()
+                .anyMatch(quota -> quota.resource().equals(resource)
+                        && quota.mode() == QuotaLimitMode.FINITE);
     }
 
     private void applyAddOnBasics(

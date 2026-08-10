@@ -8,8 +8,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
@@ -40,13 +38,4 @@ public class AddOnFeature extends BaseEntity {
     @Column(name = "quota_configs")
     private List<QuotaLimitEntry> quotaConfigs = new ArrayList<>();
 
-    @PrePersist
-    @PreUpdate
-    void validatePriceCurrency() {
-        if (quotaConfigs != null) {
-            quotaConfigs.stream()
-                    .filter(quota -> quota.pricePerUnit() != null)
-                    .forEach(quota -> addOn.money().requireSameCurrency(quota.priceMoney()));
-        }
-    }
 }

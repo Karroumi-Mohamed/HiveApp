@@ -2,11 +2,11 @@ package com.hiveapp.platform.admin.service.impl;
 
 import com.hiveapp.platform.admin.service.AdminSubscriptionService;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.SubscriptionsFeature;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
-import com.hiveapp.shared.quota.QuotaOverride;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -40,8 +40,12 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     }
 
     @Override
-    @PermissionNode(key = "update_overrides", description = "Apply custom feature/quota overrides to subscription")
-    public Subscription updateOverrides(UUID accountId, Set<String> featureCodes, List<QuotaOverride> quotaOverrides) {
-        return subscriptionService.updateOverrides(accountId, featureCodes, quotaOverrides);
+    @PermissionNode(key = "update_overrides", description = "Apply AddOn and quota package selections to subscription")
+    public Subscription updateOverrides(
+            UUID accountId,
+            Set<String> addOnCodes,
+            List<QuotaPackageSelection> quotaPackages
+    ) {
+        return subscriptionService.updateOverrides(accountId, addOnCodes, quotaPackages);
     }
 }

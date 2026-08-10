@@ -5,7 +5,7 @@ import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
-import com.hiveapp.shared.quota.QuotaOverride;
+import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 
 import java.util.List;
 import java.util.Set;
@@ -17,5 +17,5 @@ public interface SubscriptionService {
     SubscriptionChangePreviewResponse previewChange(UUID accountId, SubscriptionChangeRequest request);
     SubscriptionChangeApplyResponse applyChange(UUID accountId, SubscriptionChangeRequest request);
     Subscription createSubscription(UUID accountId, String planCode);
-    Subscription updateOverrides(UUID accountId, Set<String> addOnCodes, List<QuotaOverride> quotaOverrides);
+    Subscription updateOverrides(UUID accountId, Set<String> addOnCodes, List<QuotaPackageSelection> quotaPackages);
 }

@@ -1,7 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
-import com.hiveapp.shared.quota.QuotaOverride;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.Valid;
 
 import java.util.List;
 import java.util.Set;
@@ -9,5 +9,5 @@ import java.util.Set;
 public record SubscriptionChangeRequest(
         @NotBlank String targetPlanCode,
         Set<String> addOnCodes,
-        List<QuotaOverride> quotaOverrides
+        @Valid List<QuotaPackageSelection> quotaPackages
 ) {}

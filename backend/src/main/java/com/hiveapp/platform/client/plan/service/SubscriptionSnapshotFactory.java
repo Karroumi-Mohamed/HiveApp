@@ -5,9 +5,12 @@ import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
+import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
+import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
+import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -25,12 +28,21 @@ public class SubscriptionSnapshotFactory {
     private final PlanFeatureRepository planFeatureRepository;
     private final AddOnRepository addOnRepository;
     private final AddOnFeatureRepository addOnFeatureRepository;
+    private final QuotaPackageRepository quotaPackageRepository;
 
     public SubscriptionEntitlementSnapshot fromPlan(Plan plan) {
-        return fromPlan(plan, Set.of());
+        return fromPlan(plan, Set.of(), List.of());
     }
 
     public SubscriptionEntitlementSnapshot fromPlan(Plan plan, Set<String> selectedAddOnCodes) {
+        return fromPlan(plan, selectedAddOnCodes, List.of());
+    }
+
+    public SubscriptionEntitlementSnapshot fromPlan(
+            Plan plan,
+            Set<String> selectedAddOnCodes,
+            List<QuotaPackageSelection> selectedQuotaPackages
+    ) {
         Set<String> requestedCodes = selectedAddOnCodes != null ? selectedAddOnCodes : Set.of();
         Map<String, SubscriptionFeatureSnapshot> features = new LinkedHashMap<>();
         planFeatureRepository.findAllByPlanId(plan.getId()).stream()
@@ -71,6 +83,31 @@ public class SubscriptionSnapshotFactory {
             throw new IllegalStateException("One or more selected AddOns no longer exist");
         }
 
+        List<QuotaPackageSelection> packageSelections = selectedQuotaPackages != null
+                ? selectedQuotaPackages
+                : List.of();
+        Set<String> packageCodes = packageSelections.stream()
+                .map(QuotaPackageSelection::packageCode)
+                .collect(java.util.stream.Collectors.toSet());
+        Map<String, com.hiveapp.platform.client.plan.domain.entity.QuotaPackage> packagesByCode =
+                quotaPackageRepository.findAllByCodeIn(packageCodes).stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                com.hiveapp.platform.client.plan.domain.entity.QuotaPackage::getCode,
+                                java.util.function.Function.identity()));
+        if (packagesByCode.size() != packageCodes.size()) {
+            throw new IllegalStateException("One or more selected quota packages no longer exist");
+        }
+        var quotaPackages = packageSelections.stream()
+                .sorted(Comparator.comparing(QuotaPackageSelection::packageCode))
+                .map(selection -> {
+                    var item = packagesByCode.get(selection.packageCode());
+                    return new SubscriptionQuotaPackageSnapshot(
+                            item.getCode(), item.getName(), item.getDefinitionVersion(),
+                            item.getFeature().getCode(), item.getResource(), item.getCapacityPerUnit(),
+                            selection.quantity(), item.getPrice(), item.getCurrencyCode(), item.getBillingCycle());
+                })
+                .toList();
+
         return new SubscriptionEntitlementSnapshot(
                 plan.getCode(),
                 plan.getPrice(),
@@ -79,7 +116,8 @@ public class SubscriptionSnapshotFactory {
                 features.values().stream()
                         .sorted(Comparator.comparing(SubscriptionFeatureSnapshot::featureCode))
                         .toList(),
-                addOns
+                addOns,
+                quotaPackages
         );
     }
 }

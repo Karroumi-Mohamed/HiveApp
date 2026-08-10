@@ -59,11 +59,11 @@ public class PlanSeeder {
     );
     private static final List<SeedPlan> BOOTSTRAP_PLANS = List.of(
             new SeedPlan(PlanCodes.DEFAULT, "Free Plan", BigDecimal.ZERO, BillingCycle.MONTHLY,
-                    3L, 1L, null, null),
+                    3L, 1L),
             new SeedPlan("PRO", "Pro Plan", new BigDecimal("29.99"), BillingCycle.MONTHLY,
-                    10L, 5L, "2.00", "5.00"),
+                    10L, 5L),
             new SeedPlan("ENTERPRISE", "Enterprise Plan", new BigDecimal("99.99"), BillingCycle.MONTHLY,
-                    null, null, null, null)
+                    null, null)
     );
 
     private final PlanRepository planRepository;
@@ -117,14 +117,8 @@ public class PlanSeeder {
     }
 
     private void seedWorkspace(Plan plan, Feature feature, SeedPlan specification) {
-        var memberEntry = specification.memberPrice() != null
-                ? new QuotaLimitEntry(WorkspaceFeature.MEMBERS, specification.members(),
-                        new BigDecimal(specification.memberPrice()), plan.getCurrencyCode())
-                : new QuotaLimitEntry(WorkspaceFeature.MEMBERS, specification.members());
-        var companyEntry = specification.companyPrice() != null
-                ? new QuotaLimitEntry(WorkspaceFeature.COMPANIES, specification.companies(),
-                        new BigDecimal(specification.companyPrice()), plan.getCurrencyCode())
-                : new QuotaLimitEntry(WorkspaceFeature.COMPANIES, specification.companies());
+        var memberEntry = new QuotaLimitEntry(WorkspaceFeature.MEMBERS, specification.members());
+        var companyEntry = new QuotaLimitEntry(WorkspaceFeature.COMPANIES, specification.companies());
         assign(plan, feature, List.of(memberEntry, companyEntry));
     }
 
@@ -153,9 +147,7 @@ public class PlanSeeder {
             BigDecimal price,
             BillingCycle billingCycle,
             Long members,
-            Long companies,
-            String memberPrice,
-            String companyPrice
+            Long companies
     ) {
     }
 }
