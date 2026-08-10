@@ -16,6 +16,7 @@ public record AdminSubscriptionDto(
         String planName,
         SubscriptionStatus status,
         BigDecimal currentPrice,
+        String currentPriceCurrencyCode,
         LocalDateTime currentPeriodEnd,
         SubscriptionOverrides customOverrides,
         SubscriptionEntitlementSnapshot entitlementSnapshot

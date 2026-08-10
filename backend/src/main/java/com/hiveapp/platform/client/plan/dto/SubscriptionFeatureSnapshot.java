@@ -8,6 +8,7 @@ import java.util.List;
 public record SubscriptionFeatureSnapshot(
         String featureCode,
         BigDecimal addOnPrice,
+        String addOnCurrencyCode,
         List<QuotaLimitEntry> quotaConfigs
 ) {
 }

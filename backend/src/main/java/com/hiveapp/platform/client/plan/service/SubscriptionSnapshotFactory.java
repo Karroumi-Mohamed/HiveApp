@@ -29,6 +29,7 @@ public class SubscriptionSnapshotFactory {
                 .map(planFeature -> new SubscriptionFeatureSnapshot(
                         planFeature.getFeature().getCode(),
                         planFeature.getAddOnPrice(),
+                        planFeature.getAddOnCurrencyCode(),
                         planFeature.getQuotaConfigs() != null ? planFeature.getQuotaConfigs() : java.util.List.of()))
                 .sorted(Comparator.comparing(SubscriptionFeatureSnapshot::featureCode))
                 .toList());
@@ -36,6 +37,7 @@ public class SubscriptionSnapshotFactory {
         return new SubscriptionEntitlementSnapshot(
                 plan.getCode(),
                 plan.getPrice(),
+                plan.getCurrencyCode(),
                 features
         );
     }

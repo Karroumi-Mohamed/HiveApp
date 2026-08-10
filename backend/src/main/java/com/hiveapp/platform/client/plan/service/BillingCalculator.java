@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.shared.quota.QuotaOverride;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
+import com.hiveapp.shared.money.Money;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -32,65 +33,73 @@ public class BillingCalculator {
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
 
-    public BigDecimal calculate(Subscription sub) {
+    public Money calculateMoney(Subscription sub) {
         var snapshot = subscriptionSnapshotReader.read(sub.getEntitlementSnapshot()).orElse(null);
-        BigDecimal total = basePrice(sub, snapshot);
+        Money total = basePrice(sub, snapshot);
 
         if (sub.getCustomOverrides() == null) return total;
 
+        com.hiveapp.platform.client.plan.dto.SubscriptionOverrides overrides;
         try {
-            var overrides = subscriptionOverrideReader.read(sub.getCustomOverrides());
-
-            // --- Feature add-on pricing ---
-            if (overrides.addedFeatures() != null) {
-                for (String featureCode : overrides.addedFeatures()) {
-                    var price = snapshotFeature(snapshot, featureCode)
-                            .map(SubscriptionFeatureSnapshot::addOnPrice)
-                            .or(() -> planFeatureRepository.findByPlanIdAndFeature_Code(
-                                            sub.getPlan().getId(), featureCode)
-                                    .map(planFeature -> planFeature.getAddOnPrice()))
-                            .orElse(null);
-                    if (price != null) {
-                        total = total.add(price);
-                    }
-                }
-            }
-
-            // --- Quota bump pricing ---
-            if (overrides.quotaOverrides() != null) {
-                for (QuotaOverride override : overrides.quotaOverrides()) {
-                    var planEntry = snapshotQuota(snapshot, override)
-                            .or(() -> planFeatureRepository.findByPlanIdAndFeature_Code(
-                                            sub.getPlan().getId(), override.featureCode())
-                                    .flatMap(planFeature -> planFeature.getQuotaConfigs().stream()
-                                            .filter(e -> e.resource().equals(override.resource()))
-                                            .findFirst()));
-
-                    if (planEntry.isEmpty()
-                            || planEntry.get().pricePerUnit() == null
-                            || planEntry.get().limit() == null
-                            || override.limit() == null) continue;
-
-                    long bump = override.limit() - planEntry.get().limit();
-                    if (bump > 0) {
-                        total = total.add(
-                                planEntry.get().pricePerUnit().multiply(BigDecimal.valueOf(bump)));
-                    }
-                }
-            }
+            overrides = subscriptionOverrideReader.read(sub.getCustomOverrides());
         } catch (Exception e) {
             log.warn("Could not deserialize overrides for subscription {}: {}", sub.getId(), e.getMessage());
             return total;
         }
 
+        // --- Feature add-on pricing ---
+        if (overrides.addedFeatures() != null) {
+            for (String featureCode : overrides.addedFeatures()) {
+                var snapshotPrice = snapshotFeature(snapshot, featureCode)
+                        .filter(feature -> feature.addOnPrice() != null)
+                        .map(feature -> Money.of(feature.addOnPrice(), feature.addOnCurrencyCode()));
+                var price = snapshotPrice.or(() -> planFeatureRepository.findByPlanIdAndFeature_Code(
+                                sub.getPlan().getId(), featureCode)
+                        .map(planFeature -> planFeature.addOnMoney()))
+                        .orElse(null);
+                if (price != null) {
+                    total = total.add(price);
+                }
+            }
+        }
+
+        // --- Quota bump pricing ---
+        if (overrides.quotaOverrides() != null) {
+            for (QuotaOverride override : overrides.quotaOverrides()) {
+                var planEntry = snapshotQuota(snapshot, override)
+                        .or(() -> planFeatureRepository.findByPlanIdAndFeature_Code(
+                                        sub.getPlan().getId(), override.featureCode())
+                                .flatMap(planFeature -> planFeature.getQuotaConfigs().stream()
+                                        .filter(e -> e.resource().equals(override.resource()))
+                                        .findFirst()));
+
+                if (planEntry.isEmpty()
+                        || planEntry.get().pricePerUnit() == null
+                        || planEntry.get().limit() == null
+                        || override.limit() == null) continue;
+
+                long bump = override.limit() - planEntry.get().limit();
+                if (bump > 0) {
+                    total = total.add(planEntry.get().priceMoney().multiply(bump));
+                }
+            }
+        }
+
         return total;
     }
 
-    private BigDecimal basePrice(Subscription sub, SubscriptionEntitlementSnapshot snapshot) {
+    /** Compatibility accessor for callers that only display an amount. New persistence uses calculateMoney(). */
+    public BigDecimal calculate(Subscription sub) {
+        return calculateMoney(sub).amount();
+    }
+
+    private Money basePrice(Subscription sub, SubscriptionEntitlementSnapshot snapshot) {
         if (snapshot != null && snapshot.basePrice() != null) {
-            return snapshot.basePrice();
+            return Money.of(snapshot.basePrice(), snapshot.currencyCode());
         }
-        return sub.getPlan().getPrice() != null ? sub.getPlan().getPrice() : BigDecimal.ZERO;
+        return sub.getPlan().getPrice() != null
+                ? sub.getPlan().money()
+                : Money.zero(sub.getPlan().getCurrencyCode());
     }
 
     private java.util.Optional<SubscriptionFeatureSnapshot> snapshotFeature(

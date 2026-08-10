@@ -13,5 +13,6 @@ public record PlanSubscriberDto(
         String planCode,
         SubscriptionStatus status,
         BigDecimal currentPrice,
+        String currentPriceCurrencyCode,
         LocalDateTime currentPeriodEnd
 ) {}

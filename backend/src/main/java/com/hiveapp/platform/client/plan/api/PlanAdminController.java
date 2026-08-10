@@ -99,12 +99,13 @@ public class PlanAdminController {
                 pf.getId(),
                 pf.getFeature().getCode(),
                 pf.getAddOnPrice(),
+                pf.getAddOnCurrencyCode(),
                 pf.getQuotaConfigs()
         );
     }
 
     private PlanDto toDto(com.hiveapp.platform.client.plan.domain.entity.Plan p) {
         return new PlanDto(p.getId(), p.getCode(), p.getName(),
-                p.getDescription(), p.getPrice(), p.getBillingCycle(), p.isActive());
+                p.getDescription(), p.getPrice(), p.getCurrencyCode(), p.getBillingCycle(), p.isActive());
     }
 }

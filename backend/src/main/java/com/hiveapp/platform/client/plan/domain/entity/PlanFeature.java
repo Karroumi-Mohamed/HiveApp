@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.domain.entity;
 
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.shared.domain.BaseEntity;
+import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -40,10 +41,39 @@ public class PlanFeature extends BaseEntity {
     @JoinColumn(name = "feature_id", nullable = false)
     private Feature feature;
 
-    @Column(name = "add_on_price", precision = 10, scale = 2)
+    @Column(name = "add_on_price", precision = 19, scale = 4)
     private BigDecimal addOnPrice;
+
+    @Column(name = "add_on_currency_code", length = 3)
+    private String addOnCurrencyCode;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "quota_configs")
     private List<QuotaLimitEntry> quotaConfigs = new ArrayList<>();
+
+    public Money addOnMoney() {
+        return addOnPrice == null ? null : Money.of(addOnPrice, addOnCurrencyCode);
+    }
+
+    public void setAddOnMoney(Money money) {
+        addOnPrice = money != null ? money.amount() : null;
+        addOnCurrencyCode = money != null ? money.currencyCode() : null;
+    }
+
+    @PrePersist
+    @PreUpdate
+    void validatePriceCurrencies() {
+        if (addOnPrice != null) {
+            Money addOn = Money.of(addOnPrice, addOnCurrencyCode);
+            plan.money().requireSameCurrency(addOn);
+            setAddOnMoney(addOn);
+        } else {
+            addOnCurrencyCode = null;
+        }
+        if (quotaConfigs != null) {
+            quotaConfigs.stream()
+                    .filter(entry -> entry.pricePerUnit() != null)
+                    .forEach(entry -> plan.money().requireSameCurrency(entry.priceMoney()));
+        }
+    }
 }

@@ -12,6 +12,7 @@ public record CreatePlanRequest(
         @NotBlank String name,
         String description,
         @NotNull BigDecimal price,
+        @NotBlank String currencyCode,
         @NotNull BillingCycle billingCycle,
         UUID inheritFromPlanId
 ) {}

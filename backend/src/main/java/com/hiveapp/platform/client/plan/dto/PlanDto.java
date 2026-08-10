@@ -11,6 +11,7 @@ public record PlanDto(
         String name,
         String description,
         BigDecimal price,
+        String currencyCode,
         BillingCycle billingCycle,
         boolean isActive
 ) {}

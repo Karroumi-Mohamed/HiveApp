@@ -41,6 +41,7 @@ public class SubscriptionAdminController {
                 sub.getPlan().getName(),
                 sub.getStatus(),
                 sub.getCurrentPrice(),
+                sub.getCurrentPriceCurrencyCode(),
                 sub.getCurrentPeriodEnd(),
                 subscriptionOverrideReader.read(sub.getCustomOverrides()),
                 subscriptionSnapshotReader.read(sub.getEntitlementSnapshot()).orElse(null)

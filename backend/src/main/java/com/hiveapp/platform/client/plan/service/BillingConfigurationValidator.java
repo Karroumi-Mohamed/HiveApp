@@ -6,6 +6,7 @@ import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.exception.InvalidRequestException;
+import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.quota.QuotaOverride;
 import lombok.RequiredArgsConstructor;
@@ -24,11 +25,24 @@ public class BillingConfigurationValidator {
     private final FeatureRepository featureRepository;
     private final ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
 
-    public Feature validatePlanFeature(String featureCode, BigDecimal addOnPrice, List<QuotaLimitEntry> quotaConfigs) {
+    public Feature validatePlanFeature(
+            String featureCode,
+            BigDecimal addOnPrice,
+            String addOnCurrencyCode,
+            List<QuotaLimitEntry> quotaConfigs,
+            String planCurrencyCode) {
         FeatureDefinition definition = requirePlanAssignableDefinition(featureCode);
         Feature feature = requireConfigurableFeature(featureCode);
-        validateNonNegative(addOnPrice, "Feature add-on price");
-        validateQuotaConfigs(definition, quotaConfigs);
+        Money planCurrency = money(BigDecimal.ZERO, planCurrencyCode, "Plan currency");
+        if (addOnPrice == null && addOnCurrencyCode != null) {
+            throw invalid("Feature add-on currency requires an add-on price.");
+        }
+        if (addOnPrice != null) {
+            Money addOn = money(addOnPrice, addOnCurrencyCode, "Feature add-on price");
+            validateNonNegative(addOn.amount(), "Feature add-on price");
+            requireSameCurrency(planCurrency, addOn, "Feature add-on price");
+        }
+        validateQuotaConfigs(definition, quotaConfigs, planCurrency);
         return feature;
     }
 
@@ -57,7 +71,10 @@ public class BillingConfigurationValidator {
         }
     }
 
-    private void validateQuotaConfigs(FeatureDefinition definition, List<QuotaLimitEntry> quotaConfigs) {
+    private void validateQuotaConfigs(
+            FeatureDefinition definition,
+            List<QuotaLimitEntry> quotaConfigs,
+            Money planCurrency) {
         Set<String> resources = new HashSet<>();
         if (quotaConfigs == null) {
             return;
@@ -73,6 +90,9 @@ public class BillingConfigurationValidator {
             }
             validateNonNegative(quotaConfig.limit(), "Quota limit");
             validateNonNegative(quotaConfig.pricePerUnit(), "Quota price per unit");
+            if (quotaConfig.pricePerUnit() != null) {
+                requireSameCurrency(planCurrency, quotaConfig.priceMoney(), "Quota price per unit");
+            }
         }
     }
 
@@ -118,6 +138,22 @@ public class BillingConfigurationValidator {
     private void validateNonNegative(BigDecimal value, String label) {
         if (value != null && value.signum() < 0) {
             throw invalid(label + " cannot be negative.");
+        }
+    }
+
+    private Money money(BigDecimal amount, String currencyCode, String label) {
+        try {
+            return Money.of(amount, currencyCode);
+        } catch (IllegalArgumentException exception) {
+            throw invalid(label + " is invalid: " + exception.getMessage());
+        }
+    }
+
+    private void requireSameCurrency(Money expected, Money actual, String label) {
+        try {
+            expected.requireSameCurrency(actual);
+        } catch (IllegalArgumentException exception) {
+            throw invalid(label + " must use plan currency " + expected.currencyCode() + ".");
         }
     }
 

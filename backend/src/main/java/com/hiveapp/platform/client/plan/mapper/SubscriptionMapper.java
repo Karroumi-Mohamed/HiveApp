@@ -11,6 +11,8 @@ public interface SubscriptionMapper {
     @Mapping(source = "plan.code",     target = "plan.code")
     @Mapping(source = "plan.name",     target = "plan.name")
     @Mapping(source = "plan.price",    target = "plan.basePrice")
+    @Mapping(source = "plan.currencyCode", target = "plan.currencyCode")
     @Mapping(source = "currentPrice",  target = "currentPrice")
+    @Mapping(source = "currentPriceCurrencyCode", target = "currentPriceCurrencyCode")
     SubscriptionDto toDto(Subscription subscription);
 }

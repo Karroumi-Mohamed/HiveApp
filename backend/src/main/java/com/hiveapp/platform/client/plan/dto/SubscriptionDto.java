@@ -10,7 +10,8 @@ public record SubscriptionDto(
         PlanSummaryDto plan,
         SubscriptionStatus status,
         BigDecimal currentPrice,
+        String currentPriceCurrencyCode,
         LocalDateTime currentPeriodEnd
 ) {
-    public record PlanSummaryDto(String code, String name, BigDecimal basePrice) {}
+    public record PlanSummaryDto(String code, String name, BigDecimal basePrice, String currencyCode) {}
 }

@@ -12,6 +12,7 @@ public record SubscriptionChangePreviewResponse(
         String targetPlanCode,
         BigDecimal currentPrice,
         BigDecimal previewPrice,
+        String currencyCode,
         boolean immediateAllowed,
         Set<String> effectiveFeatureCodes,
         List<QuotaLimitEntry> effectiveQuotaLimits,

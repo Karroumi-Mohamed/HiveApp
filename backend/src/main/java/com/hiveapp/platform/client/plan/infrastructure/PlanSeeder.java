@@ -11,6 +11,7 @@ import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
+import com.hiveapp.shared.money.Money;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -35,6 +36,8 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class PlanSeeder {
+
+    public static final String DEFAULT_CURRENCY = "USD";
 
     private final PlanRepository planRepository;
     private final PlanFeatureRepository planFeatureRepository;
@@ -85,10 +88,12 @@ public class PlanSeeder {
                                 String memberPrice, String companyPrice) {
         featureRepository.findByCode(WorkspaceFeature.CODE).ifPresentOrElse(feature -> {
             var memberEntry   = memberPrice  != null
-                    ? new QuotaLimitEntry(WorkspaceFeature.MEMBERS,   members,   new BigDecimal(memberPrice))
+                    ? new QuotaLimitEntry(WorkspaceFeature.MEMBERS, members,
+                            new BigDecimal(memberPrice), plan.getCurrencyCode())
                     : new QuotaLimitEntry(WorkspaceFeature.MEMBERS,   members);
             var companyEntry  = companyPrice != null
-                    ? new QuotaLimitEntry(WorkspaceFeature.COMPANIES, companies, new BigDecimal(companyPrice))
+                    ? new QuotaLimitEntry(WorkspaceFeature.COMPANIES, companies,
+                            new BigDecimal(companyPrice), plan.getCurrencyCode())
                     : new QuotaLimitEntry(WorkspaceFeature.COMPANIES, companies);
             assign(plan, feature, null, List.of(memberEntry, companyEntry));
         }, () -> log.warn("Feature '{}' not found — workspace quota not seeded.",
@@ -100,7 +105,7 @@ public class PlanSeeder {
         var pf = new PlanFeature();
         pf.setPlan(plan);
         pf.setFeature(feature);
-        pf.setAddOnPrice(addOnPrice);
+        pf.setAddOnMoney(addOnPrice != null ? Money.of(addOnPrice, plan.getCurrencyCode()) : null);
         pf.setQuotaConfigs(quotaConfigs);
         planFeatureRepository.save(pf);
     }
@@ -109,7 +114,7 @@ public class PlanSeeder {
         var p = new Plan();
         p.setCode(code);
         p.setName(name);
-        p.setPrice(price);
+        p.setMoney(Money.of(price, DEFAULT_CURRENCY));
         p.setBillingCycle(cycle);
         return planRepository.save(p);
     }

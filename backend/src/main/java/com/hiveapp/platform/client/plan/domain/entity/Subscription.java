@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.domain.entity;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.shared.domain.BaseEntity;
+import com.hiveapp.shared.money.Money;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -58,13 +59,32 @@ public class Subscription extends BaseEntity {
      * = plan.basePrice + sum(addOnPrices) + sum(quotaBumpCosts).
      * Recalculated by BillingCalculator every time overrides change.
      */
-    @Column(name = "current_price", precision = 10, scale = 2)
+    @Column(name = "current_price", precision = 19, scale = 4)
     private BigDecimal currentPrice;
+
+    @Column(name = "current_price_currency_code", length = 3)
+    private String currentPriceCurrencyCode;
+
+    public Money currentMoney() {
+        return currentPrice == null ? null : Money.of(currentPrice, currentPriceCurrencyCode);
+    }
+
+    public void setCurrentMoney(Money money) {
+        currentPrice = money != null ? money.amount() : null;
+        currentPriceCurrencyCode = money != null ? money.currencyCode() : null;
+    }
 
     @PrePersist
     @PreUpdate
     void synchronizeUsableAccountSlot() {
         boolean usable = status == SubscriptionStatus.ACTIVE || status == SubscriptionStatus.TRIALING;
         usableAccountId = usable && account != null ? account.getId() : null;
+        if (currentPrice != null) {
+            Money current = Money.of(currentPrice, currentPriceCurrencyCode);
+            plan.money().requireSameCurrency(current);
+            setCurrentMoney(current);
+        } else {
+            currentPriceCurrencyCode = null;
+        }
     }
 }

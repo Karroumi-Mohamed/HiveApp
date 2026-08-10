@@ -10,5 +10,6 @@ public record UpdatePlanRequest(
         @NotBlank String name,
         String description,
         @NotNull BigDecimal price,
+        @NotBlank String currencyCode,
         @NotNull BillingCycle billingCycle
 ) {}

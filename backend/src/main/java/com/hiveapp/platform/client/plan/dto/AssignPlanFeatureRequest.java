@@ -9,5 +9,6 @@ import java.util.List;
 public record AssignPlanFeatureRequest(
         @NotBlank String featureCode,
         BigDecimal addOnPrice,
+        String addOnCurrencyCode,
         List<QuotaLimitEntry> quotaConfigs
 ) {}

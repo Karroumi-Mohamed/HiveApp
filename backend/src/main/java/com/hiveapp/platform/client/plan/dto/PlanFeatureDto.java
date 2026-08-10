@@ -10,5 +10,6 @@ public record PlanFeatureDto(
         UUID id,
         String featureCode,
         BigDecimal addOnPrice,
+        String addOnCurrencyCode,
         List<QuotaLimitEntry> quotaConfigs
 ) {}

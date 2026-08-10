@@ -21,6 +21,7 @@ import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
+import com.hiveapp.shared.money.Money;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -63,13 +64,13 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         long trialingSubscribers = subscriptionRepository.countByPlan_IdAndStatus(planId, SubscriptionStatus.TRIALING);
         long currentSubscribers = activeSubscribers + trialingSubscribers;
         long historicalSubscribers = subscriptionRepository.countByPlan_Id(planId);
-        BigDecimal currentRecurringPrice = subscriptionRepository
+        Money currentRecurringPrice = subscriptionRepository
                 .findAllByPlan_IdAndStatusInOrderByCreatedAtDesc(planId, usableStatuses())
                 .stream()
-                .map(subscription -> subscription.getCurrentPrice() != null
-                        ? subscription.getCurrentPrice()
-                        : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                .map(subscription -> subscription.currentMoney() != null
+                        ? subscription.currentMoney()
+                        : Money.zero(plan.getCurrencyCode()))
+                .reduce(Money.zero(plan.getCurrencyCode()), Money::add);
 
         return new PlanDetailDto(
                 plan.getId(),
@@ -77,6 +78,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 plan.getName(),
                 plan.getDescription(),
                 plan.getPrice(),
+                plan.getCurrencyCode(),
                 plan.getBillingCycle(),
                 plan.isActive(),
                 planFeatures.size(),
@@ -87,7 +89,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 trialingSubscribers,
                 currentSubscribers,
                 historicalSubscribers,
-                currentRecurringPrice,
+                currentRecurringPrice.amount(),
+                currentRecurringPrice.currencyCode(),
                 warnings(plan, planFeatures, currentSubscribers, historicalSubscribers)
         );
     }
@@ -99,12 +102,13 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (planRepository.findByCode(request.code()).isPresent()) {
             throw new DuplicateResourceException("Plan", "code", request.code());
         }
-        validatePlanBasics(request.code(), request.name(), request.price(), request.billingCycle());
+        Money price = validatePlanBasics(
+                request.code(), request.name(), request.price(), request.currencyCode(), request.billingCycle());
         Plan plan = new Plan();
         plan.setCode(request.code());
         plan.setName(request.name());
         plan.setDescription(request.description());
-        plan.setPrice(request.price());
+        plan.setMoney(price);
         plan.setBillingCycle(request.billingCycle());
         Plan savedPlan = planRepository.save(plan);
         inheritPlanComposition(savedPlan, request.inheritFromPlanId());
@@ -116,10 +120,17 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "update", description = "Update plan template basics")
     public Plan updatePlan(UUID planId, UpdatePlanRequest request) {
         Plan plan = requirePlan(planId);
-        validatePlanBasics(plan.getCode(), request.name(), request.price(), request.billingCycle());
+        Money price = validatePlanBasics(
+                plan.getCode(), request.name(), request.price(), request.currencyCode(), request.billingCycle());
+        if (!plan.getCurrencyCode().equals(price.currencyCode())
+                && (planFeatureRepository.findAllByPlanId(planId).stream().anyMatch(this::hasPrice)
+                || subscriptionRepository.countByPlan_Id(planId) > 0)) {
+            throw new InvalidRequestException(
+                    "Plan currency cannot change after feature pricing or subscription history exists.");
+        }
         plan.setName(request.name());
         plan.setDescription(request.description());
-        plan.setPrice(request.price());
+        plan.setMoney(price);
         plan.setBillingCycle(request.billingCycle());
         return planRepository.save(plan);
     }
@@ -171,6 +182,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                         plan.getCode(),
                         subscription.getStatus(),
                         subscription.getCurrentPrice(),
+                        subscription.getCurrentPriceCurrencyCode(),
                         subscription.getCurrentPeriodEnd()
                 ))
                 .toList();
@@ -183,7 +195,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         var plan = planRepository.findById(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         var feature = billingConfigurationValidator.validatePlanFeature(
-                request.featureCode(), request.addOnPrice(), request.quotaConfigs());
+                request.featureCode(), request.addOnPrice(), request.addOnCurrencyCode(),
+                request.quotaConfigs(), plan.getCurrencyCode());
 
         planFeatureRepository.findByPlanIdAndFeature_Code(planId, request.featureCode())
                 .ifPresent(existing -> {
@@ -193,7 +206,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         PlanFeature pf = new PlanFeature();
         pf.setPlan(plan);
         pf.setFeature(feature);
-        pf.setAddOnPrice(request.addOnPrice());
+        pf.setAddOnMoney(request.addOnPrice() != null
+                ? Money.of(request.addOnPrice(), request.addOnCurrencyCode())
+                : null);
         pf.setQuotaConfigs(request.quotaConfigs() != null ? request.quotaConfigs() : new ArrayList<>());
         return planFeatureRepository.save(pf);
     }
@@ -211,8 +226,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new InvalidRequestException("A plan feature update cannot change its feature code.");
         }
         billingConfigurationValidator.validatePlanFeature(
-                request.featureCode(), request.addOnPrice(), request.quotaConfigs());
-        pf.setAddOnPrice(request.addOnPrice());
+                request.featureCode(), request.addOnPrice(), request.addOnCurrencyCode(),
+                request.quotaConfigs(), pf.getPlan().getCurrencyCode());
+        pf.setAddOnMoney(request.addOnPrice() != null
+                ? Money.of(request.addOnPrice(), request.addOnCurrencyCode())
+                : null);
         pf.setQuotaConfigs(request.quotaConfigs() != null ? request.quotaConfigs() : new ArrayList<>());
         return planFeatureRepository.save(pf);
     }
@@ -234,17 +252,25 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (sourcePlan == null) {
             return;
         }
+        var sourceFeatures = planFeatureRepository.findAllByPlanId(sourcePlan.getId());
+        if (!targetPlan.getCurrencyCode().equals(sourcePlan.getCurrencyCode())
+                && sourceFeatures.stream().anyMatch(this::hasPrice)) {
+            throw new InvalidRequestException(
+                    "Priced plan composition cannot be inherited across currencies without explicit conversion.");
+        }
 
-        var inheritedFeatures = planFeatureRepository.findAllByPlanId(sourcePlan.getId()).stream()
+        var inheritedFeatures = sourceFeatures.stream()
                 .map(sourceFeature -> {
                     billingConfigurationValidator.validatePlanFeature(
                             sourceFeature.getFeature().getCode(),
                             sourceFeature.getAddOnPrice(),
-                            sourceFeature.getQuotaConfigs());
+                            sourceFeature.getAddOnCurrencyCode(),
+                            sourceFeature.getQuotaConfigs(),
+                            sourcePlan.getCurrencyCode());
                     PlanFeature copy = new PlanFeature();
                     copy.setPlan(targetPlan);
                     copy.setFeature(sourceFeature.getFeature());
-                    copy.setAddOnPrice(sourceFeature.getAddOnPrice());
+                    copy.setAddOnMoney(sourceFeature.addOnMoney());
                     copy.setQuotaConfigs(sourceFeature.getQuotaConfigs() != null
                             ? new ArrayList<>(sourceFeature.getQuotaConfigs())
                             : new ArrayList<>());
@@ -255,6 +281,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (!inheritedFeatures.isEmpty()) {
             planFeatureRepository.saveAll(inheritedFeatures);
         }
+    }
+
+    private boolean hasPrice(PlanFeature planFeature) {
+        return planFeature.getAddOnPrice() != null
+                || (planFeature.getQuotaConfigs() != null
+                && planFeature.getQuotaConfigs().stream().anyMatch(quota -> quota.pricePerUnit() != null));
     }
 
     private java.util.Optional<Plan> resolveInheritanceSource(UUID requestedSourcePlanId) {
@@ -270,16 +302,31 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
     }
 
-    private void validatePlanBasics(String code, String name, BigDecimal price, BillingCycle billingCycle) {
+    private Money validatePlanBasics(
+            String code,
+            String name,
+            BigDecimal price,
+            String currencyCode,
+            BillingCycle billingCycle) {
         if (name == null || name.isBlank()) {
             throw new InvalidRequestException("Plan name is required.");
         }
-        if (price != null && price.signum() < 0) {
+        Money money;
+        try {
+            money = Money.of(price, currencyCode);
+        } catch (IllegalArgumentException exception) {
+            throw new InvalidRequestException("Plan price is invalid: " + exception.getMessage());
+        }
+        if (money.isNegative()) {
             throw new InvalidRequestException("Plan price cannot be negative.");
+        }
+        if (billingCycle == null) {
+            throw new InvalidRequestException("Plan billing cycle is required.");
         }
         if (billingCycle == BillingCycle.FOREVER && !"FREE".equals(code)) {
             throw new InvalidRequestException("BillingCycle.FOREVER is reserved for the FREE plan.");
         }
+        return money;
     }
 
     private List<SubscriptionStatus> usableStatuses() {

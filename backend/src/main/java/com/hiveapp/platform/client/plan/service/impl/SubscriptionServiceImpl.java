@@ -31,6 +31,7 @@ import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureSe
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
+import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.quota.QuotaOverride;
 import dev.karroumi.permissionizer.PermissionNode;
@@ -104,6 +105,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         current.getPlan().getCode(),
                         current.getStatus(),
                         current.getCurrentPrice(),
+                        current.getCurrentPriceCurrencyCode(),
                         current.getCurrentPeriodEnd(),
                         currentOverrides.addedFeatures(),
                         currentOverrides.quotaOverrides()),
@@ -116,17 +118,19 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     public SubscriptionChangePreviewResponse previewChange(UUID accountId, SubscriptionChangeRequest request) {
         Subscription current = getSubscription(accountId);
         Plan targetPlan = requireActivePlan(request.targetPlanCode());
+        requireSameSubscriptionCurrency(current, targetPlan);
         ChangeSelection selection = validateSelection(targetPlan, request);
         SubscriptionEntitlementSnapshot targetSnapshot = subscriptionSnapshotFactory.fromPlan(
                 targetPlan, selection.addOnFeatureCodes());
         List<SubscriptionChangeConflict> conflicts = findConflicts(accountId, current, targetSnapshot, selection);
-        BigDecimal previewPrice = previewPrice(current, targetPlan, targetSnapshot, selection);
+        Money previewPrice = previewPrice(current, targetPlan, targetSnapshot, selection);
 
         return new SubscriptionChangePreviewResponse(
                 current.getPlan().getCode(),
                 targetPlan.getCode(),
                 current.getCurrentPrice(),
-                previewPrice,
+                previewPrice.amount(),
+                previewPrice.currencyCode(),
                 conflicts.isEmpty(),
                 targetSnapshot.features().stream()
                         .map(feature -> feature.featureCode())
@@ -170,7 +174,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         replacement.setCustomOverrides(subscriptionOverrideReader.write(
                 new SubscriptionOverrides(selection.addOnFeatureCodes(), selection.quotaOverrides())));
         replacement.setEntitlementSnapshot(subscriptionSnapshotReader.write(targetSnapshot));
-        replacement.setCurrentPrice(billingCalculator.calculate(replacement));
+        replacement.setCurrentMoney(billingCalculator.calculateMoney(replacement));
         Subscription saved = subscriptionRepository.saveAndFlush(replacement);
 
         return new SubscriptionChangeApplyResponse(toDto(saved), preview);
@@ -206,7 +210,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         sub.setStatus(SubscriptionStatus.ACTIVE);
         sub.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
         sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(subscriptionSnapshotFactory.fromPlan(plan)));
-        sub.setCurrentPrice(billingCalculator.calculate(sub));
+        sub.setCurrentMoney(billingCalculator.calculateMoney(sub));
         return subscriptionRepository.saveAndFlush(sub);
     }
 
@@ -223,7 +227,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 quotaOverrides != null ? quotaOverrides : List.of()
         );
         sub.setCustomOverrides(subscriptionOverrideReader.write(overrides));
-        sub.setCurrentPrice(billingCalculator.calculate(sub));
+        sub.setCurrentMoney(billingCalculator.calculateMoney(sub));
         return subscriptionRepository.save(sub);
     }
 
@@ -243,6 +247,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 plan.getName(),
                 plan.getDescription(),
                 plan.getPrice(),
+                plan.getCurrencyCode(),
                 plan.getBillingCycle(),
                 current.getPlan().getCode().equals(plan.getCode()),
                 features);
@@ -267,6 +272,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                             value,
                             value == null,
                             pricePerUnit,
+                            limit != null ? limit.priceCurrencyCode() : null,
                             usage.getOrDefault(definition.code() + ":" + slot.resource(), 0L));
                 })
                 .toList();
@@ -277,6 +283,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 planFeature.getAddOnPrice() == null,
                 planFeature.getAddOnPrice() != null,
                 planFeature.getAddOnPrice(),
+                planFeature.getAddOnCurrencyCode(),
                 quotas);
     }
 
@@ -377,7 +384,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return conflicts;
     }
 
-    private BigDecimal previewPrice(
+    private Money previewPrice(
             Subscription current,
             Plan targetPlan,
             SubscriptionEntitlementSnapshot targetSnapshot,
@@ -390,7 +397,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         preview.setEntitlementSnapshot(subscriptionSnapshotReader.write(targetSnapshot));
         preview.setCustomOverrides(subscriptionOverrideReader.write(
                 new SubscriptionOverrides(selection.addOnFeatureCodes(), selection.quotaOverrides())));
-        return billingCalculator.calculate(preview);
+        return billingCalculator.calculateMoney(preview);
     }
 
     private boolean isNoOp(Subscription current, SubscriptionChangePreviewResponse preview, ChangeSelection selection) {
@@ -415,7 +422,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 QuotaOverride override = overridesByKey.get(feature.featureCode() + ":" + base.resource());
                 limits.add(override == null
                         ? base
-                        : new QuotaLimitEntry(base.resource(), override.limit(), base.pricePerUnit()));
+                        : new QuotaLimitEntry(
+                                base.resource(), override.limit(), base.pricePerUnit(), base.priceCurrencyCode()));
             }
         }
         return limits;
@@ -452,6 +460,17 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return plan;
     }
 
+    private void requireSameSubscriptionCurrency(Subscription current, Plan targetPlan) {
+        String currentCurrency = current.getCurrentPriceCurrencyCode() != null
+                ? current.getCurrentPriceCurrencyCode()
+                : current.getPlan().getCurrencyCode();
+        if (!currentCurrency.equals(targetPlan.getCurrencyCode())) {
+            throw new InvalidRequestException(
+                    "Subscription changes cannot convert " + currentCurrency + " to "
+                            + targetPlan.getCurrencyCode() + ". Choose a plan in the current currency.");
+        }
+    }
+
     private Map<String, Long> usageByQuotaSlot(UUID accountId, Map<String, FeatureDefinition> definitions) {
         return definitions.values().stream()
                 .flatMap(definition -> definition.quotaSlots().stream()
@@ -481,9 +500,11 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 new SubscriptionDto.PlanSummaryDto(
                         subscription.getPlan().getCode(),
                         subscription.getPlan().getName(),
-                        subscription.getPlan().getPrice()),
+                        subscription.getPlan().getPrice(),
+                        subscription.getPlan().getCurrencyCode()),
                 subscription.getStatus(),
                 subscription.getCurrentPrice(),
+                subscription.getCurrentPriceCurrencyCode(),
                 subscription.getCurrentPeriodEnd());
     }
 

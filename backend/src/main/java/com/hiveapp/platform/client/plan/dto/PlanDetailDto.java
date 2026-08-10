@@ -12,6 +12,7 @@ public record PlanDetailDto(
         String name,
         String description,
         BigDecimal price,
+        String currencyCode,
         BillingCycle billingCycle,
         boolean isActive,
         int featureCount,
@@ -21,5 +22,6 @@ public record PlanDetailDto(
         long currentSubscriberCount,
         long historicalSubscriberCount,
         BigDecimal currentRecurringPrice,
+        String currentRecurringPriceCurrencyCode,
         List<String> warnings
 ) {}

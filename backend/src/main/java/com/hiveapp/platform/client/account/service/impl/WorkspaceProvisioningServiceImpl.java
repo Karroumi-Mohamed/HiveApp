@@ -109,7 +109,7 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
         sub.setStatus(SubscriptionStatus.ACTIVE);
         sub.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
         sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(subscriptionSnapshotFactory.fromPlan(freePlan)));
-        sub.setCurrentPrice(freePlan.getPrice());
+        sub.setCurrentMoney(freePlan.money());
         subscriptionRepository.saveAndFlush(sub);
         log.info("FREE subscription provisioned for account={}", account.getId());
     }

@@ -20,6 +20,7 @@ public record ClientPlanCatalogResponse(
             String planCode,
             SubscriptionStatus status,
             BigDecimal currentPrice,
+            String currentPriceCurrencyCode,
             LocalDateTime currentPeriodEnd,
             Set<String> addOnFeatureCodes,
             List<QuotaOverride> quotaOverrides
@@ -30,6 +31,7 @@ public record ClientPlanCatalogResponse(
             String name,
             String description,
             BigDecimal basePrice,
+            String currencyCode,
             BillingCycle billingCycle,
             boolean current,
             List<CatalogFeature> features
@@ -42,6 +44,7 @@ public record ClientPlanCatalogResponse(
             boolean included,
             boolean addOnAvailable,
             BigDecimal addOnPrice,
+            String addOnCurrencyCode,
             List<CatalogQuota> quotas
     ) {}
 
@@ -52,6 +55,7 @@ public record ClientPlanCatalogResponse(
             Long limit,
             boolean unlimited,
             BigDecimal pricePerUnit,
+            String priceCurrencyCode,
             Long currentUsage
     ) {}
 }

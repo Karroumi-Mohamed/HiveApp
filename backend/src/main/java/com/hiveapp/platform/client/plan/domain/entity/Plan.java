@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.domain.entity;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.shared.domain.BaseEntity;
+import com.hiveapp.shared.money.Money;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -19,7 +20,11 @@ public class Plan extends BaseEntity {
     private String name;
 
     private String description;
+    @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal price;
+
+    @Column(name = "currency_code", nullable = false, length = 3)
+    private String currencyCode;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "billing_cycle")
@@ -27,4 +32,19 @@ public class Plan extends BaseEntity {
 
     @Column(name = "is_active")
     private boolean isActive = true;
+
+    public Money money() {
+        return Money.of(price, currencyCode);
+    }
+
+    public void setMoney(Money money) {
+        this.price = money.amount();
+        this.currencyCode = money.currencyCode();
+    }
+
+    @PrePersist
+    @PreUpdate
+    void normalizeMoney() {
+        setMoney(Money.of(price, currencyCode));
+    }
 }
