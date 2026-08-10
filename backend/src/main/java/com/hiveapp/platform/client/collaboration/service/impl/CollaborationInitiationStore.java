@@ -9,6 +9,7 @@ import com.hiveapp.platform.client.collaboration.domain.entity.Collaboration;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationRepository;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
+import com.hiveapp.shared.audit.AuditedMutation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -31,6 +32,9 @@ class CollaborationInitiationStore {
     private final CompanyRepository companyRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @AuditedMutation(
+            action = "platform.client.b2b.request.created",
+            resourceType = "COLLABORATION")
     UUID create(
             UUID clientAccountId,
             UUID providerAccountId,

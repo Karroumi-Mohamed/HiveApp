@@ -41,6 +41,7 @@ PublicFeatureCatalogIntegrationTest
 QuotaEnforcementIntegrationTest
 SubscriptionIntegrityIntegrationTest
 ClientSubscriptionSelfServiceIntegrationTest
+AuditMutationIntegrationTest
 ```
 
 Those tests prove the new direction is working, but they are not enough to close the platform shell. They cover unit-level invariants, critical service/policy boundaries, request-level token/surface separation, the first client resource isolation cases, member override/lifecycle boundaries, and the first complete B2B lifecycle abuse path. The remaining work is broader request-level and abuse-case coverage.
@@ -421,3 +422,21 @@ subscription state controls entitlement consistently
 feature and quota registry state is code-owned and startup-validated
 Permissionizer receives context through the Spring context supplier path and enforces guarded platform actions
 ```
+
+## 17. Transactional Audit
+
+`AuditMutationIntegrationTest` proves the shared audit boundary rather than only checking that a row can be inserted:
+
+```text
+successful audit records commit and roll back atomically with the protected mutation
+failed mutation attempts survive the rejected business transaction
+the actual Spring advisor chain is transaction, audit, Permissionizer, then method
+active actor, Account, Company, collaboration, action, resource, and request context are captured
+password/secret input is redacted and failure messages are excluded
+persisted audit rows reject application update/delete operations
+real authenticated Company creation records the resolved client actor and created resource
+real rejected Company mutation records the attempted target and failure type
+read-only failures are deliberately outside the mutation-audit boundary
+```
+
+Focused B2B and subscription suites verify that nested and `REQUIRES_NEW` transaction paths still behave correctly with auditing enabled. The complete backend suite currently passes 415 tests with zero failures, errors, or skips.

@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.collaboration.domain.entity.Collaboration;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationRepository;
 import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import com.hiveapp.platform.registry.definition.B2bFeature;
+import com.hiveapp.shared.audit.AuditedMutation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +25,9 @@ public class CollaborationAutomaticResumeService {
     private final Clock clock;
 
     @Transactional
+    @AuditedMutation(
+            action = "platform.client.b2b.automatic_resume",
+            resourceType = "COLLABORATION_BATCH")
     public int resumeDueCollaborations() {
         Instant now = clock.instant();
         int resumed = 0;

@@ -600,7 +600,7 @@ In this flow the **provider Account** owns the Company being shared; the **exter
 
 ## B2B-FLOW-002 — Collaboration lifecycle
 
-**Status:** `CORE LIFECYCLE IMPLEMENTED — AUDIT/COMMUNICATIONS IN BATCH 5.4`
+**Status:** `CORE LIFECYCLE AND AUDIT IMPLEMENTED — COMMUNICATIONS OPEN`
 
 Possible states need precise transitions and effects:
 
@@ -1323,6 +1323,7 @@ Record accepted decisions here with date, reason, and affected source areas.
 | 2026-08-10 | Return `201 Created` whenever collaboration initiation creates a row and `200 OK` only when it returns an identical existing row | Callers must be able to distinguish creation from idempotent retrieval consistently, including the concurrent uniqueness race | Collaboration initiation API, controller outcome mapping, client retry handling and concurrency tests |
 | 2026-07-15 | Require both provider delegation and external-member authorization for every B2B action | An Account-level grant must not give every external employee the ability to use it | Permissionizer B2B policies, provider delegation ceiling, external operator roles, runtime revalidation |
 | 2026-08-10 | Reuse the external Account's existing Account-scoped role/exception resolver as the immediate B2B operator ceiling, with Collaboration-scoped assignment left as an explicit refinement | The immediate ceiling closes account-wide delegation to every employee and preserves owner, active-role, expiry, and deny precedence; a Collaboration effect scope is still needed to nominate external operators without widening their internal Company authority | B2B runtime policy, Account roles and direct exceptions, future Collaboration-scoped assignments, operator settings UX and tests |
+| 2026-08-10 | Order audited mutation advice as transaction → audit → Permissionizer → method | Success history must share the mutation transaction while denied and failed mutations remain catchable by the audit layer; making transaction advice outermost also places Permissionizer policy database reads inside the caller transaction | Spring transaction configuration, audit aspect, Permissionizer advisor interaction, policy reads and advisor-order integration tests |
 | 2026-07-15 | Offer both now and at-renewal timing for client upgrades and downgrades | Timing is an operator/customer choice; actual feature/quota impact, not the plan label or price direction, determines required safeguards | Client plan-change preview, pending renewal operations, conflict handling, Account locking, history/audit |
 | 2026-07-15 | Defer permission-code rename/removal migration machinery and treat annotation codes as stable | Permission codes have no expected normal reason to change after a function is guarded; adding aliases/replacement flags to Permissionizer is premature | Registry retirement flow, Permissionizer scope, future developer migrations |
 | 2026-07-15 | Separate public visibility, new-sale availability, new-grant availability, and emergency runtime shutdown | Hiding or discontinuing a feature must not accidentally change current customer access, while operators still need a deliberate emergency stop | Feature registry lifecycle, catalogs, plan validation, grant validation, runtime authorization, communications/audit |

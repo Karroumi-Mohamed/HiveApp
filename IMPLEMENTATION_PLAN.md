@@ -1458,6 +1458,8 @@ flowchart TD
 - **Tests**: Audit logging integration tests.
 - **Future UI Flow**: Compliance audit reports.
 
+**Execution status — 2026-08-10:** Verification confirmed there was no business audit foundation. The backend now persists append-only actor/scope/action/resource/outcome records for Permissionizer-protected mutations, explicit identity credential transitions, B2B row creation and automatic resume, subscription activation/lifecycle processing, and failed attempts. The tested advisor order is transaction → audit → Permissionizer → method, which keeps policy reads inside the caller transaction; successful records share that transaction, while rejected attempts use an isolated transaction so rollback does not erase them. Sensitive credentials/tokens/share codes/hashes and exception messages are never persisted. This is deliberately a mutation audit: read-only methods, including denied reads, are excluded pending the product/security-forensics decision in `AUDIT-002`. Generated schemas were updated directly with no Flyway history at the current unpublished stage. Focused B2B/billing coverage and the complete 415-test suite pass with zero failures, errors, or skips. An authorized compliance-query API/read model remains future UI delivery, not an unguarded repository endpoint.
+
 ---
 
 ### Batch 5.5: Unified Monolith Time Handling
@@ -1684,6 +1686,7 @@ flowchart TD
   - **Order Rationale**: Deferred by product decision. Treat deployed codes as stable developer contracts and revisit only when actual rename requirements appear.
 - All advanced target-aware management rules (deferred per `MANAGEMENT-FLOW-001` and `AUTHZ-006` agreements).
 - Emergency runtime catalog shutdowns and new-sale suspensions (`REGISTRY-FLOW-002` / `REGISTRY-004` aspects).
+- Read-access and denied-read security auditing (`AUDIT-002`) pending an explicit product/security-forensics scope, retention, privacy, and volume decision.
 
 ---
 
@@ -1762,7 +1765,8 @@ flowchart TD
 | **TIME-001** | Unified Timestamps | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.5 | None | Instants type |
 | **MODULES-001** | Modular Interfaces | PARTIAL | DESIGN FIRST | Phase 6 | Batch 6.4 | None | Boundary check |
 | **MODULES-002** | Company domain owner | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.4 | MODULES-001 | Package check |
-| **AUDIT-001** | Audit logs | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.4 | None | Audit logs validation |
+| **AUDIT-001** | Audit logs | IMPLEMENTED | VERIFY FIRST | Phase 5 | Batch 5.4 | None | Append-only actor-aware mutation and failed-attempt records |
+| **AUDIT-002** | Read-access security audit | PRODUCT SCOPE OPEN | DECIDE FIRST | Future | Unscheduled | AUDIT-001 | Decide sensitive/denied read coverage, retention, privacy and volume |
 | **DTO-001** | Request validation | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | None | MethodArgumentNotValid |
 | **DTO-002** | Align response | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-001 | Mapped properties |
 | **AUTHZ-DTO-001**| Contextual DTO | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Scope context |

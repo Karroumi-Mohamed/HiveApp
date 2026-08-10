@@ -11,6 +11,7 @@ import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.shared.audit.AuditedMutation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +36,9 @@ public class SubscriptionChangeActivationService {
     private final BillingCalculator billingCalculator;
 
     @Transactional
+    @AuditedMutation(
+            action = "platform.client.subscription.change.activate",
+            resourceType = "SUBSCRIPTION_CHANGE_OPERATION")
     public SubscriptionChangeOperation activate(SubscriptionChangeOperation operation, Instant startsAt) {
         UUID accountId = operation.getAccount().getId();
         if (accountRepository.findByIdForSubscriptionUpdate(accountId).isEmpty()) {

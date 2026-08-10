@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.entity.SubscriptionPeriod;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionPeriodRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.shared.audit.AuditedMutation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +53,9 @@ public class SubscriptionLifecycleManager {
     }
 
     @Transactional
+    @AuditedMutation(
+            action = "platform.client.subscription.lifecycle.process_due",
+            resourceType = "SUBSCRIPTION_BATCH")
     public void processDueSubscriptions() {
         Instant now = clock.instant();
         List<Subscription> due = subscriptionRepository.findDueUsableForUpdate(

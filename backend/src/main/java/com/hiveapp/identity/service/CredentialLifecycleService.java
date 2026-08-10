@@ -10,6 +10,9 @@ import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.UnauthorizedException;
+import com.hiveapp.shared.audit.AuditTrail;
+import com.hiveapp.shared.audit.AuditedMutation;
+import com.hiveapp.shared.audit.domain.AuditActorSurface;
 import com.hiveapp.shared.security.TokenAudience;
 import com.hiveapp.shared.security.TokenSessionService;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -32,27 +36,46 @@ public class CredentialLifecycleService {
     private final MemberCredentialService memberCredentialService;
     private final PasswordEncoder passwordEncoder;
     private final TokenSessionService tokenSessionService;
+    private final AuditTrail auditTrail;
 
     @Transactional
+    @AuditedMutation(
+            action = "identity.credentials.activation.complete",
+            resourceType = "USER",
+            recordSuccess = false)
     public AuthResponse completeActivation(String token, String newPassword) {
         User user = tokenUser(token, CredentialTokenPurpose.ACTIVATION);
+        CredentialState before = user.getCredentialState();
         if (user.getCredentialState() != CredentialState.EMAIL_ACTIVATION_PENDING) {
             throw new InvalidStateException(INVALID_LINK);
         }
-        requireActiveMembership(user);
+        Account account = requireActiveMembership(user);
         activatePassword(user, newPassword);
+        auditCredentialChange(
+                "identity.credentials.activation.complete", user, account, before, user.getId());
         return issueTokens(user);
     }
 
     @Transactional
+    @AuditedMutation(
+            action = "identity.credentials.password_reset.complete",
+            resourceType = "USER",
+            recordSuccess = false)
     public AuthResponse completePasswordReset(String token, String newPassword) {
         User user = tokenUser(token, CredentialTokenPurpose.PASSWORD_RESET);
-        requireActiveMembership(user);
+        CredentialState before = user.getCredentialState();
+        Account account = requireActiveMembership(user);
         activatePassword(user, newPassword);
+        auditCredentialChange(
+                "identity.credentials.password_reset.complete", user, account, before, user.getId());
         return issueTokens(user);
     }
 
     @Transactional
+    @AuditedMutation(
+            action = "identity.credentials.initial_password.complete",
+            resourceType = "USER",
+            recordSuccess = false)
     public AuthResponse changeInitialPassword(String initialAccessToken, String newPassword) {
         var userId = tokenSessionService.consumeInitialAccess(initialAccessToken);
         User user = userRepository.findByIdForCredentialUpdate(userId)
@@ -61,8 +84,11 @@ public class CredentialLifecycleService {
                 || !user.isPasswordChangeRequired()) {
             throw new UnauthorizedException("Initial-access session is invalid");
         }
-        requireActiveMembership(user);
+        CredentialState before = user.getCredentialState();
+        Account account = requireActiveMembership(user);
         activatePassword(user, newPassword);
+        auditCredentialChange(
+                "identity.credentials.initial_password.complete", user, account, before, user.getId());
         return issueTokens(user);
     }
 
@@ -71,6 +97,10 @@ public class CredentialLifecycleService {
     }
 
     @Transactional
+    @AuditedMutation(
+            action = "identity.credentials.password_reset.request",
+            resourceType = "USER",
+            recordSuccess = false)
     public void requestPasswordReset(String email) {
         User user = userRepository.findByEmail(EmailIdentity.canonicalize(email)).orElse(null);
         if (user == null || !user.isActive() || !user.isEmailVerified()) {
@@ -80,8 +110,21 @@ public class CredentialLifecycleService {
         if (member == null || !member.getAccount().isActive()) {
             return;
         }
+        CredentialState before = user.getCredentialState();
         memberCredentialService.requestSelfServiceReset(user, member.getAccount());
         userRepository.saveAndFlush(user);
+        auditTrail.recordSuccess(
+                "identity.credentials.password_reset.request",
+                "USER",
+                user.getId(),
+                AuditActorSurface.SYSTEM,
+                null,
+                member.getAccount().getId(),
+                Map.of("credentialState", before),
+                Map.of(
+                        "credentialState", user.getCredentialState(),
+                        "credentialTokenPurpose", user.getCredentialTokenPurpose(),
+                        "credentialTokenExpiresAt", user.getCredentialTokenExpiresAt()));
     }
 
     private User tokenUser(String rawToken, CredentialTokenPurpose purpose) {
@@ -115,6 +158,27 @@ public class CredentialLifecycleService {
         memberCredentialService.clearToken(user);
         userRepository.saveAndFlush(user);
         tokenSessionService.revokeAll(List.of(user.getId()), TokenAudience.CLIENT);
+    }
+
+    private void auditCredentialChange(
+            String action,
+            User user,
+            Account account,
+            CredentialState before,
+            java.util.UUID actorUserId
+    ) {
+        auditTrail.recordSuccess(
+                action,
+                "USER",
+                user.getId(),
+                AuditActorSurface.CLIENT_WORKSPACE,
+                actorUserId,
+                account.getId(),
+                Map.of("credentialState", before),
+                Map.of(
+                        "credentialState", user.getCredentialState(),
+                        "passwordChangeRequired", user.isPasswordChangeRequired(),
+                        "emailVerified", user.isEmailVerified()));
     }
 
     private AuthResponse issueTokens(User user) {

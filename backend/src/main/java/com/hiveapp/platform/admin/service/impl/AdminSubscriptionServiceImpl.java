@@ -13,6 +13,7 @@ import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureSe
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Set;
@@ -38,18 +39,21 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     }
 
     @Override
+    @Transactional
     @PermissionNode(key = "create", description = "Manually assign a plan to account")
     public Subscription createSubscription(UUID accountId, String planCode) {
         return subscriptionService.createSubscription(accountId, planCode);
     }
 
     @Override
+    @Transactional
     @PermissionNode(key = "create_trial", description = "Start a trial subscription for an account")
     public Subscription createTrial(UUID accountId, String planCode, int trialDays) {
         return subscriptionService.createTrial(accountId, planCode, trialDays);
     }
 
     @Override
+    @Transactional
     @PermissionNode(key = "update_overrides", description = "Apply AddOn and quota package selections to subscription")
     public Subscription updateOverrides(
             UUID accountId,
@@ -66,6 +70,7 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     }
 
     @Override
+    @Transactional
     @PermissionNode(key = "confirm_checkout", description = "Confirm a subscription checkout manually")
     public SubscriptionCheckoutDto confirmCheckoutManually(
             UUID checkoutId,

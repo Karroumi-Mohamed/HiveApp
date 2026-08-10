@@ -152,7 +152,7 @@ The backend capability and API namespace remain `platform.registry`, but admin n
 | View client business data (companies, members, roles) | Strict isolation — admin namespace cannot touch client ERP data |
 | Invite admin users by email | Not implemented. Admin creation requires an existing User ID (`POST /api/admin/users` takes `userId`) |
 | Password reset for admins | Not implemented |
-| Audit log | Not implemented |
+| Audit log | Append-only persistence is implemented; an authorized admin query/report endpoint and UI are not yet implemented |
 
 ---
 

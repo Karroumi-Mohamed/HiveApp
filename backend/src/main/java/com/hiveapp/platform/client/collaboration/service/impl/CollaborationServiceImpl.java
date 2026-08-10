@@ -94,7 +94,7 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     @PermissionNode(key = "request", description = "Request collaboration using a provider share code")
     public CollaborationInitiationResult initiateCollaboration(
             UUID clientAccountId, InitiateCollaborationRequest request) {

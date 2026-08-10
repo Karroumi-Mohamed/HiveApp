@@ -1216,7 +1216,7 @@ After reviewing services and repositories, decide whether Company belongs to the
 
 ### AUDIT-001 — Security and billing changes lack a reviewed actor-aware audit model
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 **Evidence**
 
@@ -1227,9 +1227,42 @@ After reviewing services and repositories, decide whether Company belongs to the
 
 The company may be unable to explain who changed customer access, subscription pricing, or delegated permissions. This also makes destructive admin operations difficult to investigate.
 
-**Verify later**
+**Implementation evidence — 2026-08-10**
 
-Search events, audit infrastructure, service logging, and database history before concluding that no audit mechanism exists.
+- Verification confirmed that the existing JPA auditing recorded only timestamps; there was no actor-aware business audit entity, service, event store, or equivalent history mechanism.
+- `AuditLog` is a shared append-only record with event time, actor surface/user, client and target Account, Company, collaboration, Permissionizer action, resource identity, request path/method, redacted request/result summaries, outcome, and safe failure type. Application-level update/delete callbacks reject mutation of persisted entries.
+- Every non-read-only mutation carrying both `@Transactional` and `@PermissionNode` is audited centrally. Transaction advice deliberately wraps audit and Permissionizer advice: a successful audit participates in the business transaction and therefore rolls back with it, while a rejected/failed attempt is persisted in `REQUIRES_NEW` after redacting sensitive input and then rethrows the original failure. The pinned advisor chain is transaction → audit → Permissionizer → method, so Permissionizer policy reads execute inside the caller transaction.
+- Internal scheduled/nested operations that do not have a user-facing Permissionizer action use the explicit `@AuditedMutation` marker. B2B creation remains isolated in its existing `REQUIRES_NEW` store and records the row-creation event in that same transaction; the outer request separately records its 201/200 outcome.
+- Registration, login, activation, initial-password completion, and password-reset lifecycle use explicit actor/subject records after the identity is safely known. Passwords, access/refresh tokens, activation/reset material, share codes, credential hashes, authorization headers, and cookies are always redacted; exception messages are not persisted.
+- Platform subscription commands now establish their transaction at the Permissionizer-protected admin boundary, so manual plan assignment, trial creation, override changes, and manual checkout confirmation receive one actor-aware atomic record even though their underlying services are reused.
+- The generated development/test schema now includes `audit_log` directly. Per the current unpublished in-memory-database decision, no Flyway history was introduced; a versioned baseline remains production-readiness work.
+- `AuditMutationIntegrationTest` proves the advisor order, success atomicity, failed-attempt survival, append-only behavior, redaction, real authenticated Company mutation capture, rejected request capture, and the read-only exclusion. The B2B/billing focused suites and the complete 415-test backend suite pass with zero failures, errors, or skips.
+- The deliberate current boundary is mutation auditing, not general security-access auditing. `@Transactional(readOnly = true)` methods bypass the audit aspect, so successful and denied reads are not recorded. `AUDIT-002` owns the product/security decision about adding that separate, potentially high-volume capability.
+- An authorized audit query/report API and UI are still future compliance-surface work; this issue's mutation-recording and actor-mapping gap is closed without exposing audit rows through an unsafe generic repository endpoint.
+
+---
+
+### AUDIT-002 — Read access and denied reads are outside the mutation audit boundary
+
+**Status:** `OPEN — PRODUCT SECURITY SCOPE DECISION REQUIRED`
+
+**Evidence**
+
+- `AuditMutationAspect` deliberately returns without recording when the matched transaction is read-only.
+- Successful reads and denied read attempts therefore produce no `AuditLog` row. The implemented `AUDIT-001` facility is a mutation audit trail, not a complete security-access trail.
+
+**Risk**
+
+If future security forensics, privacy controls, or compliance obligations require data-access history, the platform cannot currently explain who attempted or completed a sensitive read. Auditing every read indiscriminately would instead create substantial storage, performance, retention, and privacy costs.
+
+**Decision required before implementation**
+
+- Decide whether read-access security forensics is in product scope.
+- Define the sensitive resources and surfaces to cover, and whether to record successful reads, denied reads, or both.
+- Define event detail, privacy/redaction, retention, volume limits or sampling, and access controls for reviewing the trail.
+- Define failure-transaction behavior and abuse/rate-limit handling for repeated denied reads.
+
+Do not turn all read-only methods into audit events by default. If approved, build this as an explicit bounded extension of the shared audit model rather than weakening or overloading the mutation boundary.
 
 ---
 
@@ -2432,7 +2465,7 @@ Return complete list/detail/current-grant read models from API-facing applicatio
 
 ### COLLAB-008 — B2B discovery and lifecycle APIs cannot implement the decided management flow
 
-**Status:** `PARTIALLY RESOLVED — 2026-08-10`
+**Status:** `PARTIALLY RESOLVED — 2026-08-10` (`AUDIT IMPLEMENTED; REUSABLE COMMUNICATIONS OPEN`)
 
 **Evidence**
 
@@ -2467,7 +2500,7 @@ The replacement UI would still require users to exchange database UUIDs, cannot 
 - Initiate, accept, suspend/resume, grant/revoke-permission, catalog, and share-code operations recheck applicable active Account/Company state. Runtime context already rejects inactive Accounts/Companies and requires the exact active relationship.
 - Provider grant writes enforce code-declared B2B eligibility, current provider entitlement, and the acting provider member's delegation ceiling. External-member operator scoping remains explicitly assigned to AUTHZ-002 in Batch 5.3.
 - API-facing collaboration services now exchange DTOs only; the MapStruct persistence-entity mapper was removed.
-- Audit events and reusable notifications remain open under Batch 5.4/AUDIT-001 and are the only unfinished part of COLLAB-008. The clean full backend suite passes 402 tests with zero failures, errors, or skips.
+- Every protected collaboration command now receives the central actor/scope/action/resource/outcome audit record from `AUDIT-001`; row creation is additionally atomic with its isolated insert transaction, and automatic resume is recorded as a system batch action. Reusable in-app/customer communication events remain the only unfinished part of COLLAB-008. The clean full backend suite passes 415 tests with zero failures, errors, or skips.
 
 ---
 
