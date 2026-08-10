@@ -468,11 +468,17 @@ Policies, UI filters, API contracts, tests, and documentation may handle termina
 
 Inspect plan policies, subscription services, migrations, tests, and frontend status handling. Either introduce a precisely defined expiration state or remove the stale terminology everywhere.
 
+**Implementation evidence — 2026-08-10**
+
+- `SubscriptionStatus` now has the canonical `TRIALING`, `ACTIVE`, `PAST_DUE`, `SUSPENDED`, `CANCELLED`, and `EXPIRED` vocabulary.
+- `EXPIRED` is used for a trial that reaches its deadline; `CANCELLED` remains an explicit/replacement end, and paid expiry enters `PAST_DUE` until Batch 4.6 supplies a real payment outcome.
+- Usable-subscription queries consistently mean `ACTIVE` or `TRIALING`; terminal/non-entitling states cannot occupy the Account's usable-subscription slot.
+
 ---
 
 ### SUBSCRIPTION-002 — Entitlement and override JSON is stored as untyped strings
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -493,6 +499,13 @@ String-based JSON weakens compile-time guarantees, makes schema evolution and va
 **Possible fix direction**
 
 Use one versioned typed snapshot model and one shared parser/validator. Consider normalized tables only if querying, auditing, or migrations make JSON unsuitable.
+
+**Implementation evidence — 2026-08-10**
+
+- `Subscription.customOverrides` and `Subscription.entitlementSnapshot` are typed Hibernate JSON attributes rather than application-level strings.
+- Both records carry an explicit schema version, normalize missing version `0` to the current version for the unpublished schema, and reject unsupported versions.
+- Billing, entitlement, quota, catalog, B2B, and provisioning consumers now share the typed boundary. Reader tests cover null, structured, malformed, round-trip, and unsupported-version inputs.
+- No Flyway migration or legacy backfill was added because HiveApp is unpublished and uses a disposable in-memory database; the generated schema is updated directly as agreed.
 
 ---
 
@@ -642,7 +655,7 @@ Client self-service may select only versioned predefined quota packages explicit
 
 ### SUBSCRIPTION-003 — Subscription periods and lifecycle transitions are not implemented
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — PERIOD FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -660,11 +673,18 @@ The current model looks commercially complete but behaves as permanent manual en
 
 Define the lifecycle state machine and actor/event for every transition. Store unambiguous period instants, preserve history, and test runtime authorization at renewal, expiry, past-due, cancellation, and restoration boundaries.
 
+**Implementation evidence — 2026-08-10**
+
+- Every new subscription now receives UTC `Instant` period bounds derived from its billing cycle, and every period stores its immutable entitlement snapshot separately from the mutable current pointer.
+- A scheduled lifecycle worker expires due trials, completes and renews zero-priced periods, places paid periods in `PAST_DUE` without pretending payment succeeded, and closes replacement/cancel-at-period-end history.
+- Immediate and at-renewal plan changes are explicit operations. Renewal changes stay pending and cancellable, revalidate commercial availability and usage at execution, and enter `NEEDS_ATTENTION` instead of silently applying when conditions changed.
+- Tests cover trial expiry, free renewal/history, paid payment-due behavior, immediate replacement, pending renewal creation, and cancellation. Suspension/restoration, payment recovery, customer cancellation commands, grace policy, and communications remain later operator/billing flows rather than being claimed here.
+
 ---
 
 ### SUBSCRIPTION-004 — Trial subscriptions are authorized but invisible to client subscription flows
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -678,11 +698,17 @@ A trial account can use entitled APIs yet receive "subscription not found" when 
 
 Create one authoritative "usable subscription" query/state rule and apply it consistently across authorization, quota, admin, and client flows. Define what trial users may change and how conversion works.
 
+**Implementation evidence — 2026-08-10**
+
+- Repository and service reads use the shared `ACTIVE`-then-`TRIALING` usable-subscription rule.
+- Admins can create a bounded trial for an Account, replacing any prior usable subscription under the Account lock.
+- Client subscription/catalog DTOs expose the trial status and UTC start/end bounds; integration coverage proves the Account can read the admin-created trial.
+
 ---
 
 ### SUBSCRIPTION-005 — Admin overrides can grant out-of-plan features with no defined price
 
-**Status:** `DECISION`
+**Status:** `RESOLVED BY CONTRACT CHANGE — 2026-08-10`
 
 **Evidence**
 
@@ -696,11 +722,18 @@ An administrator can grant arbitrary sellable features for free with no reason, 
 
 Either restrict overrides to add-ons configured on the subscription's plan, or model negotiated exceptions explicitly with price, currency, reason, approver, effective dates, and audit history. Never infer zero price from missing configuration.
 
+**Implementation evidence — 2026-08-10**
+
+- Verification found the old arbitrary-feature override path had already been removed by the AddOn/quota-package work.
+- Both client and admin selection contracts now accept only configured AddOn identities and quota-package identities/quantities; they cannot name a raw feature or arbitrary quota.
+- Selected items must be active, Plan-compatible, currency/cycle-compatible, and priced. Their exact item prices are captured in the target snapshot and recurring calculation.
+- Negotiated operator exceptions are intentionally not inferred from this selection model and require a separate future contract if the product chooses to support them.
+
 ---
 
 ### SUBSCRIPTION-006 — Legacy subscriptions without snapshots receive optional add-ons automatically
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — FAIL-CLOSED SNAPSHOTS 2026-08-10`
 
 **Evidence**
 
@@ -714,11 +747,17 @@ Any legacy/malformed subscription without a snapshot is entitled to every option
 
 Migrate every usable subscription to a validated versioned snapshot. Until migration is complete, legacy fallback must distinguish included features from purchased add-ons and fail closed on ambiguous state.
 
+**Implementation evidence — 2026-08-10**
+
+- Entitlement, quota enforcement, and billing no longer reconstruct access or price from the current mutable Plan/AddOn definitions when a snapshot is missing.
+- Snapshot and period persistence are mandatory for newly provisioned, trial, immediate-replacement, and renewal-replacement subscriptions; malformed/missing state fails closed.
+- No production-row repair or compatibility fallback was retained because there is no deployed database to migrate. The disposable H2 schema is rebuilt with the mandatory columns.
+
 ---
 
 ### SUBSCRIPTION-007 — Downgrade safety is centralized, incomplete, and fails open for new modules
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR PLAN-CHANGE SAFETY — 2026-08-10`
 
 **Evidence**
 
@@ -737,6 +776,13 @@ Removing a feature or lowering a quota may be approved while dependent business 
 Introduce feature-owned usage/impact contributors collected centrally. Each sellable feature must declare how to count active usage, detect destructive entitlement loss, and explain remediation. Unknown usage must block destructive changes rather than return zero.
 
 Apply this impact engine to every plan change, not only one labeled a downgrade: both upgrade and downgrade allow immediate or renewal-time execution, and either can remove a capability. Immediate conflicts require an explicit grace/exception/restriction/remediation choice; renewal-time changes remain pending/cancellable and revalidate at execution. Preserve data unless a separate authorized purge flow is chosen.
+
+**Implementation evidence — 2026-08-10**
+
+- The centralized feature-code switch was removed. Workspace, Company, staff, roles, organization groups, B2B collaboration, and subscription-management folders now own their impact contributors.
+- Contributors count active domain data and measure owned quota slots. Removing a feature with no contributor produces `IMPACT_UNKNOWN`; reducing a quota without a measurement produces `QUOTA_USAGE_UNKNOWN`. Both block instead of assuming zero.
+- The same analyzer runs for every immediate or renewal change, regardless of upgrade/downgrade label. Immediate conflicts reject mutation; renewal operations are cancellable and repeat validation at cutoff, moving to `NEEDS_ATTENTION` on conflicts or stale commercial items.
+- Customer data is never deleted by a plan change. Grace/restriction/exception choices and their UI remain later operational flows.
 
 ---
 
@@ -1036,7 +1082,7 @@ The backend and replacement UI would force administrators to price technical fea
 
 ### PLAN-005 — Purchased subscription terms are not a complete historical snapshot
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — VERSIONED TERM HISTORY IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -1049,6 +1095,13 @@ The current snapshot is materially safer, but it still cannot reconstruct every 
 **Required fix direction**
 
 Snapshot the exact Plan/AddOn/quota-package versions, effective features/quotas, itemized Money prices with ISO currency, exact monthly/yearly cycle, effective period dates, adjustments, and source version/lineage. Preserve entitlement history separately from invoices, confirmed payments, refunds/credits, and provider/manual references. Never aggregate mixed currencies/cycles or label configured price as revenue.
+
+**Implementation evidence — 2026-08-10**
+
+- The versioned snapshot now records Plan identity/name/definition version, base Money/currency/cycle, effective period, effective feature/quota definitions, and selected AddOn/package identity, definition version, quantity/capacity, and item price.
+- Each closed/open `SubscriptionPeriod` preserves the exact snapshot effective for that period; each change operation preserves before/target snapshots, requested selection, timing, status, and resulting subscription.
+- Billing and runtime entitlement read the immutable snapshot only, so later template changes do not rewrite accepted access or configured price.
+- Plan revision lineage remains PLAN-007. Taxes/adjustments, invoices, confirmed payments, refunds/credits, and provider references remain separate billing records under Batch 4.6/later work; configured price is not described as collected revenue.
 
 ---
 

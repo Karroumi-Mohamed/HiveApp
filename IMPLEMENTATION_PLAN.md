@@ -1132,26 +1132,29 @@ flowchart TD
 - **Acceptance Criteria**: Status values match canonical terms.
 - **Tests**: Alignment check.
 - **Future UI Flow**: None.
+- **Execution Status**: Verified and completed on 2026-08-10. Canonical states are TRIALING, ACTIVE, PAST_DUE, SUSPENDED, CANCELLED, and EXPIRED; usable access is restricted to ACTIVE/TRIALING, and trial deadline expiry uses EXPIRED.
 
 #### [VERIFY FIRST] SUBSCRIPTION-002 — Entitlement and override JSON is stored as untyped strings
 - **Prerequisites**: SUBSCRIPTION-001.
 - **Unlocks**: SUBSCRIPTION-003.
 - **Order Rationale**: JSON mapping verification. Verification: Check if mapping errors trigger silent crashes on load. Remediation: Write JPA AttributeConverters translating column to typed Java models.
 - **Affected Backend Areas**: `Subscription.java`.
-- **Database Migration**: Yes (JSON columns).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; generated JSON columns now bind typed records directly.
 - **Acceptance Criteria**: JSON columns parse safely to Java attributes.
 - **Tests**: Converter unit tests.
 - **Future UI Flow**: Customer subscriptions view.
+- **Execution Status**: Verified and completed on 2026-08-10. Subscription override and entitlement JSON are typed, versioned records at the entity boundary; unsupported schema versions fail validation, and all runtime consumers share the typed models.
 
 #### [IMPLEMENT] SUBSCRIPTION-003 — Subscription periods and lifecycle transitions are not implemented
 - **Prerequisites**: SUBSCRIPTION-002.
 - **Unlocks**: SUBSCRIPTION-004, BILLING-001, PLAN-007.
 - **Order Rationale**: Core period scheduler.
 - **Affected Backend Areas**: `SubscriptionServiceImpl.java`, background scheduler.
-- **Database Migration**: Yes (periods tables).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; the generated schema includes period and operation tables.
 - **Acceptance Criteria**: Scheduled task updates active subscriptions at period end.
 - **Tests**: Integration scheduler tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Period/change-operation foundation completed on 2026-08-10. UTC periods retain immutable history; scheduled processing expires trials, renews free periods, makes paid periods PAST_DUE without fake payment, and executes or flags cancellable renewal changes after revalidation. Suspension/restoration, payment recovery, customer cancellation commands, grace, audit, and communication remain later flows.
 
 #### [IMPLEMENT] SUBSCRIPTION-004 — Trial subscriptions are authorized but invisible to client subscription flows
 - **Prerequisites**: SUBSCRIPTION-003.
@@ -1162,16 +1165,18 @@ flowchart TD
 - **Acceptance Criteria**: Trialing accounts display trial bounds.
 - **Tests**: Trial access integration tests.
 - **Future UI Flow**: Subscription Billing status dashboard.
+- **Execution Status**: Completed on 2026-08-10. Admins can create a bounded trial under the Account lock, and shared usable-subscription reads make TRIALING visible with explicit UTC bounds in client and admin responses.
 
 #### [IMPLEMENT] SUBSCRIPTION-005 — Admin overrides can grant out-of-plan features with no defined price
 - **Prerequisites**: SUBSCRIPTION-004.
 - **Unlocks**: SUBSCRIPTION-006.
-- **Order Rationale**: Recalculates cost on custom feature grants.
+- **Order Rationale**: Verify that the obsolete raw-feature grant contract is absent and require explicitly priced commercial selections.
 - **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Adding out-of-plan features charges priced defaults.
-- **Tests**: Dynamic pricing integration tests.
+- **Acceptance Criteria**: Admin/client selection cannot grant raw features; configured AddOn/package identities carry explicit snapshotted prices.
+- **Tests**: Identity validation and snapshot pricing tests.
 - **Future UI Flow**: Customer overrides setting form.
+- **Execution Status**: Resolved by contract change on 2026-08-10. The old arbitrary feature/quota override path is absent; admin and client selection accept only validated, priced AddOns and quota packages. Negotiated exceptions remain a separate future operator contract.
 
 #### [IMPLEMENT] SUBSCRIPTION-006 — Legacy subscriptions without snapshots receive optional add-ons automatically
 - **Prerequisites**: SUBSCRIPTION-005.
@@ -1179,19 +1184,21 @@ flowchart TD
 - **Order Rationale**: Snapshots are mandatory before evaluating downgrade steps.
 - **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Legacy entries receive dynamic repairs.
-- **Tests**: Migration snapshot repair tests.
+- **Acceptance Criteria**: All new/usable subscriptions require a versioned snapshot; missing or invalid snapshots fail closed.
+- **Tests**: Mandatory-snapshot and no-fallback tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed on 2026-08-10. Entitlement, quota, and billing fallbacks to mutable Plan/AddOn definitions were removed, and every provisioning/change path writes a mandatory typed snapshot. No legacy repair was added because no production database exists.
 
 #### [IMPLEMENT] SUBSCRIPTION-007 — Downgrade safety is centralized, incomplete, and fails open for new modules
 - **Prerequisites**: SUBSCRIPTION-006.
 - **Unlocks**: None.
-- **Order Rationale**: Validates limits prior to downgrading.
-- **Affected Backend Areas**: Downgrade validator classes.
+- **Order Rationale**: Feature-owned impact validation for every entitlement change, not only changes labelled downgrade.
+- **Affected Backend Areas**: Feature-domain contributors and subscription impact orchestration.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Downgrading fails if current usage exceeds target limits.
-- **Tests**: Downgrade rejection tests.
+- **Acceptance Criteria**: Feature removal/quota reduction fails closed for unknown or excessive active usage; immediate and renewal changes revalidate without deleting data.
+- **Tests**: Contributor, unknown-impact, quota-reduction, immediate rejection, and renewal revalidation tests.
 - **Future UI Flow**: Plan change checkout wizard.
+- **Execution Status**: Completed for plan-change safety on 2026-08-10. Feature folders own impact contributors; unknown feature/quota usage blocks, active usage is compared with target capacity, immediate conflicts reject, and pending renewal operations recheck at cutoff and enter NEEDS_ATTENTION when unsafe.
 
 #### [IMPLEMENT] PLAN-005 — Purchased subscription terms are not a complete historical snapshot
 - **Prerequisites**: SUBSCRIPTION-006.
@@ -1202,6 +1209,9 @@ flowchart TD
 - **Acceptance Criteria**: Snapshots store exact plan terms at checkout time.
 - **Tests**: Price mutation tests.
 - **Future UI Flow**: Customer invoice histories.
+- **Execution Status**: Versioned term history completed on 2026-08-10. Snapshots retain Plan identity/name/version, Money/cycle, effective bounds, feature/quota composition, and AddOn/package versions/prices/quantities; period and change-operation records retain history. Plan lineage remains PLAN-007, while invoices/payments/tax/adjustments remain separate billing work.
+
+**Batch 4.5 verification:** `mvn test` passes 381 tests with 0 failures, 0 errors, and 0 skipped. No Flyway files were added under the agreed unpublished/disposable-database policy.
 
 ---
 
@@ -1687,19 +1697,19 @@ flowchart TD
 | **ORG-002** | Groups stay outside authz | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | ORG-001 | Permissionized operations with unchanged effective permissions |
 | **AUTHZ-006** | Context evaluation checks | MISSING | DESIGN FIRST | Phase 5 | Batch 5.3 | AUTHZ-003 | Design document |
 | **RBAC-006** | Exception override lifecycle | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-003 | Explicit scoped exception lifecycle, provenance, expiry, and abuse tests |
-| **SUBSCRIPTION-001**| Terminological alignment | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | PLAN-006 | Enums corrected |
-| **SUBSCRIPTION-002**| JSON strings | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | SUBSCRIPTION-001 | Converter classes |
+| **SUBSCRIPTION-001**| Terminological alignment | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.5 | PLAN-006 | Canonical lifecycle and usable-state tests |
+| **SUBSCRIPTION-002**| JSON strings | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.5 | SUBSCRIPTION-001 | Typed versioned JSON and validation tests |
 | **PLAN-001** | Database constraints | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.2 | BILLING-003 | Verified unique code plus non-null cycle/state persistence tests |
 | **PLAN-006** | Lifecycle states | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Validated state machine, terminal archive, optimistic lock; replacement/audit later |
 | **PLAN-007** | Branching revisions | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Draft generation |
 | **BILLING-001** | Checkouts activation | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Payment validation |
 | **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.1 | None | Explicit ISO Money/currency persistence, calculation, and API tests |
 | **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
-| **SUBSCRIPTION-003**| Periods scheduler | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-002 | Cron execution |
-| **SUBSCRIPTION-004**| Trial visibility | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-003 | Trial display |
-| **SUBSCRIPTION-005**| Overrides pricing | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-004 | Recalculated cost |
-| **SUBSCRIPTION-006**| Dynamic repairs | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-005 | Snapshot seeder |
-| **SUBSCRIPTION-007**| Downgrade safety checks | MISSING | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Rejections |
+| **SUBSCRIPTION-003**| Periods scheduler | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-002 | UTC history, scheduled trial/free/paid transitions and renewal operations |
+| **SUBSCRIPTION-004**| Trial visibility | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-003 | Admin-created bounded trial visible to Account |
+| **SUBSCRIPTION-005**| Overrides pricing | IMPLEMENTED BY CONTRACT CHANGE | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-004 | Raw grants removed; only priced AddOn/package identities |
+| **SUBSCRIPTION-006**| Dynamic repairs | IMPLEMENTED FOR UNPUBLISHED SCHEMA | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-005 | Mandatory snapshots and fail-closed consumers; no legacy database |
+| **SUBSCRIPTION-007**| Downgrade safety checks | IMPLEMENTED FOR PLAN CHANGES | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Feature-owned fail-closed immediate/renewal impact checks |
 | **QUOTA-004** | Discrete packages | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-003 | Versioned package aggregate, admin API, selection, snapshots, pricing, enforcement |
 | **QUOTA-003** | Compound key | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.4 | PLAN-008 | Feature/resource identity preserved end to end |
 | **PLAN-002** | Default plan protection | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-001 | Deactivation/deletion blocks and startup invariant |
@@ -1710,7 +1720,7 @@ flowchart TD
 | **PLAN-010** | Cloning Wizard | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Copy lineages |
 | **PLAN-011** | Subscriber management | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-010 | Pagination |
 | **PLAN-012** | Explicit AddOn | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Versioned aggregate, admin API, AddOn-owned quota packages, selection, catalog, snapshots, billing |
-| **PLAN-005** | Immutable snapshots | PARTIAL — COMMERCIAL ITEMS SNAPSHOTTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Plan/AddOn/package values retained; lineage/effective history remains |
+| **PLAN-005** | Immutable snapshots | PARTIAL — VERSIONED TERM HISTORY IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Plan/AddOn/package versions, term prices, effective periods, and operation history; lineage/billing ledgers separate |
 | **TIME-001** | Unified Timestamps | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.5 | None | Instants type |
 | **MODULES-001** | Modular Interfaces | PARTIAL | DESIGN FIRST | Phase 6 | Batch 6.4 | None | Boundary check |
 | **MODULES-002** | Company domain owner | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.4 | MODULES-001 | Package check |
