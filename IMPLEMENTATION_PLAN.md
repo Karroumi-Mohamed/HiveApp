@@ -1250,10 +1250,11 @@ flowchart TD
 - **Unlocks**: PLAN-009.
 - **Order Rationale**: Implements draft-revision edits to active plans.
 - **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
-- **Database Migration**: Yes (lineage linking columns).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; the generated schema includes lineage/source/revision constraints.
 - **Acceptance Criteria**: Edits to active plans branch into drafts.
 - **Tests**: Plan draft revision branching tests.
 - **Future UI Flow**: Plan editing dashboard.
+- **Execution Status**: Immutable revision foundation completed on 2026-08-10. Published commercial configuration rejects direct mutation; create-empty, duplicate, and revise produce explicit drafts with durable lineage/source/revision/reason, and subscription snapshots retain the revision identity. Bulk subscriber effects, communications, and audit remain operational follow-up.
 
 #### [IMPLEMENT] PLAN-009 — Plan deletion lacks the decided draft-only impact workflow
 - **Prerequisites**: PLAN-007.
@@ -1261,19 +1262,21 @@ flowchart TD
 - **Order Rationale**: Checks usage prior to deletes.
 - **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Deleting active templates returns count warnings.
-- **Tests**: Delete custom role integration tests.
+- **Acceptance Criteria**: Deletion preview explains every current blocker and only a confirmed unused draft can be deleted.
+- **Tests**: Plan deletion preview, stale token, default/history/reference, and cross-record safety tests.
 - **Future UI Flow**: Plan deletion validation modal.
+- **Execution Status**: Completed for current retained models on 2026-08-10. Preview returns exact counts/blockers and a state token; execution requires code/version/token, locks and rechecks, deletes only draft-owned feature rows, and relies on the database for the final concurrent-reference guard. Future invoice/provider models must contribute their own blockers.
 
 #### [IMPLEMENT] PLAN-010 — Plan duplication has no durable revision identity or code-reservation lifecycle
 - **Prerequisites**: PLAN-009.
 - **Unlocks**: PLAN-011.
 - **Order Rationale**: Builds lineage tracks.
 - **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
-- **Database Migration**: Yes (parent plan code tracking).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; source/lineage identity is part of the generated schema.
 - **Acceptance Criteria**: Duplicates inherit history chains.
 - **Tests**: Lineage validation tests.
 - **Future UI Flow**: Plan cloning wizard.
+- **Execution Status**: Completed on 2026-08-10. Codes are normalized, immutable, unique, and reserved for every published/used Plan; explicit duplicate and revise commands copy Plan-owned commercial configuration into independent drafts with durable origin and lineage identity.
 
 #### [IMPLEMENT] PLAN-011 — Admin subscriber management is a collection of single-record endpoints, not the decided operational flow
 - **Prerequisites**: PLAN-010.
@@ -1284,6 +1287,9 @@ flowchart TD
 - **Acceptance Criteria**: Subscriber lists are paginated and searchable.
 - **Tests**: Pagination endpoint integration tests.
 - **Future UI Flow**: Admin plan subscribers list.
+- **Execution Status**: Operational read foundation completed on 2026-08-10. Subscriber history is paginated, bounded, Account-name searchable, status-filterable, and labels configured recurring price accurately; owner-email lookup is a separately guarded action. Bulk jobs, exception/lifecycle operations, audit, export, and communications remain open.
+
+**Batch 5.1 verification:** `mvn test` passes 394 tests with 0 failures, 0 errors, and 0 skipped. Focused API/H2 coverage verifies explicit empty creation, duplicate/revision lineage, published immutability, preview-token deletion, stale conflicts, paging/search/status filters, and separate owner-email lookup. No Flyway files were added under the agreed unpublished/disposable-database policy.
 
 ---
 
@@ -1705,7 +1711,7 @@ flowchart TD
 | **SUBSCRIPTION-002**| JSON strings | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.5 | SUBSCRIPTION-001 | Typed versioned JSON and validation tests |
 | **PLAN-001** | Database constraints | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.2 | BILLING-003 | Verified unique code plus non-null cycle/state persistence tests |
 | **PLAN-006** | Lifecycle states | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Validated state machine, terminal archive, optimistic lock; replacement/audit later |
-| **PLAN-007** | Branching revisions | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Draft generation |
+| **PLAN-007** | Branching revisions | PARTIAL — REVISION FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Published immutability plus explicit lineage-aware draft revision/duplication |
 | **BILLING-001** | Checkouts activation | IMPLEMENTED FOR CLIENT ACTIVATION | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Durable non-entitling checkout plus guarded, idempotent confirmation and final recheck |
 | **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.1 | None | Explicit ISO Money/currency persistence, calculation, and API tests |
 | **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
@@ -1720,9 +1726,9 @@ flowchart TD
 | **PLAN-003** | Atomic plan seeding | PARTIAL — SAFE BOOTSTRAP IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-002 | Explicit transactional and idempotent bootstrap tests |
 | **PLAN-004** | Unique assignments | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-003 | Verified DB constraint and race translation |
 | **PLAN-008** | PlanFeature schema | PARTIAL — EXPLICIT MODES IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | INCLUDED/OPTIONAL_ADD_ON/BLOCKED_FOR_PLAN; subscriber removal later |
-| **PLAN-009** | Deletion preview | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-007 | Deletion warnings |
-| **PLAN-010** | Cloning Wizard | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Copy lineages |
-| **PLAN-011** | Subscriber management | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-010 | Pagination |
+| **PLAN-009** | Deletion preview | IMPLEMENTED FOR CURRENT MODEL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-007 | Counted blockers, state token, code confirmation, lock/recheck, draft-only deletion |
+| **PLAN-010** | Cloning Wizard | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Explicit empty/duplicate/revise commands and durable source/lineage identity |
+| **PLAN-011** | Subscriber management | PARTIAL — READ FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-010 | Bounded searchable/status-filtered history and separate owner-email permission |
 | **PLAN-012** | Explicit AddOn | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Versioned aggregate, admin API, AddOn-owned quota packages, selection, catalog, snapshots, billing |
 | **PLAN-005** | Immutable snapshots | PARTIAL — VERSIONED TERM HISTORY IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Plan/AddOn/package versions, term prices, effective periods, and operation history; lineage/billing ledgers separate |
 | **TIME-001** | Unified Timestamps | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.5 | None | Instants type |

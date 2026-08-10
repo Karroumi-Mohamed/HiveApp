@@ -571,7 +571,7 @@ Admins can expose unfinished plans, edit something intended as immutable history
 
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — IMMUTABLE REVISION FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -595,6 +595,13 @@ Admins can change what Plan X means for future customers without a durable revis
 - Build communication as a reusable capability attachable to these operations: audience, template/message, channel, timing, delivery status, and retry. Do not hard-code individual marketing strategies.
 - Use clear product terminology such as `change subscribers to another plan`; reserve `migration` for technical database/schema work.
 - Add active-mutation rejection, revision-copy boundaries, future-only publish, selected/renewal/bulk targeting, usage conflict, stale preview, concurrent renewal, notification, retry, and audit tests.
+
+**Implementation evidence — 2026-08-10**
+
+- Published (`ACTIVE`, `INACTIVE`, or `ARCHIVED`) Plan commercial configuration is immutable. Basics and feature composition can change only while the Plan is a `DRAFT`; published changes require an explicit draft revision.
+- Every Plan has a durable lineage UUID, unique revision number, optional source Plan, and creation reason. `revise` continues the source lineage; `duplicate` starts an independent lineage; both copy only Plan-owned feature modes and quota configuration into a new draft.
+- Generic creation is now explicitly empty rather than silently inheriting FREE. Subscription snapshots store the Plan revision number as their definition version, so accepted terms identify the exact published revision.
+- Selected/filtered bulk subscriber changes, scheduled execution jobs, renewal policy, reusable communications, and audit remain later operational work. Current subscribers continue changing only through the existing one-Account previewed operation.
 
 ---
 
@@ -972,7 +979,7 @@ Null pricing carries business meaning, new/internal features may enter product t
 
 ### PLAN-009 — Plan deletion lacks the decided draft-only impact workflow
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR CURRENT RETAINED REFERENCES — 2026-08-10`
 
 **Evidence**
 
@@ -993,11 +1000,18 @@ An authorized admin can remove a commercially important/default plan merely beca
 - Delete only draft-owned configuration/lineage. Never delete registry features/modules, other plans, Accounts, subscriptions, or customer data.
 - Add default-plan, prior-active, historical-only, pending-change, external-reference, concurrent subscription, cross-record safety, authorization, and audit tests.
 
+**Implementation evidence — 2026-08-10**
+
+- The backend exposes a deletion preview with exact Plan/version token, owned-feature count, and blockers for default status, non-draft lifecycle, subscription history, change operations, AddOn/package availability, and retained lineage references.
+- Execution requires the exact Plan code, expected optimistic version, and matching preview token, then locks and recomputes the complete preview transactionally. A changed preview returns a conflict.
+- Only an unused, unreferenced `DRAFT` is hard-deleted, along with its own PlanFeature rows. Published/used codes remain reserved because their Plan row cannot be hard-deleted; database referential integrity is the final concurrent-reference guard.
+- Invoice/provider/external-reference blockers must be added to the same preview contributor when those retained models are introduced. They do not exist in the current schema.
+
 ---
 
 ### PLAN-010 — Plan duplication has no durable revision identity or code-reservation lifecycle
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -1019,11 +1033,18 @@ A copied plan can become sellable before review, admins cannot understand its or
 - Store source plan/revision lineage and creation reason without linking future edits between source and copy.
 - Add code normalization/collision, used-code reservation, unused-draft reuse, default-code protection, draft default, copy-boundary, lineage, and concurrent creation tests.
 
+**Implementation evidence — 2026-08-10**
+
+- Plan codes are normalized and validated once, persisted as immutable unique identities, and translated to a domain conflict on concurrent collision.
+- Explicit create-empty, duplicate, and revise commands always create drafts. Duplicate creates a new lineage; revise continues the existing lineage with the next revision; both retain the source and creation reason without sharing future mutations.
+- Copying is limited to Plan-owned commercial feature modes/quota configuration. It never copies subscriptions, Account selections/exceptions, checkouts, change operations, periods, or customer data.
+- Activated/archived/used Plan rows cannot be deleted, permanently reserving their codes. Only a never-published, unused, unreferenced draft can be deleted and release its code.
+
 ---
 
 ### PLAN-011 — Admin subscriber management is a collection of single-record endpoints, not the decided operational flow
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — OPERATIONAL READ FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -1047,6 +1068,13 @@ An admin UI built over these endpoints would force unsafe UUID-driven changes, h
 - Model Account exceptions as source-aware grants/restrictions limited to client-facing sellable features/quotas, with reason, actor, effective/expiry/permanent status, optional contract/approval reference, and explicit retain/remove/replace behavior on plan change.
 - Implement distinct, audited cancel-at-period-end, immediate cancel, suspend, expire, and restore transitions. Stop operational/B2B access and invalidate authorization state at the effective time while preserving declared restricted/read-only data; restoration revalidates current eligibility and creates fresh authorization state.
 - Add permission, privacy, pagination, concurrency, stale-preview, mixed-result, retry, history, exception, lifecycle, access-revocation, and restoration tests. Treat export plus pricing/billing/notification content as separately designed capabilities rather than pretending they are complete here.
+
+**Implementation evidence — 2026-08-10**
+
+- Plan subscribers are now a bounded page (maximum 100), searchable by Account name and filterable by every subscription status; the default view includes current and historical states rather than silently hiding non-usable subscriptions.
+- Results expose Account/subscription operational identity and explicitly label price as configured recurring price. They do not expose Company/member/business data or describe configured amounts as collected revenue.
+- Exact Account-owner-email lookup is a separate Permissionizer action and response contract, so ordinary subscriber-list permission does not automatically expose owner email.
+- Versioned bulk population previews, immutable affected sets, partial-success jobs/retry, scheduled operations, Account exceptions, lifecycle correction commands, audit, export, and communications remain unresolved and must be implemented before claiming a complete subscriber-management workflow.
 
 ---
 
