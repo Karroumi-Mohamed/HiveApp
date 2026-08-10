@@ -935,10 +935,11 @@ flowchart TD
 - **Unlocks**: REGISTRY-005.
 - **Order Rationale**: State indicators for catalogs.
 - **Affected Backend Areas**: `Feature.java`.
-- **Database Migration**: Yes (add visibility state columns).
-- **Acceptance Criteria**: Features support visibility states.
-- **Tests**: Visibility transition checks.
+- **Database Migration**: No for the current unpublished disposable H2 schema; generated mappings contain the four control columns and durable audit table directly.
+- **Acceptance Criteria**: Features support independent public visibility, new-sale, new-grant, and emergency-runtime controls with separate permissions, eligibility, audit, and version invalidation.
+- **Tests**: Independence, eligibility, confirmation, authorization, durable audit, version bump, runtime cutoff/restoration, and stale-session checks.
 - **Future UI Flow**: Catalog Admin visibility switches.
+- **Execution Status**: Implemented. The overloaded active endpoint is removed. Four separately permissioned operations update only their declared state under a pessimistic catalog/feature lock, record actor/reason/before/after/confirmation audit history, and publish a new catalog revision. Runtime cutoff is the first fail-closed Permissionizer policy and is rechecked against the database for every action, including stale tokens.
 
 #### [IMPLEMENT] REGISTRY-005 — The two public catalog implementations disagree and one mutates JPA entities
 - **Prerequisites**: REGISTRY-004.
@@ -946,19 +947,21 @@ flowchart TD
 - **Order Rationale**: Standardizes catalog fetch routines.
 - **Affected Backend Areas**: Catalog Services.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Disagreeing catalog implementation is removed; uses read DTOs.
-- **Tests**: Catalog queries return consistent models.
+- **Acceptance Criteria**: Disagreeing catalog implementation is removed; all endpoints use typed read DTOs from current code definitions and persisted operational state.
+- **Tests**: Catalog queries return consistent models and apply module, public-visibility, new-sale, new-grant, runtime, and audience filters independently.
 - **Future UI Flow**: Pricing page catalogs.
+- **Execution Status**: Implemented. The raw JPA catalog and entity-relationship mutation are removed. Public, admin inventory, feature, and permission catalogs use typed read models, current definitions, module activity, and the same audience-specific operational rules.
 
 #### [IMPLEMENT] REGISTRY-006 — Permission-picker construction scales as permission-by-permission entitlement checks
 - **Prerequisites**: REGISTRY-005.
 - **Unlocks**: REGISTRY-008.
 - **Order Rationale**: Database optimization for pickers.
-- **Affected Backend Areas**: `PermissionGrantValidator.java`.
+- **Affected Backend Areas**: `PermissionPickerCatalogService.java`, `PlanEntitlementService.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Permissions are queried using bulk joins.
-- **Tests**: Load testing verification.
+- **Acceptance Criteria**: A picker resolves the effective entitled feature set once, loads catalog data in bulk, and filters/group results without per-permission entitlement calls.
+- **Tests**: Bulk entitlement resolution and mock interaction/query-shape verification.
 - **Future UI Flow**: Admin role assignment pickers.
+- **Execution Status**: Implemented. Picker construction loads permissions/features once and resolves the account's active subscription snapshot, plan features, and added overrides once. Tests prove no permission-by-permission entitlement calls occur.
 
 #### [IMPLEMENT] REGISTRY-008 — Client-role grantability is feature-wide, including destructive and commercial actions
 - **Prerequisites**: REGISTRY-006.
@@ -966,9 +969,10 @@ flowchart TD
 - **Order Rationale**: Checks code grant limits before mappings.
 - **Affected Backend Areas**: `PermissionGrantValidator.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Granting non-role-grantable keys throws security exceptions.
-- **Tests**: Validation integration tests.
+- **Acceptance Criteria**: Every action has one current owner/client/admin/B2B eligibility interpretation; owner-only and B2B-only actions never leak into ordinary client-role grants.
+- **Tests**: Definition validation, picker filtering, grant validation, effective-permission, owner-only, and runtime-policy integration checks.
 - **Future UI Flow**: Admin role edit form.
+- **Execution Status**: Implemented. HiveApp definitions now classify actions independently of Permissionizer. Workspace deletion and subscription application are owner-only, B2B remains an explicit allowlist, snapshot validation rejects unknown/conflicting classifications, and grant plus runtime policies recheck the current classification.
 
 #### [IMPLEMENT] REGISTRY-010 — Catalog and permission-picker contracts are neither uniformly audience-specific nor versioned
 - **Prerequisites**: REGISTRY-008.
@@ -976,9 +980,10 @@ flowchart TD
 - **Order Rationale**: Decouples API catalog contracts.
 - **Affected Backend Areas**: Catalog controllers.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Picker API contract uses DTO mappings.
-- **Tests**: API contract tests.
+- **Acceptance Criteria**: Picker APIs return a registry version, audience-specific available choices, and current selections with unavailable reasons; security-sensitive grants reject stale versions.
+- **Tests**: Contract, unavailable-current-selection, stale role write, catalog revision, B2B grant, entitlement, and emergency-state tests.
 - **Future UI Flow**: Role picker list.
+- **Execution Status**: Implemented. Client-role and B2B pickers expose versioned DTOs with current selections separated from available choices and stable unavailable reasons. Role and B2B grant writes require the current `snapshot-hash:revision`; synchronization and operational-control changes invalidate stale picker submissions.
 
 ---
 
@@ -1769,13 +1774,13 @@ flowchart TD
 | **REGISTRY-001** | Deleted keys clean | PARTIAL | DEFERRED | Phase 3 | None | AUTHZ-001 | Revisit on requirement |
 | **REGISTRY-002** | Stale actions block | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | AUTHZ-001 | Current-snapshot grant rejection and catalog exclusion |
 | **REGISTRY-003** | Corrupt discovery crash| IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-002 | Reflected action-set equality and fatal startup validation |
-| **REGISTRY-004** | Visibility enums | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-009 | State column mapping |
-| **REGISTRY-005** | Clean catalog services | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-004 | Disagreeing API removed |
-| **REGISTRY-006** | Bulk picker query | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-005 | Bulk query execution |
+| **REGISTRY-004** | Visibility enums | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-009 | Four independent audited controls and runtime cutoff |
+| **REGISTRY-005** | Clean catalog services | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-004 | Typed audience catalogs; raw entity path removed |
+| **REGISTRY-006** | Bulk picker query | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-005 | One bulk entitlement resolution per picker |
 | **REGISTRY-007** | Repair metadata | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-003 | Code-owned Feature and Permission metadata repair |
-| **REGISTRY-008** | destructive block | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-006 | Action level validator |
+| **REGISTRY-008** | destructive block | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-006 | Current action-level audience classification |
 | **REGISTRY-009** | Seeding transaction | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-007 | Atomic synchronization, database lock, durable run summary |
-| **REGISTRY-010** | Picker DTO | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-008 | Decoupled payload |
+| **REGISTRY-010** | Picker DTO | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-008 | Versioned choices/selections and stale-write rejection |
 | **PERM-001** | AspectJ matching | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Target node proxy |
 | **PERM-002** | Startup guard checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | None | Alignment check |
 | **PERM-003** | Element key uniqueness| PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Signature compiler key |

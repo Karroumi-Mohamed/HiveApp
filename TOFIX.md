@@ -2835,7 +2835,7 @@ Make collection diagnostics explicit and startup-fatal in production when indexe
 
 ### REGISTRY-004 — Current feature activation cannot represent the four decided operational controls
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2856,11 +2856,20 @@ An admin UI that displays activation controls promises a capability that does no
 - Until these states and runtime consumers exist, render registry activation as read-only and do not turn on the existing overloaded flag for production features.
 - Add independence tests proving each control changes only its declared surface, plus emergency cutoff, stale token/cache, restoration, authorization, audit, and concurrency tests.
 
+**Implementation evidence — 2026-07-17**
+
+- `Feature` now stores independent `publicVisible`, `newSalesEnabled`, `newGrantsEnabled`, and `runtimeEnabled` state. The ambiguous `/active` operation is removed and each replacement endpoint has its own Permissionizer action and code-owned eligibility rule.
+- Catalog/feature mutation acquires the registry synchronization lock and a pessimistic Feature lock. A real change records a durable `FeatureOperationalChange` containing actor, control, before/after values, reason, confirmations, immediate timing, and timestamp, then bumps the catalog revision; typed history is available to an authorized operator.
+- Public visibility affects public listing only; new-sale state affects future plan/subscription selection; new-grant state blocks future client-role/override/B2B grants without revoking existing grants.
+- `FeatureRuntimePolicy` executes before actor-specific policies and rechecks persisted runtime state for every action. Emergency cutoff therefore denies stale-token use immediately, while restoration still requires the current action/classification, entitlement, and actor policy to pass.
+- Emergency changes require explicit impact and communication confirmation. Unit and integration tests cover control independence, ineligible controls, authorization, audit mapping, version invalidation, immediate cutoff, and restoration.
+- No Flyway migration was added because the application is unpublished and uses disposable generated H2 mappings.
+
 ---
 
 ### REGISTRY-005 — The two public catalog implementations disagree and one mutates JPA entities
 
-**Status:** `OBSERVED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2877,11 +2886,18 @@ The response depends on which endpoint a client uses. Mutating entity relationsh
 
 Keep one versioned registry snapshot and explicit DTO read models per audience. Remove raw-entity API responses and query exact read models without mutating entities. Public catalog exposes only public-visible sellable items; other audiences apply their explicit operational, entitlement, and grantability rules. Apply module/feature operational state consistently and test that catalogs cannot disagree.
 
+**Implementation evidence — 2026-07-17**
+
+- The raw JPA public/inventory catalog path and response-time mutation of `Module.features` are removed. Admin inventory, feature catalogs, permission catalogs, and the public catalog return typed DTOs.
+- Catalogs originate from current code definitions/current registry actions and join persisted operational state only for the audience-specific filters; stale database-only actions cannot reappear.
+- Public results consistently require an active module, public/beta lifecycle, public visibility, new-sale availability, and runtime availability. Plan and permission audiences use their own sale/grant/runtime rules rather than sharing one overloaded flag.
+- Public and admin integration tests verify the independent filters and typed contract.
+
 ---
 
 ### REGISTRY-006 — Permission-picker construction scales as permission-by-permission entitlement checks
 
-**Status:** `OBSERVED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2894,6 +2910,12 @@ Depending on the entitlement implementation, opening a role or B2B permission pi
 **Possible fix direction**
 
 Resolve the account's effective entitled feature/action set once, then join/filter the current permission catalog in memory or in a purpose-built query. Add query-count and large-catalog tests.
+
+**Implementation evidence — 2026-07-17**
+
+- `PlanEntitlementService.entitledFeatureCodes()` resolves the account's active/trial subscription once, using its entitlement snapshot or plan features plus added overrides.
+- `PermissionPickerCatalogService` loads registry permissions/features in bulk, obtains the entitled feature-code set once, and performs audience, state, entitlement, and selection filtering in memory.
+- Interaction tests prove bulk entitlement resolution is called once and the former per-permission entitlement method is never called during picker construction.
 
 ---
 
@@ -2924,7 +2946,7 @@ Synchronize all code-owned relationships and metadata deterministically, and ver
 
 ### REGISTRY-008 — Client-role grantability is feature-wide, including destructive and commercial actions
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2940,6 +2962,13 @@ Routine custom-role configuration can delegate account deactivation or subscript
 **Required decision/fix direction**
 
 Classify eligibility per action in HiveApp feature/registry definitions without changing the Permissionizer library. Explicitly support owner-only and client-role, platform-admin-role, and B2B eligibility combinations. Every audience catalog and grant validator must use the same current action classification, while services still enforce target/resource invariants and protected owner boundaries.
+
+**Implementation evidence — 2026-07-17**
+
+- `FeatureDefinition` now owns action-level owner-only classification alongside the existing explicit B2B allowlist and derives client-role/platform-admin eligibility per action.
+- `platform.workspace.delete` and `platform.subscription.apply` are owner-only and are excluded from ordinary client-role pickers and grants; B2B delegation remains limited to explicitly listed actions.
+- Registry snapshot validation rejects classifications that name undiscovered actions or conflict between owner-only and B2B categories.
+- Permission grant validation, picker catalogs, effective permissions, `UserRolePolicy`, and `B2bCollaborationPolicy` all recheck the same current action classification and runtime state. This product metadata remains in HiveApp; Permissionizer was not modified.
 
 ---
 
@@ -2981,7 +3010,7 @@ HiveApp can start with features committed but permissions incomplete, different 
 
 ### REGISTRY-010 — Catalog and permission-picker contracts are neither uniformly audience-specific nor versioned
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -3001,6 +3030,14 @@ Different screens can show different truths, high-risk actions may appear in ord
 - Add action-level owner-only/client-role/platform-admin-role/B2B classification to HiveApp definitions and use it consistently in catalogs, validators, and service invariants. Do not add this product classification to Permissionizer itself.
 - Include registry version/hash in picker responses and mutation requests. Reject stale writes with a refresh-required conflict; publish a new version and invalidate relevant caches after synchronization or operational-control changes.
 - Remove raw JPA catalog responses and duplicate public contracts. Add cross-audience leakage, destructive-action eligibility, unavailable-current-grant, stale write, entitlement change, emergency shutdown, B2B actor ceiling, cache invalidation, and query-count tests.
+
+**Implementation evidence — 2026-07-17**
+
+- Client-role and B2B picker endpoints return `PermissionPickerCatalogDto` with `registryVersion`, audience, `availableChoices`, and `currentSelections` rather than a bare generic catalog.
+- Current selections remain visible when unavailable, with stable reasons for missing current registry actions, lost entitlement, audience ineligibility, paused new grants, or emergency runtime shutdown. They are not offered as new choices.
+- Registry versions use deterministic snapshot hash plus a persisted monotonic catalog revision. Successful synchronization changes and operator-control changes publish a new version.
+- Role-permission and B2B grant writes submit the picker version and fail with a refresh-required conflict when stale; removals remain available for safe cleanup.
+- Tests cover stale role writes without mutation, B2B versioned grants, unavailable selections, bulk entitlement resolution, action leakage, emergency runtime changes, and catalog revision changes. The complete backend suite passes: 338 tests, 0 failures, 0 errors, 0 skipped.
 
 ---
 
