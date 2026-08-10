@@ -8,11 +8,11 @@ import java.util.Set;
 /**
  * Snapshot stored in Subscription.custom_overrides JSONB.
  *
- * addedFeatures  — feature codes unlocked beyond the base plan template.
+ * addOnCodes     — selected first-class AddOn products beyond the base plan template.
  * quotaOverrides — per-slot limit bumps beyond the plan's default limits.
  */
 public record SubscriptionOverrides(
-        Set<String> addedFeatures,
+        Set<String> addOnCodes,
         List<QuotaOverride> quotaOverrides
 ) {
     public static SubscriptionOverrides empty() {

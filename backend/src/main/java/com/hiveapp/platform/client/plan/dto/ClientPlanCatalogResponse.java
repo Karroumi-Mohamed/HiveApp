@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.shared.quota.QuotaOverride;
 import com.hiveapp.shared.quota.QuotaSlot;
@@ -22,7 +23,7 @@ public record ClientPlanCatalogResponse(
             BigDecimal currentPrice,
             String currentPriceCurrencyCode,
             LocalDateTime currentPeriodEnd,
-            Set<String> addOnFeatureCodes,
+            Set<String> addOnCodes,
             List<QuotaOverride> quotaOverrides
     ) {}
 
@@ -34,17 +35,35 @@ public record ClientPlanCatalogResponse(
             String currencyCode,
             BillingCycle billingCycle,
             boolean current,
-            List<CatalogFeature> features
+            List<CatalogFeature> features,
+            List<CatalogAddOn> addOns
     ) {}
 
     public record CatalogFeature(
             String featureCode,
             String displayName,
             String description,
-            boolean included,
-            boolean addOnAvailable,
-            BigDecimal addOnPrice,
-            String addOnCurrencyCode,
+            PlanFeatureMode mode,
+            List<CatalogQuota> quotas
+    ) {}
+
+    public record CatalogAddOn(
+            String code,
+            String name,
+            String description,
+            BigDecimal price,
+            String currencyCode,
+            BillingCycle billingCycle,
+            long definitionVersion,
+            Set<String> dependencyCodes,
+            Set<String> exclusionCodes,
+            List<CatalogAddOnFeature> features
+    ) {}
+
+    public record CatalogAddOnFeature(
+            String featureCode,
+            String displayName,
+            String description,
             List<CatalogQuota> quotas
     ) {}
 

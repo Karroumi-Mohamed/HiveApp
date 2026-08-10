@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -14,7 +15,7 @@ public record PlanDetailDto(
         BigDecimal price,
         String currencyCode,
         BillingCycle billingCycle,
-        boolean isActive,
+        PlanStatus status,
         int featureCount,
         int quotaConfiguredFeatureCount,
         long activeSubscriberCount,

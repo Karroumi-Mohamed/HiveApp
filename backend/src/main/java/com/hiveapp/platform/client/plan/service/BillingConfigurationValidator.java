@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
+import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
@@ -27,33 +28,23 @@ public class BillingConfigurationValidator {
 
     public Feature validatePlanFeature(
             String featureCode,
-            BigDecimal addOnPrice,
-            String addOnCurrencyCode,
+            PlanFeatureMode mode,
             List<QuotaLimitEntry> quotaConfigs,
             String planCurrencyCode) {
         FeatureDefinition definition = requirePlanAssignableDefinition(featureCode);
         Feature feature = requireConfigurableFeature(featureCode);
         Money planCurrency = money(BigDecimal.ZERO, planCurrencyCode, "Plan currency");
-        if (addOnPrice == null && addOnCurrencyCode != null) {
-            throw invalid("Feature add-on currency requires an add-on price.");
+        if (mode == null) {
+            throw invalid("Plan feature mode is required.");
         }
-        if (addOnPrice != null) {
-            Money addOn = money(addOnPrice, addOnCurrencyCode, "Feature add-on price");
-            validateNonNegative(addOn.amount(), "Feature add-on price");
-            requireSameCurrency(planCurrency, addOn, "Feature add-on price");
+        if (mode != PlanFeatureMode.INCLUDED && quotaConfigs != null && !quotaConfigs.isEmpty()) {
+            throw invalid("Only included Plan features may define base quota limits.");
         }
         validateQuotaConfigs(definition, quotaConfigs, planCurrency);
         return feature;
     }
 
-    public void validateSubscriptionOverrides(Set<String> addedFeatures, List<QuotaOverride> quotaOverrides) {
-        if (addedFeatures != null) {
-            for (String featureCode : addedFeatures) {
-                requirePlanAssignableDefinition(featureCode);
-                requireConfigurableFeature(featureCode);
-            }
-        }
-
+    public void validateSubscriptionOverrides(List<QuotaOverride> quotaOverrides) {
         Set<String> quotaKeys = new HashSet<>();
         if (quotaOverrides != null) {
             for (QuotaOverride override : quotaOverrides) {
@@ -69,6 +60,19 @@ public class BillingConfigurationValidator {
                 validateNonNegative(override.limit(), "Quota override limit");
             }
         }
+    }
+
+    public Feature validateAddOnFeature(
+            String featureCode,
+            List<QuotaLimitEntry> quotaConfigs,
+            String addOnCurrencyCode) {
+        FeatureDefinition definition = requirePlanAssignableDefinition(featureCode);
+        Feature feature = requireConfigurableFeature(featureCode);
+        validateQuotaConfigs(
+                definition,
+                quotaConfigs,
+                money(BigDecimal.ZERO, addOnCurrencyCode, "AddOn currency"));
+        return feature;
     }
 
     private void validateQuotaConfigs(

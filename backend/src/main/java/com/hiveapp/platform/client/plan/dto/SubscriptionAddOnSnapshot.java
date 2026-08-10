@@ -1,18 +1,16 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
-import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 
 import java.math.BigDecimal;
-import java.util.UUID;
+import java.util.List;
 
-public record PlanDto(
-        UUID id,
+public record SubscriptionAddOnSnapshot(
         String code,
         String name,
-        String description,
+        long definitionVersion,
         BigDecimal price,
         String currencyCode,
         BillingCycle billingCycle,
-        PlanStatus status
+        List<String> featureCodes
 ) {}

@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.PlanDetailDto;
@@ -48,9 +49,9 @@ public class PlanAdminController {
         return toDto(planAdminService.updatePlan(planId, request));
     }
 
-    @PatchMapping("/{planId}/active")
-    public PlanDto toggleActive(@PathVariable UUID planId, @RequestParam boolean active) {
-        var p = planAdminService.toggleActive(planId, active);
+    @PatchMapping("/{planId}/status")
+    public PlanDto transitionStatus(@PathVariable UUID planId, @RequestParam PlanStatus status) {
+        var p = planAdminService.transitionStatus(planId, status);
         return toDto(p);
     }
 
@@ -98,14 +99,13 @@ public class PlanAdminController {
         return new PlanFeatureDto(
                 pf.getId(),
                 pf.getFeature().getCode(),
-                pf.getAddOnPrice(),
-                pf.getAddOnCurrencyCode(),
+                pf.getMode(),
                 pf.getQuotaConfigs()
         );
     }
 
     private PlanDto toDto(com.hiveapp.platform.client.plan.domain.entity.Plan p) {
         return new PlanDto(p.getId(), p.getCode(), p.getName(),
-                p.getDescription(), p.getPrice(), p.getCurrencyCode(), p.getBillingCycle(), p.isActive());
+                p.getDescription(), p.getPrice(), p.getCurrencyCode(), p.getBillingCycle(), p.getStatus());
     }
 }

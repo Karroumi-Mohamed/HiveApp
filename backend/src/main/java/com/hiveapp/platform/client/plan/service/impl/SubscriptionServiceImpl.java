@@ -2,10 +2,16 @@ package com.hiveapp.platform.client.plan.service.impl;
 
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
+import com.hiveapp.platform.client.plan.domain.entity.AddOn;
+import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
@@ -61,6 +67,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final SubscriptionRepository subscriptionRepository;
     private final PlanRepository planRepository;
     private final PlanFeatureRepository planFeatureRepository;
+    private final AddOnRepository addOnRepository;
+    private final AddOnFeatureRepository addOnFeatureRepository;
     private final AccountRepository accountRepository;
     private final BillingCalculator billingCalculator;
     private final SubscriptionOverrideReader subscriptionOverrideReader;
@@ -107,7 +115,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         current.getCurrentPrice(),
                         current.getCurrentPriceCurrencyCode(),
                         current.getCurrentPeriodEnd(),
-                        currentOverrides.addedFeatures(),
+                        currentOverrides.addOnCodes(),
                         currentOverrides.quotaOverrides()),
                 plans);
     }
@@ -121,7 +129,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         requireSameSubscriptionCurrency(current, targetPlan);
         ChangeSelection selection = validateSelection(targetPlan, request);
         SubscriptionEntitlementSnapshot targetSnapshot = subscriptionSnapshotFactory.fromPlan(
-                targetPlan, selection.addOnFeatureCodes());
+                targetPlan, selection.addOnCodes());
         List<SubscriptionChangeConflict> conflicts = findConflicts(accountId, current, targetSnapshot, selection);
         Money previewPrice = previewPrice(current, targetPlan, targetSnapshot, selection);
 
@@ -136,7 +144,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         .map(feature -> feature.featureCode())
                         .collect(Collectors.toCollection(LinkedHashSet::new)),
                 effectiveQuotaLimits(targetSnapshot, selection.quotaOverrides()),
-                selection.addOnFeatureCodes(),
+                selection.addOnCodes(),
                 selection.quotaOverrides(),
                 conflicts);
     }
@@ -159,7 +167,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         }
 
         var targetPlan = planRepository.findByCode(request.targetPlanCode()).orElseThrow();
-        var targetSnapshot = subscriptionSnapshotFactory.fromPlan(targetPlan, selection.addOnFeatureCodes());
+        var targetSnapshot = subscriptionSnapshotFactory.fromPlan(targetPlan, selection.addOnCodes());
         var account = current.getAccount();
 
         var usableSubscriptions = subscriptionRepository.findAllByAccountIdAndStatusIn(
@@ -172,7 +180,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         replacement.setPlan(targetPlan);
         replacement.setStatus(SubscriptionStatus.ACTIVE);
         replacement.setCustomOverrides(subscriptionOverrideReader.write(
-                new SubscriptionOverrides(selection.addOnFeatureCodes(), selection.quotaOverrides())));
+                new SubscriptionOverrides(selection.addOnCodes(), selection.quotaOverrides())));
         replacement.setEntitlementSnapshot(subscriptionSnapshotReader.write(targetSnapshot));
         replacement.setCurrentMoney(billingCalculator.calculateMoney(replacement));
         Subscription saved = subscriptionRepository.saveAndFlush(replacement);
@@ -217,16 +225,15 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @Override
     @Transactional
     public Subscription updateOverrides(UUID accountId,
-                                        Set<String> featureCodes,
+                                        Set<String> addOnCodes,
                                         List<QuotaOverride> quotaOverrides) {
         var sub = getSubscription(accountId);
-        billingConfigurationValidator.validateSubscriptionOverrides(featureCodes, quotaOverrides);
-
-        var overrides = new SubscriptionOverrides(
-                featureCodes != null ? featureCodes : Set.of(),
-                quotaOverrides != null ? quotaOverrides : List.of()
-        );
+        ChangeSelection selection = validateSelection(sub.getPlan(),
+                new SubscriptionChangeRequest(sub.getPlan().getCode(), addOnCodes, quotaOverrides));
+        var overrides = new SubscriptionOverrides(selection.addOnCodes(), selection.quotaOverrides());
         sub.setCustomOverrides(subscriptionOverrideReader.write(overrides));
+        sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(
+                subscriptionSnapshotFactory.fromPlan(sub.getPlan(), selection.addOnCodes())));
         sub.setCurrentMoney(billingCalculator.calculateMoney(sub));
         return subscriptionRepository.save(sub);
     }
@@ -242,6 +249,19 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .sorted(Comparator.comparing(planFeature -> definitions.get(planFeature.getFeature().getCode()).sortOrder()))
                 .map(planFeature -> toCatalogFeature(planFeature, definitions.get(planFeature.getFeature().getCode()), usage))
                 .toList();
+        var addOns = addOnRepository.findAll().stream()
+                .filter(AddOn::isActive)
+                .filter(addOn -> isAddOnCompatibleWithPlan(addOn, plan, definitions))
+                .sorted(Comparator.comparing(AddOn::getCode))
+                .map(addOn -> new ClientPlanCatalogResponse.CatalogAddOn(
+                        addOn.getCode(), addOn.getName(), addOn.getDescription(), addOn.getPrice(),
+                        addOn.getCurrencyCode(), addOn.getBillingCycle(), addOn.getDefinitionVersion(),
+                        addOn.getDependencyCodes(), addOn.getExclusionCodes(),
+                        addOnFeatureRepository.findAllByAddOnId(addOn.getId()).stream()
+                                .sorted(Comparator.comparing(feature -> feature.getFeature().getCode()))
+                                .map(feature -> toCatalogAddOnFeature(feature, definitions, usage))
+                                .toList()))
+                .toList();
         return new ClientPlanCatalogResponse.CatalogPlan(
                 plan.getCode(),
                 plan.getName(),
@@ -250,7 +270,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 plan.getCurrencyCode(),
                 plan.getBillingCycle(),
                 current.getPlan().getCode().equals(plan.getCode()),
-                features);
+                features,
+                addOns);
     }
 
     private ClientPlanCatalogResponse.CatalogFeature toCatalogFeature(
@@ -280,38 +301,59 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 definition.code(),
                 definition.displayName(),
                 definition.description(),
-                planFeature.getAddOnPrice() == null,
-                planFeature.getAddOnPrice() != null,
-                planFeature.getAddOnPrice(),
-                planFeature.getAddOnCurrencyCode(),
+                planFeature.getMode(),
                 quotas);
     }
 
+    private ClientPlanCatalogResponse.CatalogAddOnFeature toCatalogAddOnFeature(
+            AddOnFeature addOnFeature,
+            Map<String, FeatureDefinition> definitions,
+            Map<String, Long> usage
+    ) {
+        FeatureDefinition definition = definitions.get(addOnFeature.getFeature().getCode());
+        Map<String, QuotaLimitEntry> quotasByResource = addOnFeature.getQuotaConfigs().stream()
+                .collect(Collectors.toMap(QuotaLimitEntry::resource, Function.identity(), (left, right) -> left));
+        var quotas = definition.quotaSlots().stream()
+                .map(slot -> {
+                    QuotaLimitEntry limit = quotasByResource.get(slot.resource());
+                    Long value = limit != null ? limit.limit() : null;
+                    return new ClientPlanCatalogResponse.CatalogQuota(
+                            slot.resource(), slot.unit(), slot, value, value == null,
+                            limit != null ? limit.pricePerUnit() : null,
+                            limit != null ? limit.priceCurrencyCode() : null,
+                            usage.getOrDefault(definition.code() + ":" + slot.resource(), 0L));
+                })
+                .toList();
+        return new ClientPlanCatalogResponse.CatalogAddOnFeature(
+                definition.code(), definition.displayName(), definition.description(), quotas);
+    }
+
     private ChangeSelection validateSelection(Plan targetPlan, SubscriptionChangeRequest request) {
-        Set<String> addOns = request.addOnFeatureCodes() == null ? Set.of() : new LinkedHashSet<>(request.addOnFeatureCodes());
+        Set<String> addOnCodes = request.addOnCodes() == null ? Set.of() : new LinkedHashSet<>(request.addOnCodes());
         List<QuotaOverride> quotas = request.quotaOverrides() == null ? List.of() : List.copyOf(request.quotaOverrides());
-        billingConfigurationValidator.validateSubscriptionOverrides(addOns, quotas);
+        billingConfigurationValidator.validateSubscriptionOverrides(quotas);
 
         Map<String, FeatureDefinition> definitions = featureDefinitionCollectorProvider.getObject().collectByCode();
         Map<String, PlanFeature> planFeatures = planFeatureRepository.findAllByPlanId(targetPlan.getId()).stream()
                 .filter(planFeature -> isSelfServiceAvailable(planFeature, definitions))
                 .collect(Collectors.toMap(planFeature -> planFeature.getFeature().getCode(), Function.identity()));
-
-        for (String featureCode : addOns) {
-            PlanFeature planFeature = planFeatures.get(featureCode);
-            if (planFeature == null) {
-                throw new InvalidRequestException("Feature " + featureCode + " is not available for plan " + targetPlan.getCode() + ".");
-            }
-            if (planFeature.getAddOnPrice() == null) {
-                throw new InvalidRequestException("Feature " + featureCode + " is already included in plan " + targetPlan.getCode() + ".");
-            }
+        List<AddOn> selectedAddOns = addOnRepository.findAllByCodeIn(addOnCodes);
+        if (selectedAddOns.size() != addOnCodes.size()) {
+            throw new InvalidRequestException("One or more selected AddOns do not exist.");
+        }
+        Set<String> entitledFeatureCodes = planFeatures.values().stream()
+                .filter(planFeature -> planFeature.getMode() == PlanFeatureMode.INCLUDED)
+                .map(planFeature -> planFeature.getFeature().getCode())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        for (AddOn addOn : selectedAddOns) {
+            validateSelectedAddOn(addOn, targetPlan, addOnCodes, planFeatures, entitledFeatureCodes, definitions);
         }
 
-        Set<String> entitledFeatureCodes = planFeatures.values().stream()
-                .filter(planFeature -> planFeature.getAddOnPrice() == null
-                        || addOns.contains(planFeature.getFeature().getCode()))
-                .map(planFeature -> planFeature.getFeature().getCode())
-                .collect(Collectors.toSet());
+        SubscriptionEntitlementSnapshot snapshot = subscriptionSnapshotFactory.fromPlan(targetPlan, addOnCodes);
+        Map<String, List<QuotaLimitEntry>> quotaConfigs = snapshot.features().stream()
+                .collect(Collectors.toMap(
+                        feature -> feature.featureCode(),
+                        feature -> feature.quotaConfigs() != null ? feature.quotaConfigs() : List.of()));
 
         for (QuotaOverride quota : quotas) {
             if (!entitledFeatureCodes.contains(quota.featureCode())) {
@@ -319,8 +361,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         "Quota " + quota.featureCode() + "." + quota.resource()
                                 + " is not available in the selected plan entitlement.");
             }
-            PlanFeature planFeature = planFeatures.get(quota.featureCode());
-            boolean knownQuota = safeQuotaConfigs(planFeature).stream()
+            boolean knownQuota = quotaConfigs.getOrDefault(quota.featureCode(), List.of()).stream()
                     .anyMatch(limit -> limit.resource().equals(quota.resource()));
             if (!knownQuota) {
                 throw new InvalidRequestException(
@@ -329,7 +370,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             }
         }
 
-        return new ChangeSelection(addOns, quotas);
+        return new ChangeSelection(addOnCodes, quotas);
     }
 
     private List<SubscriptionChangeConflict> findConflicts(
@@ -396,14 +437,14 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         preview.setStatus(SubscriptionStatus.ACTIVE);
         preview.setEntitlementSnapshot(subscriptionSnapshotReader.write(targetSnapshot));
         preview.setCustomOverrides(subscriptionOverrideReader.write(
-                new SubscriptionOverrides(selection.addOnFeatureCodes(), selection.quotaOverrides())));
+                new SubscriptionOverrides(selection.addOnCodes(), selection.quotaOverrides())));
         return billingCalculator.calculateMoney(preview);
     }
 
     private boolean isNoOp(Subscription current, SubscriptionChangePreviewResponse preview, ChangeSelection selection) {
         SubscriptionOverrides currentOverrides = subscriptionOverrideReader.read(current.getCustomOverrides());
         return current.getPlan().getCode().equals(preview.targetPlanCode())
-                && Objects.equals(currentOverrides.addedFeatures(), selection.addOnFeatureCodes())
+                && Objects.equals(currentOverrides.addOnCodes(), selection.addOnCodes())
                 && Objects.equals(currentOverrides.quotaOverrides(), selection.quotaOverrides());
     }
 
@@ -443,7 +484,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         .map(feature -> feature.featureCode())
                         .collect(Collectors.toSet()))
                 .orElseGet(() -> planFeatureRepository.findAllByPlanId(subscription.getPlan().getId()).stream()
-                        .filter(planFeature -> planFeature.getAddOnPrice() == null)
+                        .filter(planFeature -> planFeature.getMode() == PlanFeatureMode.INCLUDED)
                         .map(planFeature -> planFeature.getFeature().getCode())
                         .collect(Collectors.toSet()));
     }
@@ -494,6 +535,93 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 || planFeature.getFeature().getStatus() == FeatureStatus.BETA);
     }
 
+    private void validateSelectedAddOn(
+            AddOn addOn,
+            Plan plan,
+            Set<String> selectedCodes,
+            Map<String, PlanFeature> planFeatures,
+            Set<String> entitledFeatureCodes,
+            Map<String, FeatureDefinition> definitions
+    ) {
+        if (addOn.getStatus() != AddOnStatus.ACTIVE) {
+            throw new InvalidRequestException("AddOn " + addOn.getCode() + " is not active.");
+        }
+        if (!isAddOnCompatibleWithPlan(addOn, plan, definitions)) {
+            throw new InvalidRequestException(
+                    "AddOn " + addOn.getCode() + " is not available for plan " + plan.getCode() + ".");
+        }
+        if (!selectedCodes.containsAll(addOn.getDependencyCodes())) {
+            throw new InvalidRequestException(
+                    "AddOn " + addOn.getCode() + " requires " + addOn.getDependencyCodes() + ".");
+        }
+        Set<String> selectedExclusions = new LinkedHashSet<>(addOn.getExclusionCodes());
+        selectedExclusions.retainAll(selectedCodes);
+        if (!selectedExclusions.isEmpty()) {
+            throw new InvalidRequestException(
+                    "AddOn " + addOn.getCode() + " conflicts with " + selectedExclusions + ".");
+        }
+        for (AddOnFeature addOnFeature : addOnFeatureRepository.findAllByAddOnId(addOn.getId())) {
+            String featureCode = addOnFeature.getFeature().getCode();
+            PlanFeature planFeature = planFeatures.get(featureCode);
+            if (planFeature == null || planFeature.getMode() != PlanFeatureMode.OPTIONAL_ADD_ON) {
+                throw new InvalidRequestException(
+                        "Plan " + plan.getCode() + " does not allow AddOn feature " + featureCode + ".");
+            }
+            if (!entitledFeatureCodes.add(featureCode)) {
+                throw new InvalidRequestException(
+                        "Selected AddOns overlap entitlement for feature " + featureCode + ".");
+            }
+        }
+    }
+
+    private boolean isAddOnCompatibleWithPlan(
+            AddOn addOn,
+            Plan plan,
+            Map<String, FeatureDefinition> definitions
+    ) {
+        return isAddOnCompatibleWithPlan(addOn, plan, definitions, new LinkedHashSet<>());
+    }
+
+    private boolean isAddOnCompatibleWithPlan(
+            AddOn addOn,
+            Plan plan,
+            Map<String, FeatureDefinition> definitions,
+            Set<String> visited
+    ) {
+        if (!visited.add(addOn.getCode()) || !addOn.isActive()) {
+            return false;
+        }
+        boolean explicitlyAllowed = addOn.getAllowedPlanCodes() == null
+                || addOn.getAllowedPlanCodes().isEmpty()
+                || addOn.getAllowedPlanCodes().contains(plan.getCode());
+        boolean blocked = addOn.getBlockedPlanCodes() != null
+                && addOn.getBlockedPlanCodes().contains(plan.getCode());
+        boolean featuresSupported = addOnFeatureRepository.findAllByAddOnId(addOn.getId()).stream()
+                .allMatch(addOnFeature -> {
+                    FeatureDefinition definition = definitions.get(addOnFeature.getFeature().getCode());
+                    boolean selfServiceAvailable = definition != null
+                            && definition.planAssignable()
+                            && addOnFeature.getFeature().isNewSalesEnabled()
+                            && (addOnFeature.getFeature().getStatus() == FeatureStatus.PUBLIC
+                            || addOnFeature.getFeature().getStatus() == FeatureStatus.BETA);
+                    return selfServiceAvailable && planFeatureRepository
+                            .findByPlanIdAndFeature_Code(plan.getId(), addOnFeature.getFeature().getCode())
+                            .map(planFeature -> planFeature.getMode() == PlanFeatureMode.OPTIONAL_ADD_ON)
+                            .orElse(false);
+                });
+        boolean dependenciesSupported = addOn.getDependencyCodes().stream()
+                .map(addOnRepository::findByCode)
+                .allMatch(dependency -> dependency.isPresent()
+                        && isAddOnCompatibleWithPlan(dependency.get(), plan, definitions, visited));
+        visited.remove(addOn.getCode());
+        return explicitlyAllowed
+                && !blocked
+                && addOn.getCurrencyCode().equals(plan.getCurrencyCode())
+                && addOn.getBillingCycle() == plan.getBillingCycle()
+                && featuresSupported
+                && dependenciesSupported;
+    }
+
     private SubscriptionDto toDto(Subscription subscription) {
         return new SubscriptionDto(
                 subscription.getId(),
@@ -509,7 +637,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     }
 
     private record ChangeSelection(
-            Set<String> addOnFeatureCodes,
+            Set<String> addOnCodes,
             List<QuotaOverride> quotaOverrides
     ) {}
 }

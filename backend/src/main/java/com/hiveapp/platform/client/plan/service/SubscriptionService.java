@@ -17,5 +17,5 @@ public interface SubscriptionService {
     SubscriptionChangePreviewResponse previewChange(UUID accountId, SubscriptionChangeRequest request);
     SubscriptionChangeApplyResponse applyChange(UUID accountId, SubscriptionChangeRequest request);
     Subscription createSubscription(UUID accountId, String planCode);
-    Subscription updateOverrides(UUID accountId, Set<String> featureCodes, List<QuotaOverride> quotaOverrides);
+    Subscription updateOverrides(UUID accountId, Set<String> addOnCodes, List<QuotaOverride> quotaOverrides);
 }

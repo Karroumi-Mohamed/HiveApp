@@ -2,6 +2,8 @@ package com.hiveapp.platform.client.plan.infrastructure;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCodes;
+import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
@@ -56,7 +58,7 @@ public class PlanSeeder {
             ClientSubscriptionFeature.CODE
     );
     private static final List<SeedPlan> BOOTSTRAP_PLANS = List.of(
-            new SeedPlan(PlanCodes.DEFAULT, "Free Plan", BigDecimal.ZERO, BillingCycle.FOREVER,
+            new SeedPlan(PlanCodes.DEFAULT, "Free Plan", BigDecimal.ZERO, BillingCycle.MONTHLY,
                     3L, 1L, null, null),
             new SeedPlan("PRO", "Pro Plan", new BigDecimal("29.99"), BillingCycle.MONTHLY,
                     10L, 5L, "2.00", "5.00"),
@@ -109,7 +111,7 @@ public class PlanSeeder {
             if (WorkspaceFeature.CODE.equals(featureCode)) {
                 seedWorkspace(plan, feature, specification);
             } else {
-                assign(plan, feature, null, List.of());
+                assign(plan, feature, List.of());
             }
         }
     }
@@ -123,15 +125,14 @@ public class PlanSeeder {
                 ? new QuotaLimitEntry(WorkspaceFeature.COMPANIES, specification.companies(),
                         new BigDecimal(specification.companyPrice()), plan.getCurrencyCode())
                 : new QuotaLimitEntry(WorkspaceFeature.COMPANIES, specification.companies());
-        assign(plan, feature, null, List.of(memberEntry, companyEntry));
+        assign(plan, feature, List.of(memberEntry, companyEntry));
     }
 
-    private void assign(Plan plan, Feature feature, BigDecimal addOnPrice,
-                        List<QuotaLimitEntry> quotaConfigs) {
+    private void assign(Plan plan, Feature feature, List<QuotaLimitEntry> quotaConfigs) {
         var pf = new PlanFeature();
         pf.setPlan(plan);
         pf.setFeature(feature);
-        pf.setAddOnMoney(addOnPrice != null ? Money.of(addOnPrice, plan.getCurrencyCode()) : null);
+        pf.setMode(PlanFeatureMode.INCLUDED);
         pf.setQuotaConfigs(quotaConfigs);
         planFeatureRepository.save(pf);
     }
@@ -142,6 +143,7 @@ public class PlanSeeder {
         p.setName(specification.name());
         p.setMoney(Money.of(specification.price(), DEFAULT_CURRENCY));
         p.setBillingCycle(specification.billingCycle());
+        p.setStatus(PlanStatus.ACTIVE);
         return planRepository.save(p);
     }
 

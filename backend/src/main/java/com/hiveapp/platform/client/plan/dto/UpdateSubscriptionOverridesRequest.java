@@ -6,6 +6,6 @@ import java.util.List;
 import java.util.Set;
 
 public record UpdateSubscriptionOverridesRequest(
-        Set<String> featureCodes,
+        Set<String> addOnCodes,
         List<QuotaOverride> quotaOverrides
 ) {}

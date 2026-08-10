@@ -59,7 +59,7 @@ public class SubscriptionAdminController {
                                            @Valid @RequestBody UpdateSubscriptionOverridesRequest request) {
         return subscriptionMapper.toDto(adminSubscriptionService.updateOverrides(
                 accountId,
-                request.featureCodes(),
+                request.addOnCodes(),
                 request.quotaOverrides()
         ));
     }

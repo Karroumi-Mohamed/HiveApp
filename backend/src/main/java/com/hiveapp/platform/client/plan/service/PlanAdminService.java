@@ -1,7 +1,14 @@
 package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
+import com.hiveapp.platform.client.plan.domain.entity.AddOn;
+import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
+import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
+import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.PlanDetailDto;
@@ -21,7 +28,7 @@ public interface PlanAdminService {
 
     Plan updatePlan(UUID planId, UpdatePlanRequest request);
 
-    Plan toggleActive(UUID planId, boolean active);
+    Plan transitionStatus(UUID planId, PlanStatus targetStatus);
 
     void deletePlan(UUID planId);
 
@@ -34,4 +41,22 @@ public interface PlanAdminService {
     PlanFeature updateFeature(UUID planId, UUID planFeatureId, AssignPlanFeatureRequest request);
 
     void removeFeature(UUID planId, UUID planFeatureId);
+
+    List<AddOn> listAddOns();
+
+    AddOn getAddOn(UUID addOnId);
+
+    AddOn createAddOn(CreateAddOnRequest request);
+
+    AddOn updateAddOn(UUID addOnId, UpdateAddOnRequest request);
+
+    AddOn transitionAddOnStatus(UUID addOnId, AddOnStatus targetStatus);
+
+    void deleteAddOn(UUID addOnId);
+
+    AddOnFeature assignAddOnFeature(UUID addOnId, AssignAddOnFeatureRequest request);
+
+    AddOnFeature updateAddOnFeature(UUID addOnId, UUID addOnFeatureId, AssignAddOnFeatureRequest request);
+
+    void removeAddOnFeature(UUID addOnId, UUID addOnFeatureId);
 }

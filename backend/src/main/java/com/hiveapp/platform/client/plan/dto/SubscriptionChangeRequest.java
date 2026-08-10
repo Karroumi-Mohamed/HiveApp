@@ -8,6 +8,6 @@ import java.util.Set;
 
 public record SubscriptionChangeRequest(
         @NotBlank String targetPlanCode,
-        Set<String> addOnFeatureCodes,
+        Set<String> addOnCodes,
         List<QuotaOverride> quotaOverrides
 ) {}

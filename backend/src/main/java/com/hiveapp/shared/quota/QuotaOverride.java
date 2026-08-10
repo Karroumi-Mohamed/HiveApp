@@ -2,7 +2,7 @@ package com.hiveapp.shared.quota;
 
 /**
  * A client-specific quota limit that overrides the plan's default for one slot.
- * Stored in Subscription.custom_overrides JSONB alongside addedFeatures.
+ * Stored in Subscription.custom_overrides JSONB alongside selected AddOn codes.
  *
  * featureCode — the FeatureDefinition.code() that owns this slot (e.g. "platform.workspace").
  * resource    — the slot name (e.g. "members").

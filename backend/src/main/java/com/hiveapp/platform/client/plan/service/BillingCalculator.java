@@ -2,6 +2,8 @@ package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
+import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.shared.quota.QuotaOverride;
@@ -14,11 +16,11 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 
 /**
- * Calculates the monthly price for a subscription.
+ * Calculates the recurring price for a subscription.
  *
  * Formula:
  *   currentPrice = subscriptionSnapshot.basePrice
- *                + sum(snapshotFeature.addOnPrice for each feature in overrides.addedFeatures)
+ *                + sum(snapshotAddOn.price for each AddOn in overrides.addOnCodes)
  *                + sum((override.limit - snapshotLimit.limit) × snapshotLimit.pricePerUnit
  *                      for each quota override where bump > 0)
  *
@@ -30,6 +32,7 @@ import java.math.BigDecimal;
 public class BillingCalculator {
 
     private final PlanFeatureRepository planFeatureRepository;
+    private final AddOnRepository addOnRepository;
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
 
@@ -47,15 +50,13 @@ public class BillingCalculator {
             return total;
         }
 
-        // --- Feature add-on pricing ---
-        if (overrides.addedFeatures() != null) {
-            for (String featureCode : overrides.addedFeatures()) {
-                var snapshotPrice = snapshotFeature(snapshot, featureCode)
-                        .filter(feature -> feature.addOnPrice() != null)
-                        .map(feature -> Money.of(feature.addOnPrice(), feature.addOnCurrencyCode()));
-                var price = snapshotPrice.or(() -> planFeatureRepository.findByPlanIdAndFeature_Code(
-                                sub.getPlan().getId(), featureCode)
-                        .map(planFeature -> planFeature.addOnMoney()))
+        // --- First-class AddOn pricing ---
+        if (overrides.addOnCodes() != null) {
+            for (String addOnCode : overrides.addOnCodes()) {
+                var snapshotPrice = snapshotAddOn(snapshot, addOnCode)
+                        .map(addOn -> Money.of(addOn.price(), addOn.currencyCode()));
+                var price = snapshotPrice.or(() -> addOnRepository.findByCode(addOnCode)
+                                .map(com.hiveapp.platform.client.plan.domain.entity.AddOn::money))
                         .orElse(null);
                 if (price != null) {
                     total = total.add(price);
@@ -109,6 +110,16 @@ public class BillingCalculator {
         }
         return snapshot.features().stream()
                 .filter(feature -> featureCode.equals(feature.featureCode()))
+                .findFirst();
+    }
+
+    private java.util.Optional<SubscriptionAddOnSnapshot> snapshotAddOn(
+            SubscriptionEntitlementSnapshot snapshot, String addOnCode) {
+        if (snapshot == null || snapshot.addOns() == null) {
+            return java.util.Optional.empty();
+        }
+        return snapshot.addOns().stream()
+                .filter(addOn -> addOnCode.equals(addOn.code()))
                 .findFirst();
     }
 

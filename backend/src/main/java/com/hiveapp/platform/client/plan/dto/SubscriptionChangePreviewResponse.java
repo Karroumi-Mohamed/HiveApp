@@ -16,7 +16,7 @@ public record SubscriptionChangePreviewResponse(
         boolean immediateAllowed,
         Set<String> effectiveFeatureCodes,
         List<QuotaLimitEntry> effectiveQuotaLimits,
-        Set<String> addOnFeatureCodes,
+        Set<String> addOnCodes,
         List<QuotaOverride> quotaOverrides,
         List<SubscriptionChangeConflict> conflicts
 ) {}
