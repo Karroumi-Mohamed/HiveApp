@@ -498,7 +498,7 @@ Use one versioned typed snapshot model and one shared parser/validator. Consider
 
 ### PLAN-001 — Plan persistence constraints are weak at the entity level
 
-**Status:** `VERIFY`
+**Status:** `VERIFIED AND RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -518,14 +518,14 @@ Review migrations, request validation, plan services, seeders, and database test
 **Implementation evidence — 2026-08-10**
 
 - Verification confirmed that `plans(code)` already has a database unique constraint; an integration test now proves a duplicate insert fails even when the service pre-check is bypassed.
-- Price and currency were made non-null with explicit precision in Batch 4.1. `billing_cycle` and `is_active` are now also non-null in the generated schema, with direct SQL rejection tests.
+- Price and currency were made non-null with explicit precision in Batch 4.1. `billing_cycle`, lifecycle `status`, and optimistic-lock `version` are non-null in the generated schema, with direct SQL rejection tests.
 - No Flyway migration was added under the agreed unpublished/disposable-H2 policy.
 
 ---
 
 ### PLAN-006 — Boolean plan state cannot implement the decided lifecycle
 
-**Status:** `RESOLVED FOR THE CURRENT DEFAULT — 2026-08-10`
+**Status:** `PARTIALLY RESOLVED — LIFECYCLE FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -545,6 +545,14 @@ Admins can expose unfinished plans, edit something intended as immutable history
 - Make archive terminal/read-only; reuse requires duplication into a new draft and a new valid code.
 - Protect the configured default provisioning plan from deactivation, archive, or deletion until a valid active replacement is installed atomically.
 - Add transition, invalid activation, default replacement, existing-snapshot continuity, archived mutation, authorization, concurrent selection/transition, and audit tests.
+
+**Implementation evidence — 2026-08-10**
+
+- `Plan.status` now uses explicit `DRAFT`, `ACTIVE`, `INACTIVE`, and terminal `ARCHIVED` states; creation starts in DRAFT and bootstrap templates start ACTIVE.
+- Status changes use a validated command. Draft activation requires at least one valid included feature, draft-to-inactive and return-to-draft are rejected, archived plans are read-only/terminal, and only ACTIVE plans can receive new subscriptions.
+- FREE remains the protected provisioning default and now uses a zero-priced MONTHLY recurring cycle so compatible paid monthly AddOns can be offered. Perpetual licensing remains deliberately deferred.
+- Optimistic locking protects concurrent Plan edits. Focused lifecycle and full integration tests cover invalid transitions, activation composition, default protection, provisioning continuity, and persisted constraints.
+- Atomic configurable replacement of the provisioning default, audit records, and the active-template revision workflow remain under PLAN-007/later lifecycle work.
 
 ---
 
@@ -773,7 +781,7 @@ Carry `(featureCode, resource)` as the quota identity through snapshots, effecti
 
 ### PLAN-002 — FREE/default plan availability is not protected
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR THE CURRENT DEFAULT — 2026-08-10`
 
 **Evidence**
 
@@ -852,7 +860,7 @@ Add a database unique constraint, translate conflicts cleanly, and retain the ap
 
 ### PLAN-008 — PlanFeature commercial meaning and subscriber-removal boundaries are implicit
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — EXPLICIT COMMERCIAL MODES IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -876,6 +884,13 @@ Null pricing carries business meaning, new/internal features may enter product t
 - Treat code feature retirement as explicit impact-managed subscriber work; never silently mutate stored snapshots.
 - Keep FeatureDefinition price-free. Treat current add-on/quota prices as plan-contextual only and defer the permanent schema until module bundles, feature add-ons, quota packages/overage, negotiated overrides, currency, tax, and billing precedence are decided together.
 - Add mode, missing-row, duplicate-race, surface/sellability, dependency, future-only edit, explicit current-subscriber removal, stale preview, and audit tests.
+
+**Implementation evidence — 2026-08-10**
+
+- `PlanFeature.mode` explicitly distinguishes `INCLUDED`, `OPTIONAL_ADD_ON`, and `BLOCKED_FOR_PLAN`; nullable per-feature AddOn price fields and all null-based entitlement inference were removed.
+- Only INCLUDED rows may define base quota configuration. Subscription snapshots, entitlement fallback, catalogs, and billing now use explicit mode semantics.
+- Database uniqueness and registry/sellability validation remain enforced. AddOn activation and selection require every bundled feature to be OPTIONAL_ADD_ON on the target Plan, and overlapping effective feature ownership is rejected.
+- Existing subscriber snapshots remain unchanged by template edits. The separate target-aware current-subscriber removal/revision/audit workflow remains under PLAN-007 and later batches.
 
 ---
 
@@ -961,7 +976,7 @@ An admin UI built over these endpoints would force unsafe UUID-driven changes, h
 
 ### PLAN-012 — Current per-feature add-on fields cannot represent the agreed commercial AddOn model
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — FIRST-CLASS ADDON FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -985,6 +1000,15 @@ The backend and replacement UI would force administrators to price technical fea
 - Reuse immediate/renewal change operations, impact preview, locking, pending jobs, data preservation, communication, audit, and per-Account results for AddOn/package changes.
 - Add FREE-plus-add-on, whole-module bundle, custom bundle, dependency/exclusion, duplicate capability, overlapping quota, package stacking, blocked Plan, snapshot/version, immediate/renewal, concurrency, price calculation, and authorization tests.
 
+**Implementation evidence — 2026-08-10**
+
+- Added a versioned `AddOn` aggregate and `AddOnFeature` composition with fixed Money price/currency/cycle, DRAFT/ACTIVE/INACTIVE/ARCHIVED lifecycle, allowed/blocked Plans, dependencies, exclusions, included quota definitions, optimistic locking, and database uniqueness.
+- Added Permissionizer-guarded administration at `/api/admin/add-ons` for catalogue, detail, lifecycle, feature composition, safe draft deletion, and immutable ACTIVE/ARCHIVED boundaries.
+- Subscription requests and overrides now select AddOn identities rather than technical feature codes. Validation enforces active state, Plan/currency/cycle availability, dependency/exclusion rules, OPTIONAL_ADD_ON modes, and non-overlapping capabilities.
+- Immutable entitlement snapshots retain selected AddOn identity, definition version, price/currency/cycle, effective bundled features and quotas. Billing prices the snapshotted AddOn, and the client catalog exposes compatible AddOn composition and quota details.
+- Tests cover FREE-compatible recurring cycles, lifecycle/activation, identity selection, snapshot pricing, uniqueness, administration-to-client-catalog flow, and existing-subscription snapshot isolation.
+- Versioned quota-package products, payment/approval, renewal scheduling, subscriber-wide impact jobs, and full audit history remain intentionally assigned to later batches.
+
 ---
 
 ### PLAN-005 — Purchased subscription terms are not a complete historical snapshot
@@ -993,11 +1017,11 @@ The backend and replacement UI would force administrators to price technical fea
 
 **Evidence**
 
-The entitlement snapshot stores plan code, base price, selected features, add-on prices, and quota configuration. It does not store billing cycle, currency, tax/price version, effective dates, or source template version. The subscription still points to a mutable `Plan` for other display fields.
+The entitlement snapshot now stores plan code, base price, currency, billing cycle, effective features/quotas, and selected AddOn identities, versions, and itemized prices. It still does not store a Plan definition version or lineage, effective dates, tax/adjustment terms, quota-package versions, or a complete historical change record. The subscription also still points to a mutable `Plan` for other display fields.
 
 **Risk**
 
-After plan edits, the system cannot reliably reconstruct the full terms a customer accepted or compare recurring values across monthly/yearly plans. Admin "recurring price" totals sum raw prices without cycle normalization.
+The current snapshot is materially safer, but it still cannot reconstruct every term a customer accepted or explain the lineage and effective period of later changes. Cross-cycle aggregation and invoice/payment history also remain separate unresolved concerns.
 
 **Required fix direction**
 

@@ -1013,7 +1013,7 @@ flowchart TD
 - **Acceptance Criteria**: Duplicate plan codes raise database errors.
 - **Tests**: JPA integration tests.
 - **Future UI Flow**: Plans builder.
-- **Execution Status**: Verified and completed on 2026-08-10. The existing database unique constraint rejects duplicate Plan codes; billing cycle and active state are now also non-null and covered by direct persistence tests.
+- **Execution Status**: Verified and completed on 2026-08-10. The existing database unique constraint rejects duplicate Plan codes; billing cycle, lifecycle status, and optimistic-lock version are non-null and covered by direct persistence tests.
 
 #### [IMPLEMENT] PLAN-002 — FREE/default plan availability is not protected
 - **Prerequisites**: PLAN-001.
@@ -1056,30 +1056,33 @@ flowchart TD
 - **Unlocks**: SUBSCRIPTION-001, PLAN-007.
 - **Order Rationale**: Adds lifecycles (DRAFT, ACTIVE, ARCHIVED).
 - **Affected Backend Areas**: `Plan.java`.
-- **Database Migration**: Yes (add lifecycle state column).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; update generated schema now and establish versioned production migrations when the database baseline is introduced.
 - **Acceptance Criteria**: State field matches enum machine rules.
 - **Tests**: State transition tests.
 - **Future UI Flow**: Plan status dropdown.
+- **Execution Status**: Lifecycle foundation completed on 2026-08-10. Plans now use DRAFT/ACTIVE/INACTIVE/ARCHIVED with validated transitions, activation composition checks, terminal archive behavior, optimistic locking, and protected ACTIVE FREE provisioning. Configurable default replacement and revision/audit workflows remain later work.
 
 #### [IMPLEMENT] PLAN-008 — PlanFeature commercial meaning and subscriber-removal boundaries are implicit
 - **Prerequisites**: PLAN-004.
 - **Unlocks**: PLAN-012, QUOTA-003.
 - **Order Rationale**: Structured JSON packages mappings.
 - **Affected Backend Areas**: `PlanFeature.java`.
-- **Database Migration**: Yes (schema updates for features).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; update generated schema now and establish versioned production migrations when the database baseline is introduced.
 - **Acceptance Criteria**: Configuration objects support distinct packages.
 - **Tests**: JSON mapping unit tests.
 - **Future UI Flow**: Plan features edit form.
+- **Execution Status**: Commercial-mode foundation completed on 2026-08-10. PlanFeature now uses explicit INCLUDED/OPTIONAL_ADD_ON/BLOCKED_FOR_PLAN semantics; null-inferred per-feature AddOn pricing was removed, and entitlement/catalog/snapshot consumers use the explicit mode. Current-subscriber removal remains a separate later operation.
 
 #### [IMPLEMENT] PLAN-012 — Current per-feature add-on fields cannot represent the agreed commercial AddOn model
 - **Prerequisites**: PLAN-008.
 - **Unlocks**: None.
 - **Order Rationale**: Implements explicit AddOn records instead of null-inferred prices.
 - **Affected Backend Areas**: `AddOn.java` (new entity).
-- **Database Migration**: Yes (create `add_ons` table).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; create it through entity-generated schema now and establish versioned production migrations when the database baseline is introduced.
 - **Acceptance Criteria**: Add-on plans are purchasable separately.
 - **Tests**: Add-on purchase integration tests.
 - **Future UI Flow**: Marketplace add-on catalog.
+- **Execution Status**: First-class AddOn foundation completed on 2026-08-10. Versioned AddOns support multi-feature composition, included quotas, price/currency/cycle, lifecycle, Plan availability, dependencies/exclusions, Permissionizer-guarded admin APIs, identity-based subscription selection, compatible client catalog output, immutable snapshots, and billing. Quota packages, payment/approval, renewal scheduling, bulk subscriber effects, and audit history remain in their later batches.
 
 ---
 
@@ -1684,7 +1687,7 @@ flowchart TD
 | **SUBSCRIPTION-001**| Terminological alignment | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | PLAN-006 | Enums corrected |
 | **SUBSCRIPTION-002**| JSON strings | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | SUBSCRIPTION-001 | Converter classes |
 | **PLAN-001** | Database constraints | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.2 | BILLING-003 | Verified unique code plus non-null cycle/state persistence tests |
-| **PLAN-006** | Lifecycle states | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | State column |
+| **PLAN-006** | Lifecycle states | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Validated state machine, terminal archive, optimistic lock; replacement/audit later |
 | **PLAN-007** | Branching revisions | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Draft generation |
 | **BILLING-001** | Checkouts activation | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Payment validation |
 | **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.1 | None | Explicit ISO Money/currency persistence, calculation, and API tests |
@@ -1699,11 +1702,11 @@ flowchart TD
 | **PLAN-002** | Default plan protection | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-001 | Deactivation/deletion blocks and startup invariant |
 | **PLAN-003** | Atomic plan seeding | PARTIAL — SAFE BOOTSTRAP IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-002 | Explicit transactional and idempotent bootstrap tests |
 | **PLAN-004** | Unique assignments | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-003 | Verified DB constraint and race translation |
-| **PLAN-008** | PlanFeature schema | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Quota config JSON |
+| **PLAN-008** | PlanFeature schema | PARTIAL — EXPLICIT MODES IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | INCLUDED/OPTIONAL_ADD_ON/BLOCKED_FOR_PLAN; subscriber removal later |
 | **PLAN-009** | Deletion preview | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-007 | Deletion warnings |
 | **PLAN-010** | Cloning Wizard | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Copy lineages |
 | **PLAN-011** | Subscriber management | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-010 | Pagination |
-| **PLAN-012** | Explicit AddOn | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Add_ons table |
+| **PLAN-012** | Explicit AddOn | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Versioned aggregate, admin API, selection, catalog, snapshots, billing |
 | **PLAN-005** | Immutable snapshots | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | snapshot values |
 | **TIME-001** | Unified Timestamps | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.5 | None | Instants type |
 | **MODULES-001** | Modular Interfaces | PARTIAL | DESIGN FIRST | Phase 6 | Batch 6.4 | None | Boundary check |
