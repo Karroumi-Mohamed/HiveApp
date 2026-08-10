@@ -4,10 +4,14 @@ package com.hiveapp.shared.payment;
  * Swappable payment gateway contract.
  *
  * Swap implementations via Spring @Primary or @ConditionalOnProperty.
- * Current active impl: DevPaymentGateway (always succeeds, no real charges).
- * Future: StripePaymentGateway, etc.
+ * Development simulators must return false from {@link #trustedForSettlement()}.
+ * Only an installed real provider may opt into trusted asynchronous confirmation.
  */
 public interface PaymentGateway {
+
+    default boolean trustedForSettlement() {
+        return false;
+    }
 
     /**
      * Charge the account for a subscription period or one-time add-on.

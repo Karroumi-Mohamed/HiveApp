@@ -4,6 +4,9 @@ import com.hiveapp.platform.admin.service.AdminSubscriptionService;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
+import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.SubscriptionsFeature;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
@@ -21,6 +24,7 @@ import java.util.UUID;
 public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService implements AdminSubscriptionService {
 
     private final SubscriptionService subscriptionService;
+    private final SubscriptionCheckoutService subscriptionCheckoutService;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -53,5 +57,23 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
             List<QuotaPackageSelection> quotaPackages
     ) {
         return subscriptionService.updateOverrides(accountId, addOnCodes, quotaPackages);
+    }
+
+    @Override
+    @PermissionNode(key = "read_changes", description = "View account subscription changes and checkouts")
+    public List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId) {
+        return subscriptionService.listChangeOperations(accountId);
+    }
+
+    @Override
+    @PermissionNode(key = "confirm_checkout", description = "Confirm a subscription checkout manually")
+    public SubscriptionCheckoutDto confirmCheckoutManually(
+            UUID checkoutId,
+            UUID actorUserId,
+            String reference,
+            String reason
+    ) {
+        return subscriptionCheckoutService.toDto(subscriptionCheckoutService.confirmManual(
+                checkoutId, actorUserId, reference, reason));
     }
 }

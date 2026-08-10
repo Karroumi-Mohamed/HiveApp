@@ -18,6 +18,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
+import jakarta.persistence.OneToOne;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -49,6 +50,9 @@ public class SubscriptionChangeOperation extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "result_subscription_id")
     private Subscription resultSubscription;
+
+    @OneToOne(mappedBy = "changeOperation", fetch = FetchType.LAZY)
+    private SubscriptionCheckout checkout;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -86,7 +90,8 @@ public class SubscriptionChangeOperation extends BaseEntity {
     @PrePersist
     @PreUpdate
     void validateOperation() {
-        pendingAccountId = status == SubscriptionChangeStatus.PENDING && account != null
+        pendingAccountId = (status == SubscriptionChangeStatus.PENDING
+                || status == SubscriptionChangeStatus.AWAITING_CONFIRMATION) && account != null
                 ? account.getId()
                 : null;
         if (requestedSelection == null || beforeSnapshot == null || targetSnapshot == null) {

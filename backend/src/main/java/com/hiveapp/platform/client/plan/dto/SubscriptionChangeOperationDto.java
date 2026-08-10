@@ -13,5 +13,6 @@ public record SubscriptionChangeOperationDto(
         Instant effectiveAt,
         String sourcePlanCode,
         String targetPlanCode,
-        String attentionReason
+        String attentionReason,
+        SubscriptionCheckoutDto checkout
 ) {}

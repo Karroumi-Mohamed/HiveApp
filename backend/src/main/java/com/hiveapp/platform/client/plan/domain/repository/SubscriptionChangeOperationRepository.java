@@ -10,12 +10,16 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface SubscriptionChangeOperationRepository extends JpaRepository<SubscriptionChangeOperation, UUID> {
 
     Optional<SubscriptionChangeOperation> findByAccountIdAndStatus(UUID accountId, SubscriptionChangeStatus status);
+
+    Optional<SubscriptionChangeOperation> findTopByAccountIdAndStatusIn(
+            UUID accountId, Collection<SubscriptionChangeStatus> statuses);
 
     Optional<SubscriptionChangeOperation> findByIdAndAccountId(UUID id, UUID accountId);
 

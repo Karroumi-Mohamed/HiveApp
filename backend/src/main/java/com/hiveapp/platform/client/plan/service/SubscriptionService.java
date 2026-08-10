@@ -16,7 +16,8 @@ public interface SubscriptionService {
     Subscription getSubscription(UUID accountId);
     ClientPlanCatalogResponse catalog(UUID accountId);
     SubscriptionChangePreviewResponse previewChange(UUID accountId, SubscriptionChangeRequest request);
-    SubscriptionChangeApplyResponse applyChange(UUID accountId, SubscriptionChangeRequest request);
+    SubscriptionChangeApplyResponse applyChange(
+            UUID accountId, UUID actorUserId, SubscriptionChangeRequest request);
     List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId);
     SubscriptionChangeOperationDto cancelPendingChange(UUID accountId, UUID operationId);
     Subscription createSubscription(UUID accountId, String planCode);

@@ -39,6 +39,8 @@ import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionImpactAnalyzer;
 import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleManager;
 import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
+import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
+import com.hiveapp.platform.client.plan.service.SubscriptionChangeActivationService;
 import com.hiveapp.platform.registry.definition.ClientSubscriptionFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
@@ -90,6 +92,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final SubscriptionLifecycleManager subscriptionLifecycleManager;
     private final SubscriptionPeriodCalculator subscriptionPeriodCalculator;
     private final SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
+    private final SubscriptionCheckoutService subscriptionCheckoutService;
+    private final SubscriptionChangeActivationService subscriptionChangeActivationService;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -170,7 +174,11 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @Override
     @Transactional
     @PermissionNode(key = "apply", description = "Apply a subscription change")
-    public SubscriptionChangeApplyResponse applyChange(UUID accountId, SubscriptionChangeRequest request) {
+    public SubscriptionChangeApplyResponse applyChange(
+            UUID accountId,
+            UUID actorUserId,
+            SubscriptionChangeRequest request
+    ) {
         accountRepository.findByIdForSubscriptionUpdate(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
         SubscriptionChangePreviewResponse preview = previewChange(accountId, request);
@@ -192,26 +200,34 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         SubscriptionChangeOperation operation = newChangeOperation(
                 current, targetPlan, requestedSelection, targetSnapshot, request.effectiveTiming());
 
+        subscriptionChangeOperationRepository.findTopByAccountIdAndStatusIn(
+                        accountId,
+                        List.of(SubscriptionChangeStatus.PENDING,
+                                SubscriptionChangeStatus.AWAITING_CONFIRMATION))
+                .ifPresent(existing -> {
+                    throw new InvalidStateException(
+                            "Account already has an outstanding subscription change. Cancel it before creating another.");
+                });
+
+        Money targetPrice = Money.of(preview.previewPrice(), preview.currencyCode());
+        if (targetPrice.amount().signum() > 0) {
+            operation.setStatus(SubscriptionChangeStatus.AWAITING_CONFIRMATION);
+            SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
+            subscriptionCheckoutService.initiate(savedOperation, targetPrice, actorUserId);
+            return new SubscriptionChangeApplyResponse(
+                    toDto(current), preview, toOperationDto(savedOperation));
+        }
+
         if (request.effectiveTiming() == SubscriptionChangeTiming.AT_RENEWAL) {
-            subscriptionChangeOperationRepository.findByAccountIdAndStatus(
-                            accountId, SubscriptionChangeStatus.PENDING)
-                    .ifPresent(existing -> {
-                        throw new InvalidStateException(
-                                "Account already has a pending renewal change. Cancel it before creating another.");
-                    });
             SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
             return new SubscriptionChangeApplyResponse(toDto(current), preview, toOperationDto(savedOperation));
         }
 
-        Subscription saved = replaceSubscription(
-                current, targetPlan, requestedSelection, targetSnapshot,
-                new SubscriptionPeriodCalculator.Period(
-                        operation.getTargetSnapshot().effectiveFrom(),
-                        operation.getTargetSnapshot().effectiveUntil()));
-        operation.setStatus(SubscriptionChangeStatus.APPLIED);
-        operation.setResultSubscription(saved);
-        SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.save(operation);
-        return new SubscriptionChangeApplyResponse(toDto(saved), preview, toOperationDto(savedOperation));
+        SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
+        savedOperation = subscriptionChangeActivationService.activate(
+                savedOperation, operation.getTargetSnapshot().effectiveFrom());
+        return new SubscriptionChangeApplyResponse(
+                toDto(savedOperation.getResultSubscription()), preview, toOperationDto(savedOperation));
     }
 
     @Override
@@ -230,9 +246,11 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         SubscriptionChangeOperation operation = subscriptionChangeOperationRepository
                 .findByIdAndAccountId(operationId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("SubscriptionChangeOperation", "id", operationId));
-        if (operation.getStatus() != SubscriptionChangeStatus.PENDING) {
-            throw new InvalidStateException("Only pending subscription changes can be cancelled.");
+        if (operation.getStatus() != SubscriptionChangeStatus.PENDING
+                && operation.getStatus() != SubscriptionChangeStatus.AWAITING_CONFIRMATION) {
+            throw new InvalidStateException("Only pending or awaiting-confirmation changes can be cancelled.");
         }
+        subscriptionCheckoutService.cancelFor(operation);
         operation.setStatus(SubscriptionChangeStatus.CANCELLED);
         return toOperationDto(subscriptionChangeOperationRepository.save(operation));
     }
@@ -736,31 +754,6 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return operation;
     }
 
-    private Subscription replaceSubscription(
-            Subscription current,
-            Plan targetPlan,
-            SubscriptionOverrides requestedSelection,
-            SubscriptionEntitlementSnapshot targetSnapshot,
-            SubscriptionPeriodCalculator.Period period
-    ) {
-        UUID accountId = current.getAccount().getId();
-        var usableSubscriptions = subscriptionRepository.findAllByAccountIdAndStatusIn(
-                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
-        usableSubscriptions.forEach(subscriptionLifecycleManager::closeForReplacement);
-        subscriptionRepository.saveAllAndFlush(usableSubscriptions);
-
-        Subscription replacement = new Subscription();
-        replacement.setAccount(current.getAccount());
-        replacement.setPlan(targetPlan);
-        replacement.setCustomOverrides(requestedSelection);
-        replacement.setEntitlementSnapshot(targetSnapshot);
-        replacement.setCurrentMoney(billingCalculator.calculateMoney(replacement));
-        subscriptionLifecycleManager.initialize(replacement, SubscriptionStatus.ACTIVE, period);
-        Subscription saved = subscriptionRepository.saveAndFlush(replacement);
-        subscriptionLifecycleManager.recordOpenPeriod(saved);
-        return saved;
-    }
-
     private SubscriptionChangeOperationDto toOperationDto(SubscriptionChangeOperation operation) {
         return new SubscriptionChangeOperationDto(
                 operation.getId(),
@@ -769,7 +762,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 operation.getEffectiveAt(),
                 operation.getSourceSubscription().getPlan().getCode(),
                 operation.getTargetPlan().getCode(),
-                operation.getAttentionReason());
+                operation.getAttentionReason(),
+                subscriptionCheckoutService.toDto(operation.getCheckout()));
     }
 
     private SubscriptionDto toDto(Subscription subscription) {

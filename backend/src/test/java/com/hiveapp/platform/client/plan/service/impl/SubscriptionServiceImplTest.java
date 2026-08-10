@@ -12,6 +12,7 @@ import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.domain.entity.SubscriptionChangeOperation;
 import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
@@ -29,6 +30,9 @@ import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionImpactAnalyzer;
 import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleManager;
 import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
+import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
+import com.hiveapp.platform.client.plan.service.SubscriptionChangeActivationService;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
@@ -86,6 +90,8 @@ class SubscriptionServiceImplTest {
     @Mock private SubscriptionLifecycleManager subscriptionLifecycleManager;
     @Mock private SubscriptionPeriodCalculator subscriptionPeriodCalculator;
     @Mock private SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
+    @Mock private SubscriptionCheckoutService subscriptionCheckoutService;
+    @Mock private SubscriptionChangeActivationService subscriptionChangeActivationService;
 
     @InjectMocks
     private SubscriptionServiceImpl subscriptionService;
@@ -413,8 +419,9 @@ class SubscriptionServiceImplTest {
     }
 
     @Test
-    void applyChangeCancelsCurrentUsableSubscriptionsAndStoresSnapshotWithOverrides() {
+    void paidApplyCreatesAwaitingConfirmationOperationWithoutChangingEntitlement() {
         UUID accountId = UUID.randomUUID();
+        UUID actorUserId = UUID.randomUUID();
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", accountId);
         Plan free = plan("FREE", true);
@@ -454,26 +461,25 @@ class SubscriptionServiceImplTest {
                 .thenReturn(SubscriptionOverrides.empty());
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.valueOf(29), "USD"));
         when(subscriptionPeriodCalculator.recurring(BillingCycle.MONTHLY)).thenReturn(period());
-        when(subscriptionRepository.findAllByAccountIdAndStatusIn(
-                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
-                .thenReturn(List.of(current));
-        doAnswer(invocation -> {
-            ((Subscription) invocation.getArgument(0)).setStatus(SubscriptionStatus.CANCELLED);
-            return null;
-        }).when(subscriptionLifecycleManager).closeForReplacement(any(Subscription.class));
-        when(subscriptionRepository.saveAndFlush(any(Subscription.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-        when(subscriptionChangeOperationRepository.save(any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(subscriptionChangeOperationRepository.saveAndFlush(any()))
+                .thenAnswer(invocation -> {
+                    var operation = invocation.getArgument(0, SubscriptionChangeOperation.class);
+                    ReflectionTestUtils.setField(operation, "id", UUID.randomUUID());
+                    return operation;
+                });
 
         var response = subscriptionService.applyChange(
                 accountId,
+                actorUserId,
                 new SubscriptionChangeRequest("PRO", Set.of(), List.of()));
 
-        assertThat(current.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
-        assertThat(response.subscription().plan().code()).isEqualTo("PRO");
-        assertThat(response.subscription().currentPrice()).isEqualByComparingTo("29");
-        verify(subscriptionRepository).saveAllAndFlush(List.of(current));
+        assertThat(current.getStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
+        assertThat(response.subscription().plan().code()).isEqualTo("FREE");
+        assertThat(response.operation().status()).isEqualTo(SubscriptionChangeStatus.AWAITING_CONFIRMATION);
+        verify(subscriptionCheckoutService).initiate(
+                any(), org.mockito.ArgumentMatchers.eq(Money.of(BigDecimal.valueOf(29), "USD")),
+                org.mockito.ArgumentMatchers.eq(actorUserId));
+        verify(subscriptionChangeActivationService, never()).activate(any(), any());
     }
 
     private Plan plan(String code, boolean active) {

@@ -16,6 +16,11 @@ import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
+import com.hiveapp.platform.admin.dto.ManualCheckoutConfirmationRequest;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
+import com.hiveapp.shared.security.HiveAppUserDetails;
+import org.springframework.security.core.Authentication;
 
 @RestController
 @RequestMapping("/api/admin/subscriptions")
@@ -64,6 +69,22 @@ public class SubscriptionAdminController {
             @RequestParam int trialDays
     ) {
         return subscriptionMapper.toDto(adminSubscriptionService.createTrial(accountId, planCode, trialDays));
+    }
+
+    @GetMapping("/account/{accountId}/changes")
+    public List<SubscriptionChangeOperationDto> changes(@PathVariable UUID accountId) {
+        return adminSubscriptionService.listChangeOperations(accountId);
+    }
+
+    @PostMapping("/checkouts/{checkoutId}/confirm-manual")
+    public SubscriptionCheckoutDto confirmCheckoutManually(
+            @PathVariable UUID checkoutId,
+            @Valid @RequestBody ManualCheckoutConfirmationRequest request,
+            Authentication authentication
+    ) {
+        UUID actorUserId = ((HiveAppUserDetails) authentication.getPrincipal()).getUserId();
+        return adminSubscriptionService.confirmCheckoutManually(
+                checkoutId, actorUserId, request.reference(), request.reason());
     }
 
     @PatchMapping("/account/{accountId}/overrides")

@@ -14,6 +14,10 @@ hiveapp:
     secret: test-only-hiveapp-jwt-secret-never-use-in-deployment
   activation:
     base-url: http://localhost:5173
+  billing:
+    collection-enabled: false
+    simulator:
+      outcome: PENDING
   admin:
     bootstrap:
       enabled: true

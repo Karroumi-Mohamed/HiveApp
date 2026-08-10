@@ -17,9 +17,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -160,22 +162,77 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
     }
 
     @Test
-    void applyCreatesReplacementSnapshotAndLeavesOneUsableSubscription() throws Exception {
+    void paidApplyWaitsForManualConfirmationThenRevalidatesAndActivates() throws Exception {
         String token = registerClientAndGetToken();
         UUID accountId = currentAccountId(token);
 
-        apply(token, new SubscriptionChangeRequest("PRO", Set.of(), List.of()))
+        String applyResponse = apply(token, new SubscriptionChangeRequest("PRO", Set.of(), List.of()))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.subscription.plan.code").value("PRO"))
-                .andExpect(jsonPath("$.subscription.plan.currencyCode").value("USD"))
-                .andExpect(jsonPath("$.subscription.currentPriceCurrencyCode").value("USD"))
+                .andExpect(jsonPath("$.subscription.plan.code").value("FREE"))
                 .andExpect(jsonPath("$.preview.currencyCode").value("USD"))
-                .andExpect(jsonPath("$.preview.immediateAllowed").value(true));
+                .andExpect(jsonPath("$.preview.immediateAllowed").value(true))
+                .andExpect(jsonPath("$.operation.status").value("AWAITING_CONFIRMATION"))
+                .andExpect(jsonPath("$.operation.checkout.status").value("PENDING_CONFIRMATION"))
+                .andExpect(jsonPath("$.operation.checkout.gatewayAttemptStatus").value("PENDING"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        UUID checkoutId = UUID.fromString(objectMapper.readTree(applyResponse)
+                .get("operation").get("checkout").get("id").asText());
+
+        assertThat(subscriptionRepository.findActiveByAccountId(accountId).orElseThrow()
+                .getEntitlementSnapshot().planCode()).isEqualTo("FREE");
+
+        String adminToken = loginAdminAndGetToken();
+        mockMvc.perform(get("/api/admin/subscriptions/account/{accountId}/changes", accountId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].checkout.id").value(checkoutId.toString()));
+
+        var confirmation = Map.of(
+                "reference", "manual-contract-" + checkoutId,
+                "reason", "Authorized operator confirmed the external settlement");
+        mockMvc.perform(post("/api/admin/subscriptions/checkouts/{checkoutId}/confirm-manual", checkoutId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirmation)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.confirmationSource").value("MANUAL_OPERATOR"));
+
+        // The same reference is an idempotent acknowledgement, not a second activation.
+        mockMvc.perform(post("/api/admin/subscriptions/checkouts/{checkoutId}/confirm-manual", checkoutId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(confirmation)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
 
         var usable = subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
         assertThat(usable).hasSize(1);
         assertThat(usable.getFirst().getEntitlementSnapshot().planCode()).isEqualTo("PRO");
+    }
+
+    @Test
+    void explicitlyZeroPricedChangeActivatesWithoutCreatingFakePayment() throws Exception {
+        String token = registerClientAndGetToken();
+        var pro = planRepository.findByCode("PRO").orElseThrow();
+        BigDecimal originalPrice = pro.getPrice();
+        try {
+            pro.setPrice(BigDecimal.ZERO);
+            planRepository.saveAndFlush(pro);
+
+            apply(token, new SubscriptionChangeRequest("PRO", Set.of(), List.of()))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.subscription.plan.code").value("PRO"))
+                    .andExpect(jsonPath("$.operation.status").value("APPLIED"))
+                    .andExpect(jsonPath("$.operation.checkout").doesNotExist());
+        } finally {
+            var currentPro = planRepository.findByCode("PRO").orElseThrow();
+            currentPro.setPrice(originalPrice);
+            planRepository.saveAndFlush(currentPro);
+        }
     }
 
     @Test
@@ -188,7 +245,8 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.subscription.plan.code").value("FREE"))
                 .andExpect(jsonPath("$.operation.timing").value("AT_RENEWAL"))
-                .andExpect(jsonPath("$.operation.status").value("PENDING"))
+                .andExpect(jsonPath("$.operation.status").value("AWAITING_CONFIRMATION"))
+                .andExpect(jsonPath("$.operation.checkout.status").value("PENDING_CONFIRMATION"))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -198,12 +256,13 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(operationId.toString()))
-                .andExpect(jsonPath("$[0].status").value("PENDING"));
+                .andExpect(jsonPath("$[0].status").value("AWAITING_CONFIRMATION"));
 
         mockMvc.perform(delete("/api/v1/subscriptions/changes/{operationId}", operationId)
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("CANCELLED"));
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.checkout.status").value("CANCELLED"));
 
         mockMvc.perform(get("/api/v1/subscriptions/me")
                         .header("Authorization", bearer(token)))
@@ -234,17 +293,19 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
     }
 
     @Test
-    void concurrentClientChangesSerializeToOneUsableSubscription() throws Exception {
+    void concurrentPaidChangesCreateOnlyOneOutstandingCheckout() throws Exception {
         String token = registerClientAndGetToken();
         UUID accountId = currentAccountId(token);
 
         CompletableFuture<Integer> pro = applyAsync(token, "PRO");
         CompletableFuture<Integer> enterprise = applyAsync(token, "ENTERPRISE");
 
-        assertThat(List.of(pro.join(), enterprise.join())).allSatisfy(status -> assertThat(status).isEqualTo(201));
+        assertThat(List.of(pro.join(), enterprise.join())).containsExactlyInAnyOrder(201, 409);
         assertThat(subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
-                .hasSize(1);
+                .singleElement()
+                .satisfies(subscription -> assertThat(
+                        subscription.getEntitlementSnapshot().planCode()).isEqualTo("FREE"));
     }
 
     private org.springframework.test.web.servlet.ResultActions preview(

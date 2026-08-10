@@ -53,8 +53,8 @@ public class SubscriptionController {
     @PostMapping("/apply")
     @ResponseStatus(HttpStatus.CREATED)
     public SubscriptionChangeApplyResponse apply(@Valid @RequestBody SubscriptionChangeRequest request) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionService.applyChange(accountId, request);
+        var context = HiveAppContextHolder.getContext();
+        return subscriptionService.applyChange(context.currentAccountId(), context.actorUserId(), request);
     }
 
     @GetMapping("/changes")

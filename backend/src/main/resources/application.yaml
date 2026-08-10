@@ -14,6 +14,8 @@ hiveapp:
   activation:
     token-expiration: 24h
     base-url: ${HIVEAPP_FRONTEND_BASE_URL}
+  billing:
+    collection-enabled: ${HIVEAPP_BILLING_COLLECTION_ENABLED:false}
 
 server:
   port: 8080

@@ -9,7 +9,8 @@ public record PaymentRequest(
         UUID accountId,
         BigDecimal amount,
         String currency,
-        String description
+        String description,
+        String idempotencyKey
 ) {
     public PaymentRequest {
         Money money = Money.of(amount, currency);
@@ -18,5 +19,8 @@ public record PaymentRequest(
         }
         amount = money.amount();
         currency = money.currencyCode();
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Payment idempotency key is required");
+        }
     }
 }
