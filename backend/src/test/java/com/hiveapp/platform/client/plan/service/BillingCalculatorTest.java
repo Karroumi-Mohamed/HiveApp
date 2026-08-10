@@ -2,7 +2,10 @@ package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
+import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
@@ -30,6 +33,7 @@ import static org.mockito.Mockito.when;
 class BillingCalculatorTest {
 
     @Mock private PlanFeatureRepository planFeatureRepository;
+    @Mock private AddOnRepository addOnRepository;
     @Mock private SubscriptionOverrideReader subscriptionOverrideReader;
     @Mock private SubscriptionSnapshotReader subscriptionSnapshotReader;
 
@@ -39,28 +43,29 @@ class BillingCalculatorTest {
     void setUp() {
         billingCalculator = new BillingCalculator(
                 planFeatureRepository,
+                addOnRepository,
                 subscriptionOverrideReader,
                 subscriptionSnapshotReader);
     }
 
     @Test
-    void usesSnapshotBaseAndFeatureAddonPricingBeforeLivePlanTemplate() {
-        Subscription subscription = subscription("{\"addedFeatures\":[\"platform.company\"]}");
+    void usesSnapshotBaseAndAddOnPricingBeforeLiveCatalogue() {
+        Subscription subscription = subscription("{\"addOnCodes\":[\"COMPANY_MODULE\"]}");
         subscription.getPlan().setPrice(BigDecimal.valueOf(999));
         SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
                 "PRO",
                 BigDecimal.valueOf(10),
                 "USD",
-                List.of(new SubscriptionFeatureSnapshot(
-                        "platform.company",
-                        BigDecimal.valueOf(5),
-                        "USD",
-                        List.of())));
+                BillingCycle.MONTHLY,
+                List.of(new SubscriptionFeatureSnapshot("platform.company", List.of())),
+                List.of(new SubscriptionAddOnSnapshot(
+                        "COMPANY_MODULE", "Company module", 1, BigDecimal.valueOf(5),
+                        "USD", BillingCycle.MONTHLY, List.of("platform.company"))));
 
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(snapshot));
         when(subscriptionOverrideReader.read(subscription.getCustomOverrides()))
-                .thenReturn(new SubscriptionOverrides(Set.of("platform.company"), List.of()));
+                .thenReturn(new SubscriptionOverrides(Set.of("COMPANY_MODULE"), List.of()));
 
         assertThat(billingCalculator.calculate(subscription)).isEqualByComparingTo("15");
         verifyNoInteractions(planFeatureRepository);
@@ -73,11 +78,11 @@ class BillingCalculatorTest {
                 "PRO",
                 BigDecimal.valueOf(10),
                 "USD",
+                BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(
                         "platform.workspace",
-                        null,
-                        null,
-                        List.of(new QuotaLimitEntry("members", 3L, BigDecimal.valueOf(2), "USD")))));
+                        List.of(new QuotaLimitEntry("members", 3L, BigDecimal.valueOf(2), "USD")))),
+                List.of());
 
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(snapshot));
@@ -92,15 +97,18 @@ class BillingCalculatorTest {
 
     @Test
     void rejectsMixedCurrencySnapshotItemsInsteadOfSilentlyAddingThem() {
-        Subscription subscription = subscription("{\"addedFeatures\":[\"platform.company\"]}");
+        Subscription subscription = subscription("{\"addOnCodes\":[\"COMPANY_MODULE\"]}");
         SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
                 "PRO", BigDecimal.TEN, "USD",
-                List.of(new SubscriptionFeatureSnapshot(
-                        "platform.company", BigDecimal.ONE, "EUR", List.of())));
+                BillingCycle.MONTHLY,
+                List.of(new SubscriptionFeatureSnapshot("platform.company", List.of())),
+                List.of(new SubscriptionAddOnSnapshot(
+                        "COMPANY_MODULE", "Company module", 1, BigDecimal.ONE,
+                        "EUR", BillingCycle.MONTHLY, List.of("platform.company"))));
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(snapshot));
         when(subscriptionOverrideReader.read(subscription.getCustomOverrides()))
-                .thenReturn(new SubscriptionOverrides(Set.of("platform.company"), List.of()));
+                .thenReturn(new SubscriptionOverrides(Set.of("COMPANY_MODULE"), List.of()));
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> billingCalculator.calculateMoney(subscription))
                 .isInstanceOf(IllegalArgumentException.class)

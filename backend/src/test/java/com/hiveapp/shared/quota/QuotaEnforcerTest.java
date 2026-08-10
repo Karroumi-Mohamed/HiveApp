@@ -95,11 +95,11 @@ class QuotaEnforcerTest {
                         "FREE",
                         java.math.BigDecimal.ZERO,
                         "USD",
+                        com.hiveapp.platform.client.plan.domain.constant.BillingCycle.MONTHLY,
                         List.of(new SubscriptionFeatureSnapshot(
                                 WorkspaceFeature.CODE,
-                                null,
-                                null,
-                                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)))))));
+                                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)))),
+                        List.of())));
 
         assertThatThrownBy(() -> quotaEnforcer.check(
                 WorkspaceFeature.definition(), WorkspaceFeature.MEMBERS, accountId, () -> 3L))

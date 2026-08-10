@@ -44,7 +44,9 @@ class SubscriptionSnapshotReaderTest {
 
     @Test
     void writesAndReadsSnapshotJson() {
-        var source = SubscriptionEntitlementSnapshot.empty("FREE", BigDecimal.ZERO, "USD");
+        var source = SubscriptionEntitlementSnapshot.empty(
+                "FREE", BigDecimal.ZERO, "USD",
+                com.hiveapp.platform.client.plan.domain.constant.BillingCycle.MONTHLY);
 
         var json = reader.write(source);
         var parsed = reader.read(json);

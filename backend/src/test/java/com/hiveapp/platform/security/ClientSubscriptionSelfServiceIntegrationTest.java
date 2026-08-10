@@ -1,6 +1,7 @@
 package com.hiveapp.platform.security;
 
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
@@ -71,20 +72,21 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         boolean originalActive = pro.isActive();
 
         try {
-            pro.setActive(false);
+            pro.setStatus(PlanStatus.INACTIVE);
             planRepository.saveAndFlush(pro);
 
             preview(token, new SubscriptionChangeRequest("PRO", Set.of(), List.of()))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.message").value("Inactive plans cannot be selected."));
         } finally {
-            pro.setActive(originalActive);
-            planRepository.saveAndFlush(pro);
+            var currentPro = planRepository.findByCode("PRO").orElseThrow();
+            currentPro.setStatus(originalActive ? PlanStatus.ACTIVE : PlanStatus.INACTIVE);
+            planRepository.saveAndFlush(currentPro);
         }
 
         preview(token, new SubscriptionChangeRequest("FREE", Set.of("platform.plans"), List.of()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Feature platform.plans cannot be assigned to billing configuration."));
+                .andExpect(jsonPath("$.message").value("One or more selected AddOns do not exist."));
     }
 
     @Test
@@ -107,7 +109,7 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
 
             preview(token, new SubscriptionChangeRequest("PRO", Set.of("platform.company"), List.of()))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.message").value("Feature platform.company is not available for billing configuration."));
+                    .andExpect(jsonPath("$.message").value("One or more selected AddOns do not exist."));
         } finally {
             company.setStatus(originalStatus);
             featureRepository.saveAndFlush(company);

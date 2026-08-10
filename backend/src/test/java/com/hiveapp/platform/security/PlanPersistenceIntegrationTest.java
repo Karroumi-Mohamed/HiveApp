@@ -1,8 +1,13 @@
 package com.hiveapp.platform.security;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
+import com.hiveapp.platform.client.plan.domain.entity.AddOn;
+import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
@@ -26,6 +31,8 @@ class PlanPersistenceIntegrationTest extends PlatformShellIntegrationTestSupport
     @Autowired private PlanRepository planRepository;
     @Autowired private PlanFeatureRepository planFeatureRepository;
     @Autowired private FeatureRepository featureRepository;
+    @Autowired private AddOnRepository addOnRepository;
+    @Autowired private AddOnFeatureRepository addOnFeatureRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
 
     @Test
@@ -49,6 +56,7 @@ class PlanPersistenceIntegrationTest extends PlatformShellIntegrationTestSupport
         PlanFeature duplicate = new PlanFeature();
         duplicate.setPlan(free);
         duplicate.setFeature(workspace);
+        duplicate.setMode(PlanFeatureMode.INCLUDED);
         duplicate.setQuotaConfigs(new ArrayList<>());
 
         assertThatThrownBy(() -> planFeatureRepository.saveAndFlush(duplicate))
@@ -56,22 +64,58 @@ class PlanPersistenceIntegrationTest extends PlatformShellIntegrationTestSupport
     }
 
     @Test
-    void databaseRejectsNullPlanBillingCycleAndActiveState() {
-        assertThatThrownBy(() -> insertRawPlan(null, true))
+    void databaseRejectsNullPlanBillingCycleAndLifecycleStatus() {
+        assertThatThrownBy(() -> insertRawPlan(null, "ACTIVE"))
                 .isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> insertRawPlan("MONTHLY", null))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
-    private void insertRawPlan(String billingCycle, Boolean active) {
+    @Test
+    void databaseRejectsDuplicateAddOnCodes() {
+        String code = "ADDON_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        AddOn first = addOn(code);
+        addOnRepository.saveAndFlush(first);
+
+        try {
+            assertThatThrownBy(() -> addOnRepository.saveAndFlush(addOn(code)))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+        } finally {
+            addOnRepository.findByCode(code).ifPresent(addOnRepository::delete);
+        }
+    }
+
+    @Test
+    void databaseRejectsDuplicateFeatureWithinOneAddOn() {
+        AddOn addOn = addOnRepository.saveAndFlush(addOn(
+                "ADDON_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12)));
+        var company = featureRepository.findByCode("platform.company").orElseThrow();
+        AddOnFeature first = new AddOnFeature();
+        first.setAddOn(addOn);
+        first.setFeature(company);
+        addOnFeatureRepository.saveAndFlush(first);
+
+        AddOnFeature duplicate = new AddOnFeature();
+        duplicate.setAddOn(addOn);
+        duplicate.setFeature(company);
+        try {
+            assertThatThrownBy(() -> addOnFeatureRepository.saveAndFlush(duplicate))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+        } finally {
+            addOnFeatureRepository.deleteAll(addOnFeatureRepository.findAllByAddOnId(addOn.getId()));
+            addOnRepository.delete(addOn);
+        }
+    }
+
+    private void insertRawPlan(String billingCycle, String status) {
         Timestamp now = Timestamp.from(Instant.now());
         jdbcTemplate.update("""
                         insert into plans
-                            (id, code, name, price, currency_code, billing_cycle, is_active, created_at, updated_at)
-                        values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            (id, code, name, price, currency_code, billing_cycle, status, version, created_at, updated_at)
+                        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                 UUID.randomUUID(), "RAW_" + UUID.randomUUID().toString().replace("-", ""), "Raw Plan",
-                BigDecimal.ZERO, "USD", billingCycle, active, now, now);
+                BigDecimal.ZERO, "USD", billingCycle, status, 0L, now, now);
     }
 
     private Plan plan(String code) {
@@ -81,5 +125,14 @@ class PlanPersistenceIntegrationTest extends PlatformShellIntegrationTestSupport
         plan.setMoney(Money.zero("USD"));
         plan.setBillingCycle(BillingCycle.MONTHLY);
         return plan;
+    }
+
+    private AddOn addOn(String code) {
+        AddOn addOn = new AddOn();
+        addOn.setCode(code);
+        addOn.setName(code);
+        addOn.setMoney(Money.of(BigDecimal.TEN, "USD"));
+        addOn.setBillingCycle(BillingCycle.MONTHLY);
+        return addOn;
     }
 }

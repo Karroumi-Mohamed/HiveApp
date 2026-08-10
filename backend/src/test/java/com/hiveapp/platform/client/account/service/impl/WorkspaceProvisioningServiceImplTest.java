@@ -7,6 +7,8 @@ import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
@@ -97,7 +99,8 @@ class WorkspaceProvisioningServiceImplTest {
         UUID accountId = UUID.randomUUID();
         User user = user(userId);
         Plan freePlan = freePlan();
-        SubscriptionEntitlementSnapshot snapshot = SubscriptionEntitlementSnapshot.empty("FREE", BigDecimal.ZERO, "USD");
+        SubscriptionEntitlementSnapshot snapshot = SubscriptionEntitlementSnapshot.empty(
+                "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(accountRepository.findByOwner_Id(userId)).thenReturn(Optional.empty());
@@ -161,7 +164,7 @@ class WorkspaceProvisioningServiceImplTest {
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
         plan.setCode("FREE");
         plan.setMoney(Money.zero("USD"));
-        plan.setActive(true);
+        plan.setStatus(PlanStatus.ACTIVE);
         return plan;
     }
 }

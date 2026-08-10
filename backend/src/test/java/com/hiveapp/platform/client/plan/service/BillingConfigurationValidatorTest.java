@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.registry.definition.CompanyFeature;
+import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.PlansFeature;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
@@ -42,7 +43,7 @@ class BillingConfigurationValidatorTest {
     @Test
     void rejectsPlatformControlFeatureForPlanAssignment() {
         assertThatThrownBy(() -> validator.validatePlanFeature(
-                "platform.plans", null, null, List.of(), "USD"))
+                "platform.plans", PlanFeatureMode.INCLUDED, List.of(), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("cannot be assigned");
     }
@@ -52,7 +53,7 @@ class BillingConfigurationValidatorTest {
         when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
 
         assertThatThrownBy(() -> validator.validatePlanFeature(
-                WorkspaceFeature.CODE, null, null,
+                WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
                 List.of(new QuotaLimitEntry("projects", 5L)), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
@@ -63,7 +64,7 @@ class BillingConfigurationValidatorTest {
         when(featureRepository.findByCode(CompanyFeature.CODE)).thenReturn(Optional.of(feature(CompanyFeature.CODE)));
 
         assertThatThrownBy(() -> validator.validatePlanFeature(
-                CompanyFeature.CODE, null, null,
+                CompanyFeature.CODE, PlanFeatureMode.INCLUDED,
                 List.of(new QuotaLimitEntry("companies", 1L)), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
@@ -73,13 +74,15 @@ class BillingConfigurationValidatorTest {
     void rejectsAddonOrQuotaPricingInAnotherCurrency() {
         when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
 
-        assertThatThrownBy(() -> validator.validatePlanFeature(
-                WorkspaceFeature.CODE, java.math.BigDecimal.ONE, "EUR", List.of(), "USD"))
+        assertThatThrownBy(() -> validator.validateAddOnFeature(
+                WorkspaceFeature.CODE,
+                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L,
+                        java.math.BigDecimal.ONE, "EUR")), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("must use plan currency USD");
 
         assertThatThrownBy(() -> validator.validatePlanFeature(
-                WorkspaceFeature.CODE, null, null,
+                WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
                 List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L,
                         java.math.BigDecimal.ONE, "EUR")), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
@@ -87,25 +90,11 @@ class BillingConfigurationValidatorTest {
     }
 
     @Test
-    void rejectsPlatformControlFeatureInSubscriptionAddOns() {
-        assertThatThrownBy(() -> validator.validateSubscriptionOverrides(Set.of("platform.plans"), List.of()))
-                .isInstanceOf(InvalidRequestException.class)
-                .hasMessageContaining("cannot be assigned");
-    }
-
-    @Test
-    void rejectsUnknownSubscriptionFeature() {
-        assertThatThrownBy(() -> validator.validateSubscriptionOverrides(Set.of("platform.unknown"), List.of()))
-                .isInstanceOf(InvalidRequestException.class)
-                .hasMessageContaining("cannot be assigned");
-    }
-
-    @Test
     void rejectsUnknownSubscriptionQuotaSlot() {
         when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
 
         assertThatThrownBy(() -> validator.validateSubscriptionOverrides(
-                Set.of(), List.of(new QuotaOverride(WorkspaceFeature.CODE, "projects", 10L))))
+                List.of(new QuotaOverride(WorkspaceFeature.CODE, "projects", 10L))))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
     }
@@ -115,7 +104,7 @@ class BillingConfigurationValidatorTest {
         when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
 
         validator.validateSubscriptionOverrides(
-                Set.of(), List.of(new QuotaOverride(WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS, 10L)));
+                List.of(new QuotaOverride(WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS, 10L)));
     }
 
     private static Feature feature(String code) {

@@ -8,6 +8,7 @@ import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.service.WorkspaceProvisioningService;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
@@ -57,7 +58,7 @@ class AccountProvisioningIntegrationTest extends PlatformShellIntegrationTestSup
     void unavailableFreePlanRollsBackTheRegistration() throws Exception {
         String email = "no-free-" + UUID.randomUUID() + "@example.com";
         var freePlan = planRepository.findByCode("FREE").orElseThrow();
-        freePlan.setActive(false);
+        freePlan.setStatus(PlanStatus.INACTIVE);
         planRepository.saveAndFlush(freePlan);
 
         try {
@@ -71,8 +72,9 @@ class AccountProvisioningIntegrationTest extends PlatformShellIntegrationTestSup
 
             assertThat(userRepository.findByEmail(email)).isEmpty();
         } finally {
-            freePlan.setActive(true);
-            planRepository.saveAndFlush(freePlan);
+            var currentFreePlan = planRepository.findByCode("FREE").orElseThrow();
+            currentFreePlan.setStatus(PlanStatus.ACTIVE);
+            planRepository.saveAndFlush(currentFreePlan);
         }
     }
 

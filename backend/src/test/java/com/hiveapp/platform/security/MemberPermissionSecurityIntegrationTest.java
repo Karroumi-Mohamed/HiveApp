@@ -289,9 +289,11 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
                 snapshot.planCode(),
                 snapshot.basePrice(),
                 snapshot.currencyCode(),
+                snapshot.billingCycle(),
                 snapshot.features().stream()
                         .filter(feature -> !featureCode.equals(feature.featureCode()))
-                        .toList());
+                        .toList(),
+                snapshot.addOns());
         subscription.setEntitlementSnapshot(subscriptionSnapshotReader.write(updated));
         subscriptionRepository.saveAndFlush(subscription);
     }

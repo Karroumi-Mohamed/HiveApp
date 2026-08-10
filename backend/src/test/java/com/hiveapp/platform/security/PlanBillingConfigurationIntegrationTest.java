@@ -1,10 +1,13 @@
 package com.hiveapp.platform.security;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
+import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
@@ -49,12 +52,14 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         String adminToken = loginAdminAndGetToken();
         UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
 
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.plans", null, null, List.of()))
+        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+                "platform.plans", PlanFeatureMode.INCLUDED, List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Feature platform.plans cannot be assigned to billing configuration."));
 
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.unknown", null, null, List.of()))
+        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+                "platform.unknown", PlanFeatureMode.INCLUDED, List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Feature platform.unknown cannot be assigned to billing configuration."));
@@ -64,14 +69,16 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         try {
             company.setStatus(FeatureStatus.INTERNAL);
             featureRepository.saveAndFlush(company);
-            assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.company", null, null, List.of()))
+            assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+                    "platform.company", PlanFeatureMode.INCLUDED, List.of()))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message")
                             .value("Feature platform.company is not available for billing configuration."));
 
             company.setStatus(FeatureStatus.DEPRECATED);
             featureRepository.saveAndFlush(company);
-            assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest("platform.company", null, null, List.of()))
+            assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+                    "platform.company", PlanFeatureMode.INCLUDED, List.of()))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message")
                             .value("Feature platform.company is not available for billing configuration."));
@@ -87,15 +94,15 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
-                        "platform.workspace", null, null, List.of(new QuotaLimitEntry("projects", 5L))))
+                        "platform.workspace", PlanFeatureMode.INCLUDED,
+                        List.of(new QuotaLimitEntry("projects", 5L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Quota resource projects is not declared for feature platform.workspace."));
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
                         "platform.workspace",
-                        null,
-                        null,
+                        PlanFeatureMode.INCLUDED,
                         List.of(
                                 new QuotaLimitEntry("members", 3L),
                                 new QuotaLimitEntry("members", 4L))))
@@ -104,22 +111,24 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .value("Duplicate quota configuration for platform.workspace.members."));
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
-                        "platform.workspace", null, null, List.of(new QuotaLimitEntry("members", -1L))))
+                        "platform.workspace", PlanFeatureMode.INCLUDED,
+                        List.of(new QuotaLimitEntry("members", -1L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Quota limit cannot be negative."));
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
                         "platform.workspace",
-                        null,
-                        null,
+                        PlanFeatureMode.INCLUDED,
                         List.of(new QuotaLimitEntry("members", 3L, BigDecimal.valueOf(-1), "USD"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Quota price per unit cannot be negative."));
 
         assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
-                        "platform.company", BigDecimal.valueOf(-1), "USD", List.of()))
+                        "platform.company", PlanFeatureMode.OPTIONAL_ADD_ON,
+                        List.of(new QuotaLimitEntry("not-allowed", 1L))))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Feature add-on price cannot be negative."));
+                .andExpect(jsonPath("$.message").value(
+                        "Only included Plan features may define base quota limits."));
     }
 
     @Test
@@ -132,13 +141,14 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .getId();
 
         updatePlanFeature(adminToken, freePlanId, workspacePlanFeatureId, new AssignPlanFeatureRequest(
-                        "platform.company", null, null, List.of()))
+                        "platform.company", PlanFeatureMode.INCLUDED, List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("A plan feature update cannot change its feature code."));
 
         updatePlanFeature(adminToken, freePlanId, workspacePlanFeatureId, new AssignPlanFeatureRequest(
-                        "platform.workspace", null, null, List.of(new QuotaLimitEntry("projects", 5L))))
+                        "platform.workspace", PlanFeatureMode.INCLUDED,
+                        List.of(new QuotaLimitEntry("projects", 5L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Quota resource projects is not declared for feature platform.workspace."));
@@ -154,13 +164,13 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         Set.of("platform.plans"), List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
-                        .value("Feature platform.plans cannot be assigned to billing configuration."));
+                        .value("One or more selected AddOns do not exist."));
 
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
                         Set.of("platform.unknown"), List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
-                        .value("Feature platform.unknown cannot be assigned to billing configuration."));
+                        .value("One or more selected AddOns do not exist."));
 
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
                         Set.of(),
@@ -205,7 +215,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
             featureRepository.saveAndFlush(company);
 
             updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                            Set.of("platform.company"), List.of()))
+                            Set.of(), List.of(new QuotaOverride("platform.company", "members", 1L))))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message")
                             .value("Feature platform.company is not available for billing configuration."));
@@ -222,7 +232,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         UUID accountId = currentAccountId(clientToken);
 
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                        Set.of("platform.company"),
+                        Set.of(),
                         List.of(new QuotaOverride("platform.workspace", "members", 5L))))
                 .andExpect(status().isOk());
 
@@ -230,7 +240,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accountId").value(accountId.toString()))
-                .andExpect(jsonPath("$.customOverrides.addedFeatures", hasItem("platform.company")))
+                .andExpect(jsonPath("$.customOverrides.addOnCodes").isEmpty())
                 .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].featureCode").value("platform.workspace"))
                 .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].resource").value("members"))
                 .andExpect(jsonPath("$.customOverrides.quotaOverrides[0].limit").value(5))
@@ -264,11 +274,11 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(jsonPath("$[*].planCode", hasItem("FREE")))
                 .andExpect(jsonPath("$[*].currentPriceCurrencyCode", hasItem("USD")));
 
-        mockMvc.perform(patch("/api/admin/plans/{planId}/active", freePlanId)
-                        .param("active", "false")
+        mockMvc.perform(patch("/api/admin/plans/{planId}/status", freePlanId)
+                        .param("status", "INACTIVE")
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message", containsString("default FREE plan cannot be deactivated")));
+                .andExpect(jsonPath("$.message", containsString("default FREE plan must remain ACTIVE")));
 
         UUID draftPlanId = createPlan(adminToken, new CreatePlanRequest(
                 "TMP_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(),
@@ -314,6 +324,65 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message", containsString("cannot be deleted")));
+    }
+
+    @Test
+    void adminCanPublishFirstClassAddOnAndCatalogShowsItsComposition() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
+        String planCode = "ADDON_PLAN_" + suffix;
+        String addOnCode = "REPORTING_" + suffix;
+        UUID planId = createPlan(adminToken, new CreatePlanRequest(
+                planCode, "AddOn-ready plan", null, BigDecimal.ZERO, "USD",
+                BillingCycle.MONTHLY, null));
+        UUID companyPlanFeatureId = planFeatureRepository
+                .findByPlanIdAndFeature_Code(planId, "platform.company")
+                .orElseThrow()
+                .getId();
+
+        updatePlanFeature(adminToken, planId, companyPlanFeatureId, new AssignPlanFeatureRequest(
+                "platform.company", PlanFeatureMode.OPTIONAL_ADD_ON, List.of()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").value("OPTIONAL_ADD_ON"));
+        mockMvc.perform(patch("/api/admin/plans/{planId}/status", planId)
+                        .param("status", "ACTIVE")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        String created = mockMvc.perform(post("/api/admin/add-ons")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateAddOnRequest(
+                                addOnCode, "Reporting", "Reporting module", BigDecimal.TEN, "USD",
+                                BillingCycle.MONTHLY, Set.of(planCode), Set.of(), Set.of(), Set.of()))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andReturn().getResponse().getContentAsString();
+        UUID addOnId = UUID.fromString(objectMapper.readTree(created).get("id").asText());
+
+        mockMvc.perform(post("/api/admin/add-ons/{addOnId}/features", addOnId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new AssignAddOnFeatureRequest("platform.company", List.of()))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.featureCode").value("platform.company"));
+        mockMvc.perform(patch("/api/admin/add-ons/{addOnId}/status", addOnId)
+                        .param("status", "ACTIVE")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.features[0].featureCode").value("platform.company"));
+
+        String clientToken = registerClientAndGetToken();
+        mockMvc.perform(get("/api/v1/subscriptions/catalog")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plans[?(@.code == '" + planCode + "')].addOns[0].code")
+                        .value(addOnCode))
+                .andExpect(jsonPath("$.plans[?(@.code == '" + planCode
+                        + "')].addOns[0].features[0].featureCode").value("platform.company"));
     }
 
     private org.springframework.test.web.servlet.ResultActions assignPlanFeature(

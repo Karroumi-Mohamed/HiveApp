@@ -2,12 +2,20 @@ package com.hiveapp.platform.client.plan.service.impl;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.entity.AddOn;
+import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.service.BillingCalculator;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
@@ -17,6 +25,7 @@ import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionUsageService;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
+import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
@@ -57,6 +66,8 @@ class SubscriptionServiceImplTest {
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private PlanRepository planRepository;
     @Mock private PlanFeatureRepository planFeatureRepository;
+    @Mock private AddOnRepository addOnRepository;
+    @Mock private AddOnFeatureRepository addOnFeatureRepository;
     @Mock private AccountRepository accountRepository;
     @Mock private BillingCalculator billingCalculator;
     @Mock private SubscriptionOverrideReader subscriptionOverrideReader;
@@ -73,13 +84,17 @@ class SubscriptionServiceImplTest {
     @Test
     void updateOverridesRejectsInvalidConfigurationBeforePersistence() {
         UUID accountId = UUID.randomUUID();
-        Subscription subscription = new Subscription();
+        Plan plan = plan("PRO", true);
+        ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
+        Subscription subscription = subscription(plan, SubscriptionStatus.ACTIVE);
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
-        doThrow(new InvalidRequestException("Invalid feature"))
-                .when(billingConfigurationValidator).validateSubscriptionOverrides(Set.of("platform.plans"), List.of());
+        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
+        when(featureDefinitionCollector.collectByCode()).thenReturn(Map.of());
+        when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of());
 
-        assertThatThrownBy(() -> subscriptionService.updateOverrides(accountId, Set.of("platform.plans"), List.of()))
-                .isInstanceOf(InvalidRequestException.class);
+        assertThatThrownBy(() -> subscriptionService.updateOverrides(accountId, Set.of("MISSING_ADDON"), List.of()))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("One or more selected AddOns do not exist.");
 
         verify(subscriptionOverrideReader, never()).write(org.mockito.ArgumentMatchers.any());
         verify(subscriptionRepository, never()).save(org.mockito.ArgumentMatchers.any());
@@ -88,16 +103,31 @@ class SubscriptionServiceImplTest {
     @Test
     void updateOverridesPersistsValidatedWorkspaceQuotaIncrease() {
         UUID accountId = UUID.randomUUID();
-        Subscription subscription = new Subscription();
+        Plan plan = plan("PRO", true);
+        ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
+        Subscription subscription = subscription(plan, SubscriptionStatus.ACTIVE);
         List<QuotaOverride> quotaOverrides = List.of(new QuotaOverride("platform.workspace", "members", 10L));
+        PlanFeature workspace = planFeature(plan, WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
+                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)));
+        var snapshot = new SubscriptionEntitlementSnapshot(
+                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                List.of(new SubscriptionFeatureSnapshot(
+                        WorkspaceFeature.CODE, List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)))),
+                List.of());
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
+        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
+        when(featureDefinitionCollector.collectByCode())
+                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+        when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of(workspace));
+        when(subscriptionSnapshotFactory.fromPlan(plan, Set.of())).thenReturn(snapshot);
+        when(subscriptionSnapshotReader.write(snapshot)).thenReturn("{\"planCode\":\"PRO\"}");
         when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any())).thenReturn("{\"quotaOverrides\":[]}");
         when(billingCalculator.calculateMoney(subscription)).thenReturn(Money.of(new BigDecimal("39.99"), "USD"));
         when(subscriptionRepository.save(subscription)).thenReturn(subscription);
 
         Subscription result = subscriptionService.updateOverrides(accountId, Set.of(), quotaOverrides);
 
-        verify(billingConfigurationValidator).validateSubscriptionOverrides(Set.of(), quotaOverrides);
+        verify(billingConfigurationValidator).validateSubscriptionOverrides(quotaOverrides);
         assertThat(result.getCustomOverrides()).isEqualTo("{\"quotaOverrides\":[]}");
         assertThat(result.getCurrentPrice()).isEqualByComparingTo("39.99");
         verify(subscriptionRepository).save(subscription);
@@ -118,8 +148,9 @@ class SubscriptionServiceImplTest {
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
                 .thenReturn(List.of(active, trialing));
         when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any()))
-                .thenReturn("{\"addedFeatures\":[],\"quotaOverrides\":[]}");
-        var snapshot = SubscriptionEntitlementSnapshot.empty("PRO", BigDecimal.ZERO, "USD");
+                .thenReturn("{\"addOnCodes\":[],\"quotaOverrides\":[]}");
+        var snapshot = SubscriptionEntitlementSnapshot.empty(
+                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
         when(subscriptionSnapshotFactory.fromPlan(pro)).thenReturn(snapshot);
         when(subscriptionSnapshotReader.write(snapshot)).thenReturn("{\"planCode\":\"PRO\"}");
         when(subscriptionRepository.saveAndFlush(any(Subscription.class)))
@@ -170,7 +201,7 @@ class SubscriptionServiceImplTest {
     }
 
     @Test
-    void previewRejectsSelectingFeatureAlreadyIncludedInTargetPlanAsAddon() {
+    void previewRejectsUnknownAddOnIdentity() {
         UUID accountId = UUID.randomUUID();
         Plan pro = plan("PRO", true);
         ReflectionTestUtils.setField(pro, "id", UUID.randomUUID());
@@ -187,9 +218,9 @@ class SubscriptionServiceImplTest {
 
         assertThatThrownBy(() -> subscriptionService.previewChange(
                 accountId,
-                new SubscriptionChangeRequest("PRO", Set.of(WorkspaceFeature.CODE), List.of())))
+                new SubscriptionChangeRequest("PRO", Set.of("MISSING_ADDON"), List.of())))
                 .isInstanceOf(InvalidRequestException.class)
-                .hasMessage("Feature platform.workspace is already included in plan PRO.");
+                .hasMessage("One or more selected AddOns do not exist.");
     }
 
     @Test
@@ -207,11 +238,11 @@ class SubscriptionServiceImplTest {
                 "PRO",
                 BigDecimal.ZERO,
                 "USD",
+                BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(
                         WorkspaceFeature.CODE,
-                        null,
-                        null,
-                        List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)))));
+                        List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)))),
+                List.of());
 
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
         when(planRepository.findByCode("PRO")).thenReturn(Optional.of(pro));
@@ -241,6 +272,85 @@ class SubscriptionServiceImplTest {
     }
 
     @Test
+    void previewSelectsFirstClassAddOnByIdentityAndSnapshotsItsFeature() {
+        UUID accountId = UUID.randomUUID();
+        Plan free = plan("FREE", true);
+        ReflectionTestUtils.setField(free, "id", UUID.randomUUID());
+        Subscription current = subscription(free, SubscriptionStatus.ACTIVE);
+        current.setCurrentMoney(Money.zero("USD"));
+        current.setCustomOverrides("{\"addOnCodes\":[],\"quotaOverrides\":[]}");
+        PlanFeature optional = planFeature(
+                free, WorkspaceFeature.CODE, PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
+        AddOn addOn = addOn("EXTRA_MEMBERS");
+        AddOnFeature addOnFeature = new AddOnFeature();
+        addOnFeature.setAddOn(addOn);
+        addOnFeature.setFeature(optional.getFeature());
+        SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
+                "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                List.of(new SubscriptionFeatureSnapshot(WorkspaceFeature.CODE, List.of())),
+                List.of(new SubscriptionAddOnSnapshot(
+                        "EXTRA_MEMBERS", "Extra members", 1, BigDecimal.TEN, "USD",
+                        BillingCycle.MONTHLY, List.of(WorkspaceFeature.CODE))));
+
+        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
+        when(planRepository.findByCode("FREE")).thenReturn(Optional.of(free));
+        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
+        when(featureDefinitionCollector.collectByCode())
+                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+        when(planFeatureRepository.findAllByPlanId(free.getId())).thenReturn(List.of(optional));
+        when(planFeatureRepository.findByPlanIdAndFeature_Code(free.getId(), WorkspaceFeature.CODE))
+                .thenReturn(Optional.of(optional));
+        when(addOnRepository.findAllByCodeIn(Set.of("EXTRA_MEMBERS"))).thenReturn(List.of(addOn));
+        when(addOnFeatureRepository.findAllByAddOnId(addOn.getId())).thenReturn(List.of(addOnFeature));
+        when(subscriptionSnapshotFactory.fromPlan(free, Set.of("EXTRA_MEMBERS"))).thenReturn(snapshot);
+        when(subscriptionSnapshotReader.write(snapshot)).thenReturn("{\"planCode\":\"FREE\"}");
+        when(subscriptionOverrideReader.write(any())).thenReturn("{\"addOnCodes\":[\"EXTRA_MEMBERS\"]}");
+        when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.TEN, "USD"));
+
+        var preview = subscriptionService.previewChange(
+                accountId, new SubscriptionChangeRequest("FREE", Set.of("EXTRA_MEMBERS"), List.of()));
+
+        assertThat(preview.immediateAllowed()).isTrue();
+        assertThat(preview.addOnCodes()).containsExactly("EXTRA_MEMBERS");
+        assertThat(preview.effectiveFeatureCodes()).containsExactly(WorkspaceFeature.CODE);
+        assertThat(preview.previewPrice()).isEqualByComparingTo("10");
+    }
+
+    @Test
+    void catalogHidesActiveAddOnWhenItsFeatureIsNoLongerAvailableForNewSales() {
+        UUID accountId = UUID.randomUUID();
+        Plan plan = plan("FREE", true);
+        ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
+        Subscription current = subscription(plan, SubscriptionStatus.ACTIVE);
+        current.setCurrentMoney(Money.zero("USD"));
+        PlanFeature optional = planFeature(
+                plan, WorkspaceFeature.CODE, PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
+        optional.getFeature().setStatus(FeatureStatus.INTERNAL);
+        AddOn addOn = addOn("EXTRA_MEMBERS");
+        AddOnFeature addOnFeature = new AddOnFeature();
+        addOnFeature.setAddOn(addOn);
+        addOnFeature.setFeature(optional.getFeature());
+
+        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
+        when(subscriptionOverrideReader.read(current.getCustomOverrides()))
+                .thenReturn(SubscriptionOverrides.empty());
+        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
+        when(featureDefinitionCollector.collectByCode())
+                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+        when(planRepository.findAll()).thenReturn(List.of(plan));
+        when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of(optional));
+        when(addOnRepository.findAll()).thenReturn(List.of(addOn));
+        when(addOnFeatureRepository.findAllByAddOnId(addOn.getId())).thenReturn(List.of(addOnFeature));
+
+        var catalog = subscriptionService.catalog(accountId);
+
+        assertThat(catalog.plans()).singleElement().satisfies(catalogPlan -> {
+            assertThat(catalogPlan.features()).isEmpty();
+            assertThat(catalogPlan.addOns()).isEmpty();
+        });
+    }
+
+    @Test
     void applyChangeCancelsCurrentUsableSubscriptionsAndStoresSnapshotWithOverrides() {
         UUID accountId = UUID.randomUUID();
         Account account = new Account();
@@ -251,7 +361,7 @@ class SubscriptionServiceImplTest {
         Subscription current = subscription(free, SubscriptionStatus.ACTIVE);
         current.setAccount(account);
         current.setEntitlementSnapshot("{\"planCode\":\"FREE\"}");
-        current.setCustomOverrides("{\"addedFeatures\":[],\"quotaOverrides\":[]}");
+        current.setCustomOverrides("{\"addOnCodes\":[],\"quotaOverrides\":[]}");
         current.setCurrentMoney(Money.zero("USD"));
         PlanFeature workspace = planFeature(pro, WorkspaceFeature.CODE, null,
                 List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)));
@@ -259,11 +369,11 @@ class SubscriptionServiceImplTest {
                 "PRO",
                 BigDecimal.valueOf(29),
                 "USD",
+                BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(
                         WorkspaceFeature.CODE,
-                        null,
-                        null,
-                        List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)))));
+                        List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)))),
+                List.of());
 
         when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
@@ -274,11 +384,12 @@ class SubscriptionServiceImplTest {
         when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(workspace));
         when(subscriptionSnapshotFactory.fromPlan(pro, Set.of())).thenReturn(targetSnapshot);
         when(subscriptionSnapshotReader.read(current.getEntitlementSnapshot()))
-                .thenReturn(Optional.of(SubscriptionEntitlementSnapshot.empty("FREE", BigDecimal.ZERO, "USD")));
+                .thenReturn(Optional.of(SubscriptionEntitlementSnapshot.empty(
+                        "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY)));
         when(subscriptionSnapshotReader.write(targetSnapshot)).thenReturn("{\"planCode\":\"PRO\"}");
         when(subscriptionOverrideReader.read(current.getCustomOverrides()))
                 .thenReturn(SubscriptionOverrides.empty());
-        when(subscriptionOverrideReader.write(any())).thenReturn("{\"addedFeatures\":[],\"quotaOverrides\":[]}");
+        when(subscriptionOverrideReader.write(any())).thenReturn("{\"addOnCodes\":[],\"quotaOverrides\":[]}");
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.valueOf(29), "USD"));
         when(subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
@@ -300,8 +411,9 @@ class SubscriptionServiceImplTest {
         Plan plan = new Plan();
         plan.setCode(code);
         plan.setName(code);
-        plan.setActive(active);
+        plan.setStatus(active ? PlanStatus.ACTIVE : PlanStatus.INACTIVE);
         plan.setMoney(Money.zero("USD"));
+        plan.setBillingCycle(BillingCycle.MONTHLY);
         return plan;
     }
 
@@ -312,7 +424,8 @@ class SubscriptionServiceImplTest {
         return subscription;
     }
 
-    private PlanFeature planFeature(Plan plan, String featureCode, BigDecimal addOnPrice, List<QuotaLimitEntry> quotas) {
+    private PlanFeature planFeature(
+            Plan plan, String featureCode, PlanFeatureMode mode, List<QuotaLimitEntry> quotas) {
         Feature feature = new Feature();
         feature.setCode(featureCode);
         feature.setStatus(FeatureStatus.PUBLIC);
@@ -320,8 +433,19 @@ class SubscriptionServiceImplTest {
         PlanFeature planFeature = new PlanFeature();
         planFeature.setPlan(plan);
         planFeature.setFeature(feature);
-        planFeature.setAddOnMoney(addOnPrice != null ? Money.of(addOnPrice, "USD") : null);
+        planFeature.setMode(mode != null ? mode : PlanFeatureMode.INCLUDED);
         planFeature.setQuotaConfigs(quotas);
         return planFeature;
+    }
+
+    private AddOn addOn(String code) {
+        AddOn addOn = new AddOn();
+        ReflectionTestUtils.setField(addOn, "id", UUID.randomUUID());
+        addOn.setCode(code);
+        addOn.setName("Extra members");
+        addOn.setMoney(Money.of(BigDecimal.TEN, "USD"));
+        addOn.setBillingCycle(BillingCycle.MONTHLY);
+        addOn.setStatus(AddOnStatus.ACTIVE);
+        return addOn;
     }
 }

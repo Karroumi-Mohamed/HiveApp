@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.infrastructure;
 
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
@@ -121,7 +122,7 @@ class PlanSeederTest {
     private Plan plan(String code, boolean active) {
         Plan plan = new Plan();
         plan.setCode(code);
-        plan.setActive(active);
+        plan.setStatus(active ? PlanStatus.ACTIVE : PlanStatus.INACTIVE);
         return plan;
     }
 }
