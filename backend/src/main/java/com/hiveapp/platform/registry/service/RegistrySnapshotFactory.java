@@ -101,6 +101,19 @@ public class RegistrySnapshotFactory {
                     + missingActions + ", unexpected=" + unexpectedActions);
         }
 
+        for (FeatureDefinition definition : definitions) {
+            validateClassifiedActions(definition, definition.ownerOnlyActions(), "owner-only", actionCodes);
+            validateClassifiedActions(
+                    definition, definition.b2bDelegatableActions(), "B2B-delegatable", actionCodes);
+            Set<String> conflicting = definition.ownerOnlyActions().stream()
+                    .filter(definition.b2bDelegatableActions()::contains)
+                    .collect(Collectors.toCollection(java.util.TreeSet::new));
+            if (!conflicting.isEmpty()) {
+                throw invalid("Feature '" + definition.code()
+                        + "' classifies actions as both owner-only and B2B-delegatable: " + conflicting);
+            }
+        }
+
         List<FeatureDefinition> sortedDefinitions = definitions.stream()
                 .sorted(java.util.Comparator.comparing(FeatureDefinition::code))
                 .toList();
@@ -132,11 +145,14 @@ public class RegistrySnapshotFactory {
             append(canonical, definition.platformAdminRoleGrantable());
             append(canonical, definition.b2bDelegatable());
             append(canonical, definition.publicCatalogVisible());
-            append(canonical, definition.operationsActivationToggleable());
             append(canonical, definition.sortOrder());
             definition.quotaSlots().stream()
                     .sorted(java.util.Comparator.comparing(slot -> slot.resource()))
                     .forEach(slot -> append(canonical, slot));
+            definition.ownerOnlyActions().stream()
+                    .sorted()
+                    .forEach(value -> append(canonical, value));
+            canonical.append('|');
             definition.b2bDelegatableActions().stream()
                     .sorted()
                     .forEach(action -> append(canonical, action));
@@ -155,6 +171,21 @@ public class RegistrySnapshotFactory {
                             .digest(canonical.toString().getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    private void validateClassifiedActions(
+            FeatureDefinition definition,
+            Set<String> actions,
+            String classification,
+            Set<String> discoveredActionCodes) {
+        Set<String> unknown = actions.stream()
+                .map(action -> definition.code() + "." + action)
+                .filter(code -> !discoveredActionCodes.contains(code))
+                .collect(Collectors.toCollection(java.util.TreeSet::new));
+        if (!unknown.isEmpty()) {
+            throw invalid("Feature '" + definition.code() + "' declares unknown "
+                    + classification + " actions: " + unknown);
         }
     }
 

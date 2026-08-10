@@ -6,6 +6,7 @@ import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationPermissionRepository;
 import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import lombok.RequiredArgsConstructor;
+import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -14,6 +15,7 @@ public class B2bCollaborationPolicy implements PermissionPolicy {
 
     private final CollaborationPermissionRepository collaborationPermissionRepository;
     private final PlanEntitlementService planEntitlementService;
+    private final PermissionGrantValidator permissionGrantValidator;
 
     @Override
     public Decision evaluate(Permission requested, Object context) {
@@ -22,6 +24,10 @@ public class B2bCollaborationPolicy implements PermissionPolicy {
         }
 
         if (ctx.collaborationId() == null) return Decision.DENIED;
+
+        if (!permissionGrantValidator.isB2bRuntimeEligible(requested.path())) {
+            return Decision.DENIED;
+        }
 
         boolean isGranted = collaborationPermissionRepository.existsByCollaborationIdAndPermissionCode(
             ctx.collaborationId(), requested.path());

@@ -5,7 +5,7 @@ import com.hiveapp.platform.client.collaboration.dto.InitiateCollaborationReques
 import com.hiveapp.platform.client.collaboration.dto.B2BPermissionRequest;
 import com.hiveapp.platform.client.collaboration.mapper.CollaborationMapper;
 import com.hiveapp.platform.client.collaboration.service.CollaborationService;
-import com.hiveapp.platform.registry.dto.PermissionPickerModuleDto;
+import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 
 import lombok.RequiredArgsConstructor;
@@ -67,11 +67,11 @@ public class CollaborationController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void grantPermission(@PathVariable UUID id, @Valid @RequestBody B2BPermissionRequest req) {
         UUID providerAccountId = HiveAppContextHolder.getContext().currentAccountId();
-        collaborationService.grantPermission(providerAccountId, id, req.permissionCode());
+        collaborationService.grantPermission(providerAccountId, id, req.permissionCode(), req.registryVersion());
     }
 
     @GetMapping("/{id}/permission-catalog")
-    public List<PermissionPickerModuleDto> getPermissionCatalog(@PathVariable UUID id) {
+    public PermissionPickerCatalogDto getPermissionCatalog(@PathVariable UUID id) {
         UUID providerAccountId = HiveAppContextHolder.getContext().currentAccountId();
         return collaborationService.getPermissionCatalog(providerAccountId, id);
     }

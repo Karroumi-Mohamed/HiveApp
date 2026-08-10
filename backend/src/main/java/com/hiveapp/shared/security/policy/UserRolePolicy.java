@@ -7,6 +7,7 @@ import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOver
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
+import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import org.springframework.stereotype.Component;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
 import java.time.Instant;
@@ -18,6 +19,7 @@ public class UserRolePolicy implements PermissionPolicy {
     private final MemberRepository memberRepository;
     private final MemberRoleRepository memberRoleRepository;
     private final MemberPermissionOverrideRepository overrideRepository;
+    private final PermissionGrantValidator permissionGrantValidator;
 
     @Override
     public Decision evaluate(Permission requested, Object context) {
@@ -32,6 +34,10 @@ public class UserRolePolicy implements PermissionPolicy {
         // Workspace owner has full access to everything in their workspace.
         // Overrides and role assignments are irrelevant — owner can always act.
         if (member.isOwner()) return Decision.GRANTED;
+
+        if (!permissionGrantValidator.isClientRoleRuntimeEligible(requested.path())) {
+            return Decision.DENIED;
+        }
 
         // Applicable active DENY exceptions always win over GRANT exceptions and roles.
         var overrides = overrideRepository.findApplicable(member.getId(), ctx.targetCompanyId());

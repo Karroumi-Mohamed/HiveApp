@@ -20,6 +20,7 @@ public class RegistrySyncLockInitializer {
         }
         RegistrySyncLock lock = new RegistrySyncLock();
         lock.setLockName(lockName);
+        lock.setCatalogRevision(0);
         lockRepository.saveAndFlush(lock);
     }
 }

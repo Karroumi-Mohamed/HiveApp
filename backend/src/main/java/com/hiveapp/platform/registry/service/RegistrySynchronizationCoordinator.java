@@ -16,7 +16,7 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class RegistrySynchronizationCoordinator {
 
-    static final String LOCK_NAME = "authoritative-registry";
+    public static final String LOCK_NAME = "authoritative-registry";
 
     private final RegistrySyncLockRepository lockRepository;
     private final RegistrySyncRunRepository runRepository;
@@ -64,6 +64,9 @@ public class RegistrySynchronizationCoordinator {
         run.setDetails(successDetails(permissionResult.orphanedPermissionCodes()));
         runRepository.save(run);
 
+        if (!snapshot.hash().equals(lock.getLastSnapshotHash())) {
+            lock.setCatalogRevision(lock.getCatalogRevision() + 1);
+        }
         lock.setLastSnapshotHash(snapshot.hash());
         lock.setLastBuildVersion(buildVersion);
         lock.setLastCompletedAt(completedAt);

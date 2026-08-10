@@ -52,7 +52,11 @@ public class PublicFeatureCatalogService {
 
     private boolean isPubliclyVisible(Feature feature) {
         return feature != null
-                && feature.isActive()
+                && feature.getModule() != null
+                && feature.getModule().isActive()
+                && feature.isPublicVisible()
+                && feature.isNewSalesEnabled()
+                && feature.isRuntimeEnabled()
                 && (feature.getStatus() == FeatureStatus.PUBLIC || feature.getStatus() == FeatureStatus.BETA);
     }
 

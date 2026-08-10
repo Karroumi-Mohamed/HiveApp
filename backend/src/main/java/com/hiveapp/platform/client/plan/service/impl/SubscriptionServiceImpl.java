@@ -470,7 +470,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         if (definition == null || !definition.planAssignable()) {
             return false;
         }
-        return planFeature.getFeature().isActive()
+        return planFeature.getFeature().isNewSalesEnabled()
                 && (planFeature.getFeature().getStatus() == FeatureStatus.PUBLIC
                 || planFeature.getFeature().getStatus() == FeatureStatus.BETA);
     }

@@ -9,7 +9,7 @@ import com.hiveapp.platform.client.role.dto.RoleImpactDto;
 import com.hiveapp.platform.client.role.domain.constant.RoleChangeType;
 import com.hiveapp.platform.client.role.mapper.RoleMapper;
 import com.hiveapp.platform.client.role.service.RoleService;
-import com.hiveapp.platform.registry.dto.PermissionPickerModuleDto;
+import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -37,9 +37,10 @@ public class RoleController {
     }
 
     @GetMapping("/permission-catalog")
-    public List<PermissionPickerModuleDto> getPermissionCatalog() {
+    public PermissionPickerCatalogDto getPermissionCatalog(
+            @RequestParam(required = false) UUID roleId) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return roleService.getPermissionCatalog(accountId);
+        return roleService.getPermissionCatalog(accountId, roleId);
     }
 
     @GetMapping("/company/{companyId}")
@@ -120,10 +121,11 @@ public class RoleController {
     public RoleDto addPermission(
             @PathVariable UUID id,
             @RequestParam String permissionCode,
+            @RequestParam String registryVersion,
             @RequestParam(required = false) Long expectedVersion,
             @RequestParam(required = false) Long confirmedAssignmentCount) {
         return roleMapper.toDto(roleService.addPermissionToRole(
-                id, permissionCode, expectedVersion, confirmedAssignmentCount));
+                id, permissionCode, registryVersion, expectedVersion, confirmedAssignmentCount));
     }
 
     @DeleteMapping("/{id}/permissions/{permissionCode}")

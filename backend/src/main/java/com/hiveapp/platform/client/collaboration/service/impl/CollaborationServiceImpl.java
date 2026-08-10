@@ -2,7 +2,9 @@ package com.hiveapp.platform.client.collaboration.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,8 +23,9 @@ import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureService;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
-import com.hiveapp.platform.registry.dto.PermissionPickerModuleDto;
+import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
 import com.hiveapp.platform.registry.service.PermissionPickerCatalogService;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.ForbiddenException;
@@ -48,6 +51,7 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     private final PermissionPickerCatalogService permissionPickerCatalogService;
     private final PlanEntitlementService planEntitlementService;
     private final DelegationCeilingService delegationCeilingService;
+    private final RegistryCatalogVersionService catalogVersionService;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -132,12 +136,14 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     @Override
     @Transactional
     @PermissionNode(key = "grant_permission", description = "Grant permissions to this B2B client")
-    public void grantPermission(UUID providerAccountId, UUID collaborationId, String permissionCode) {
+    public void grantPermission(
+            UUID providerAccountId, UUID collaborationId, String permissionCode, String registryVersion) {
         requireCurrentAccount(providerAccountId);
         var collab = getProviderCollaboration(collaborationId, providerAccountId);
         requireProvider(collab, providerAccountId, "Only the provider can grant B2B permissions");
         requireStatus(collab, CollaborationStatus.ACTIVE, "Permissions can only be granted to an active collaboration");
         requireActiveCompany(collab.getCompany());
+        catalogVersionService.requireCurrent(registryVersion);
 
         var perm = regPermissionRepository.findByCode(permissionCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "code", permissionCode));
@@ -185,13 +191,16 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
 
     @Override
     @PermissionNode(key = "permission_catalog", description = "View B2B-delegatable permission catalog")
-    public List<PermissionPickerModuleDto> getPermissionCatalog(UUID providerAccountId, UUID collaborationId) {
+    public PermissionPickerCatalogDto getPermissionCatalog(UUID providerAccountId, UUID collaborationId) {
         requireCurrentAccount(providerAccountId);
         var collab = getProviderCollaboration(collaborationId, providerAccountId);
         requireProvider(collab, providerAccountId, "Only the provider can view grantable B2B permissions");
         requireStatus(collab, CollaborationStatus.ACTIVE, "Permissions can only be granted to an active collaboration");
         requireActiveCompany(collab.getCompany());
-        return permissionPickerCatalogService.b2bDelegationCatalog(providerAccountId);
+        Set<String> selections = permissionRepository.findAllByCollaborationId(collaborationId).stream()
+                .map(entry -> entry.getPermission().getCode())
+                .collect(Collectors.toSet());
+        return permissionPickerCatalogService.b2bDelegationCatalog(providerAccountId, selections);
     }
 
     private void requireProvider(Collaboration collaboration, UUID accountId, String message) {

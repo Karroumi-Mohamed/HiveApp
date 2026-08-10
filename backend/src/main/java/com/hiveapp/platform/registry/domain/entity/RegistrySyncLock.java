@@ -26,4 +26,7 @@ public class RegistrySyncLock extends BaseEntity {
 
     @Column(name = "last_completed_at")
     private Instant lastCompletedAt;
+
+    @Column(name = "catalog_revision", nullable = false)
+    private long catalogRevision;
 }

@@ -45,7 +45,7 @@ public class EffectivePermissionService {
         if (member.isOwner()) {
             var all = permissionRepository.findAll()
                     .stream()
-                    .filter(permissionGrantValidator::isClientRoleGrantable)
+                    .filter(permissionGrantValidator::isOwnerUsable)
                     .filter(p -> planEntitlementService.isPermissionEntitled(accountId, p.getCode()))
                     .map(p -> p.getCode())
                     .collect(Collectors.toSet());
@@ -85,6 +85,8 @@ public class EffectivePermissionService {
         permissions.removeAll(denied);
 
         permissions.removeIf(permissionCode -> !planEntitlementService.isPermissionEntitled(accountId, permissionCode));
+        permissions.removeIf(permissionCode -> !permissionGrantValidator
+                .isClientRoleRuntimeEligible(permissionCode));
         return new MemberPermissionDto(member.getId(), false, permissions);
     }
 }

@@ -1,10 +1,10 @@
 package com.hiveapp.platform.registry.service;
 
-import com.hiveapp.platform.registry.domain.entity.Module;
 import com.hiveapp.platform.registry.dto.FeatureCatalogAudience;
 import com.hiveapp.platform.registry.dto.PermissionCatalogAudience;
 import com.hiveapp.platform.registry.dto.RegistryModuleReadModelDto;
 import com.hiveapp.platform.registry.dto.RegistrySyncRunDto;
+import com.hiveapp.platform.registry.dto.FeatureOperationalChangeDto;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,10 +14,14 @@ import java.util.UUID;
  * Admin responsibilities: catalog activation and plan composition.
  */
 public interface RegistryService {
-    List<Module> getFullInventory();
-    List<Module> getPublicCatalog();
+    List<RegistryModuleReadModelDto> getFullInventory();
     List<RegistryModuleReadModelDto> getFeatureCatalog(FeatureCatalogAudience audience);
     List<RegistryModuleReadModelDto> getPermissionCatalog(PermissionCatalogAudience audience);
     RegistrySyncRunDto getLatestSynchronizationRun();
-    void updateFeatureActive(UUID featureId, boolean active);
+    List<FeatureOperationalChangeDto> getFeatureControlHistory(UUID featureId);
+    void updatePublicVisibility(UUID featureId, boolean enabled, String reason);
+    void updateNewSales(UUID featureId, boolean enabled, String reason);
+    void updateNewGrants(UUID featureId, boolean enabled, String reason);
+    void updateEmergencyRuntime(UUID featureId, boolean enabled, String reason,
+                                boolean impactConfirmed, boolean communicationConfirmed);
 }

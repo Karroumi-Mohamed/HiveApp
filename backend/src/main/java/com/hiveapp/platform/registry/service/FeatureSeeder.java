@@ -24,7 +24,7 @@ import java.util.Objects;
  *   "hr.employees" -> module "hr"
  *
  * quota_schema, lifecycle status, and sort_order are always overwritten from feature definitions — code is source of truth.
- * Admin-managed values such as is_active are never overwritten by the seeder.
+ * Admin-managed visibility, sale, grant, and runtime controls are never overwritten by the seeder.
  */
 @Service
 @RequiredArgsConstructor

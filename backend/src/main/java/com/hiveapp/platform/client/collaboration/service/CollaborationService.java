@@ -2,7 +2,7 @@ package com.hiveapp.platform.client.collaboration.service;
 
 import com.hiveapp.platform.client.collaboration.domain.entity.Collaboration;
 import com.hiveapp.platform.client.collaboration.domain.entity.CollaborationPermission;
-import com.hiveapp.platform.registry.dto.PermissionPickerModuleDto;
+import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,8 +14,8 @@ public interface CollaborationService {
     List<Collaboration> getClientCollaborations(UUID accountId);
     List<Collaboration> getProviderCollaborations(UUID accountId);
 
-    void grantPermission(UUID providerAccountId, UUID collaborationId, String permissionCode);
+    void grantPermission(UUID providerAccountId, UUID collaborationId, String permissionCode, String registryVersion);
     void revokePermission(UUID providerAccountId, UUID collaborationId, String permissionCode);
     List<CollaborationPermission> getPermissions(UUID collaborationId);
-    List<PermissionPickerModuleDto> getPermissionCatalog(UUID providerAccountId, UUID collaborationId);
+    PermissionPickerCatalogDto getPermissionCatalog(UUID providerAccountId, UUID collaborationId);
 }

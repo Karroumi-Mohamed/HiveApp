@@ -19,8 +19,9 @@ import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.definition.WorkspaceRolesFeature;
 import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureService;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
-import com.hiveapp.platform.registry.dto.PermissionPickerModuleDto;
+import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
 import com.hiveapp.platform.registry.service.PermissionPickerCatalogService;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.ForbiddenException;
@@ -42,6 +43,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -58,6 +60,7 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     private final PermissionPickerCatalogService permissionPickerCatalogService;
     private final PlanEntitlementService planEntitlementService;
     private final DelegationCeilingService delegationCeilingService;
+    private final RegistryCatalogVersionService catalogVersionService;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -170,8 +173,9 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     @PermissionNode(key = WorkspaceRolesFeature.GRANT, description = "Grant permission brick to role")
     public Role addPermissionToRole(
             UUID roleId, String permissionCode,
-            Long expectedVersion, Long confirmedAssignmentCount) {
+            String registryVersion, Long expectedVersion, Long confirmedAssignmentCount) {
         Role role = requireLockedRole(roleId);
+        catalogVersionService.requireCurrent(registryVersion);
         requireMutableCustomRole(role);
         if (role.getBoundaryCompany() != null && !role.getBoundaryCompany().isActive()) {
             throw new InvalidStateException("Permissions cannot be added to a role while its company is inactive");
@@ -308,9 +312,18 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
 
     @Override
     @PermissionNode(key = WorkspaceRolesFeature.PERMISSION_CATALOG, description = "View grantable role permissions")
-    public List<PermissionPickerModuleDto> getPermissionCatalog(UUID accountId) {
+    public PermissionPickerCatalogDto getPermissionCatalog(UUID accountId, UUID roleId) {
         requireCurrentAccount(accountId);
-        return permissionPickerCatalogService.clientRoleCatalog(accountId);
+        Set<String> selections = Set.of();
+        if (roleId != null) {
+            Role role = roleRepository.findByIdAndAccountId(roleId, accountId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
+            requireB2bRoleScope(role);
+            selections = role.getPermissions().stream()
+                    .map(rolePermission -> rolePermission.getPermission().getCode())
+                    .collect(Collectors.toSet());
+        }
+        return permissionPickerCatalogService.clientRoleCatalog(accountId, selections);
     }
 
     private void requireCurrentAccount(UUID accountId) {

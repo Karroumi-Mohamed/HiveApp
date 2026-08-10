@@ -94,7 +94,7 @@ public class BillingConfigurationValidator {
         Feature feature = featureRepository.findByCode(featureCode)
                 .orElseThrow(() -> invalid("Feature " + featureCode + " does not exist in the registry."));
 
-        if (!feature.isActive()
+        if (!feature.isNewSalesEnabled()
                 || feature.getStatus() == FeatureStatus.INTERNAL
                 || feature.getStatus() == FeatureStatus.DEPRECATED) {
             throw invalid("Feature " + featureCode + " is not available for billing configuration.");
