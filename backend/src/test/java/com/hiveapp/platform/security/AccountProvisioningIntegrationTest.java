@@ -45,7 +45,8 @@ class AccountProvisioningIntegrationTest extends PlatformShellIntegrationTestSup
         var usable = subscriptionRepository.findAllByAccountIdAndStatusIn(
                 account.getId(), List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
         assertThat(usable).hasSize(1);
-        assertThat(usable.getFirst().getEntitlementSnapshot()).isNotBlank().contains("FREE");
+        assertThat(usable.getFirst().getEntitlementSnapshot()).isNotNull();
+        assertThat(usable.getFirst().getEntitlementSnapshot().planCode()).isEqualTo("FREE");
 
         mockMvc.perform(get("/api/v1/accounts/me")
                         .header("Authorization", bearer(registration.get("accessToken").asText())))

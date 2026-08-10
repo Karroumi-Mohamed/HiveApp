@@ -40,6 +40,7 @@ class SubscriptionSnapshotReaderTest {
         assertThat(snapshot.get().planCode()).isEqualTo("PRO");
         assertThat(snapshot.get().features()).hasSize(1);
         assertThat(snapshot.get().features().getFirst().featureCode()).isEqualTo("platform.company");
+        assertThat(snapshot.get().schemaVersion()).isEqualTo(SubscriptionEntitlementSnapshot.CURRENT_SCHEMA_VERSION);
     }
 
     @Test
@@ -59,5 +60,18 @@ class SubscriptionSnapshotReaderTest {
         assertThatThrownBy(() -> reader.read("{"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessage("Invalid subscription entitlement snapshot JSON.");
+    }
+
+    @Test
+    void rejectsUnsupportedSnapshotSchemaVersion() {
+        assertThatThrownBy(() -> reader.read(Map.of(
+                "schemaVersion", 99,
+                "planCode", "PRO",
+                "basePrice", BigDecimal.TEN,
+                "currencyCode", "USD",
+                "billingCycle", "MONTHLY"
+        )))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("Invalid subscription entitlement snapshot.");
     }
 }

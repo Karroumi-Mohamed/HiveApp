@@ -2,6 +2,7 @@ package com.hiveapp.platform.security;
 
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
@@ -26,6 +27,7 @@ import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -149,9 +151,8 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                     accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
                     .hasSize(1)
                     .first()
-                    .extracting(subscription -> subscription.getEntitlementSnapshot())
-                    .asString()
-                    .contains("\"planCode\":\"FREE\"");
+                    .extracting(subscription -> subscription.getEntitlementSnapshot().planCode())
+                    .isEqualTo("FREE");
         } finally {
             workspace.setQuotaConfigs(original);
             planFeatureRepository.saveAndFlush(workspace);
@@ -174,7 +175,62 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         var usable = subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
         assertThat(usable).hasSize(1);
-        assertThat(usable.getFirst().getEntitlementSnapshot()).contains("\"planCode\":\"PRO\"");
+        assertThat(usable.getFirst().getEntitlementSnapshot().planCode()).isEqualTo("PRO");
+    }
+
+    @Test
+    void renewalChangeStaysPendingAndCanBeCancelledWithoutChangingCurrentAccess() throws Exception {
+        String token = registerClientAndGetToken();
+        var request = new SubscriptionChangeRequest(
+                "PRO", Set.of(), List.of(), SubscriptionChangeTiming.AT_RENEWAL);
+
+        String applyResponse = apply(token, request)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.subscription.plan.code").value("FREE"))
+                .andExpect(jsonPath("$.operation.timing").value("AT_RENEWAL"))
+                .andExpect(jsonPath("$.operation.status").value("PENDING"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        UUID operationId = UUID.fromString(objectMapper.readTree(applyResponse).get("operation").get("id").asText());
+
+        mockMvc.perform(get("/api/v1/subscriptions/changes")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(operationId.toString()))
+                .andExpect(jsonPath("$[0].status").value("PENDING"));
+
+        mockMvc.perform(delete("/api/v1/subscriptions/changes/{operationId}", operationId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        mockMvc.perform(get("/api/v1/subscriptions/me")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plan.code").value("FREE"));
+    }
+
+    @Test
+    void adminCreatedTrialIsVisibleToTheAccountWithExplicitBounds() throws Exception {
+        String token = registerClientAndGetToken();
+        UUID accountId = currentAccountId(token);
+        String adminToken = loginAdminAndGetToken();
+
+        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}/trial", accountId)
+                        .param("planCode", "PRO")
+                        .param("trialDays", "14")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("TRIALING"))
+                .andExpect(jsonPath("$.currentPeriodStart").isNotEmpty())
+                .andExpect(jsonPath("$.currentPeriodEnd").isNotEmpty());
+
+        mockMvc.perform(get("/api/v1/subscriptions/me")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("TRIALING"))
+                .andExpect(jsonPath("$.plan.code").value("PRO"));
     }
 
     @Test

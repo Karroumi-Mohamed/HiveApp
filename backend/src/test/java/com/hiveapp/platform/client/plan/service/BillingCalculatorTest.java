@@ -3,13 +3,10 @@ package com.hiveapp.platform.client.plan.service;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
-import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
-import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot;
-import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.shared.money.Money;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,35 +18,26 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class BillingCalculatorTest {
 
-    @Mock private AddOnRepository addOnRepository;
-    @Mock private QuotaPackageRepository quotaPackageRepository;
-    @Mock private SubscriptionOverrideReader subscriptionOverrideReader;
     @Mock private SubscriptionSnapshotReader subscriptionSnapshotReader;
 
     private BillingCalculator billingCalculator;
 
     @BeforeEach
     void setUp() {
-        billingCalculator = new BillingCalculator(
-                addOnRepository,
-                quotaPackageRepository,
-                subscriptionOverrideReader,
-                subscriptionSnapshotReader);
+        billingCalculator = new BillingCalculator(subscriptionSnapshotReader);
     }
 
     @Test
     void usesSnapshotBaseAndAddOnPricingBeforeLiveCatalogue() {
-        Subscription subscription = subscription("{\"addOnCodes\":[\"COMPANY_MODULE\"]}");
+        Subscription subscription = subscription();
         subscription.getPlan().setPrice(BigDecimal.valueOf(999));
         SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
                 "PRO",
@@ -65,12 +53,11 @@ class BillingCalculatorTest {
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(snapshot));
         assertThat(billingCalculator.calculate(subscription)).isEqualByComparingTo("15");
-        verifyNoInteractions(addOnRepository, quotaPackageRepository, subscriptionOverrideReader);
     }
 
     @Test
     void usesSnapshotQuotaPackagePricingBeforeLiveCatalogue() {
-        Subscription subscription = subscription("{\"quotaPackages\":[{\"packageCode\":\"MEMBERS_10\"}]}");
+        Subscription subscription = subscription();
         SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
                 "PRO",
                 BigDecimal.valueOf(10),
@@ -85,12 +72,11 @@ class BillingCalculatorTest {
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(snapshot));
         assertThat(billingCalculator.calculate(subscription)).isEqualByComparingTo("14");
-        verifyNoInteractions(addOnRepository, quotaPackageRepository, subscriptionOverrideReader);
     }
 
     @Test
     void rejectsMixedCurrencySnapshotItemsInsteadOfSilentlyAddingThem() {
-        Subscription subscription = subscription("{\"addOnCodes\":[\"COMPANY_MODULE\"]}");
+        Subscription subscription = subscription();
         SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
                 "PRO", BigDecimal.TEN, "USD",
                 BillingCycle.MONTHLY,
@@ -106,7 +92,7 @@ class BillingCalculatorTest {
                 .hasMessageContaining("Currency mismatch");
     }
 
-    private Subscription subscription(String overrides) {
+    private Subscription subscription() {
         Plan plan = new Plan();
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
         plan.setCode("PRO");
@@ -114,8 +100,9 @@ class BillingCalculatorTest {
 
         Subscription subscription = new Subscription();
         subscription.setPlan(plan);
-        subscription.setCustomOverrides(overrides);
-        subscription.setEntitlementSnapshot("{\"snapshot\":true}");
+        subscription.setCustomOverrides(com.hiveapp.platform.client.plan.dto.SubscriptionOverrides.empty());
+        subscription.setEntitlementSnapshot(SubscriptionEntitlementSnapshot.empty(
+                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY));
         return subscription;
     }
 }

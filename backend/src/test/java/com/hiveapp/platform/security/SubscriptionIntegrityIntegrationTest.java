@@ -12,6 +12,7 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
+import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -188,6 +189,17 @@ class SubscriptionIntegrityIntegrationTest extends PlatformShellIntegrationTestS
         subscription.setPlan(plan);
         subscription.setStatus(status);
         subscription.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
+        Instant startsAt = Instant.now();
+        Instant endsAt = startsAt.plusSeconds(2_592_000);
+        subscription.setCurrentPeriodStart(startsAt);
+        subscription.setCurrentPeriodEnd(endsAt);
+        SubscriptionEntitlementSnapshot existingSnapshot = subscriptionRepository
+                .findAllByAccountIdAndStatusIn(account.getId(), List.of(SubscriptionStatus.values()))
+                .stream()
+                .findFirst()
+                .map(Subscription::getEntitlementSnapshot)
+                .orElseThrow();
+        subscription.setEntitlementSnapshot(existingSnapshot.withEffectivePeriod(startsAt, endsAt));
         subscription.setCurrentMoney(plan.getPrice() != null
                 ? plan.money()
                 : com.hiveapp.shared.money.Money.zero(plan.getCurrencyCode()));

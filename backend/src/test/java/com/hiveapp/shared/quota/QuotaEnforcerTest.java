@@ -2,9 +2,7 @@ package com.hiveapp.shared.quota;
 
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
-import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
-import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
@@ -31,7 +29,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class QuotaEnforcerTest {
 
-    @Mock private PlanFeatureRepository planFeatureRepository;
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private SubscriptionSnapshotReader subscriptionSnapshotReader;
 
@@ -41,10 +38,7 @@ class QuotaEnforcerTest {
 
     @BeforeEach
     void setUp() {
-        quotaEnforcer = new QuotaEnforcer(
-                planFeatureRepository,
-                subscriptionRepository,
-                subscriptionSnapshotReader);
+        quotaEnforcer = new QuotaEnforcer(subscriptionRepository, subscriptionSnapshotReader);
         accountId = UUID.randomUUID();
         planId = UUID.randomUUID();
     }
@@ -52,10 +46,9 @@ class QuotaEnforcerTest {
     @Test
     void deniesWhenCurrentUsageHasReachedPlanLimit() {
         when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.ACTIVE))
-                .thenReturn(Optional.of(subscription(null)));
-        when(subscriptionSnapshotReader.read(null)).thenReturn(Optional.empty());
-        when(planFeatureRepository.findByPlanIdAndFeature_Code(planId, WorkspaceFeature.CODE))
-                .thenReturn(Optional.of(planFeature(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L))));
+                .thenReturn(Optional.of(subscription(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L))));
+        when(subscriptionSnapshotReader.read(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
 
         assertThatThrownBy(() -> quotaEnforcer.check(
                 WorkspaceFeature.definition(), WorkspaceFeature.MEMBERS, accountId, () -> 3L))
@@ -68,10 +61,9 @@ class QuotaEnforcerTest {
     void unlimitedPlanQuotaSkipsUsageEvaluation() {
         AtomicBoolean evaluated = new AtomicBoolean();
         when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.ACTIVE))
-                .thenReturn(Optional.of(subscription(null)));
-        when(subscriptionSnapshotReader.read(null)).thenReturn(Optional.empty());
-        when(planFeatureRepository.findByPlanIdAndFeature_Code(planId, WorkspaceFeature.CODE))
-                .thenReturn(Optional.of(planFeature(new QuotaLimitEntry(WorkspaceFeature.COMPANIES, null))));
+                .thenReturn(Optional.of(subscription(new QuotaLimitEntry(WorkspaceFeature.COMPANIES, null))));
+        when(subscriptionSnapshotReader.read(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> Optional.of(invocation.getArgument(0)));
 
         quotaEnforcer.check(WorkspaceFeature.definition(), WorkspaceFeature.COMPANIES, accountId, () -> {
             evaluated.set(true);
@@ -83,8 +75,7 @@ class QuotaEnforcerTest {
 
     @Test
     void snapshotQuotaIsUsedWithoutLivePlanFeature() {
-        Subscription subscription = subscription(null);
-        subscription.setEntitlementSnapshot("{\"snapshot\":true}");
+        Subscription subscription = subscription(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L));
         when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.ACTIVE))
                 .thenReturn(Optional.of(subscription));
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
@@ -103,13 +94,11 @@ class QuotaEnforcerTest {
                 WorkspaceFeature.definition(), WorkspaceFeature.MEMBERS, accountId, () -> 3L))
                 .isInstanceOf(QuotaExceededException.class);
 
-        verifyNoInteractions(planFeatureRepository);
     }
 
     @Test
     void snapshottedQuotaPackageRaisesTheFeatureQualifiedLimit() {
-        Subscription subscription = subscription(null);
-        subscription.setEntitlementSnapshot("{\"snapshot\":true}");
+        Subscription subscription = subscription(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L));
         when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.ACTIVE))
                 .thenReturn(Optional.of(subscription));
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
@@ -127,7 +116,6 @@ class QuotaEnforcerTest {
 
         quotaEnforcer.check(WorkspaceFeature.definition(), WorkspaceFeature.MEMBERS, accountId, () -> 4L);
 
-        verifyNoInteractions(planFeatureRepository);
     }
 
     @Test
@@ -143,18 +131,31 @@ class QuotaEnforcerTest {
                 .hasMessageContaining("Subscription");
     }
 
-    private Subscription subscription(String customOverrides) {
+    @Test
+    void missingSnapshotFailsClosedInsteadOfTreatingQuotaAsUnlimited() {
+        Subscription subscription = subscription(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L));
+        when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.ACTIVE))
+                .thenReturn(Optional.of(subscription));
+        when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> quotaEnforcer.check(
+                WorkspaceFeature.definition(), WorkspaceFeature.MEMBERS, accountId, () -> 0L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("snapshot is required");
+    }
+
+    private Subscription subscription(QuotaLimitEntry limit) {
         Plan plan = new Plan();
         ReflectionTestUtils.setField(plan, "id", planId);
         Subscription subscription = new Subscription();
         subscription.setPlan(plan);
-        subscription.setCustomOverrides(customOverrides);
+        subscription.setCustomOverrides(com.hiveapp.platform.client.plan.dto.SubscriptionOverrides.empty());
+        subscription.setEntitlementSnapshot(new SubscriptionEntitlementSnapshot(
+                "FREE", java.math.BigDecimal.ZERO, "USD",
+                com.hiveapp.platform.client.plan.domain.constant.BillingCycle.MONTHLY,
+                limit == null ? List.of() : List.of(new SubscriptionFeatureSnapshot(
+                        WorkspaceFeature.CODE, List.of(limit))),
+                List.of(), List.of()));
         return subscription;
-    }
-
-    private PlanFeature planFeature(QuotaLimitEntry limit) {
-        PlanFeature planFeature = new PlanFeature();
-        planFeature.setQuotaConfigs(List.of(limit));
-        return planFeature;
     }
 }

@@ -76,7 +76,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         String providerToken = registerClientAndGetToken();
         String clientToken = registerClientAndGetToken();
         UUID companyId = UUID.fromString(createCompany(providerToken, "Provider Company").get("id").asText());
-        String originalSnapshot = removeFeatureFromActiveSubscription(clientToken, "platform.b2b");
+        SubscriptionEntitlementSnapshot originalSnapshot = removeFeatureFromActiveSubscription(clientToken, "platform.b2b");
 
         try {
             mockMvc.perform(post("/api/v1/collaborations/initiate")
@@ -144,7 +144,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
     @Test
     void providerPlanDenialHidesAndRejectsB2bDelegationPermission() throws Exception {
         B2bSetup setup = setupActiveCollaboration();
-        String originalSnapshot = removeFeatureFromActiveSubscription(setup.providerToken(), "platform.company");
+        SubscriptionEntitlementSnapshot originalSnapshot = removeFeatureFromActiveSubscription(setup.providerToken(), "platform.company");
 
         try {
             mockMvc.perform(get("/api/v1/collaborations/{id}/permission-catalog", setup.collaborationId())
@@ -166,7 +166,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         B2bSetup setup = setupActiveCollaboration();
         grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.read_single")
                 .andExpect(status().isNoContent());
-        String originalSnapshot = removeFeatureFromActiveSubscription(setup.clientToken(), "platform.b2b");
+        SubscriptionEntitlementSnapshot originalSnapshot = removeFeatureFromActiveSubscription(setup.clientToken(), "platform.b2b");
 
         try {
             b2bCompanyRead(setup)
@@ -182,7 +182,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         B2bSetup setup = setupActiveCollaboration();
         grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.read_single")
                 .andExpect(status().isNoContent());
-        String originalSnapshot = removeFeatureFromActiveSubscription(setup.providerToken(), "platform.company");
+        SubscriptionEntitlementSnapshot originalSnapshot = removeFeatureFromActiveSubscription(setup.providerToken(), "platform.company");
 
         try {
             b2bCompanyRead(setup)
@@ -359,9 +359,9 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         return UUID.fromString(objectMapper.readTree(response).get("id").asText());
     }
 
-    private String removeFeatureFromActiveSubscription(String token, String featureCode) throws Exception {
+    private SubscriptionEntitlementSnapshot removeFeatureFromActiveSubscription(String token, String featureCode) throws Exception {
         var subscription = subscriptionRepository.findActiveByAccountId(currentAccountId(token)).orElseThrow();
-        String originalSnapshot = subscription.getEntitlementSnapshot();
+        SubscriptionEntitlementSnapshot originalSnapshot = subscription.getEntitlementSnapshot();
         var snapshot = subscriptionSnapshotReader.read(originalSnapshot).orElseThrow();
         var updated = new SubscriptionEntitlementSnapshot(
                 snapshot.planCode(),
@@ -377,7 +377,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         return originalSnapshot;
     }
 
-    private void restoreActiveSubscriptionSnapshot(String token, String snapshot) throws Exception {
+    private void restoreActiveSubscriptionSnapshot(String token, SubscriptionEntitlementSnapshot snapshot) throws Exception {
         var subscription = subscriptionRepository.findActiveByAccountId(currentAccountId(token)).orElseThrow();
         subscription.setEntitlementSnapshot(snapshot);
         subscriptionRepository.saveAndFlush(subscription);

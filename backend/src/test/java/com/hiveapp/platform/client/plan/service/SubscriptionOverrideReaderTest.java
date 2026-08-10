@@ -33,6 +33,7 @@ class SubscriptionOverrideReaderTest {
 
         assertThat(overrides.addOnCodes()).containsExactly("COMPANY_MODULE");
         assertThat(overrides.quotaPackages()).isEmpty();
+        assertThat(overrides.schemaVersion()).isEqualTo(SubscriptionOverrides.CURRENT_SCHEMA_VERSION);
     }
 
     @Test
@@ -46,6 +47,17 @@ class SubscriptionOverrideReaderTest {
     void rejectsInvalidStructuredOverridesAsInvalidRequest() {
         assertThatThrownBy(() -> reader.read(Map.of(
                 "addOnCodes", 42,
+                "quotaPackages", Set.of()
+        )))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("Invalid subscription overrides.");
+    }
+
+    @Test
+    void rejectsUnsupportedOverrideSchemaVersion() {
+        assertThatThrownBy(() -> reader.read(Map.of(
+                "schemaVersion", 99,
+                "addOnCodes", Set.of(),
                 "quotaPackages", Set.of()
         )))
                 .isInstanceOf(InvalidRequestException.class)

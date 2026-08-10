@@ -19,13 +19,16 @@ import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.service.BillingCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
-import com.hiveapp.platform.client.plan.service.SubscriptionUsageService;
+import com.hiveapp.platform.client.plan.service.SubscriptionImpactAnalyzer;
+import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleManager;
+import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
@@ -58,6 +61,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -78,7 +82,10 @@ class SubscriptionServiceImplTest {
     @Mock private SubscriptionSnapshotReader subscriptionSnapshotReader;
     @Mock private ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
     @Mock private FeatureDefinitionCollector featureDefinitionCollector;
-    @Mock private SubscriptionUsageService subscriptionUsageService;
+    @Mock private SubscriptionImpactAnalyzer subscriptionImpactAnalyzer;
+    @Mock private SubscriptionLifecycleManager subscriptionLifecycleManager;
+    @Mock private SubscriptionPeriodCalculator subscriptionPeriodCalculator;
+    @Mock private SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
 
     @InjectMocks
     private SubscriptionServiceImpl subscriptionService;
@@ -126,14 +133,14 @@ class SubscriptionServiceImplTest {
         when(quotaPackageRepository.findAllByCodeIn(Set.of("MEMBERS_10")))
                 .thenReturn(List.of(quotaPackage));
         when(subscriptionSnapshotFactory.fromPlan(plan, Set.of(), quotaPackages)).thenReturn(snapshot);
-        when(subscriptionSnapshotReader.write(snapshot)).thenReturn("{\"planCode\":\"PRO\"}");
-        when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any())).thenReturn("{\"quotaPackages\":[]}");
+        when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(billingCalculator.calculateMoney(subscription)).thenReturn(Money.of(new BigDecimal("39.99"), "USD"));
         when(subscriptionRepository.save(subscription)).thenReturn(subscription);
 
         Subscription result = subscriptionService.updateOverrides(accountId, Set.of(), quotaPackages);
 
-        assertThat(result.getCustomOverrides()).isEqualTo("{\"quotaPackages\":[]}");
+        assertThat(result.getCustomOverrides().quotaPackages()).containsExactlyElementsOf(quotaPackages);
         assertThat(result.getCurrentPrice()).isEqualByComparingTo("39.99");
         verify(subscriptionRepository).save(subscription);
     }
@@ -183,12 +190,30 @@ class SubscriptionServiceImplTest {
         when(subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
                 .thenReturn(List.of(active, trialing));
+        doAnswer(invocation -> {
+            ((Subscription) invocation.getArgument(0)).setStatus(SubscriptionStatus.CANCELLED);
+            return null;
+        }).when(subscriptionLifecycleManager).closeForReplacement(any(Subscription.class));
+        doAnswer(invocation -> {
+            Subscription value = invocation.getArgument(0);
+            value.setStatus(invocation.getArgument(1));
+            SubscriptionPeriodCalculator.Period valuePeriod = invocation.getArgument(2);
+            value.setCurrentPeriodStart(valuePeriod.startsAt());
+            value.setCurrentPeriodEnd(valuePeriod.endsAt());
+            value.setEntitlementSnapshot(value.getEntitlementSnapshot()
+                    .withEffectivePeriod(valuePeriod.startsAt(), valuePeriod.endsAt()));
+            return null;
+        }).when(subscriptionLifecycleManager).initialize(
+                any(Subscription.class), any(SubscriptionStatus.class),
+                any(SubscriptionPeriodCalculator.Period.class));
         when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any()))
-                .thenReturn("{\"addOnCodes\":[],\"quotaPackages\":[]}");
+                .thenAnswer(invocation -> invocation.getArgument(0));
         var snapshot = SubscriptionEntitlementSnapshot.empty(
                 "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
         when(subscriptionSnapshotFactory.fromPlan(pro)).thenReturn(snapshot);
-        when(subscriptionSnapshotReader.write(snapshot)).thenReturn("{\"planCode\":\"PRO\"}");
+        when(subscriptionSnapshotReader.write(snapshot)).thenReturn(snapshot);
+        when(subscriptionPeriodCalculator.recurring(BillingCycle.MONTHLY))
+                .thenReturn(period());
         when(subscriptionRepository.saveAndFlush(any(Subscription.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -199,7 +224,7 @@ class SubscriptionServiceImplTest {
         assertThat(result.getPlan()).isEqualTo(pro);
         assertThat(result.getStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
         assertThat(result.getAccount()).isEqualTo(account);
-        assertThat(result.getEntitlementSnapshot()).isEqualTo("{\"planCode\":\"PRO\"}");
+        assertThat(result.getEntitlementSnapshot().planCode()).isEqualTo("PRO");
         verify(subscriptionRepository).saveAllAndFlush(List.of(active, trialing));
     }
 
@@ -266,7 +291,13 @@ class SubscriptionServiceImplTest {
         ReflectionTestUtils.setField(pro, "id", UUID.randomUUID());
         Plan free = plan("FREE", true);
         Subscription current = subscription(free, SubscriptionStatus.ACTIVE);
-        current.setEntitlementSnapshot("{\"planCode\":\"FREE\"}");
+        SubscriptionEntitlementSnapshot currentSnapshot = new SubscriptionEntitlementSnapshot(
+                "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                List.of(new SubscriptionFeatureSnapshot(
+                        WorkspaceFeature.CODE,
+                        List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)))),
+                List.of());
+        current.setEntitlementSnapshot(currentSnapshot);
         current.setCurrentMoney(Money.zero("USD"));
         PlanFeature workspace = planFeature(pro, WorkspaceFeature.CODE, null,
                 List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 2L)));
@@ -288,12 +319,10 @@ class SubscriptionServiceImplTest {
         when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(workspace));
         when(subscriptionSnapshotFactory.fromPlan(pro, Set.of())).thenReturn(targetSnapshot);
         when(subscriptionSnapshotFactory.fromPlan(pro, Set.of(), List.of())).thenReturn(targetSnapshot);
-        when(subscriptionSnapshotReader.read(current.getEntitlementSnapshot()))
-                .thenReturn(Optional.of(targetSnapshot));
-        when(subscriptionSnapshotReader.write(targetSnapshot)).thenReturn("{\"planCode\":\"PRO\"}");
-        when(subscriptionOverrideReader.write(any())).thenReturn("{\"quotaPackages\":[]}");
-        when(subscriptionUsageService.currentUsage(accountId, WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS))
-                .thenReturn(3L);
+        when(subscriptionImpactAnalyzer.analyze(accountId, current, targetSnapshot))
+                .thenReturn(List.of(new com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict(
+                        "QUOTA_BELOW_USAGE", WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS,
+                        3L, 2L, "Current usage is above the requested limit.")));
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.zero("USD"));
 
         var preview = subscriptionService.previewChange(
@@ -312,7 +341,7 @@ class SubscriptionServiceImplTest {
         ReflectionTestUtils.setField(free, "id", UUID.randomUUID());
         Subscription current = subscription(free, SubscriptionStatus.ACTIVE);
         current.setCurrentMoney(Money.zero("USD"));
-        current.setCustomOverrides("{\"addOnCodes\":[],\"quotaPackages\":[]}");
+        current.setCustomOverrides(SubscriptionOverrides.empty());
         PlanFeature optional = planFeature(
                 free, WorkspaceFeature.CODE, PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
         AddOn addOn = addOn("EXTRA_MEMBERS");
@@ -338,8 +367,6 @@ class SubscriptionServiceImplTest {
         when(addOnFeatureRepository.findAllByAddOnId(addOn.getId())).thenReturn(List.of(addOnFeature));
         when(subscriptionSnapshotFactory.fromPlan(free, Set.of("EXTRA_MEMBERS"))).thenReturn(snapshot);
         when(subscriptionSnapshotFactory.fromPlan(free, Set.of("EXTRA_MEMBERS"), List.of())).thenReturn(snapshot);
-        when(subscriptionSnapshotReader.write(snapshot)).thenReturn("{\"planCode\":\"FREE\"}");
-        when(subscriptionOverrideReader.write(any())).thenReturn("{\"addOnCodes\":[\"EXTRA_MEMBERS\"]}");
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.TEN, "USD"));
 
         var preview = subscriptionService.previewChange(
@@ -395,8 +422,9 @@ class SubscriptionServiceImplTest {
         ReflectionTestUtils.setField(pro, "id", UUID.randomUUID());
         Subscription current = subscription(free, SubscriptionStatus.ACTIVE);
         current.setAccount(account);
-        current.setEntitlementSnapshot("{\"planCode\":\"FREE\"}");
-        current.setCustomOverrides("{\"addOnCodes\":[],\"quotaPackages\":[]}");
+        current.setEntitlementSnapshot(SubscriptionEntitlementSnapshot.empty(
+                "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY));
+        current.setCustomOverrides(SubscriptionOverrides.empty());
         current.setCurrentMoney(Money.zero("USD"));
         PlanFeature workspace = planFeature(pro, WorkspaceFeature.CODE, null,
                 List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)));
@@ -422,15 +450,20 @@ class SubscriptionServiceImplTest {
         when(subscriptionSnapshotReader.read(current.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(SubscriptionEntitlementSnapshot.empty(
                         "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY)));
-        when(subscriptionSnapshotReader.write(targetSnapshot)).thenReturn("{\"planCode\":\"PRO\"}");
         when(subscriptionOverrideReader.read(current.getCustomOverrides()))
                 .thenReturn(SubscriptionOverrides.empty());
-        when(subscriptionOverrideReader.write(any())).thenReturn("{\"addOnCodes\":[],\"quotaPackages\":[]}");
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.valueOf(29), "USD"));
+        when(subscriptionPeriodCalculator.recurring(BillingCycle.MONTHLY)).thenReturn(period());
         when(subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
                 .thenReturn(List.of(current));
+        doAnswer(invocation -> {
+            ((Subscription) invocation.getArgument(0)).setStatus(SubscriptionStatus.CANCELLED);
+            return null;
+        }).when(subscriptionLifecycleManager).closeForReplacement(any(Subscription.class));
         when(subscriptionRepository.saveAndFlush(any(Subscription.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(subscriptionChangeOperationRepository.save(any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         var response = subscriptionService.applyChange(
@@ -457,7 +490,15 @@ class SubscriptionServiceImplTest {
         Subscription subscription = new Subscription();
         subscription.setPlan(plan);
         subscription.setStatus(status);
+        subscription.setCustomOverrides(SubscriptionOverrides.empty());
+        subscription.setEntitlementSnapshot(SubscriptionEntitlementSnapshot.empty(
+                plan.getCode(), plan.getPrice(), plan.getCurrencyCode(), plan.getBillingCycle()));
         return subscription;
+    }
+
+    private SubscriptionPeriodCalculator.Period period() {
+        java.time.Instant start = java.time.Instant.parse("2026-08-10T00:00:00Z");
+        return new SubscriptionPeriodCalculator.Period(start, start.plusSeconds(2_592_000));
     }
 
     private PlanFeature planFeature(
