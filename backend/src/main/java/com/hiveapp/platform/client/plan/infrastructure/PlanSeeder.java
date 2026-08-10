@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.infrastructure;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCodes;
+import com.hiveapp.platform.client.plan.domain.constant.PlanCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
@@ -138,6 +139,7 @@ public class PlanSeeder {
         p.setMoney(Money.of(specification.price(), DEFAULT_CURRENCY));
         p.setBillingCycle(specification.billingCycle());
         p.setStatus(PlanStatus.ACTIVE);
+        p.setCreationReason(PlanCreationReason.SEEDED);
         return planRepository.save(p);
     }
 

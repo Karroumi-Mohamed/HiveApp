@@ -13,10 +13,13 @@ import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
+import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
@@ -57,6 +60,7 @@ class PlanAdminServiceImplTest {
     @Mock private PlanRepository planRepository;
     @Mock private PlanFeatureRepository planFeatureRepository;
     @Mock private SubscriptionRepository subscriptionRepository;
+    @Mock private SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
     @Mock private BillingConfigurationValidator billingConfigurationValidator;
     @Mock private AddOnRepository addOnRepository;
     @Mock private AddOnFeatureRepository addOnFeatureRepository;
@@ -71,82 +75,78 @@ class PlanAdminServiceImplTest {
     }
 
     @Test
-    void createPlanDefaultsToFreePlanCompositionWhenNoSourceIsProvided() {
-        UUID freePlanId = UUID.randomUUID();
-        Plan freePlan = plan(freePlanId, "FREE");
-        Feature workspace = feature("platform.workspace");
-        PlanFeature sourceFeature = planFeature(freePlan, workspace,
-                List.of(new QuotaLimitEntry("members", 3L)));
-
+    void createPlanIsAnExplicitEmptyNormalizedDraft() {
         when(planRepository.findByCode("STARTER")).thenReturn(Optional.empty());
-        when(planRepository.findByCode("FREE")).thenReturn(Optional.of(freePlan));
-        when(planFeatureRepository.findAllByPlanId(freePlanId)).thenReturn(List.of(sourceFeature));
 
         Plan created = planAdminService.createPlan(new CreatePlanRequest(
-                "STARTER",
+                " starter ",
                 "Starter",
                 null,
                 BigDecimal.TEN,
                 "USD",
-                BillingCycle.MONTHLY,
-                null
+                BillingCycle.MONTHLY
         ));
 
         assertThat(created.getStatus()).isEqualTo(PlanStatus.DRAFT);
-
-        var inheritedFeatures = capturedInheritedFeatures();
-        assertThat(inheritedFeatures).hasSize(1);
-        assertThat(inheritedFeatures.getFirst().getFeature()).isSameAs(workspace);
-        assertThat(inheritedFeatures.getFirst().getMode()).isEqualTo(PlanFeatureMode.INCLUDED);
-        assertThat(inheritedFeatures.getFirst().getQuotaConfigs())
-                .containsExactly(new QuotaLimitEntry("members", 3L));
-        assertThat(inheritedFeatures.getFirst().getQuotaConfigs()).isNotSameAs(sourceFeature.getQuotaConfigs());
-        verify(billingConfigurationValidator).validatePlanFeature(
-                "platform.workspace",
-                PlanFeatureMode.INCLUDED,
-                sourceFeature.getQuotaConfigs(),
-                "USD");
+        assertThat(created.getCode()).isEqualTo("STARTER");
+        assertThat(created.getRevisionNumber()).isEqualTo(1);
+        assertThat(created.getSourcePlan()).isNull();
+        verify(planFeatureRepository, never()).saveAll(any());
     }
 
     @Test
-    void createPlanCanInheritFromExplicitSourcePlan() {
+    void duplicatePlanCopiesCompositionIntoAnIndependentDraftLineage() {
         UUID sourcePlanId = UUID.randomUUID();
         Plan sourcePlan = plan(sourcePlanId, "PRO");
+        Feature workspace = feature("platform.workspace");
+        PlanFeature sourceFeature = planFeature(sourcePlan, workspace,
+                List.of(new QuotaLimitEntry("members", 3L)));
 
         when(planRepository.findByCode("TEAM")).thenReturn(Optional.empty());
         when(planRepository.findById(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
-        when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of());
+        when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of(sourceFeature));
 
-        planAdminService.createPlan(new CreatePlanRequest(
+        Plan duplicate = planAdminService.duplicatePlan(sourcePlanId, new PlanBranchRequest(
                 "TEAM",
                 "Team",
                 null,
                 new BigDecimal("49.00"),
                 "USD",
-                BillingCycle.MONTHLY,
-                sourcePlanId
+                BillingCycle.MONTHLY
         ));
 
-        verify(planRepository).findById(sourcePlanId);
-        verify(planRepository, never()).findByCode("FREE");
-        verify(planFeatureRepository, never()).saveAll(any());
+        assertThat(duplicate.getSourcePlan()).isSameAs(sourcePlan);
+        assertThat(duplicate.getLineageId()).isNotEqualTo(sourcePlan.getLineageId());
+        assertThat(duplicate.getRevisionNumber()).isEqualTo(1);
+        assertThat(capturedInheritedFeatures()).singleElement()
+                .satisfies(copy -> {
+                    assertThat(copy.getFeature()).isSameAs(workspace);
+                    assertThat(copy.getQuotaConfigs()).containsExactly(new QuotaLimitEntry("members", 3L));
+                    assertThat(copy.getQuotaConfigs()).isNotSameAs(sourceFeature.getQuotaConfigs());
+                });
     }
 
     @Test
-    void createPlanCanInheritUnpricedCompositionAcrossCurrencies() {
-        UUID freePlanId = UUID.randomUUID();
-        Plan freePlan = plan(freePlanId, "FREE");
-        PlanFeature includedFeature = planFeature(freePlan, feature("platform.workspace"), List.of());
+    void revisePublishedPlanContinuesLineageAndCopiesAgainstTargetCurrency() {
+        UUID sourcePlanId = UUID.randomUUID();
+        Plan sourcePlan = plan(sourcePlanId, "PRO");
+        sourcePlan.setRevisionNumber(3);
+        PlanFeature includedFeature = planFeature(sourcePlan, feature("platform.workspace"), List.of());
 
         when(planRepository.findByCode("EUROPE")).thenReturn(Optional.empty());
-        when(planRepository.findByCode("FREE")).thenReturn(Optional.of(freePlan));
-        when(planFeatureRepository.findAllByPlanId(freePlanId)).thenReturn(List.of(includedFeature));
+        when(planRepository.findByIdForUpdate(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
+        when(planRepository.findMaximumRevisionNumber(sourcePlan.getLineageId())).thenReturn(3);
+        when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of(includedFeature));
 
-        Plan created = planAdminService.createPlan(new CreatePlanRequest(
-                "EUROPE", "Europe", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY, null));
+        Plan created = planAdminService.revisePlan(sourcePlanId, new PlanBranchRequest(
+                "EUROPE", "Europe", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY));
 
         assertThat(created.getCurrencyCode()).isEqualTo("EUR");
+        assertThat(created.getLineageId()).isEqualTo(sourcePlan.getLineageId());
+        assertThat(created.getRevisionNumber()).isEqualTo(4);
         assertThat(capturedInheritedFeatures()).hasSize(1);
+        verify(billingConfigurationValidator).validatePlanFeature(
+                "platform.workspace", PlanFeatureMode.INCLUDED, List.of(), "EUR");
     }
 
     @Test
@@ -154,7 +154,9 @@ class PlanAdminServiceImplTest {
         UUID planId = UUID.randomUUID();
         String featureCode = "platform.plans";
 
-        when(planRepository.findById(planId)).thenReturn(Optional.of(plan(planId)));
+        Plan draft = plan(planId);
+        draft.setStatus(PlanStatus.DRAFT);
+        when(planRepository.findById(planId)).thenReturn(Optional.of(draft));
         doThrow(new InvalidRequestException("Feature cannot be assigned to billing configuration."))
                 .when(billingConfigurationValidator).validatePlanFeature(
                         featureCode, PlanFeatureMode.INCLUDED, List.of(), "USD");
@@ -173,6 +175,7 @@ class PlanAdminServiceImplTest {
     void assignFeatureTranslatesDatabaseUniquenessRaceToDuplicateResource() {
         UUID planId = UUID.randomUUID();
         Plan plan = plan(planId);
+        plan.setStatus(PlanStatus.DRAFT);
         Feature workspace = feature("platform.workspace");
         var request = new AssignPlanFeatureRequest("platform.workspace", PlanFeatureMode.INCLUDED, List.of());
 
@@ -195,7 +198,9 @@ class PlanAdminServiceImplTest {
         UUID planFeatureId = UUID.randomUUID();
         Feature feature = feature("platform.workspace");
         PlanFeature planFeature = new PlanFeature();
-        planFeature.setPlan(plan(planId));
+        Plan draft = plan(planId);
+        draft.setStatus(PlanStatus.DRAFT);
+        planFeature.setPlan(draft);
         planFeature.setFeature(feature);
         var request = new AssignPlanFeatureRequest("platform.workspace", PlanFeatureMode.INCLUDED, List.of());
 
@@ -212,7 +217,9 @@ class PlanAdminServiceImplTest {
     @Test
     void updatePlanRejectsForeverBillingCycleForNonFreePlan() {
         UUID planId = UUID.randomUUID();
-        when(planRepository.findById(planId)).thenReturn(Optional.of(plan(planId, "PRO")));
+        Plan draft = plan(planId, "PRO");
+        draft.setStatus(PlanStatus.DRAFT);
+        when(planRepository.findById(planId)).thenReturn(Optional.of(draft));
 
         assertThatThrownBy(() -> planAdminService.updatePlan(
                 planId,
@@ -228,6 +235,7 @@ class PlanAdminServiceImplTest {
     void updatePlanRejectsCurrencyChangeAfterSubscriptionHistoryExists() {
         UUID planId = UUID.randomUUID();
         Plan plan = plan(planId, "PRO");
+        plan.setStatus(PlanStatus.DRAFT);
         when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
         when(subscriptionRepository.countByPlan_Id(planId)).thenReturn(1L);
 
@@ -245,6 +253,7 @@ class PlanAdminServiceImplTest {
     void updatePlanAllowsCurrencyChangeWithoutSubscriptionHistory() {
         UUID planId = UUID.randomUUID();
         Plan plan = plan(planId, "DRAFT");
+        plan.setStatus(PlanStatus.DRAFT);
         when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
         Plan updated = planAdminService.updatePlan(
                 planId,
@@ -255,16 +264,16 @@ class PlanAdminServiceImplTest {
     }
 
     @Test
-    void deletePlanRejectsPlanWithSubscriptionHistory() {
+    void deletionPreviewExplainsPublishedAndSubscriptionHistoryBlockers() {
         UUID planId = UUID.randomUUID();
         when(planRepository.findById(planId)).thenReturn(Optional.of(plan(planId, "PRO")));
         when(subscriptionRepository.countByPlan_Id(planId)).thenReturn(2L);
 
-        assertThatThrownBy(() -> planAdminService.deletePlan(planId))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("cannot be deleted");
+        var preview = planAdminService.previewPlanDeletion(planId);
 
-        verify(planRepository, never()).delete(any(Plan.class));
+        assertThat(preview.deletable()).isFalse();
+        assertThat(preview.blockers()).contains("NOT_UNUSED_DRAFT", "SUBSCRIPTION_HISTORY");
+        assertThat(preview.subscriptionHistoryCount()).isEqualTo(2);
     }
 
     @Test
@@ -280,16 +289,14 @@ class PlanAdminServiceImplTest {
     }
 
     @Test
-    void defaultPlanCannotBeDeletedEvenWithoutSubscriptionHistory() {
+    void defaultPlanDeletionPreviewIsAlwaysBlocked() {
         UUID planId = UUID.randomUUID();
         when(planRepository.findById(planId)).thenReturn(Optional.of(plan(planId, "FREE")));
 
-        assertThatThrownBy(() -> planAdminService.deletePlan(planId))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("default FREE plan cannot be deleted");
+        var preview = planAdminService.previewPlanDeletion(planId);
 
-        verify(subscriptionRepository, never()).countByPlan_Id(planId);
-        verify(planRepository, never()).delete(any(Plan.class));
+        assertThat(preview.deletable()).isFalse();
+        assertThat(preview.blockers()).contains("DEFAULT_PROVISIONING_PLAN", "NOT_UNUSED_DRAFT");
     }
 
     @Test
@@ -379,13 +386,16 @@ class PlanAdminServiceImplTest {
     void deletePlanRemovesUnusedPlanAndItsFeatureRows() {
         UUID planId = UUID.randomUUID();
         Plan plan = plan(planId, "DRAFT");
+        plan.setStatus(PlanStatus.DRAFT);
         PlanFeature planFeature = planFeature(plan, feature("platform.workspace"), List.of());
 
         when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
-        when(subscriptionRepository.countByPlan_Id(planId)).thenReturn(0L);
+        when(planRepository.findByIdForUpdate(planId)).thenReturn(Optional.of(plan));
         when(planFeatureRepository.findAllByPlanId(planId)).thenReturn(List.of(planFeature));
 
-        planAdminService.deletePlan(planId);
+        var preview = planAdminService.previewPlanDeletion(planId);
+        planAdminService.deletePlan(planId, new DeletePlanRequest(
+                plan.getCode(), preview.expectedVersion(), preview.previewToken()));
 
         verify(planFeatureRepository).deleteAll(List.of(planFeature));
         verify(planRepository).delete(plan);
@@ -423,6 +433,9 @@ class PlanAdminServiceImplTest {
     }
 
     private void lenientSavedPlan() {
+        org.mockito.Mockito.lenient()
+                .when(planRepository.saveAndFlush(any(Plan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         org.mockito.Mockito.lenient()
                 .when(planRepository.save(any(Plan.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));

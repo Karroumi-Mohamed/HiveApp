@@ -12,7 +12,7 @@ public record PlanSubscriberDto(
         String accountName,
         String planCode,
         SubscriptionStatus status,
-        BigDecimal currentPrice,
-        String currentPriceCurrencyCode,
+        BigDecimal configuredRecurringPrice,
+        String configuredRecurringPriceCurrencyCode,
         Instant currentPeriodEnd
 ) {}

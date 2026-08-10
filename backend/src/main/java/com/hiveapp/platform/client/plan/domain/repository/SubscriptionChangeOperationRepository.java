@@ -25,6 +25,8 @@ public interface SubscriptionChangeOperationRepository extends JpaRepository<Sub
 
     List<SubscriptionChangeOperation> findAllByAccountIdOrderByCreatedAtDesc(UUID accountId);
 
+    long countByTargetPlan_Id(UUID planId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select operation from SubscriptionChangeOperation operation "
             + "where operation.status = :status and operation.effectiveAt <= :cutoff")

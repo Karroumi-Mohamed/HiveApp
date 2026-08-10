@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 
 import java.math.BigDecimal;
@@ -14,5 +15,9 @@ public record PlanDto(
         BigDecimal price,
         String currencyCode,
         BillingCycle billingCycle,
-        PlanStatus status
+        PlanStatus status,
+        UUID lineageId,
+        int revisionNumber,
+        UUID sourcePlanId,
+        PlanCreationReason creationReason
 ) {}

@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.domain.entity;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.money.Money;
@@ -10,11 +11,13 @@ import lombok.Setter;
 import java.math.BigDecimal;
 
 @Entity
-@Table(name = "plans")
+@Table(name = "plans", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_plan_lineage_revision", columnNames = {"lineage_id", "revision_number"})
+})
 @Getter @Setter
 public class Plan extends BaseEntity {
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false, unique = true, updatable = false)
     private String code;
 
     @Column(nullable = false)
@@ -35,6 +38,20 @@ public class Plan extends BaseEntity {
     @Column(nullable = false, length = 20)
     private PlanStatus status = PlanStatus.DRAFT;
 
+    @Column(name = "lineage_id", nullable = false, updatable = false)
+    private java.util.UUID lineageId = java.util.UUID.randomUUID();
+
+    @Column(name = "revision_number", nullable = false, updatable = false)
+    private int revisionNumber = 1;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_plan_id", updatable = false)
+    private Plan sourcePlan;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "creation_reason", nullable = false, updatable = false, length = 20)
+    private PlanCreationReason creationReason = PlanCreationReason.CREATED;
+
     @Version
     @Column(nullable = false)
     private long version;
@@ -54,7 +71,13 @@ public class Plan extends BaseEntity {
 
     @PrePersist
     @PreUpdate
-    void normalizeMoney() {
+    void validatePlan() {
         setMoney(Money.of(price, currencyCode));
+        if (code == null || code.isBlank()) {
+            throw new IllegalStateException("Plan code is required");
+        }
+        if (lineageId == null || revisionNumber < 1 || creationReason == null) {
+            throw new IllegalStateException("Plan lineage identity is required");
+        }
     }
 }

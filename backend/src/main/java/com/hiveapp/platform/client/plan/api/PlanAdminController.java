@@ -4,15 +4,24 @@ import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
+import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
+import com.hiveapp.platform.client.plan.dto.PlanDeletionPreview;
 import com.hiveapp.platform.client.plan.dto.PlanDetailDto;
 import com.hiveapp.platform.client.plan.dto.PlanDto;
 import com.hiveapp.platform.client.plan.dto.PlanFeatureDto;
 import com.hiveapp.platform.client.plan.dto.PlanSubscriberDto;
+import com.hiveapp.platform.client.plan.dto.PlanSubscriberOwnerLookupDto;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -44,6 +53,24 @@ public class PlanAdminController {
         return toDto(p);
     }
 
+    @PostMapping("/{sourcePlanId}/duplicate")
+    @ResponseStatus(HttpStatus.CREATED)
+    public PlanDto duplicatePlan(
+            @PathVariable UUID sourcePlanId,
+            @Valid @RequestBody PlanBranchRequest request
+    ) {
+        return toDto(planAdminService.duplicatePlan(sourcePlanId, request));
+    }
+
+    @PostMapping("/{sourcePlanId}/revisions")
+    @ResponseStatus(HttpStatus.CREATED)
+    public PlanDto revisePlan(
+            @PathVariable UUID sourcePlanId,
+            @Valid @RequestBody PlanBranchRequest request
+    ) {
+        return toDto(planAdminService.revisePlan(sourcePlanId, request));
+    }
+
     @PutMapping("/{planId}")
     public PlanDto updatePlan(@PathVariable UUID planId, @Valid @RequestBody UpdatePlanRequest request) {
         return toDto(planAdminService.updatePlan(planId, request));
@@ -55,10 +82,18 @@ public class PlanAdminController {
         return toDto(p);
     }
 
+    @GetMapping("/{planId}/deletion-preview")
+    public PlanDeletionPreview previewDeletion(@PathVariable UUID planId) {
+        return planAdminService.previewPlanDeletion(planId);
+    }
+
     @DeleteMapping("/{planId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deletePlan(@PathVariable UUID planId) {
-        planAdminService.deletePlan(planId);
+    public void deletePlan(
+            @PathVariable UUID planId,
+            @Valid @RequestBody DeletePlanRequest request
+    ) {
+        planAdminService.deletePlan(planId, request);
     }
 
     // --- Feature composition ---
@@ -71,8 +106,22 @@ public class PlanAdminController {
     }
 
     @GetMapping("/{planId}/subscribers")
-    public List<PlanSubscriberDto> listSubscribers(@PathVariable UUID planId) {
-        return planAdminService.listPlanSubscribers(planId);
+    public Page<PlanSubscriberDto> listSubscribers(
+            @PathVariable UUID planId,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) SubscriptionStatus status,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
+    ) {
+        return planAdminService.listPlanSubscribers(planId, search, status, pageable);
+    }
+
+    @GetMapping("/{planId}/subscribers/by-owner-email")
+    public Page<PlanSubscriberOwnerLookupDto> subscribersByOwnerEmail(
+            @PathVariable UUID planId,
+            @RequestParam String ownerEmail,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
+    ) {
+        return planAdminService.findPlanSubscribersByOwnerEmail(planId, ownerEmail, pageable);
     }
 
     @PostMapping("/{planId}/features")
@@ -106,6 +155,9 @@ public class PlanAdminController {
 
     private PlanDto toDto(com.hiveapp.platform.client.plan.domain.entity.Plan p) {
         return new PlanDto(p.getId(), p.getCode(), p.getName(),
-                p.getDescription(), p.getPrice(), p.getCurrencyCode(), p.getBillingCycle(), p.getStatus());
+                p.getDescription(), p.getPrice(), p.getCurrencyCode(), p.getBillingCycle(), p.getStatus(),
+                p.getLineageId(), p.getRevisionNumber(),
+                p.getSourcePlan() != null ? p.getSourcePlan().getId() : null,
+                p.getCreationReason());
     }
 }

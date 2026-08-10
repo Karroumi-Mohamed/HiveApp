@@ -1,11 +1,15 @@
 package com.hiveapp.platform.security;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
+import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
+import com.hiveapp.platform.client.plan.dto.PlanDeletionPreview;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
@@ -29,6 +33,7 @@ import java.util.UUID;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -48,18 +53,21 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
     @Autowired
     private FeatureRepository featureRepository;
 
+    @Autowired
+    private AccountRepository accountRepository;
+
     @Test
     void adminPlanAssignmentRejectsControlPlaneUnknownAndUnavailableFeatures() throws Exception {
         String adminToken = loginAdminAndGetToken();
-        UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
+        UUID draftPlanId = duplicateFreeDraft(adminToken);
 
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+        assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                 "platform.plans", PlanFeatureMode.INCLUDED, List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Feature platform.plans cannot be assigned to billing configuration."));
 
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+        assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                 "platform.unknown", PlanFeatureMode.INCLUDED, List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
@@ -70,7 +78,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         try {
             company.setStatus(FeatureStatus.INTERNAL);
             featureRepository.saveAndFlush(company);
-            assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+            assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                     "platform.company", PlanFeatureMode.INCLUDED, List.of()))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message")
@@ -78,7 +86,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
             company.setStatus(FeatureStatus.DEPRECATED);
             featureRepository.saveAndFlush(company);
-            assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+            assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                     "platform.company", PlanFeatureMode.INCLUDED, List.of()))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message")
@@ -92,16 +100,16 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
     @Test
     void adminPlanAssignmentRejectsInvalidQuotaConfiguration() throws Exception {
         String adminToken = loginAdminAndGetToken();
-        UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
+        UUID draftPlanId = duplicateFreeDraft(adminToken);
 
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+        assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                         "platform.workspace", PlanFeatureMode.INCLUDED,
                         List.of(new QuotaLimitEntry("projects", 5L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Quota resource projects is not declared for feature platform.workspace."));
 
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+        assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                         "platform.workspace",
                         PlanFeatureMode.INCLUDED,
                         List.of(
@@ -111,7 +119,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(jsonPath("$.message")
                         .value("Duplicate quota configuration for platform.workspace.members."));
 
-        assignPlanFeature(adminToken, freePlanId, new AssignPlanFeatureRequest(
+        assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                         "platform.company", PlanFeatureMode.OPTIONAL_ADD_ON,
                         List.of(new QuotaLimitEntry("not-allowed", 1L))))
                 .andExpect(status().isBadRequest())
@@ -122,19 +130,19 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
     @Test
     void adminPlanFeatureUpdateUsesSameBillingValidationAsAssignment() throws Exception {
         String adminToken = loginAdminAndGetToken();
-        UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
+        UUID draftPlanId = duplicateFreeDraft(adminToken);
         UUID workspacePlanFeatureId = planFeatureRepository
-                .findByPlanIdAndFeature_Code(freePlanId, "platform.workspace")
+                .findByPlanIdAndFeature_Code(draftPlanId, "platform.workspace")
                 .orElseThrow()
                 .getId();
 
-        updatePlanFeature(adminToken, freePlanId, workspacePlanFeatureId, new AssignPlanFeatureRequest(
+        updatePlanFeature(adminToken, draftPlanId, workspacePlanFeatureId, new AssignPlanFeatureRequest(
                         "platform.company", PlanFeatureMode.INCLUDED, List.of()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("A plan feature update cannot change its feature code."));
 
-        updatePlanFeature(adminToken, freePlanId, workspacePlanFeatureId, new AssignPlanFeatureRequest(
+        updatePlanFeature(adminToken, draftPlanId, workspacePlanFeatureId, new AssignPlanFeatureRequest(
                         "platform.workspace", PlanFeatureMode.INCLUDED,
                         List.of(new QuotaLimitEntry("projects", 5L))))
                 .andExpect(status().isBadRequest())
@@ -247,6 +255,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         String adminToken = loginAdminAndGetToken();
         String clientToken = registerClientAndGetToken();
         UUID accountId = currentAccountId(clientToken);
+        String accountName = accountRepository.findById(accountId).orElseThrow().getName();
+        String ownerEmail = accountRepository.findOwnerEmailById(accountId).orElseThrow();
         UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
 
         mockMvc.perform(get("/api/admin/plans/{planId}", freePlanId)
@@ -254,17 +264,42 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("FREE"))
                 .andExpect(jsonPath("$.currencyCode").value("USD"))
-                .andExpect(jsonPath("$.currentRecurringPriceCurrencyCode").value("USD"))
+                .andExpect(jsonPath("$.configuredRecurringPriceCurrencyCode").value("USD"))
                 .andExpect(jsonPath("$.currentSubscriberCount", greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.warnings", hasItem("HAS_CURRENT_SUBSCRIBERS")))
-                .andExpect(jsonPath("$.warnings", hasItem("TEMPLATE_EDITS_DO_NOT_UPDATE_EXISTING_SNAPSHOTS")));
+                .andExpect(jsonPath("$.warnings", hasItem(
+                        "SUBSCRIBER_TERMS_CHANGE_ONLY_THROUGH_EXPLICIT_OPERATIONS")));
 
         mockMvc.perform(get("/api/admin/plans/{planId}/subscribers", freePlanId)
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].accountId", hasItem(accountId.toString())))
-                .andExpect(jsonPath("$[*].planCode", hasItem("FREE")))
-                .andExpect(jsonPath("$[*].currentPriceCurrencyCode", hasItem("USD")));
+                .andExpect(jsonPath("$.content[*].accountId", hasItem(accountId.toString())))
+                .andExpect(jsonPath("$.content[*].planCode", hasItem("FREE")))
+                .andExpect(jsonPath("$.content[*].configuredRecurringPriceCurrencyCode", hasItem("USD")));
+
+        mockMvc.perform(get("/api/admin/plans/{planId}/subscribers", freePlanId)
+                        .param("search", accountName)
+                        .param("status", "ACTIVE")
+                        .param("size", "1")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.content[0].accountId").value(accountId.toString()));
+
+        mockMvc.perform(get("/api/admin/plans/{planId}/subscribers/by-owner-email", freePlanId)
+                        .param("ownerEmail", ownerEmail)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].ownerEmail").value(ownerEmail))
+                .andExpect(jsonPath("$.content[0].subscriber.accountId").value(accountId.toString()));
+
+        mockMvc.perform(put("/api/admin/plans/{planId}", freePlanId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UpdatePlanRequest(
+                                "Unsafe live edit", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("create a draft revision")));
 
         mockMvc.perform(patch("/api/admin/plans/{planId}/status", freePlanId)
                         .param("status", "INACTIVE")
@@ -272,14 +307,14 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message", containsString("default FREE plan must remain ACTIVE")));
 
-        UUID draftPlanId = createPlan(adminToken, new CreatePlanRequest(
-                "TMP_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(),
+        String draftCode = "TMP_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+        UUID draftPlanId = duplicatePlan(adminToken, freePlanId, new PlanBranchRequest(
+                draftCode,
                 "Temporary Plan",
                 null,
                 new BigDecimal("12.00"),
                 "USD",
-                BillingCycle.MONTHLY,
-                freePlanId
+                BillingCycle.MONTHLY
         ));
 
         mockMvc.perform(put("/api/admin/plans/{planId}", draftPlanId)
@@ -304,7 +339,18 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.currentSubscriberCount").value(0));
 
+        String previewJson = mockMvc.perform(get("/api/admin/plans/{planId}/deletion-preview", draftPlanId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deletable").value(true))
+                .andExpect(jsonPath("$.ownedFeatureCount", greaterThanOrEqualTo(1)))
+                .andReturn().getResponse().getContentAsString();
+        PlanDeletionPreview preview = objectMapper.readValue(previewJson, PlanDeletionPreview.class);
+
         mockMvc.perform(delete("/api/admin/plans/{planId}", draftPlanId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DeletePlanRequest(
+                                draftCode, preview.expectedVersion(), preview.previewToken())))
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isNoContent());
 
@@ -312,10 +358,83 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isNotFound());
 
+        String freePreviewJson = mockMvc.perform(get("/api/admin/plans/{planId}/deletion-preview", freePlanId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deletable").value(false))
+                .andExpect(jsonPath("$.blockers", hasItem("DEFAULT_PROVISIONING_PLAN")))
+                .andReturn().getResponse().getContentAsString();
+        PlanDeletionPreview freePreview = objectMapper.readValue(freePreviewJson, PlanDeletionPreview.class);
         mockMvc.perform(delete("/api/admin/plans/{planId}", freePlanId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DeletePlanRequest(
+                                "FREE", freePreview.expectedVersion(), freePreview.previewToken())))
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message", containsString("cannot be deleted")));
+    }
+
+    @Test
+    void planRevisionPreservesLineageWhileDuplicateStartsANewLineage() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        var free = planRepository.findByCode("FREE").orElseThrow();
+        String revisionCode = "FREE_REV_" + shortSuffix();
+
+        mockMvc.perform(post("/api/admin/plans/{sourcePlanId}/revisions", free.getId())
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PlanBranchRequest(
+                                revisionCode, "Free revision", null, BigDecimal.ZERO,
+                                "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.lineageId").value(free.getLineageId().toString()))
+                .andExpect(jsonPath("$.revisionNumber").value(2))
+                .andExpect(jsonPath("$.sourcePlanId").value(free.getId().toString()))
+                .andExpect(jsonPath("$.creationReason").value("REVISED"));
+
+        mockMvc.perform(post("/api/admin/plans/{sourcePlanId}/duplicate", free.getId())
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PlanBranchRequest(
+                                "FREE_COPY_" + shortSuffix(), "Free copy", null, BigDecimal.ZERO,
+                                "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.lineageId", not(free.getLineageId().toString())))
+                .andExpect(jsonPath("$.revisionNumber").value(1))
+                .andExpect(jsonPath("$.creationReason").value("DUPLICATED"));
+    }
+
+    @Test
+    void emptyDraftDeletionRejectsAStalePreview() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        String code = "EMPTY_" + shortSuffix();
+        UUID planId = createPlan(adminToken, new CreatePlanRequest(
+                code, "Empty draft", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY));
+
+        String previewJson = mockMvc.perform(get("/api/admin/plans/{planId}/deletion-preview", planId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deletable").value(true))
+                .andExpect(jsonPath("$.ownedFeatureCount").value(0))
+                .andReturn().getResponse().getContentAsString();
+        PlanDeletionPreview stalePreview = objectMapper.readValue(previewJson, PlanDeletionPreview.class);
+
+        mockMvc.perform(put("/api/admin/plans/{planId}", planId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UpdatePlanRequest(
+                                "Edited empty draft", null, BigDecimal.ONE, "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/admin/plans/{planId}", planId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DeletePlanRequest(
+                                code, stalePreview.expectedVersion(), stalePreview.previewToken()))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message", containsString("preview is stale")));
     }
 
     @Test
@@ -324,9 +443,10 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
         String planCode = "ADDON_PLAN_" + suffix;
         String addOnCode = "REPORTING_" + suffix;
-        UUID planId = createPlan(adminToken, new CreatePlanRequest(
+        UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
+        UUID planId = duplicatePlan(adminToken, freePlanId, new PlanBranchRequest(
                 planCode, "AddOn-ready plan", null, BigDecimal.ZERO, "USD",
-                BillingCycle.MONTHLY, null));
+                BillingCycle.MONTHLY));
         UUID companyPlanFeatureId = planFeatureRepository
                 .findByPlanIdAndFeature_Code(planId, "platform.company")
                 .orElseThrow()
@@ -428,6 +548,26 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
     private String shortSuffix() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
+    }
+
+    private UUID duplicateFreeDraft(String adminToken) throws Exception {
+        UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
+        String suffix = shortSuffix();
+        return duplicatePlan(adminToken, freePlanId, new PlanBranchRequest(
+                "DRAFT_" + suffix, "Draft " + suffix, null, BigDecimal.ZERO,
+                "USD", BillingCycle.MONTHLY));
+    }
+
+    private UUID duplicatePlan(String adminToken, UUID sourcePlanId, PlanBranchRequest request) throws Exception {
+        String response = mockMvc.perform(post("/api/admin/plans/{sourcePlanId}/duplicate", sourcePlanId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return UUID.fromString(objectMapper.readTree(response).get("id").asText());
     }
 
     private UUID createPlan(String adminToken, CreatePlanRequest request) throws Exception {

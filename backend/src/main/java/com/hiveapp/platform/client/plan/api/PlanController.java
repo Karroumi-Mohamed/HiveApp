@@ -21,7 +21,10 @@ public class PlanController {
         return planRepository.findAll().stream()
                 .filter(p -> p.isActive())
                 .map(p -> new PlanDto(p.getId(), p.getCode(), p.getName(),
-                        p.getDescription(), p.getPrice(), p.getCurrencyCode(), p.getBillingCycle(), p.getStatus()))
+                        p.getDescription(), p.getPrice(), p.getCurrencyCode(), p.getBillingCycle(), p.getStatus(),
+                        p.getLineageId(), p.getRevisionNumber(),
+                        p.getSourcePlan() != null ? p.getSourcePlan().getId() : null,
+                        p.getCreationReason()))
                 .toList();
     }
 }

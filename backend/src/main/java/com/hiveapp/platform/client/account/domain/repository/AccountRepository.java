@@ -12,6 +12,9 @@ import java.util.Optional;
 public interface AccountRepository extends JpaRepository<Account, UUID> {
     Optional<Account> findByOwner_Id(UUID ownerId);
 
+    @Query("select account.owner.email from Account account where account.id = :accountId")
+    Optional<String> findOwnerEmailById(@Param("accountId") UUID accountId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select account from Account account where account.id = :accountId")
     Optional<Account> findByIdForQuotaUpdate(@Param("accountId") UUID accountId);

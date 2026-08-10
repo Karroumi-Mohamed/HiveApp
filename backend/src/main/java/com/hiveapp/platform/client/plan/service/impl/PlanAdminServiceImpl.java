@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.service.impl;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCodes;
+import com.hiveapp.platform.client.plan.domain.constant.PlanCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
@@ -12,18 +13,24 @@ import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
+import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
+import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
+import com.hiveapp.platform.client.plan.dto.PlanDeletionPreview;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.PlanDetailDto;
 import com.hiveapp.platform.client.plan.dto.PlanSubscriberDto;
+import com.hiveapp.platform.client.plan.dto.PlanSubscriberOwnerLookupDto;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
@@ -36,6 +43,7 @@ import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureSe
 import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.InvalidRequestException;
+import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.quota.QuotaLimitMode;
@@ -44,13 +52,21 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.HexFormat;
 import java.util.regex.Pattern;
 
 @Service
@@ -63,6 +79,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final PlanRepository planRepository;
     private final PlanFeatureRepository planFeatureRepository;
     private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
     private final BillingConfigurationValidator billingConfigurationValidator;
     private final AddOnRepository addOnRepository;
     private final AddOnFeatureRepository addOnFeatureRepository;
@@ -107,6 +124,10 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 plan.getCurrencyCode(),
                 plan.getBillingCycle(),
                 plan.getStatus(),
+                plan.getLineageId(),
+                plan.getRevisionNumber(),
+                plan.getSourcePlan() != null ? plan.getSourcePlan().getId() : null,
+                plan.getCreationReason(),
                 planFeatures.size(),
                 (int) planFeatures.stream()
                         .filter(feature -> feature.getQuotaConfigs() != null && !feature.getQuotaConfigs().isEmpty())
@@ -125,21 +146,37 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "create", description = "Create a new plan")
     public Plan createPlan(CreatePlanRequest request) {
-        if (planRepository.findByCode(request.code()).isPresent()) {
-            throw new DuplicateResourceException("Plan", "code", request.code());
-        }
+        String code = normalizeCommercialCode(request.code(), "Plan code");
         Money price = validatePlanBasics(
-                request.code(), request.name(), request.price(), request.currencyCode(), request.billingCycle());
-        Plan plan = new Plan();
-        plan.setCode(request.code());
-        plan.setName(request.name());
-        plan.setDescription(request.description());
-        plan.setMoney(price);
-        plan.setBillingCycle(request.billingCycle());
-        plan.setStatus(PlanStatus.DRAFT);
-        Plan savedPlan = planRepository.save(plan);
-        inheritPlanComposition(savedPlan, request.inheritFromPlanId());
-        return savedPlan;
+                code, request.name(), request.price(), request.currencyCode(), request.billingCycle());
+        return saveNewPlan(code, request.name(), request.description(), price, request.billingCycle(),
+                null, UUID.randomUUID(), 1, PlanCreationReason.CREATED);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "duplicate", description = "Duplicate plan commercial configuration into a draft")
+    public Plan duplicatePlan(UUID sourcePlanId, PlanBranchRequest request) {
+        Plan source = requirePlan(sourcePlanId);
+        Plan duplicate = createBranch(source, request, UUID.randomUUID(), 1, PlanCreationReason.DUPLICATED);
+        copyPlanComposition(source, duplicate);
+        return duplicate;
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "revise", description = "Create the next draft revision of a published plan")
+    public Plan revisePlan(UUID sourcePlanId, PlanBranchRequest request) {
+        Plan source = planRepository.findByIdForUpdate(sourcePlanId)
+                .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", sourcePlanId));
+        if (source.getStatus() == PlanStatus.DRAFT) {
+            throw new BusinessException("A draft can be edited directly and cannot be revised.");
+        }
+        int nextRevision = planRepository.findMaximumRevisionNumber(source.getLineageId()) + 1;
+        Plan revision = createBranch(
+                source, request, source.getLineageId(), nextRevision, PlanCreationReason.REVISED);
+        copyPlanComposition(source, revision);
+        return revision;
     }
 
     @Override
@@ -193,33 +230,38 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     }
 
     @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "preview_delete", description = "Preview plan deletion impact and blockers")
+    public PlanDeletionPreview previewPlanDeletion(UUID planId) {
+        return buildDeletionPreview(requirePlan(planId));
+    }
+
+    @Override
     @Transactional
-    @PermissionNode(key = "delete", description = "Delete an unused plan template")
-    public void deletePlan(UUID planId) {
-        Plan plan = requirePlan(planId);
-        if (PlanCodes.DEFAULT.equals(plan.getCode())) {
-            throw new BusinessException("The default FREE plan cannot be deleted because workspace provisioning requires it.");
+    @PermissionNode(key = "delete", description = "Delete a confirmed unused plan draft")
+    public void deletePlan(UUID planId, DeletePlanRequest request) {
+        Plan plan = planRepository.findByIdForUpdate(planId)
+                .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
+        if (!plan.getCode().equals(request.confirmationCode())) {
+            throw new InvalidRequestException("Plan code confirmation does not match.");
         }
-        long subscriptionHistory = subscriptionRepository.countByPlan_Id(planId);
-        if (subscriptionHistory > 0) {
-            throw new BusinessException("Plan " + plan.getCode()
-                    + " has subscription history and cannot be deleted. Deactivate it instead.");
+        PlanDeletionPreview preview = buildDeletionPreview(plan);
+        if (request.expectedVersion() != preview.expectedVersion()
+                || !request.previewToken().equals(preview.previewToken())) {
+            throw new InvalidStateException("Plan deletion preview is stale; request a fresh preview.");
         }
-        boolean referencedByAddOn = addOnRepository.findAll().stream()
-                .anyMatch(addOn -> addOn.getAllowedPlanCodes().contains(plan.getCode())
-                        || addOn.getBlockedPlanCodes().contains(plan.getCode()));
-        if (referencedByAddOn) {
+        if (!preview.deletable()) {
             throw new BusinessException(
-                    "Plan " + plan.getCode() + " is referenced by an AddOn and cannot be deleted.");
-        }
-        boolean referencedByQuotaPackage = quotaPackageRepository.findAll().stream()
-                .anyMatch(item -> item.getAllowedPlanCodes().contains(plan.getCode()));
-        if (referencedByQuotaPackage) {
-            throw new BusinessException(
-                    "Plan " + plan.getCode() + " is referenced by a quota package and cannot be deleted.");
+                    "Plan cannot be deleted: " + String.join(", ", preview.blockers()));
         }
         planFeatureRepository.deleteAll(planFeatureRepository.findAllByPlanId(planId));
-        planRepository.delete(plan);
+        try {
+            planRepository.delete(plan);
+            planRepository.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw new InvalidStateException(
+                    "Plan gained a retained reference during deletion; request a fresh preview.");
+        }
     }
 
     @Override
@@ -235,21 +277,38 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @PermissionNode(key = "list_subscribers", description = "List accounts currently subscribed to a plan")
     @Transactional(readOnly = true)
-    public List<PlanSubscriberDto> listPlanSubscribers(UUID planId) {
+    public Page<PlanSubscriberDto> listPlanSubscribers(
+            UUID planId,
+            String search,
+            SubscriptionStatus status,
+            Pageable pageable
+    ) {
         Plan plan = requirePlan(planId);
-        return subscriptionRepository.findAllByPlan_IdAndStatusInOrderByCreatedAtDesc(planId, usableStatuses())
-                .stream()
-                .map(subscription -> new PlanSubscriberDto(
-                        subscription.getId(),
-                        subscription.getAccount().getId(),
-                        subscription.getAccount().getName(),
-                        plan.getCode(),
-                        subscription.getStatus(),
-                        subscription.getCurrentPrice(),
-                        subscription.getCurrentPriceCurrencyCode(),
-                        subscription.getCurrentPeriodEnd()
-                ))
-                .toList();
+        String normalizedSearch = search == null || search.isBlank() ? null : search.trim();
+        return subscriptionRepository.searchPlanSubscribers(
+                        planId, status, normalizedSearch, safeSubscriberPage(pageable))
+                .map(subscription -> toSubscriberDto(plan, subscription));
+    }
+
+    @Override
+    @PermissionNode(
+            key = "lookup_subscriber_owner_email",
+            description = "Find plan subscribers by Account owner email")
+    @Transactional(readOnly = true)
+    public Page<PlanSubscriberOwnerLookupDto> findPlanSubscribersByOwnerEmail(
+            UUID planId,
+            String ownerEmail,
+            Pageable pageable
+    ) {
+        Plan plan = requirePlan(planId);
+        if (ownerEmail == null || ownerEmail.isBlank()) {
+            throw new InvalidRequestException("Owner email is required.");
+        }
+        return subscriptionRepository.findPlanSubscribersByOwnerEmail(
+                        planId, ownerEmail.trim(), safeSubscriberPage(pageable))
+                .map(subscription -> new PlanSubscriberOwnerLookupDto(
+                        subscription.getAccount().getOwner().getEmail(),
+                        toSubscriberDto(plan, subscription)));
     }
 
     @Override
@@ -549,11 +608,53 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         quotaPackageRepository.delete(item);
     }
 
-    private void inheritPlanComposition(Plan targetPlan, UUID requestedSourcePlanId) {
-        var sourcePlan = resolveInheritanceSource(requestedSourcePlanId).orElse(null);
-        if (sourcePlan == null) {
-            return;
+    private Plan createBranch(
+            Plan source,
+            PlanBranchRequest request,
+            UUID lineageId,
+            int revisionNumber,
+            PlanCreationReason creationReason
+    ) {
+        String code = normalizeCommercialCode(request.code(), "Plan code");
+        Money price = validatePlanBasics(
+                code, request.name(), request.price(), request.currencyCode(), request.billingCycle());
+        return saveNewPlan(code, request.name(), request.description(), price, request.billingCycle(),
+                source, lineageId, revisionNumber, creationReason);
+    }
+
+    private Plan saveNewPlan(
+            String code,
+            String name,
+            String description,
+            Money price,
+            BillingCycle billingCycle,
+            Plan source,
+            UUID lineageId,
+            int revisionNumber,
+            PlanCreationReason creationReason
+    ) {
+        if (planRepository.findByCode(code).isPresent()) {
+            throw new DuplicateResourceException("Plan", "code", code);
         }
+        Plan plan = new Plan();
+        plan.setCode(code);
+        plan.setName(name);
+        plan.setDescription(description);
+        plan.setMoney(price);
+        plan.setBillingCycle(billingCycle);
+        plan.setStatus(PlanStatus.DRAFT);
+        plan.setSourcePlan(source);
+        plan.setLineageId(lineageId);
+        plan.setRevisionNumber(revisionNumber);
+        plan.setCreationReason(creationReason);
+        try {
+            return planRepository.saveAndFlush(plan);
+        } catch (DataIntegrityViolationException exception) {
+            throw new DuplicateResourceException("Plan", "code or lineage revision", code);
+        }
+    }
+
+    private void copyPlanComposition(Plan sourcePlan, Plan targetPlan) {
         var sourceFeatures = planFeatureRepository.findAllByPlanId(sourcePlan.getId());
         var inheritedFeatures = sourceFeatures.stream()
                 .map(sourceFeature -> {
@@ -561,7 +662,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                             sourceFeature.getFeature().getCode(),
                             sourceFeature.getMode(),
                             sourceFeature.getQuotaConfigs(),
-                            sourcePlan.getCurrencyCode());
+                            targetPlan.getCurrencyCode());
                     PlanFeature copy = new PlanFeature();
                     copy.setPlan(targetPlan);
                     copy.setFeature(sourceFeature.getFeature());
@@ -579,8 +680,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     }
 
     private void requireMutable(Plan plan) {
-        if (plan.getStatus() == PlanStatus.ARCHIVED) {
-            throw new BusinessException("Archived plans are read-only.");
+        if (plan.getStatus() != PlanStatus.DRAFT) {
+            throw new BusinessException(
+                    "Published plans are commercially immutable; create a draft revision to change them.");
         }
     }
 
@@ -594,14 +696,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                     feature.getFeature().getCode(), feature.getMode(),
                     feature.getQuotaConfigs(), plan.getCurrencyCode());
         }
-    }
-
-    private java.util.Optional<Plan> resolveInheritanceSource(UUID requestedSourcePlanId) {
-        if (requestedSourcePlanId != null) {
-            return java.util.Optional.of(planRepository.findById(requestedSourcePlanId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", requestedSourcePlanId)));
-        }
-        return planRepository.findByCode(PlanCodes.DEFAULT);
     }
 
     private Plan requirePlan(UUID planId) {
@@ -962,6 +1056,96 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         return money;
     }
 
+    private PlanDeletionPreview buildDeletionPreview(Plan plan) {
+        UUID planId = plan.getId();
+        int ownedFeatureCount = planFeatureRepository.findAllByPlanId(planId).size();
+        long subscriptionHistory = subscriptionRepository.countByPlan_Id(planId);
+        long changeOperationReferences = subscriptionChangeOperationRepository.countByTargetPlan_Id(planId);
+        long addOnReferences = addOnRepository.findAll().stream()
+                .filter(addOn -> addOn.getAllowedPlanCodes().contains(plan.getCode())
+                        || addOn.getBlockedPlanCodes().contains(plan.getCode()))
+                .count();
+        long quotaPackageReferences = quotaPackageRepository.findAll().stream()
+                .filter(item -> item.getAllowedPlanCodes().contains(plan.getCode()))
+                .count();
+        long lineageReferences = planRepository.countBySourcePlan_Id(planId);
+
+        List<String> blockers = new ArrayList<>();
+        if (PlanCodes.DEFAULT.equals(plan.getCode())) {
+            blockers.add("DEFAULT_PROVISIONING_PLAN");
+        }
+        if (plan.getStatus() != PlanStatus.DRAFT) {
+            blockers.add("NOT_UNUSED_DRAFT");
+        }
+        if (subscriptionHistory > 0) {
+            blockers.add("SUBSCRIPTION_HISTORY");
+        }
+        if (changeOperationReferences > 0) {
+            blockers.add("CHANGE_OPERATION_HISTORY");
+        }
+        if (addOnReferences > 0) {
+            blockers.add("ADDON_REFERENCE");
+        }
+        if (quotaPackageReferences > 0) {
+            blockers.add("QUOTA_PACKAGE_REFERENCE");
+        }
+        if (lineageReferences > 0) {
+            blockers.add("LINEAGE_REFERENCE");
+        }
+
+        String state = String.join("|",
+                planId.toString(),
+                plan.getCode(),
+                Long.toString(plan.getVersion()),
+                plan.getStatus().name(),
+                Integer.toString(ownedFeatureCount),
+                Long.toString(subscriptionHistory),
+                Long.toString(changeOperationReferences),
+                Long.toString(addOnReferences),
+                Long.toString(quotaPackageReferences),
+                Long.toString(lineageReferences));
+        return new PlanDeletionPreview(
+                planId,
+                plan.getCode(),
+                plan.getVersion(),
+                sha256(state),
+                blockers.isEmpty(),
+                ownedFeatureCount,
+                subscriptionHistory,
+                changeOperationReferences,
+                addOnReferences,
+                quotaPackageReferences,
+                lineageReferences,
+                List.copyOf(blockers));
+    }
+
+    private String sha256(String value) {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    private Pageable safeSubscriberPage(Pageable pageable) {
+        int page = pageable == null ? 0 : Math.max(0, pageable.getPageNumber());
+        int size = pageable == null ? 20 : Math.min(100, Math.max(1, pageable.getPageSize()));
+        return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+    }
+
+    private PlanSubscriberDto toSubscriberDto(Plan plan, Subscription subscription) {
+        return new PlanSubscriberDto(
+                subscription.getId(),
+                subscription.getAccount().getId(),
+                subscription.getAccount().getName(),
+                plan.getCode(),
+                subscription.getStatus(),
+                subscription.getCurrentPrice(),
+                subscription.getCurrentPriceCurrencyCode(),
+                subscription.getCurrentPeriodEnd());
+    }
+
     private List<SubscriptionStatus> usableStatuses() {
         return List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING);
     }
@@ -981,7 +1165,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         }
         if (currentSubscribers > 0) {
             warnings.add("HAS_CURRENT_SUBSCRIBERS");
-            warnings.add("TEMPLATE_EDITS_DO_NOT_UPDATE_EXISTING_SNAPSHOTS");
+            warnings.add("SUBSCRIBER_TERMS_CHANGE_ONLY_THROUGH_EXPLICIT_OPERATIONS");
         } else if (historicalSubscribers > 0) {
             warnings.add("HAS_SUBSCRIPTION_HISTORY");
         }

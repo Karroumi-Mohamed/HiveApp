@@ -3,6 +3,8 @@ package com.hiveapp.platform.client.plan.domain.repository;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -24,6 +26,33 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
     List<Subscription> findAllByAccountIdAndStatusIn(UUID accountId, Collection<SubscriptionStatus> statuses);
 
     List<Subscription> findAllByPlan_IdAndStatusInOrderByCreatedAtDesc(UUID planId, Collection<SubscriptionStatus> statuses);
+
+    @Query(value = "select subscription from Subscription subscription "
+            + "join subscription.account account "
+            + "where subscription.plan.id = :planId "
+            + "and (:status is null or subscription.status = :status) "
+            + "and (:search is null or lower(account.name) like lower(concat('%', :search, '%')))",
+            countQuery = "select count(subscription) from Subscription subscription "
+                    + "join subscription.account account "
+                    + "where subscription.plan.id = :planId "
+                    + "and (:status is null or subscription.status = :status) "
+                    + "and (:search is null or lower(account.name) like lower(concat('%', :search, '%')))")
+    Page<Subscription> searchPlanSubscribers(
+            @Param("planId") UUID planId,
+            @Param("status") SubscriptionStatus status,
+            @Param("search") String search,
+            Pageable pageable);
+
+    @Query(value = "select subscription from Subscription subscription "
+            + "join subscription.account account join account.owner owner "
+            + "where subscription.plan.id = :planId and lower(owner.email) = lower(:ownerEmail)",
+            countQuery = "select count(subscription) from Subscription subscription "
+                    + "join subscription.account account join account.owner owner "
+                    + "where subscription.plan.id = :planId and lower(owner.email) = lower(:ownerEmail)")
+    Page<Subscription> findPlanSubscribersByOwnerEmail(
+            @Param("planId") UUID planId,
+            @Param("ownerEmail") String ownerEmail,
+            Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select subscription from Subscription subscription "

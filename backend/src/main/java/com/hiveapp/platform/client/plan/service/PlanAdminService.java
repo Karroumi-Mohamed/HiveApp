@@ -15,9 +15,15 @@ import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
+import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
+import com.hiveapp.platform.client.plan.dto.PlanDeletionPreview;
 import com.hiveapp.platform.client.plan.dto.PlanDetailDto;
 import com.hiveapp.platform.client.plan.dto.PlanSubscriberDto;
+import com.hiveapp.platform.client.plan.dto.PlanSubscriberOwnerLookupDto;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.UUID;
@@ -30,15 +36,26 @@ public interface PlanAdminService {
 
     Plan createPlan(CreatePlanRequest request);
 
+    Plan duplicatePlan(UUID sourcePlanId, PlanBranchRequest request);
+
+    Plan revisePlan(UUID sourcePlanId, PlanBranchRequest request);
+
     Plan updatePlan(UUID planId, UpdatePlanRequest request);
 
     Plan transitionStatus(UUID planId, PlanStatus targetStatus);
 
-    void deletePlan(UUID planId);
+    PlanDeletionPreview previewPlanDeletion(UUID planId);
+
+    void deletePlan(UUID planId, DeletePlanRequest request);
 
     List<PlanFeature> listPlanFeatures(UUID planId);
 
-    List<PlanSubscriberDto> listPlanSubscribers(UUID planId);
+    Page<PlanSubscriberDto> listPlanSubscribers(
+            UUID planId, String search, com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus status,
+            Pageable pageable);
+
+    Page<PlanSubscriberOwnerLookupDto> findPlanSubscribersByOwnerEmail(
+            UUID planId, String ownerEmail, Pageable pageable);
 
     PlanFeature assignFeature(UUID planId, AssignPlanFeatureRequest request);
 

@@ -112,7 +112,7 @@ public class SubscriptionSnapshotFactory {
                 SubscriptionEntitlementSnapshot.CURRENT_SCHEMA_VERSION,
                 plan.getCode(),
                 plan.getName(),
-                plan.getVersion(),
+                plan.getRevisionNumber(),
                 plan.getPrice(),
                 plan.getCurrencyCode(),
                 plan.getBillingCycle(),
