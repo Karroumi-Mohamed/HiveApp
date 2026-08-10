@@ -471,7 +471,7 @@ Inspect plan policies, subscription services, migrations, tests, and frontend st
 **Implementation evidence — 2026-08-10**
 
 - `SubscriptionStatus` now has the canonical `TRIALING`, `ACTIVE`, `PAST_DUE`, `SUSPENDED`, `CANCELLED`, and `EXPIRED` vocabulary.
-- `EXPIRED` is used for a trial that reaches its deadline; `CANCELLED` remains an explicit/replacement end, and paid expiry enters `PAST_DUE` until Batch 4.6 supplies a real payment outcome.
+- `EXPIRED` is used for a trial that reaches its deadline; `CANCELLED` remains an explicit/replacement end, and paid expiry enters `PAST_DUE` until later recurring collection/recovery supplies a trusted payment outcome.
 - Usable-subscription queries consistently mean `ACTIVE` or `TRIALING`; terminal/non-entitling states cannot occupy the Account's usable-subscription slot.
 
 ---
@@ -600,7 +600,7 @@ Admins can change what Plan X means for future customers without a durable revis
 
 ### BILLING-001 — Client self-service activates paid plans without payment or approval
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR CLIENT ACTIVATION — 2026-08-10`
 
 **Evidence**
 
@@ -620,6 +620,14 @@ Until real billing exists, paid client changes must remain pending until a real 
 - Restrict client selection to active, publicly sellable, code-valid plan/add-on/quota options. Never allow self-service internal/non-sellable features, arbitrary exceptions, unlimited/custom quotas, free paid features, or negotiated pricing.
 - Store the request, confirmation source, actor, before/after snapshot, and effective time. Revalidate authorization, commercial confirmation, eligibility, and impact under the Account lock immediately before activation.
 - Offer both **now** and **at renewal** for upgrades and downgrades. Run the same effective feature/quota/workflow/usage impact preview for either direction; a more expensive plan can still remove a capability. Immediate execution rechecks under the Account lock, while renewal creates a cancellable pending operation and rechecks at cutoff. No plan change may silently delete customer data.
+
+**Implementation evidence — 2026-08-10**
+
+- A positive-price client request now creates a durable `AWAITING_CONFIRMATION` change operation and one checkout containing the Account, requester, exact Money amount/currency, before/target snapshots, timing, and gateway-attempt evidence. The current entitlement remains unchanged.
+- Only an explicitly zero-priced change can activate without checkout. Immediate activation and renewal execution share the same Account lock, current-subscription, Plan/AddOn/package-version, and feature-owned impact rechecks.
+- The guarded admin subscription surface can list Account change operations and manually confirm external settlement/contract evidence. Confirmation stores its operator, source, unique reference, reason, and time; retrying the same reference is idempotent.
+- Confirmed immediate changes activate only after the final recheck. Confirmed future-renewal changes remain pending until their effective time and are rechecked again by the renewal processor. Unconfirmed renewal checkouts can be cancelled without changing entitlement.
+- This closes unpaid client activation; it does not claim collected revenue or implement a provider/webhook, invoice/tax ledger, refund/credit workflow, or recurring payment recovery. Those remain separate billing work.
 
 ---
 
@@ -2587,7 +2595,7 @@ Introduce pagination/search before these collections can grow significantly, whi
 
 ### BILLING-002 — The only payment gateway bean always reports fake success
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — DEV/TEST SIMULATOR ISOLATED 2026-08-10`
 
 **Evidence**
 
@@ -2600,6 +2608,13 @@ Future AI-generated code may wire the existing `PaymentGateway` and appear to co
 **Required fix direction**
 
 Restrict the fake gateway to an explicit local/test profile. Production startup must fail when real collection is enabled without a configured provider. Never let calculated price or the dev gateway create a confirmed payment. Real/manual settlement must support idempotency, asynchronous confirmation, pending/success/failure/partial-refund/refund states, reconciliation, and durable provider/manual references before paid entitlement activation.
+
+**Implementation evidence — 2026-08-10**
+
+- `DevPaymentGateway` loads only in `dev` and `test`; its pending/success/failure outcome is explicit and configurable, with pending as the default.
+- Simulator results are stored only as attempt telemetry. Even simulated `SUCCESS` cannot confirm a checkout or activate paid entitlement.
+- Every payment request carries a stable idempotency key. Production startup fails when collection is enabled without any gateway explicitly marked trusted for settlement.
+- Manual settlement has durable, idempotent confirmation evidence. A real provider adapter, asynchronous webhook/reconciliation, refunds/credits, invoices, and recurring recovery remain later integrations.
 
 ---
 

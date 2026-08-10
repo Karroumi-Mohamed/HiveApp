@@ -1221,10 +1221,11 @@ flowchart TD
 - **Unlocks**: BILLING-002.
 - **Order Rationale**: Installs payment gateway validations.
 - **Affected Backend Areas**: Checkout services.
-- **Database Migration**: Yes (payment ledger schema).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; the generated schema includes the checkout and change-operation constraints. A real payment/invoice ledger remains later work.
 - **Acceptance Criteria**: Changes stay pending until payment confirmation.
 - **Tests**: Payment checkout tests.
 - **Future UI Flow**: Upgrades checkouts page.
+- **Execution Status**: Client activation boundary completed on 2026-08-10. Positive-price changes preserve current entitlement in a durable awaiting-confirmation operation; guarded manual confirmation records idempotent evidence and performs the final activation/revalidation, while explicitly zero-priced changes may activate directly. Real provider/webhook, invoice/tax, refund/credit, and recurring recovery flows remain later billing work.
 
 #### [IMPLEMENT] BILLING-002 — The only payment gateway bean always reports fake success
 - **Prerequisites**: BILLING-001.
@@ -1235,6 +1236,9 @@ flowchart TD
 - **Acceptance Criteria**: Simulated payments return configurable outcomes.
 - **Tests**: Mock gateway unit tests.
 - **Future UI Flow**: Payment test panels.
+- **Execution Status**: Completed on 2026-08-10. The configurable simulator is dev/test-only and never trusted for settlement, simulated success cannot activate entitlement, payment attempts carry idempotency keys, and startup fails when collection is enabled without a trusted provider.
+
+**Batch 4.6 verification:** `mvn test` passes 392 tests with 0 failures, 0 errors, and 0 skipped. Paid-pending/manual-confirmation, same-reference idempotency, renewal waiting/cancellation, concurrent requests, zero-price activation, configurable simulator outcomes, and production startup safety are covered. No Flyway files were added under the agreed unpublished/disposable-database policy.
 
 ---
 
@@ -1702,7 +1706,7 @@ flowchart TD
 | **PLAN-001** | Database constraints | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.2 | BILLING-003 | Verified unique code plus non-null cycle/state persistence tests |
 | **PLAN-006** | Lifecycle states | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Validated state machine, terminal archive, optimistic lock; replacement/audit later |
 | **PLAN-007** | Branching revisions | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Draft generation |
-| **BILLING-001** | Checkouts activation | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Payment validation |
+| **BILLING-001** | Checkouts activation | IMPLEMENTED FOR CLIENT ACTIVATION | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Durable non-entitling checkout plus guarded, idempotent confirmation and final recheck |
 | **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.1 | None | Explicit ISO Money/currency persistence, calculation, and API tests |
 | **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
 | **SUBSCRIPTION-003**| Periods scheduler | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-002 | UTC history, scheduled trial/free/paid transitions and renewal operations |
@@ -1783,7 +1787,7 @@ flowchart TD
 | **ADMIN-RBAC-001**| SuperAdmin checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.3 | ADMIN-002 | Access denied blocks |
 | **ADMIN-DATA-001**| Query join | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Bulk load mapping |
 | **ADMIN-DATA-002**| Page parameters | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Paginated metrics |
-| **BILLING-002** | Simulated payments | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | BILLING-001 | Configurable returns |
+| **BILLING-002** | Simulated payments | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.6 | BILLING-001 | Dev/test-only configurable untrusted simulator and production fail-fast guard |
 | **EMAIL-001** | Mail error report | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.6 | None | Exception propagate |
 | **EMAIL-002** | Escape templates | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Escaped, validated, deadline-aware activation emails |
 | **API-ERROR-001**| Error codes payload | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.5 | None | Code mapping returned |
