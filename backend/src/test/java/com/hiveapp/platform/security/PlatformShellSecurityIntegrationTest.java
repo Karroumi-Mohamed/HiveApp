@@ -2,10 +2,14 @@ package com.hiveapp.platform.security;
 
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.containsStringIgnoringCase;
 
 class PlatformShellSecurityIntegrationTest extends PlatformShellIntegrationTestSupport {
 
@@ -74,5 +78,21 @@ class PlatformShellSecurityIntegrationTest extends PlatformShellIntegrationTestS
         mockMvc.perform(get("/api/admin/me")
                         .header("Authorization", bearer("not-a-jwt")))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void browserPreflightAllowsCompanyAndB2bContextHeaders() throws Exception {
+        mockMvc.perform(options("/api/v1/companies/{id}", java.util.UUID.randomUUID())
+                        .header(HttpHeaders.ORIGIN, "http://localhost:5173")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
+                                "Authorization, X-Company-ID, X-Is-B2B"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(
+                        HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
+                        containsStringIgnoringCase("X-Company-ID")))
+                .andExpect(header().string(
+                        HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
+                        containsStringIgnoringCase("X-Is-B2B")));
     }
 }

@@ -526,9 +526,13 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
                         grant.getPermission().getCode(),
                         grant.getPermission().getDescription(),
                         grant.isActive(),
-                        grant.isActive() && scopeActive && planEntitlementService.isPermissionEntitled(
-                                collaboration.getProviderAccount().getId(),
-                                grant.getPermission().getCode()),
+                        grant.isActive()
+                                && scopeActive
+                                && permissionGrantValidator.isB2bRuntimeEligible(
+                                        grant.getPermission().getCode())
+                                && planEntitlementService.isPermissionEntitled(
+                                        collaboration.getProviderAccount().getId(),
+                                        grant.getPermission().getCode()),
                         grant.getGrantedAt(),
                         grant.getRevokedAt()))
                 .toList();
@@ -544,6 +548,10 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
         }
         for (CollaborationPermission grant
                 : collaborationPermissionRepository.findAllByCollaborationId(collaboration.getId())) {
+            if (grant.isActive() && !permissionGrantValidator.isB2bRuntimeEligible(
+                    grant.getPermission().getCode())) {
+                blockers.add("CODE_B2B_ELIGIBILITY_MISSING:" + grant.getPermission().getCode());
+            }
             if (grant.isActive() && !planEntitlementService.isPermissionEntitled(
                     collaboration.getProviderAccount().getId(), grant.getPermission().getCode())) {
                 blockers.add("PROVIDER_ENTITLEMENT_MISSING:" + grant.getPermission().getCode());

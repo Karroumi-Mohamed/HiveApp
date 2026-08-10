@@ -125,6 +125,7 @@ flowchart TD
         COLLAB-007 --> COLLAB-008
         COLLAB-008 --> AUTHZ-002
         AUTHZ-002 --> AUTHZ-003
+        AUTHZ-002 --> AUTHZ-007
         AUTHZ-003 --> AUTHZ-005
         AUTHZ-003 --> AUTHZ-006
         EMAIL-001
@@ -1389,13 +1390,25 @@ flowchart TD
 ### Batch 5.3: B2B Operator Scoping & Context Routing
 #### [IMPLEMENT] AUTHZ-002 — Any active member of a B2B client account can use all delegated collaboration permissions
 - **Prerequisites**: COLLAB-008.
-- **Unlocks**: AUTHZ-003.
+- **Unlocks**: AUTHZ-003, AUTHZ-007.
 - **Order Rationale**: Blocks client members from accessing provider data unless they hold client-side B2B operator roles.
 - **Affected Backend Areas**: `B2bCollaborationPolicy.java`.
 - **Database Migration**: No.
 - **Acceptance Criteria**: Runtime checks verify client worker role status.
 - **Tests**: B2B operator role integration tests.
 - **Future UI Flow**: B2B operator settings panel.
+- **Execution Status**: Safe ceiling completed on 2026-08-10. B2B authorization now requires both the exact provider collaboration grant and an effective Account-scoped permission for the external actor. The existing client role/direct-exception resolver supplies owner handling, active-role checks, expiry, and deny precedence without creating a parallel B2B role model or using organization Groups as authority. Because that operator-selection lever also widens the actor's internal Company authority, the least-privilege Collaboration-scope refinement is tracked separately as AUTHZ-007.
+
+#### [DEFERRED REFINEMENT] AUTHZ-007 — B2B operator selection requires internal Account-wide authority
+- **Prerequisites**: AUTHZ-002.
+- **Unlocks**: None.
+- **Order Rationale**: The safe actor ceiling is active, but external work should not require granting the same permission across the operator's own Account Companies.
+- **Affected Backend Areas**: MEMBER-FLOW-003 role assignment effect scopes, `MemberRole`, `UserRolePolicy`, `B2bCollaborationPolicy`, role/member management APIs.
+- **Database Migration**: Generated schema change when implemented; no Flyway history while the database remains unpublished/disposable.
+- **Acceptance Criteria**: A member can receive one role for one Collaboration without receiving that role over the external Account's own Companies or another Collaboration; provider grants remain the outer ceiling.
+- **Tests**: Exact-Collaboration assignment, internal Company isolation, sibling-collaboration isolation, role lifecycle, duplicate assignment, delegation ceiling, and owner behavior.
+- **Future UI Flow**: Collaboration operator assignments using reusable role templates.
+- **Execution Status**: Not implemented in Batch 5.3. The likely shape is `COLLABORATION` as a third MEMBER-FLOW-003 assignment effect scope alongside `ACCOUNT` and `COMPANY`, reusing the existing role/template/assignment machinery rather than adding a parallel B2B role system.
 
 #### [IMPLEMENT] AUTHZ-003 — Existing B2B grants are not revalidated against current code delegation rules
 - **Prerequisites**: AUTHZ-002.
@@ -1403,9 +1416,10 @@ flowchart TD
 - **Order Rationale**: Re-filters runtime B2B permissions dynamically against active code definition annotations.
 - **Affected Backend Areas**: `B2bCollaborationPolicy.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Removed permissions disappear dynamically from B2B access lists.
+- **Acceptance Criteria**: Permissions removed from current code eligibility stop granting access immediately and remain visible only as inactive historical configuration.
 - **Tests**: Dynamic delegation tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed on 2026-08-10. Verification found the runtime policy check already present from Batch 5.2. Batch 5.3 locks that denial with focused tests and applies the same current-code check to collaboration grant read models/blockers, preserving the row for history while reporting it inactive.
 
 #### [IMPLEMENT] AUTHZ-005 — Tenant and B2B context headers are absent from CORS configuration
 - **Prerequisites**: AUTHZ-003.
@@ -1413,19 +1427,23 @@ flowchart TD
 - **Order Rationale**: Adds custom context headers to CORS config.
 - **Affected Backend Areas**: `WebMvcConfigurer` CORS settings.
 - **Database Migration**: No.
-- **Acceptance Criteria**: HTTP headers (e.g. `X-Tenant-Id`) are accepted in options requests.
+- **Acceptance Criteria**: The exact `X-Company-ID` and `X-Is-B2B` headers are accepted in browser OPTIONS requests from configured frontend origins.
 - **Tests**: CORS validation tests.
 - **Future UI Flow**: Cross-workspace frontend requests.
+- **Execution Status**: Completed on 2026-08-10. The exact runtime headers `X-Company-ID` and `X-Is-B2B` are explicitly allowed, and a browser-style OPTIONS preflight test verifies both response headers.
 
-#### [DESIGN FIRST] AUTHZ-006 — Shell authorization cannot target one managed entity or subgroup
+#### [DESIGN DEFERRED] AUTHZ-006 — Shell authorization cannot target one managed entity or subgroup
 - **Prerequisites**: AUTHZ-003.
 - **Unlocks**: None.
 - **Order Rationale**: Target-aware exceptions design decision. Choose the smallest explicit target model during implementation before deploying context parameters.
 - **Affected Backend Areas**: `HiveAppContextHolder`, policy evaluation engines.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Target-management model selected; context parameters resolved in check gates.
-- **Tests**: Target validation tests.
+- **Acceptance Criteria**: Safe service-resolved target boundary recorded without inventing a generic model before its product deferral is lifted.
+- **Tests**: Target validation tests when the deferred capability is resumed; existing Group regressions continue to prove organization structure grants no authority.
 - **Future UI Flow**: Sub-company data lists.
+- **Execution Status**: Design boundary recorded; the generic manager-target building block remains deferred by product decision and does not block B2B operator scoping. Permissionizer annotations remain coarse action gates. Any future target restriction must resolve a tenant-owned target inside the service, apply the same restriction to direct reads and list/search/count/export queries, use an explicit assignment independent from organization Groups, and avoid trusting arbitrary target IDs from request headers or global thread context. The concrete single-target/reusable-set persistence shape will be selected with the first business-module requirement instead of being invented in the shell.
+
+**Batch 5.3 verification:** `mvn test` passes 407 tests with 0 failures, 0 errors, and 0 skipped. Focused and request-level coverage proves provider delegation is insufficient for an ordinary external member, an Account-scoped operator role enables only the exact action, current code eligibility fails closed while retaining inactive grant history, and browser preflight accepts the exact Company/B2B context headers. The current Account-wide operator-selection limitation is recorded as AUTHZ-007; no schema or Flyway changes were made for that deferred refinement.
 
 ---
 
@@ -1715,7 +1733,7 @@ flowchart TD
 | **TENANCY-003** | Mismatched parent accounts | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.1 | TENANCY-002 | `@PrePersist` validator |
 | **ORG-001** | Support generic Group model | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | COMPANY-002 | Generic hierarchy, memberships, lifecycle, templates, and verified APIs |
 | **ORG-002** | Groups stay outside authz | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | ORG-001 | Permissionized operations with unchanged effective permissions |
-| **AUTHZ-006** | Context evaluation checks | MISSING | DESIGN FIRST | Phase 5 | Batch 5.3 | AUTHZ-003 | Design document |
+| **AUTHZ-006** | Context evaluation checks | DEFERRED BY PRODUCT DECISION | DESIGN DEFERRED | Phase 5 | Batch 5.3 | AUTHZ-003 | Service-resolved target boundary recorded; concrete model waits for a module requirement |
 | **RBAC-006** | Exception override lifecycle | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-003 | Explicit scoped exception lifecycle, provenance, expiry, and abuse tests |
 | **SUBSCRIPTION-001**| Terminological alignment | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.5 | PLAN-006 | Canonical lifecycle and usable-state tests |
 | **SUBSCRIPTION-002**| JSON strings | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.5 | SUBSCRIPTION-001 | Typed versioned JSON and validation tests |
@@ -1809,9 +1827,10 @@ flowchart TD
 | **API-ERROR-001**| Error codes payload | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.5 | None | Code mapping returned |
 | **CONFIG-001** | Profile configs | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | None | Destructive dev only |
 | **AUTHZ-001** | Explicit service guards | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | PERM-002 | Guarded services enforced |
-| **AUTHZ-002** | B2B operator check | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | COLLAB-008 | Client worker verified |
-| **AUTHZ-003** | Dynamic validation | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-002 | Keys filter checks |
-| **AUTHZ-005** | CORS headers | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-003 | Header verification |
+| **AUTHZ-002** | B2B operator check | PARTIAL — SAFE ACCOUNT-WIDE CEILING IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.3 | COLLAB-008 | Provider grant plus Account-scoped owner/role/exception operator coverage |
+| **AUTHZ-007** | Collaboration-scoped B2B operator assignment | CONFIRMED — REFINEMENT DEFERRED | DEFERRED REFINEMENT | Phase 5 | Future | AUTHZ-002 | Internal Company and sibling-collaboration isolation tests |
+| **AUTHZ-003** | Dynamic validation | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-002 | Current-code runtime denial and inactive historical grant read model |
+| **AUTHZ-005** | CORS headers | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-003 | Browser OPTIONS preflight verifies both exact context headers |
 | **REGISTRY-001** | Deleted keys clean | PARTIAL | DEFERRED | Phase 3 | None | AUTHZ-001 | Revisit on requirement |
 | **REGISTRY-002** | Stale actions block | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | AUTHZ-001 | Current-snapshot grant rejection and catalog exclusion |
 | **REGISTRY-003** | Corrupt discovery crash| IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-002 | Reflected action-set equality and fatal startup validation |

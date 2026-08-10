@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.collaboration.domain.constant.CollaborationStatus;
 import com.hiveapp.platform.client.collaboration.domain.entity.Collaboration;
+import com.hiveapp.platform.client.collaboration.domain.entity.CollaborationPermission;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationPermissionRepository;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationRepository;
 import com.hiveapp.platform.client.collaboration.dto.CollaborationInitiationResult;
@@ -169,5 +170,53 @@ class CollaborationServiceImplTest {
         assertThat(result.collaboration().requestedPermissionCodes())
                 .containsExactlyInAnyOrder("capability.a", "capability.b");
         verifyNoInteractions(collaborationInitiationStore);
+    }
+
+    @Test
+    void codeEligibilityRemovalMakesAStoredGrantCurrentlyInactiveWithoutDeletingHistory() {
+        UUID clientAccountId = UUID.randomUUID();
+        UUID providerAccountId = UUID.randomUUID();
+        UUID collaborationId = UUID.randomUUID();
+        String permissionCode = "platform.company.read_single";
+        HiveAppContextHolder.setContext(new HiveAppPermissionContext(
+                UUID.randomUUID(), clientAccountId, clientAccountId, null, null, false));
+
+        Account client = new Account();
+        ReflectionTestUtils.setField(client, "id", clientAccountId);
+        client.setActive(true);
+        Account provider = new Account();
+        ReflectionTestUtils.setField(provider, "id", providerAccountId);
+        provider.setActive(true);
+        Company company = new Company();
+        ReflectionTestUtils.setField(company, "id", UUID.randomUUID());
+        company.setAccount(provider);
+        company.setActive(true);
+        Collaboration collaboration = new Collaboration();
+        ReflectionTestUtils.setField(collaboration, "id", collaborationId);
+        collaboration.setClientAccount(client);
+        collaboration.setProviderAccount(provider);
+        collaboration.setCompany(company);
+        collaboration.setStatus(CollaborationStatus.ACTIVE);
+        Permission permission = new Permission();
+        permission.setCode(permissionCode);
+        CollaborationPermission grant = new CollaborationPermission();
+        grant.setCollaboration(collaboration);
+        grant.setPermission(permission);
+        grant.setActive(true);
+        grant.setGrantedAt(Instant.parse("2026-08-10T12:00:00Z"));
+
+        when(collaborationRepository.findParticipantById(collaborationId, clientAccountId))
+                .thenReturn(Optional.of(collaboration));
+        when(collaborationPermissionRepository.findAllByCollaborationId(collaborationId))
+                .thenReturn(List.of(grant));
+        when(permissionGrantValidator.isB2bRuntimeEligible(permissionCode)).thenReturn(false);
+
+        var grants = service.getPermissions(collaborationId);
+
+        assertThat(grants).singleElement().satisfies(result -> {
+            assertThat(result.permissionCode()).isEqualTo(permissionCode);
+            assertThat(result.configured()).isTrue();
+            assertThat(result.currentlyActive()).isFalse();
+        });
     }
 }

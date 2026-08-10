@@ -320,6 +320,9 @@ revoked collaboration denies immediately. Covered at request level.
 pending collaboration denies delegated access and permission grants. Covered at request level.
 provider's plan entitlement is checked for delegated feature. Covered at unit and request level for the B2B permission picker, grant write path, and runtime delegated resource access.
 client's plan entitlement is checked for B2B management endpoints, but not passive delegated resource access. Covered at request level for initiate denial and provider-granted resource access.
+provider delegation alone does not authorize every external member; a non-owner is denied until an Account-scoped role grants the exact action. Covered through member activation, role creation/activation/assignment, and delegated resource access at request level. This locks the current safe ceiling, not the deferred AUTHZ-007 Collaboration-scoped assignment refinement.
+current code eligibility is rechecked for both runtime use and current-grant read models; invalidated grants remain configured history but become inactive. Covered at policy and collaboration-service levels.
+B2B browser preflight accepts the exact `X-Company-ID` and `X-Is-B2B` context headers from configured frontend origins. Covered at request level.
 B2B delegation rejects platform-control permissions. Covered at request level.
 B2B delegation rejects client-workspace features not marked b2bDelegatable
 B2B action set is explicit; broad platform.company.* delegation is rejected. Covered for company create/read_all/update/delete at request level.

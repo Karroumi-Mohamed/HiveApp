@@ -625,7 +625,7 @@ Runtime delegated access must require an ACTIVE collaboration.
 
 ## B2B-FLOW-003 — Permission delegation
 
-**Status:** `PROVIDER DELEGATION IMPLEMENTED — EXTERNAL OPERATOR SCOPE IN BATCH 5.3`
+**Status:** `PARTIALLY IMPLEMENTED — SAFE ACCOUNT-WIDE OPERATOR CEILING; COLLABORATION SCOPE OPEN`
 
 1. Provider opens collaboration detail.
 2. UI shows currently granted permissions and separately shows eligible additions.
@@ -642,7 +642,9 @@ Two authorization layers are required at use time:
 1. The provider account delegated the action for this active collaboration/company.
 2. The acting person in the client account has a client-side B2B/operator role allowing them to use that delegation.
 
-The provider-side layer, historical configured grants, active-scope checks, provider entitlement, and current code eligibility are enforced. The client-side B2B operator layer remains the explicit AUTHZ-002 task in Batch 5.3.
+Both layers are enforced. For the client-side operator layer, HiveApp currently evaluates the actor through the external Account's existing Account-scoped role/direct-exception resolver, with no foreign provider Company inserted into that scope. The external Account owner is allowed by the protected owner rule; ordinary members need an effective Account-scoped grant, and an applicable Account-scoped deny still wins. Organization Groups remain unrelated to authorization.
+
+This is a safe ceiling but an incomplete operator-management model. The provider's exact collaboration grant still bounds B2B access: it does not expose an undelegated action, Company, or collaboration. However, selecting an ordinary operator requires granting the same permission internally at Account scope, which also authorizes that action over the external Account's own Companies and makes it usable in every collaboration that separately delegates the same action. The open refinement is a Collaboration assignment effect scope that reuses role templates, assignments, and delegation ceilings without creating a parallel B2B role system.
 
 The provider owner may delegate any currently entitled, code-declared B2B action. A non-owner additionally needs delegation-management permission and may delegate only actions they effectively hold. The external Account owner or authorized role manager separately decides which external members may use available B2B delegation.
 
@@ -650,7 +652,7 @@ The provider owner may delegate any currently entitled, code-declared B2B action
 
 ## B2B-FLOW-004 — Entitlement and company lifecycle effects
 
-**Status:** `CORE ACTIVE-SCOPE EFFECTS IMPLEMENTED — OPERATOR SCOPE IN BATCH 5.3`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 Define behavior when:
 
@@ -665,7 +667,7 @@ Decided safety rule: every use requires active provider and external Accounts, a
 
 Suspension disables configured grants without deleting them. Revocation freezes them as non-reusable history. If a feature/action becomes inactive, deprecated, non-delegatable, or unentitled, runtime stops immediately while the relationship and former grant remain explainable in history.
 
-Current source verifies active collaboration, both active Accounts, active Company, provider entitlement, current code-declared B2B eligibility, the exact active persisted grant, and exact Company scope. External-member B2B operator authority remains in Batch 5.3.
+Current source verifies active collaboration, both active Accounts, active Company, provider entitlement, current code-declared B2B eligibility, the exact active persisted grant, exact Company scope, and the external member's Account-scoped operator authority. A stored grant that loses code eligibility remains visible as inactive history rather than remaining usable or being silently deleted.
 
 ---
 
@@ -1320,6 +1322,7 @@ Record accepted decisions here with date, reason, and affected source areas.
 | 2026-08-10 | Company share codes do not expire automatically and are not credentials | A code identifies a Company but grants no access; the provider must still accept each request, so it remains valid until disabled/regenerated and only its SHA-256 hash is stored | Share-code persistence, discovery/request APIs, provider usage metadata, security documentation and tests |
 | 2026-08-10 | Return `201 Created` whenever collaboration initiation creates a row and `200 OK` only when it returns an identical existing row | Callers must be able to distinguish creation from idempotent retrieval consistently, including the concurrent uniqueness race | Collaboration initiation API, controller outcome mapping, client retry handling and concurrency tests |
 | 2026-07-15 | Require both provider delegation and external-member authorization for every B2B action | An Account-level grant must not give every external employee the ability to use it | Permissionizer B2B policies, provider delegation ceiling, external operator roles, runtime revalidation |
+| 2026-08-10 | Reuse the external Account's existing Account-scoped role/exception resolver as the immediate B2B operator ceiling, with Collaboration-scoped assignment left as an explicit refinement | The immediate ceiling closes account-wide delegation to every employee and preserves owner, active-role, expiry, and deny precedence; a Collaboration effect scope is still needed to nominate external operators without widening their internal Company authority | B2B runtime policy, Account roles and direct exceptions, future Collaboration-scoped assignments, operator settings UX and tests |
 | 2026-07-15 | Offer both now and at-renewal timing for client upgrades and downgrades | Timing is an operator/customer choice; actual feature/quota impact, not the plan label or price direction, determines required safeguards | Client plan-change preview, pending renewal operations, conflict handling, Account locking, history/audit |
 | 2026-07-15 | Defer permission-code rename/removal migration machinery and treat annotation codes as stable | Permission codes have no expected normal reason to change after a function is guarded; adding aliases/replacement flags to Permissionizer is premature | Registry retirement flow, Permissionizer scope, future developer migrations |
 | 2026-07-15 | Separate public visibility, new-sale availability, new-grant availability, and emergency runtime shutdown | Hiding or discontinuing a feature must not accidentally change current customer access, while operators still need a deliberate emergency stop | Feature registry lifecycle, catalogs, plan validation, grant validation, runtime authorization, communications/audit |

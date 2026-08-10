@@ -1,5 +1,13 @@
 package com.hiveapp.platform.security;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.hiveapp.identity.dto.InitialPasswordChangeRequest;
+import com.hiveapp.identity.dto.LoginRequest;
+import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
+import com.hiveapp.platform.client.member.dto.AssignRoleRequest;
+import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
+import com.hiveapp.platform.client.role.domain.constant.RoleTemplateBoundary;
+import com.hiveapp.platform.client.role.dto.CreateRoleRequest;
 import com.hiveapp.platform.client.collaboration.dto.B2BPermissionRequest;
 import com.hiveapp.platform.client.collaboration.dto.CollaborationCommandRequest;
 import com.hiveapp.platform.client.collaboration.dto.InitiateCollaborationRequest;
@@ -221,6 +229,30 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         } finally {
             restoreActiveSubscriptionSnapshot(setup.clientToken(), originalSnapshot);
         }
+    }
+
+    @Test
+    void delegatedAccessRequiresAnAccountScopedOperatorRoleForNonOwnerMembers() throws Exception {
+        B2bSetup setup = setupActiveCollaboration();
+        grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.read_single")
+                .andExpect(status().isNoContent());
+        ActivatedMember operator = createAndActivateMember(setup.clientToken());
+
+        b2bCompanyRead(operator.accessToken(), setup.companyId(), setup.companyId())
+                .andExpect(status().isForbidden());
+
+        UUID roleId = createActiveAccountRole(
+                setup.clientToken(), "B2B Company Reader", "platform.company.read_single");
+        mockMvc.perform(post("/api/v1/members/{id}/roles", operator.memberId())
+                        .header("Authorization", bearer(setup.clientToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AssignRoleRequest(
+                                roleId, RoleAssignmentScope.ACCOUNT, null))))
+                .andExpect(status().isNoContent());
+
+        b2bCompanyRead(operator.accessToken(), setup.companyId(), setup.companyId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(setup.companyId().toString()));
     }
 
     @Test
@@ -686,6 +718,63 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         });
     }
 
+    private ActivatedMember createAndActivateMember(String ownerToken) throws Exception {
+        String username = "b2b-operator-" + UUID.randomUUID().toString().substring(0, 8);
+        String creationResponse = mockMvc.perform(post("/api/v1/members")
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateMemberRequest(
+                                username, null, "B2B", "Operator", "B2B Operator",
+                                null, null, List.of()))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode creation = objectMapper.readTree(creationResponse);
+        UUID memberId = UUID.fromString(creation.get("member").get("id").asText());
+        String temporaryPassword = creation.get("temporaryPassword").asText();
+
+        String restrictedResponse = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new LoginRequest(username, temporaryPassword))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passwordChangeRequired").value(true))
+                .andReturn().getResponse().getContentAsString();
+        String restrictedToken = objectMapper.readTree(restrictedResponse).get("accessToken").asText();
+
+        String activatedResponse = mockMvc.perform(post("/api/v1/auth/initial-password/change")
+                        .header("Authorization", bearer(restrictedToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new InitialPasswordChangeRequest(CLIENT_PASSWORD))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return new ActivatedMember(
+                memberId,
+                objectMapper.readTree(activatedResponse).get("accessToken").asText());
+    }
+
+    private UUID createActiveAccountRole(
+            String ownerToken, String name, String permissionCode) throws Exception {
+        String createdResponse = mockMvc.perform(post("/api/v1/roles")
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateRoleRequest(
+                                RoleTemplateBoundary.ACCOUNT, null, name, "External operator access"))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID roleId = UUID.fromString(objectMapper.readTree(createdResponse).get("id").asText());
+
+        mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
+                        .header("Authorization", bearer(ownerToken))
+                        .param("permissionCode", permissionCode)
+                        .param("registryVersion", registryCatalogVersionService.currentVersion()))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/roles/{id}/activate", roleId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk());
+        return roleId;
+    }
+
     private void assignPlan(String clientToken, String planCode) throws Exception {
         String adminToken = loginAdminAndGetToken();
         mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", currentAccountId(clientToken))
@@ -748,5 +837,8 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
             UUID collaborationId,
             long version
     ) {
+    }
+
+    private record ActivatedMember(UUID memberId, String accessToken) {
     }
 }

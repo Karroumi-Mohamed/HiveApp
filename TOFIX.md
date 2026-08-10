@@ -392,7 +392,7 @@ Generic Groups mirror customer organization folders. Names, positions, nesting, 
 
 ### AUTHZ-006 — Shell authorization cannot target one managed entity or subgroup
 
-**Status:** `CONFIRMED`
+**Status:** `DESIGN DEFERRED BY PRODUCT DECISION`
 
 **Evidence**
 
@@ -415,6 +415,14 @@ A generic management permission authorizes the action without defining which mem
 - Target-assignment changes require impact preview, authorization refresh/cache invalidation where relevant, and actor-aware audit.
 - Add direct-target, unrelated-member, subgroup, moved-member, Company-admin, owner-target, crafted-ID, list/export, and delegation-ceiling tests.
 - Keep the Permissionizer core generic unless implementation demonstrates a concrete need for method-argument-aware context integration.
+
+**Batch 5.3 design boundary — 2026-08-10**
+
+- Do not add caller-supplied target IDs to `HiveAppPermissionContext` or authorization headers; the service must load the tenant-owned entity before a target check.
+- Keep Permissionizer annotations as coarse action gates and use a HiveApp target authorizer for the loaded target when this capability is introduced.
+- The same resolved target restriction must become a repository predicate for list/search/count/export/bulk operations; UI filtering is never the security boundary.
+- Any management assignment is a separate, explicit security object. Organization Group names, hierarchy, membership, and positions never become authority automatically.
+- Per the existing product decision to defer the manager-target building block, choose the concrete single-member/reusable-set persistence model with the first real module workflow rather than inventing an unused shell abstraction now.
 
 ---
 
@@ -2864,14 +2872,14 @@ Remove `skipVerification()` after fixing any underlying verification problem. Ad
 
 ### AUTHZ-002 — Any active member of a B2B client account can use all delegated collaboration permissions
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY IMPLEMENTED — SAFE ACCOUNT-WIDE OPERATOR CEILING`
 
 **Evidence**
 
 - B2B context selects an active member of the client account.
 - `B2bCollaborationPolicy` runs before `PlanPolicy` and `UserRolePolicy`.
-- Once the collaboration row contains the requested permission and the provider account is entitled, the B2B policy returns `GRANTED` immediately.
-- It never checks whether the acting client member's roles/overrides allow that delegated action.
+- Before Batch 5.3, once the collaboration row contained the requested permission and the provider account was entitled, the B2B policy returned `GRANTED` immediately.
+- It did not check whether the acting client member's roles/overrides allowed that delegated action.
 
 **Risk**
 
@@ -2881,11 +2889,44 @@ A low-privilege employee in the client workspace can exercise every permission d
 
 Separate account-level delegation from actor-level use. A safe default requires both: the provider delegated the action to the client account, and the acting client member is authorized by a client-side role/assignment to use that delegated action. Define owner and B2B-operator exceptions explicitly.
 
+**Implementation evidence — 2026-08-10**
+
+- `B2bCollaborationPolicy` now grants only after the exact provider grant, current provider entitlement, current code eligibility, and external-actor authority all pass.
+- External authority is evaluated against the client Account with no provider Company scope. The existing role/exception resolver preserves owner authority, active-role behavior, expiry, and Account-deny precedence.
+- An ordinary external member is denied before assignment and allowed after an Account-scoped role containing the exact delegated action is assigned; request-level coverage exercises the complete flow.
+- No B2B-specific duplicate role entity and no organization-Group-derived authority were introduced.
+
+---
+
+### AUTHZ-007 — B2B operator selection requires widening the member's internal Account authority
+
+**Status:** `CONFIRMED — REFINEMENT DEFERRED`
+
+**Evidence**
+
+- `B2bCollaborationPolicy` evaluates external-actor authority with the client Account as `currentAccountId` and `targetCompanyId=null`.
+- `UserRolePolicy` therefore resolves only Account-scoped roles and exceptions. A Company-scoped assignment cannot nominate an operator for a foreign provider Company.
+- The same permission code is an ordinary internal workspace permission. Granting it at Account scope can authorize the member over all Companies owned by the external Account, subject to that Account's own plan/runtime gates.
+- There is no member/role assignment whose effect scope is one Collaboration.
+
+**Current safety boundary**
+
+The provider grant still bounds the B2B blast radius. An operator receives no access to an undelegated permission, provider Company, or collaboration. If several collaborations separately delegate the same action, however, the Account-scoped operator grant can satisfy the actor ceiling for all of them. The defect is the operator-selection lever: enabling external work necessarily widens the member's internal Account authority.
+
+Example: an audit firm cannot let a junior employee read one client's delegated books without also granting that employee the same action across the audit firm's own Company scope.
+
+**Likely refinement direction**
+
+- Extend the existing MEMBER-FLOW-003 assignment-effect model with `COLLABORATION` alongside `ACCOUNT` and `COMPANY`.
+- Reuse role templates, member-role assignments, lifecycle, duplicate protection, impact preview, actor delegation ceilings, and deny rules rather than introducing a parallel B2B role system.
+- Bind a Collaboration-scoped assignment to an exact active participant relationship and intersect its role permissions with the provider's current grants at runtime.
+- Keep organization Groups outside authorization. Define picker, lifecycle, history, and owner behavior when this refinement is scheduled; do not redesign it inside Batch 5.3.
+
 ---
 
 ### AUTHZ-003 — Existing B2B grants are not revalidated against current code delegation rules
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 **Evidence**
 
@@ -2897,7 +2938,13 @@ Removing B2B eligibility from code does not revoke or block an existing delegate
 
 **Required fix direction**
 
-Runtime must intersect persisted grants with the current code-owned B2B action allowlist. Registry synchronization must report and retire grants invalidated by code changes.
+Runtime must intersect persisted grants with the current code-owned B2B action allowlist and preserve invalidated rows as inactive history. Automated retirement/migration reporting remains part of the separately deferred `REGISTRY-001` lifecycle rather than this runtime authorization fix.
+
+**Implementation evidence — 2026-08-10**
+
+- Runtime already called `PermissionGrantValidator.isB2bRuntimeEligible()` before consulting persisted grants; focused policy coverage now locks that short-circuit.
+- Collaboration grant DTOs and access blockers use the same dynamic check. A formerly valid row becomes `currentlyActive=false` with a code-eligibility blocker while remaining available as historical configuration.
+- This implements immediate fail-closed behavior without contradicting the product rule that security history is preserved rather than silently deleted.
 
 ---
 
@@ -2931,7 +2978,7 @@ Define precedence among account-wide and company-specific decisions. Query both 
 
 ### AUTHZ-005 — Tenant and B2B context headers are absent from CORS configuration
 
-**Status:** `OBSERVED`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 **Evidence**
 
@@ -2944,6 +2991,11 @@ A browser frontend hosted on an allowed different origin cannot pass preflight f
 **Required fix direction**
 
 Add the exact context headers to environment-specific CORS configuration and test real browser preflight. Prefer an explicit selected-workspace/company contract rather than proliferating ad hoc headers.
+
+**Implementation evidence — 2026-08-10**
+
+- `SecurityConfig` explicitly allows the two headers actually consumed by context detection: `X-Company-ID` and `X-Is-B2B`.
+- A browser-style preflight integration test requests both headers from an allowed frontend origin and verifies both appear in `Access-Control-Allow-Headers`.
 
 ---
 

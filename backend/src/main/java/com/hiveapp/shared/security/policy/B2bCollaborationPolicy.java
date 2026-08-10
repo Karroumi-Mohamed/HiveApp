@@ -16,6 +16,7 @@ public class B2bCollaborationPolicy implements PermissionPolicy {
     private final CollaborationPermissionRepository collaborationPermissionRepository;
     private final PlanEntitlementService planEntitlementService;
     private final PermissionGrantValidator permissionGrantValidator;
+    private final UserRolePolicy userRolePolicy;
 
     @Override
     public Decision evaluate(Permission requested, Object context) {
@@ -36,7 +37,22 @@ public class B2bCollaborationPolicy implements PermissionPolicy {
             return Decision.DENIED;
         }
 
-        return planEntitlementService.isPermissionEntitled(ctx.currentAccountId(), requested.path())
+        if (!planEntitlementService.isPermissionEntitled(ctx.currentAccountId(), requested.path())) {
+            return Decision.DENIED;
+        }
+
+        if (ctx.actorUserId() == null || ctx.clientAccountId() == null) {
+            return Decision.DENIED;
+        }
+
+        HiveAppPermissionContext operatorContext = new HiveAppPermissionContext(
+                ctx.actorUserId(),
+                ctx.clientAccountId(),
+                ctx.clientAccountId(),
+                null,
+                null,
+                false);
+        return userRolePolicy.evaluate(requested, operatorContext) == Decision.GRANTED
                 ? Decision.GRANTED
                 : Decision.DENIED;
     }
