@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.role.domain.repository;
 import com.hiveapp.platform.client.role.domain.entity.Role;
+import com.hiveapp.platform.client.role.domain.constant.RoleStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 public interface RoleRepository extends JpaRepository<Role, UUID> {
     List<Role> findAllByAccountId(UUID accountId);
+    long countByAccountIdAndIsSystemRoleFalseAndStatus(UUID accountId, RoleStatus status);
     List<Role> findAllByBoundaryCompanyId(UUID companyId);
     Optional<Role> findByIdAndAccountId(UUID id, UUID accountId);
 

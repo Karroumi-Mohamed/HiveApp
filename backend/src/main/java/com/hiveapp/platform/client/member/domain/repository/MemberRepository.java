@@ -7,6 +7,7 @@ import java.util.Optional;
 public interface MemberRepository extends JpaRepository<Member, UUID> {
     List<Member> findAllByAccountId(UUID accountId);
     long countByAccountIdAndIsActiveTrue(UUID accountId);
+    long countByAccountIdAndIsActiveTrueAndIsOwnerFalse(UUID accountId);
     Optional<Member> findByIdAndAccountId(UUID id, UUID accountId);
     Optional<Member> findByAccountIdAndUserId(UUID accountId, UUID userId);
     Optional<Member> findByUserIdAndIsActiveTrue(UUID userId);
