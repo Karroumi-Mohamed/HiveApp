@@ -612,7 +612,7 @@ Until real billing exists, paid client changes must remain pending until a real 
 
 ### QUOTA-002 — Client quota overrides can request unlimited capacity for free
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR SELF-SERVICE — 2026-08-10`
 
 **Evidence**
 
@@ -630,6 +630,13 @@ A client can turn a fixed, non-bumpable quota—including FREE-plan member/compa
 **Required fix direction**
 
 Client self-service may select only versioned predefined quota packages explicitly offered by the effective Plan/AddOn, within repeatability and maximum-purchase rules. Unlimited/custom-negotiated exceptions are operator-only and explicit, never inferred from null. Validate entitlement, quota ownership, package version, effective limit, usage impact, pricing/currency/cycle, and payment/approval before activation.
+
+**Implementation evidence — 2026-08-10**
+
+- Removed arbitrary `QuotaOverride` values from client and admin subscription-selection contracts. Requests now contain only quota package code plus a positive quantity.
+- Selection requires an ACTIVE package explicitly attached to the effective Plan or selected AddOn, a finite included owner for the exact feature/resource pair, matching currency/cycle, and quantity within repeatability/maximum rules.
+- Unlimited capacity is an explicit included-limit mode and cannot be requested through package selection. Custom/negotiated Account exceptions remain a separate operator-only future capability.
+- Package price is included in the immutable subscription snapshot and recurring calculation. Payment/approval before commercial activation remains tracked by BILLING-001 rather than being misrepresented as solved here.
 
 ---
 
@@ -735,7 +742,7 @@ Apply this impact engine to every plan change, not only one labeled a downgrade:
 
 ### QUOTA-004 — Current arbitrary overrides cannot represent the decided quota-package model
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — VERSIONED PACKAGE FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -759,11 +766,20 @@ Customers can request capacity the operator never offered, unlimited access can 
 - Store itemized quota sources and package versions in the immutable subscription snapshot. Return included, purchased, exception, usage, remaining/excess, and pending state separately.
 - Enforce allocation transactionally/concurrently and add finite/zero/null/unlimited, package quantity/max, ownership collision, unknown usage, over-limit data preservation, exception precedence, snapshot/version, stale request, and final-slot race tests.
 
+**Implementation evidence — 2026-08-10**
+
+- Added a versioned `QuotaPackage` aggregate with code/name, feature-qualified resource, capacity per unit, Money price, billing cycle, repeatability, maximum quantity, Plan/AddOn ownership, lifecycle, optimistic locking, and database-unique code.
+- Added Permissionizer-guarded administration at `/api/admin/quota-packages`; drafts are editable/deletable, ACTIVE packages are immutable, and archive is terminal.
+- Activation proves each declared Plan/AddOn owner is active, currency/cycle compatible, and supplies the exact finite included quota. Selection revalidates ownership and limits against the effective Plan/AddOns.
+- Subscription overrides now store package identity and quantity. Immutable snapshots retain package definition version, exact feature/resource, capacity, quantity, and itemized price; catalogs expose compatible packages and effective quota previews expose included, purchased, and final capacity.
+- Enforcement adds only snapshotted package capacity to the matching feature/resource quota. Arbitrary values, null-as-unlimited overrides, per-unit price inference, duplicate selections, and excess quantities are rejected or no longer representable.
+- Feature-owned usage contributors, operator Account exceptions, renewal scheduling/payment, and final-slot distributed concurrency remain in their dedicated later work.
+
 ---
 
 ### QUOTA-003 — Quota conflict matching loses the owning feature
 
-**Status:** `OBSERVED`
+**Status:** `VERIFIED AND RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -776,6 +792,12 @@ When two modules use the same quota resource name, downgrade preview can check u
 **Required fix direction**
 
 Carry `(featureCode, resource)` as the quota identity through snapshots, effective-limit calculations, conflicts, billing, UI keys, and enforcement.
+
+**Implementation evidence — 2026-08-10**
+
+- Effective quota output now carries `featureCode` and `resource` together; downgrade/change conflict checks no longer recover ownership by taking the first matching resource name.
+- Quota package snapshots, catalog quota rows, validation keys, billing items, and runtime enforcement preserve the same compound identity.
+- Tests cover conflict reporting and enforcement using the feature-qualified slot.
 
 ---
 
@@ -1006,8 +1028,9 @@ The backend and replacement UI would force administrators to price technical fea
 - Added Permissionizer-guarded administration at `/api/admin/add-ons` for catalogue, detail, lifecycle, feature composition, safe draft deletion, and immutable ACTIVE/ARCHIVED boundaries.
 - Subscription requests and overrides now select AddOn identities rather than technical feature codes. Validation enforces active state, Plan/currency/cycle availability, dependency/exclusion rules, OPTIONAL_ADD_ON modes, and non-overlapping capabilities.
 - Immutable entitlement snapshots retain selected AddOn identity, definition version, price/currency/cycle, effective bundled features and quotas. Billing prices the snapshotted AddOn, and the client catalog exposes compatible AddOn composition and quota details.
-- Tests cover FREE-compatible recurring cycles, lifecycle/activation, identity selection, snapshot pricing, uniqueness, administration-to-client-catalog flow, and existing-subscription snapshot isolation.
-- Versioned quota-package products, payment/approval, renewal scheduling, subscriber-wide impact jobs, and full audit history remain intentionally assigned to later batches.
+- Versioned quota packages now add Plan/AddOn-owned finite capacity with identity/quantity selection, itemized snapshot pricing, catalog visibility, and runtime enforcement.
+- Tests cover FREE-compatible recurring cycles, lifecycle/activation, identity selection, AddOn/package snapshot pricing, uniqueness, administration-to-client-catalog flow, and existing-subscription snapshot isolation.
+- Payment/approval, renewal scheduling, subscriber-wide impact jobs, operator exceptions, and full audit history remain intentionally assigned to later batches.
 
 ---
 
@@ -1017,7 +1040,7 @@ The backend and replacement UI would force administrators to price technical fea
 
 **Evidence**
 
-The entitlement snapshot now stores plan code, base price, currency, billing cycle, effective features/quotas, and selected AddOn identities, versions, and itemized prices. It still does not store a Plan definition version or lineage, effective dates, tax/adjustment terms, quota-package versions, or a complete historical change record. The subscription also still points to a mutable `Plan` for other display fields.
+The entitlement snapshot now stores plan code, base price, currency, billing cycle, effective features/quotas, selected AddOn identities/versions/prices, and selected quota-package identities/versions/capacity/quantity/prices. It still does not store a Plan definition version or lineage, effective dates, tax/adjustment terms, or a complete historical change record. The subscription also still points to a mutable `Plan` for other display fields.
 
 **Risk**
 

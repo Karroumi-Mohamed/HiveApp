@@ -1082,7 +1082,7 @@ flowchart TD
 - **Acceptance Criteria**: Add-on plans are purchasable separately.
 - **Tests**: Add-on purchase integration tests.
 - **Future UI Flow**: Marketplace add-on catalog.
-- **Execution Status**: First-class AddOn foundation completed on 2026-08-10. Versioned AddOns support multi-feature composition, included quotas, price/currency/cycle, lifecycle, Plan availability, dependencies/exclusions, Permissionizer-guarded admin APIs, identity-based subscription selection, compatible client catalog output, immutable snapshots, and billing. Quota packages, payment/approval, renewal scheduling, bulk subscriber effects, and audit history remain in their later batches.
+- **Execution Status**: First-class AddOn foundation completed on 2026-08-10. Versioned AddOns support multi-feature composition, included quotas, price/currency/cycle, lifecycle, Plan availability, dependencies/exclusions, Permissionizer-guarded admin APIs, identity-based subscription selection, compatible client catalog output, immutable snapshots, and billing. Batch 4.4 added AddOn-owned quota packages; payment/approval, renewal scheduling, bulk subscriber effects, and audit history remain later work.
 
 ---
 
@@ -1096,26 +1096,29 @@ flowchart TD
 - **Acceptance Criteria**: Quota checks resolve conflict mappings using feature code.
 - **Tests**: Enforcement unit tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed on 2026-08-10. Effective quota rows, conflicts, package snapshots, catalog output, billing inputs, and enforcement retain the compound feature/resource identity; the ambiguous first-resource owner lookup was removed.
 
 #### [IMPLEMENT] QUOTA-004 — Current arbitrary overrides cannot represent the decided quota-package model
 - **Prerequisites**: QUOTA-003.
 - **Unlocks**: QUOTA-002.
-- **Order Rationale**: Maps discrete increments.
-- **Affected Backend Areas**: `QuotaOverride.java`.
-- **Database Migration**: No.
-- **Acceptance Criteria**: Overrides map to discrete package increments.
-- **Tests**: Quota math tests.
-- **Future UI Flow**: Subscription custom quotas editor.
+- **Order Rationale**: Replaces arbitrary values with discrete commercial capacity products.
+- **Affected Backend Areas**: `QuotaPackage.java`, subscription selection/snapshot services, billing, catalog, and enforcement.
+- **Database Migration**: No for the current unpublished/disposable H2 schema; create the generated table now and establish versioned production migrations when the database baseline is introduced.
+- **Acceptance Criteria**: Versioned packages map an exact feature/resource quota to finite capacity, price, ownership, and quantity rules.
+- **Tests**: Package lifecycle, ownership, quantity, snapshot, price, uniqueness, catalog, and enforcement tests.
+- **Future UI Flow**: Quota package catalogue and subscription package selector.
+- **Execution Status**: Versioned package foundation completed on 2026-08-10. Permissionizer-guarded quota package administration, lifecycle/versioning, Plan/AddOn ownership, finite capacity, repeatability/max quantity, catalog exposure, identity-based selection, immutable snapshots, pricing, and enforcement are implemented. Feature-owned usage contributors, operator exceptions, renewal/payment, and distributed final-slot controls remain later work.
 
 #### [IMPLEMENT] QUOTA-002 — Client quota overrides can request unlimited capacity for free
 - **Prerequisites**: QUOTA-004.
 - **Unlocks**: None.
-- **Order Rationale**: Recalculates cost prior to changes.
+- **Order Rationale**: Closes the free arbitrary/unlimited self-service path after package products exist.
 - **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Adding overrides recalculates subscription costs.
-- **Tests**: Quota price calculation tests.
-- **Future UI Flow**: Customer billing overrides page.
+- **Acceptance Criteria**: Self-service accepts only offered package identities and quantities and recalculates the snapshotted recurring amount.
+- **Tests**: Unknown, duplicate, quantity, unlimited, price, and enforcement tests.
+- **Future UI Flow**: Customer quota package selection.
+- **Execution Status**: Self-service vulnerability resolved on 2026-08-10. Arbitrary and null/unlimited quota overrides were removed; callers may select only validated ACTIVE predefined packages and quantities. Payment/approval remains under BILLING-001, and negotiated exceptions remain operator-only future work.
 
 ---
 
@@ -1691,14 +1694,14 @@ flowchart TD
 | **PLAN-007** | Branching revisions | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Draft generation |
 | **BILLING-001** | Checkouts activation | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Payment validation |
 | **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.1 | None | Explicit ISO Money/currency persistence, calculation, and API tests |
-| **QUOTA-002** | Custom overrides limit | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Cost calculation |
+| **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
 | **SUBSCRIPTION-003**| Periods scheduler | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-002 | Cron execution |
 | **SUBSCRIPTION-004**| Trial visibility | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-003 | Trial display |
 | **SUBSCRIPTION-005**| Overrides pricing | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-004 | Recalculated cost |
 | **SUBSCRIPTION-006**| Dynamic repairs | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-005 | Snapshot seeder |
 | **SUBSCRIPTION-007**| Downgrade safety checks | MISSING | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Rejections |
-| **QUOTA-004** | Discrete packages | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-003 | Packages map |
-| **QUOTA-003** | Compound key | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | PLAN-008 | Collision fixed |
+| **QUOTA-004** | Discrete packages | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-003 | Versioned package aggregate, admin API, selection, snapshots, pricing, enforcement |
+| **QUOTA-003** | Compound key | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.4 | PLAN-008 | Feature/resource identity preserved end to end |
 | **PLAN-002** | Default plan protection | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-001 | Deactivation/deletion blocks and startup invariant |
 | **PLAN-003** | Atomic plan seeding | PARTIAL — SAFE BOOTSTRAP IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-002 | Explicit transactional and idempotent bootstrap tests |
 | **PLAN-004** | Unique assignments | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-003 | Verified DB constraint and race translation |
@@ -1706,8 +1709,8 @@ flowchart TD
 | **PLAN-009** | Deletion preview | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-007 | Deletion warnings |
 | **PLAN-010** | Cloning Wizard | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Copy lineages |
 | **PLAN-011** | Subscriber management | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-010 | Pagination |
-| **PLAN-012** | Explicit AddOn | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Versioned aggregate, admin API, selection, catalog, snapshots, billing |
-| **PLAN-005** | Immutable snapshots | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | snapshot values |
+| **PLAN-012** | Explicit AddOn | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Versioned aggregate, admin API, AddOn-owned quota packages, selection, catalog, snapshots, billing |
+| **PLAN-005** | Immutable snapshots | PARTIAL — COMMERCIAL ITEMS SNAPSHOTTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Plan/AddOn/package values retained; lineage/effective history remains |
 | **TIME-001** | Unified Timestamps | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.5 | None | Instants type |
 | **MODULES-001** | Modular Interfaces | PARTIAL | DESIGN FIRST | Phase 6 | Batch 6.4 | None | Boundary check |
 | **MODULES-002** | Company domain owner | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.4 | MODULES-001 | Package check |
