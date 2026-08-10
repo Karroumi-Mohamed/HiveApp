@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.company.dto.CreateCompanyRequest;
 import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +36,9 @@ public abstract class PlatformShellIntegrationTestSupport {
 
     @Autowired
     protected ObjectMapper objectMapper;
+
+    @Autowired
+    protected RegistryCatalogVersionService registryCatalogVersionService;
 
     protected String registerClientAndGetToken() throws Exception {
         String email = "client-" + UUID.randomUUID() + "@example.com";

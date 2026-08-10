@@ -2,6 +2,7 @@ package com.hiveapp.shared.security.policy;
 
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationPermissionRepository;
 import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
+import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import dev.karroumi.permissionizer.Permission;
 import dev.karroumi.permissionizer.PermissionPolicy;
@@ -19,9 +20,11 @@ class B2bCollaborationPolicyTest {
     private final CollaborationPermissionRepository collaborationPermissionRepository =
             mock(CollaborationPermissionRepository.class);
     private final PlanEntitlementService planEntitlementService = mock(PlanEntitlementService.class);
+    private final PermissionGrantValidator permissionGrantValidator = mock(PermissionGrantValidator.class);
     private final B2bCollaborationPolicy policy = new B2bCollaborationPolicy(
             collaborationPermissionRepository,
-            planEntitlementService);
+            planEntitlementService,
+            permissionGrantValidator);
 
     @Test
     void checksDelegatedPermissionAgainstExactCollaborationFromContext() {
@@ -39,6 +42,7 @@ class B2bCollaborationPolicyTest {
 
         when(collaborationPermissionRepository.existsByCollaborationIdAndPermissionCode(
                 collaborationId, permissionCode)).thenReturn(true);
+        when(permissionGrantValidator.isB2bRuntimeEligible(permissionCode)).thenReturn(true);
         when(planEntitlementService.isPermissionEntitled(providerAccountId, permissionCode)).thenReturn(true);
 
         assertThat(policy.evaluate(new Permission(permissionCode), context))
@@ -64,6 +68,7 @@ class B2bCollaborationPolicyTest {
 
         when(collaborationPermissionRepository.existsByCollaborationIdAndPermissionCode(
                 collaborationId, permissionCode)).thenReturn(true);
+        when(permissionGrantValidator.isB2bRuntimeEligible(permissionCode)).thenReturn(true);
         when(planEntitlementService.isPermissionEntitled(providerAccountId, permissionCode)).thenReturn(false);
 
         assertThat(policy.evaluate(new Permission(permissionCode), context))

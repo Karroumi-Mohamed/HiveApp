@@ -118,7 +118,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         mockMvc.perform(get("/api/v1/collaborations/{id}/permission-catalog", setup.collaborationId())
                         .header("Authorization", bearer(setup.providerToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].features[*].permissions[*].code",
+                .andExpect(jsonPath("$.availableChoices[*].features[*].permissions[*].code",
                         hasItem("platform.company.read_single")))
                 .andExpect(jsonPath("$[*].features[*].permissions[*].code",
                         everyItem(not("platform.company.create"))))
@@ -335,7 +335,9 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         return mockMvc.perform(post("/api/v1/collaborations/{id}/permissions", collaborationId)
                 .header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new B2BPermissionRequest(permissionCode))));
+                .content(objectMapper.writeValueAsString(
+                        new B2BPermissionRequest(
+                                permissionCode, registryCatalogVersionService.currentVersion()))));
     }
 
     private void assignPlan(String clientToken, String planCode) throws Exception {

@@ -1,17 +1,22 @@
 package com.hiveapp.platform.registry.definition;
 
 import com.hiveapp.platform.registry.domain.entity.Permission;
+import com.hiveapp.platform.registry.domain.entity.Feature;
+import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.platform.registry.service.CurrentRegistrySnapshot;
 import com.hiveapp.platform.registry.service.RegistrySnapshot;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class PermissionGrantValidatorTest {
 
@@ -19,6 +24,7 @@ class PermissionGrantValidatorTest {
             new FeatureDefinitionCollector(List.of(() -> List.of(
                     FeatureDefinition.clientWorkspace("platform.company")
                             .displayName("Companies")
+                            .ownerOnlyActions("delete")
                             .b2bDelegatableActions("read")
                             .build(),
                     FeatureDefinition.platformControl("platform.plans")
@@ -26,8 +32,17 @@ class PermissionGrantValidatorTest {
                             .build()
             )));
     private final CurrentRegistrySnapshot snapshot = snapshot();
-    private final PermissionGrantValidator validator =
-            new PermissionGrantValidator(provider(collector), snapshot);
+    private final FeatureRepository featureRepository = mock(FeatureRepository.class);
+    private PermissionGrantValidator validator;
+
+    @BeforeEach
+    void setUp() {
+        when(featureRepository.findByCode("platform.company"))
+                .thenReturn(java.util.Optional.of(feature("platform.company")));
+        when(featureRepository.findByCode("platform.plans"))
+                .thenReturn(java.util.Optional.of(feature("platform.plans")));
+        validator = new PermissionGrantValidator(provider(collector), snapshot, featureRepository);
+    }
 
     @Test
     void allowsClientWorkspacePermissionsForClientRoles() {
@@ -39,6 +54,13 @@ class PermissionGrantValidatorTest {
         assertThatThrownBy(() -> validator.requireClientRoleGrantable(permission("platform.plans.create")))
                 .isInstanceOf(InvalidPermissionGrantException.class)
                 .hasMessageContaining("client role");
+    }
+
+    @Test
+    void rejectsOwnerOnlyActionForOrdinaryClientRole() {
+        assertThatThrownBy(() -> validator.requireClientRoleGrantable(
+                permission("platform.company.delete")))
+                .isInstanceOf(InvalidPermissionGrantException.class);
     }
 
     @Test
@@ -74,6 +96,14 @@ class PermissionGrantValidatorTest {
         Permission permission = new Permission();
         permission.setCode(code);
         return permission;
+    }
+
+    private static Feature feature(String code) {
+        Feature feature = new Feature();
+        feature.setCode(code);
+        feature.setNewGrantsEnabled(true);
+        feature.setRuntimeEnabled(true);
+        return feature;
     }
 
     private static ObjectProvider<FeatureDefinitionCollector> provider(FeatureDefinitionCollector collector) {

@@ -311,7 +311,7 @@ class SubscriptionServiceImplTest {
         Feature feature = new Feature();
         feature.setCode(featureCode);
         feature.setStatus(FeatureStatus.PUBLIC);
-        feature.setActive(true);
+        feature.setNewSalesEnabled(true);
         PlanFeature planFeature = new PlanFeature();
         planFeature.setPlan(plan);
         planFeature.setFeature(feature);

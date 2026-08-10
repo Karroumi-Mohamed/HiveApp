@@ -74,6 +74,40 @@ class RegistrySnapshotFactoryTest {
                 .hasMessageContaining("missing=[platform.company.create]");
     }
 
+    @Test
+    void rejectsActionClassificationThatDoesNotMatchAGuardedMethod() {
+        FeatureDefinition classified = FeatureDefinition.clientWorkspace("platform.company")
+                .displayName("Companies")
+                .ownerOnlyActions("delete")
+                .build();
+        RegistrySnapshotFactory classifiedFactory = new RegistrySnapshotFactory(
+                new FeatureDefinitionCollector(List.of(() -> List.of(classified))));
+
+        assertThatThrownBy(() -> classifiedFactory.validate(
+                List.of(classified), Set.of(classified.code()),
+                List.of(permission("read", "Read", "platform.company"))))
+                .isInstanceOf(FeatureDefinitionException.class)
+                .hasMessageContaining("unknown owner-only actions")
+                .hasMessageContaining("platform.company.delete");
+    }
+
+    @Test
+    void rejectsOwnerOnlyActionThatIsAlsoB2bDelegatable() {
+        FeatureDefinition conflicting = FeatureDefinition.clientWorkspace("platform.company")
+                .displayName("Companies")
+                .ownerOnlyActions("read")
+                .b2bDelegatableActions("read")
+                .build();
+        RegistrySnapshotFactory conflictingFactory = new RegistrySnapshotFactory(
+                new FeatureDefinitionCollector(List.of(() -> List.of(conflicting))));
+
+        assertThatThrownBy(() -> conflictingFactory.validate(
+                List.of(conflicting), Set.of(conflicting.code()),
+                List.of(permission("read", "Read", "platform.company"))))
+                .isInstanceOf(FeatureDefinitionException.class)
+                .hasMessageContaining("both owner-only and B2B-delegatable");
+    }
+
     private CollectedPermission permission(String key, String description, String parentPath) {
         String path = parentPath == null ? key : parentPath + "." + key;
         return new CollectedPermission(path, description, parentPath);

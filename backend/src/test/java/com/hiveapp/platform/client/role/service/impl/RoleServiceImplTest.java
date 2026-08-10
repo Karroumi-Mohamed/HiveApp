@@ -13,6 +13,7 @@ import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.platform.registry.service.PermissionPickerCatalogService;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import com.hiveapp.shared.security.DelegationCeilingService;
@@ -50,6 +51,7 @@ class RoleServiceImplTest {
     @Mock private PlanEntitlementService planEntitlementService;
     @Mock private MemberRoleRepository memberRoleRepository;
     @Mock private DelegationCeilingService delegationCeilingService;
+    @Mock private RegistryCatalogVersionService catalogVersionService;
 
     @InjectMocks
     private RoleServiceImpl roleService;

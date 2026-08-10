@@ -10,6 +10,7 @@ import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOver
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.platform.registry.domain.entity.Permission;
+import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import dev.karroumi.permissionizer.PermissionPolicy;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,12 +35,16 @@ class UserRolePolicyTest {
     @Mock private MemberRepository memberRepository;
     @Mock private MemberRoleRepository memberRoleRepository;
     @Mock private MemberPermissionOverrideRepository overrideRepository;
+    @Mock private PermissionGrantValidator permissionGrantValidator;
 
     private UserRolePolicy policy;
 
     @BeforeEach
     void setUp() {
-        policy = new UserRolePolicy(memberRepository, memberRoleRepository, overrideRepository);
+        policy = new UserRolePolicy(memberRepository, memberRoleRepository, overrideRepository,
+                permissionGrantValidator);
+        org.mockito.Mockito.lenient().when(permissionGrantValidator.isClientRoleRuntimeEligible(
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(true);
     }
 
     @Test

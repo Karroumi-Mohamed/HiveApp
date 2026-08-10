@@ -118,7 +118,8 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
     private void addPermissionAndActivate(String token, UUID roleId, String permissionCode) throws Exception {
         mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
                         .header("Authorization", bearer(token))
-                        .param("permissionCode", permissionCode))
+                        .param("permissionCode", permissionCode)
+                        .param("registryVersion", registryCatalogVersionService.currentVersion()))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v1/roles/{id}/activate", roleId)
                         .header("Authorization", bearer(token)))

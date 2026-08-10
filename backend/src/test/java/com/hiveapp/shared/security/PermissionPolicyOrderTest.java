@@ -13,6 +13,7 @@ import com.hiveapp.shared.security.policy.AdminPermissionPolicy;
 import com.hiveapp.shared.security.policy.B2bCollaborationPolicy;
 import com.hiveapp.shared.security.policy.PlanPolicy;
 import com.hiveapp.shared.security.policy.UserRolePolicy;
+import com.hiveapp.shared.security.policy.FeatureRuntimePolicy;
 import dev.karroumi.permissionizer.Permission;
 import dev.karroumi.permissionizer.PermissionGuard;
 import dev.karroumi.permissionizer.PermissionPolicy;
@@ -30,6 +31,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 class PermissionPolicyOrderTest {
 
     private final AdminPermissionPolicy adminPolicy = mock(AdminPermissionPolicy.class);
+    private final FeatureRuntimePolicy featureRuntimePolicy = mock(FeatureRuntimePolicy.class);
     private final B2bCollaborationPolicy b2bPolicy = mock(B2bCollaborationPolicy.class);
     private final PlanPolicy planPolicy = mock(PlanPolicy.class);
     private final UserRolePolicy userRolePolicy = mock(UserRolePolicy.class);
@@ -45,6 +47,8 @@ class PermissionPolicyOrderTest {
 
         PermissionGuard.resetConfiguration();
         PermissionGuard.registerSpringInterceptor();
+        when(featureRuntimePolicy.evaluate(requested, context))
+                .thenReturn(PermissionPolicy.Decision.ABSTAIN);
         securityConfig().permissionsLoader();
     }
 
@@ -63,7 +67,8 @@ class PermissionPolicyOrderTest {
 
         assertThat(PermissionGuard.has(requested, context)).isFalse();
 
-        InOrder order = inOrder(adminPolicy, b2bPolicy, planPolicy, userRolePolicy);
+        InOrder order = inOrder(featureRuntimePolicy, adminPolicy, b2bPolicy, planPolicy, userRolePolicy);
+        order.verify(featureRuntimePolicy).evaluate(requested, context);
         order.verify(adminPolicy).evaluate(requested, context);
         order.verify(b2bPolicy).evaluate(requested, context);
         order.verify(planPolicy).evaluate(requested, context);
@@ -76,6 +81,15 @@ class PermissionPolicyOrderTest {
 
         assertThat(PermissionGuard.has(requested, context)).isTrue();
         verifyNoInteractions(b2bPolicy, planPolicy, userRolePolicy);
+    }
+
+    @Test
+    void emergencyRuntimeDenialStopsEvenAdminPolicy() {
+        when(featureRuntimePolicy.evaluate(requested, context))
+                .thenReturn(PermissionPolicy.Decision.DENIED);
+
+        assertThat(PermissionGuard.has(requested, context)).isFalse();
+        verifyNoInteractions(adminPolicy, b2bPolicy, planPolicy, userRolePolicy);
     }
 
     @Test
@@ -137,6 +151,7 @@ class PermissionPolicyOrderTest {
                 mock(AuthEntryPoint.class),
                 mock(AccessDeniedHandler.class),
                 adminPolicy,
+                featureRuntimePolicy,
                 b2bPolicy,
                 planPolicy,
                 userRolePolicy,

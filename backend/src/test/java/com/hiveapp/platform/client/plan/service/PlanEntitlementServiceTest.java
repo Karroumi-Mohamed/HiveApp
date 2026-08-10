@@ -141,6 +141,27 @@ class PlanEntitlementServiceTest {
         verifyNoInteractions(planFeatureRepository);
     }
 
+    @Test
+    void resolvesAllEntitledFeaturesFromOneSubscriptionSnapshotAndOverrides() {
+        String overrides = "{\"addedFeatures\":[\"platform.organization\"]}";
+        Subscription subscription = subscription(SubscriptionStatus.ACTIVE, null, overrides);
+        subscription.setEntitlementSnapshot("{\"snapshot\":true}");
+        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
+        when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
+                .thenReturn(Optional.of(new SubscriptionEntitlementSnapshot(
+                        "PRO", java.math.BigDecimal.ZERO,
+                        List.of(
+                                new SubscriptionFeatureSnapshot("platform.company", null, List.of()),
+                                new SubscriptionFeatureSnapshot("platform.staff", null, List.of())))));
+        when(subscriptionOverrideReader.read(overrides))
+                .thenReturn(new SubscriptionOverrides(Set.of("platform.organization"), List.of()));
+
+        assertThat(service.entitledFeatureCodes(accountId))
+                .containsExactlyInAnyOrder(
+                        "platform.company", "platform.staff", "platform.organization");
+        verifyNoInteractions(permissionRepository, planFeatureRepository);
+    }
+
     private Subscription subscription(SubscriptionStatus status, LocalDateTime currentPeriodEnd, String overrides) {
         Plan plan = new Plan();
         ReflectionTestUtils.setField(plan, "id", planId);

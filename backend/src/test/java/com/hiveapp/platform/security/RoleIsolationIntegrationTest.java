@@ -128,7 +128,8 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
 
         mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
                         .header("Authorization", bearer(token))
-                .param("permissionCode", "platform.plans.create"))
+                .param("permissionCode", "platform.plans.create")
+                .param("registryVersion", registryCatalogVersionService.currentVersion()))
                 .andExpect(status().isBadRequest());
     }
 
@@ -139,11 +140,30 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
         mockMvc.perform(get("/api/v1/roles/permission-catalog")
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].features[*].permissions[*].code", hasItem("platform.company.create")))
-                .andExpect(jsonPath("$[*].features[*].permissions[*].code",
+                .andExpect(jsonPath("$.availableChoices[*].features[*].permissions[*].code", hasItem("platform.company.create")))
+                .andExpect(jsonPath("$.availableChoices[*].features[*].permissions[*].code",
                         everyItem(not("platform.plans.create"))))
-                .andExpect(jsonPath("$[*].features[*].permissions[*].code",
+                .andExpect(jsonPath("$.availableChoices[*].features[*].permissions[*].code",
                         everyItem(not("platform.registry.read"))));
+    }
+
+    @Test
+    void staleRegistryVersionCannotCreateANewRoleGrant() throws Exception {
+        String token = registerClientAndGetToken();
+        UUID roleId = createRole(token, null, "Stale Catalog Role");
+
+        mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
+                        .header("Authorization", bearer(token))
+                        .param("permissionCode", "platform.company.read_single")
+                        .param("registryVersion", "obsolete:0"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("refresh the permission catalog")));
+
+        mockMvc.perform(get("/api/v1/roles/{id}", roleId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.permissionCodes").isEmpty());
     }
 
     @Test
@@ -154,7 +174,8 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
 
         mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
                         .header("Authorization", bearer(token))
-                        .param("permissionCode", "platform.company.read_single"))
+                        .param("permissionCode", "platform.company.read_single")
+                        .param("registryVersion", registryCatalogVersionService.currentVersion()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("INACTIVE"));
         mockMvc.perform(post("/api/v1/roles/{id}/activate", roleId)
@@ -253,7 +274,8 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
                 .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
                         .header("Authorization", bearer(token))
-                        .param("permissionCode", "platform.company.read_single"))
+                        .param("permissionCode", "platform.company.read_single")
+                        .param("registryVersion", registryCatalogVersionService.currentVersion()))
                 .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/v1/roles/{id}/archive", roleId)
                         .header("Authorization", bearer(token)))
@@ -278,7 +300,8 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
         UUID roleId = createRole(token, null, "Source Role");
         mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
                         .header("Authorization", bearer(token))
-                        .param("permissionCode", "platform.company.read_single"))
+                        .param("permissionCode", "platform.company.read_single")
+                        .param("registryVersion", registryCatalogVersionService.currentVersion()))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/v1/roles/{id}/duplicate", roleId)
@@ -292,7 +315,8 @@ class RoleIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
 
         mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
                         .header("Authorization", bearer(token))
-                        .param("permissionCode", "platform.unknown.action"))
+                        .param("permissionCode", "platform.unknown.action")
+                        .param("registryVersion", registryCatalogVersionService.currentVersion()))
                 .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/v1/roles/{id}/impact", roleId)
                         .header("Authorization", bearer(token))

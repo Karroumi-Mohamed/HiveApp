@@ -102,7 +102,7 @@ class BillingConfigurationValidatorTest {
         Feature feature = new Feature();
         feature.setCode(code);
         feature.setStatus(FeatureStatus.PUBLIC);
-        feature.setActive(true);
+        feature.setNewSalesEnabled(true);
         return feature;
     }
 

@@ -78,4 +78,29 @@ class PublicFeatureCatalogIntegrationTest extends PlatformShellIntegrationTestSu
             featureRepository.saveAndFlush(company);
         }
     }
+
+    @Test
+    void publicCatalogRequiresOperatorVisibilityAndNewSaleAvailabilityIndependently() throws Exception {
+        Feature company = featureRepository.findByCode("platform.company").orElseThrow();
+        boolean originalVisibility = company.isPublicVisible();
+        boolean originalSales = company.isNewSalesEnabled();
+        try {
+            company.setPublicVisible(false);
+            featureRepository.saveAndFlush(company);
+            mockMvc.perform(get("/api/v1/features/catalog"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$..code", not(hasItem("platform.company"))));
+
+            company.setPublicVisible(true);
+            company.setNewSalesEnabled(false);
+            featureRepository.saveAndFlush(company);
+            mockMvc.perform(get("/api/v1/features/catalog"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$..code", not(hasItem("platform.company"))));
+        } finally {
+            company.setPublicVisible(originalVisibility);
+            company.setNewSalesEnabled(originalSales);
+            featureRepository.saveAndFlush(company);
+        }
+    }
 }

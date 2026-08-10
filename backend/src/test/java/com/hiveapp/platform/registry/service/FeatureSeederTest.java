@@ -53,11 +53,14 @@ class FeatureSeederTest {
     }
 
     @Test
-    void existingLifecycleStatusIsOverwrittenFromCodeButActivationIsPreserved() {
+    void existingLifecycleStatusIsOverwrittenButOperationalControlsArePreserved() {
         Feature existing = new Feature();
         existing.setCode(WorkspaceFeature.CODE);
         existing.setStatus(FeatureStatus.DEPRECATED);
-        existing.setActive(false);
+        existing.setPublicVisible(false);
+        existing.setNewSalesEnabled(false);
+        existing.setNewGrantsEnabled(false);
+        existing.setRuntimeEnabled(false);
         Module module = new Module();
         module.setCode("platform");
         when(moduleRepository.findByCode("platform")).thenReturn(Optional.of(module));
@@ -66,7 +69,10 @@ class FeatureSeederTest {
         seeder(List.of(WorkspaceFeature.definition())).seedFeatures();
 
         assertThat(existing.getStatus()).isEqualTo(FeatureStatus.PUBLIC);
-        assertThat(existing.isActive()).isFalse();
+        assertThat(existing.isPublicVisible()).isFalse();
+        assertThat(existing.isNewSalesEnabled()).isFalse();
+        assertThat(existing.isNewGrantsEnabled()).isFalse();
+        assertThat(existing.isRuntimeEnabled()).isFalse();
         assertThat(existing.getModule()).isSameAs(module);
     }
 

@@ -277,68 +277,52 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
-    void controlPlaneFeatureActiveStateCannotBeChangedThroughRegistryApi() throws Exception {
+    void controlPlaneFeatureCannotExposeEmergencyRuntimeControl() throws Exception {
         String superToken = loginAdminAndGetToken();
         UUID featureId = featureRepository.findByCode("platform.plans").orElseThrow().getId();
 
-        updateFeatureActive(superToken, featureId, false)
+        updateEmergencyRuntime(superToken, featureId, false)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
-                        .value("Feature platform.plans is code-owned and cannot be activated or deactivated through registry controls."));
+                        .value("Feature platform.plans does not expose the EMERGENCY_RUNTIME operator control."));
     }
 
     @Test
-    void requiredCatalogFeatureActiveStateCannotBeChangedThroughRegistryApi() throws Exception {
-        String superToken = loginAdminAndGetToken();
-        UUID featureId = featureRepository.findByCode("platform.workspace").orElseThrow().getId();
-
-        updateFeatureActive(superToken, featureId, false)
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message")
-                        .value("Feature platform.workspace is code-owned and cannot be activated or deactivated through registry controls."));
-    }
-
-    @Test
-    void companyBuildingBlockFeatureActiveStateCannotBeChangedThroughRegistryApi() throws Exception {
+    void publicVisibilityCanChangeWithoutChangingOtherOperationalControls() throws Exception {
         String superToken = loginAdminAndGetToken();
         UUID featureId = featureRepository.findByCode("platform.company").orElseThrow().getId();
 
-        updateFeatureActive(superToken, featureId, false)
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message")
-                        .value("Feature platform.company is code-owned and cannot be activated or deactivated through registry controls."));
+        updateFeatureControl(superToken, featureId, "public-visibility", false)
+                .andExpect(status().isNoContent());
+        var feature = featureRepository.findById(featureId).orElseThrow();
+        assertThat(feature.isPublicVisible()).isFalse();
+        assertThat(feature.isNewSalesEnabled()).isTrue();
+        assertThat(feature.isNewGrantsEnabled()).isTrue();
+        assertThat(feature.isRuntimeEnabled()).isTrue();
+
+        updateFeatureControl(superToken, featureId, "public-visibility", true)
+                .andExpect(status().isNoContent());
     }
 
     @Test
-    void b2bShellFeatureActiveStateCannotBeChangedThroughRegistryApi() throws Exception {
-        String superToken = loginAdminAndGetToken();
-        UUID featureId = featureRepository.findByCode("platform.b2b").orElseThrow().getId();
-
-        updateFeatureActive(superToken, featureId, false)
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message")
-                        .value("Feature platform.b2b is code-owned and cannot be activated or deactivated through registry controls."));
-    }
-
-    @Test
-    void featureActiveUpdateRequiresRegistryUpdateActivePermission() throws Exception {
+    void featureControlRequiresItsDedicatedPermission() throws Exception {
         LimitedAdmin admin = createLimitedAdmin("platform.registry.feature_catalog");
         UUID featureId = featureRepository.findByCode("platform.b2b").orElseThrow().getId();
 
-        updateFeatureActive(admin.token(), featureId, false)
+        updateFeatureControl(admin.token(), featureId, "new-grants", false)
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    void shellFeatureActiveStateCannotBeChangedByAuthorizedAdmin() throws Exception {
-        LimitedAdmin admin = createLimitedAdmin("platform.registry.update_active");
-        var feature = featureRepository.findByCode("platform.b2b").orElseThrow();
+    void emergencyRuntimeCanBeCutOffAndRestoredWithExplicitConfirmation() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        UUID featureId = featureRepository.findByCode("platform.company").orElseThrow().getId();
 
-        updateFeatureActive(admin.token(), feature.getId(), false)
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message")
-                        .value("Feature platform.b2b is code-owned and cannot be activated or deactivated through registry controls."));
-        assertThat(featureRepository.findByCode("platform.b2b").orElseThrow().isActive()).isTrue();
+        updateEmergencyRuntime(superToken, featureId, false).andExpect(status().isNoContent());
+        assertThat(featureRepository.findById(featureId).orElseThrow().isRuntimeEnabled()).isFalse();
+
+        updateEmergencyRuntime(superToken, featureId, true).andExpect(status().isNoContent());
+        assertThat(featureRepository.findById(featureId).orElseThrow().isRuntimeEnabled()).isTrue();
     }
 
     private LimitedAdmin createLimitedAdmin(String... permissionCodes) throws Exception {
@@ -435,10 +419,22 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         return UUID.fromString(objectMapper.readTree(response).get("id").asText());
     }
 
-    private ResultActions updateFeatureActive(String token, UUID featureId, boolean active) throws Exception {
-        return mockMvc.perform(patch("/api/admin/registry/features/{id}/active", featureId)
+    private ResultActions updateFeatureControl(
+            String token, UUID featureId, String control, boolean enabled) throws Exception {
+        return mockMvc.perform(patch("/api/admin/registry/features/{id}/{control}", featureId, control)
                 .header("Authorization", bearer(token))
-                .param("active", Boolean.toString(active)));
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"enabled\":" + enabled + ",\"reason\":\"integration test\"}"));
+    }
+
+    private ResultActions updateEmergencyRuntime(String token, UUID featureId, boolean enabled) throws Exception {
+        return mockMvc.perform(patch(
+                        "/api/admin/registry/features/{id}/emergency-runtime", featureId)
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"enabled\":" + enabled
+                        + ",\"reason\":\"integration incident test\""
+                        + ",\"impactConfirmed\":true,\"communicationConfirmed\":true}"));
     }
 
     private UUID responseId(ResultActions action) throws Exception {

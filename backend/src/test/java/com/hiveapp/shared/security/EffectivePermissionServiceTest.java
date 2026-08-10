@@ -69,8 +69,8 @@ class EffectivePermissionServiceTest {
 
         when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(owner));
         when(permissionRepository.findAll()).thenReturn(List.of(included, excluded));
-        when(permissionGrantValidator.isClientRoleGrantable(included)).thenReturn(true);
-        when(permissionGrantValidator.isClientRoleGrantable(excluded)).thenReturn(true);
+        when(permissionGrantValidator.isOwnerUsable(included)).thenReturn(true);
+        when(permissionGrantValidator.isOwnerUsable(excluded)).thenReturn(true);
         when(planEntitlementService.isPermissionEntitled(accountId, included.getCode())).thenReturn(true);
         when(planEntitlementService.isPermissionEntitled(accountId, excluded.getCode())).thenReturn(false);
 
@@ -124,6 +124,8 @@ class EffectivePermissionServiceTest {
         when(memberOverrideRepository.findApplicable(memberId, null)).thenReturn(List.of());
         when(planEntitlementService.isPermissionEntitled(accountId, accountPermission.getCode())).thenReturn(true);
         when(planEntitlementService.isPermissionEntitled(accountId, firstPermission.getCode())).thenReturn(true);
+        when(permissionGrantValidator.isClientRoleRuntimeEligible(accountPermission.getCode())).thenReturn(true);
+        when(permissionGrantValidator.isClientRoleRuntimeEligible(firstPermission.getCode())).thenReturn(true);
 
         var companyAccess = service.getEffectivePermissions(userId, accountId, firstCompanyId);
         var accountAccess = service.getEffectivePermissions(userId, accountId, null);
