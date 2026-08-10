@@ -479,3 +479,11 @@ The current boundary is deliberately mutation auditing, not general security-acc
 Identity flows need special handling because activation/reset credentials are not authenticated request principals. Registration, login, activation, initial-password completion, and password-reset transitions therefore record the safely resolved User as actor/subject only after the credential service identifies it. Raw passwords, temporary passwords, access/refresh tokens, activation/reset tokens, share codes and hashes, credentials, authorization headers, cookies, and exception messages are redacted or excluded.
 
 The current schema is generated for an unpublished in-memory/development stage, so the new table is mapped directly without Flyway history. Production persistence will require the future versioned baseline. Audit storage is implemented; a separately authorized, bounded compliance query/report read model and UI are intentionally still absent rather than exposing the repository directly.
+
+## 24. UTC Timestamp Contract
+
+Persisted system events and deadlines use `Instant`, and API DTOs expose those values as ISO-8601 timestamps with an explicit UTC `Z` offset. Hibernate/JDBC conversion is fixed to UTC in shared configuration, independently of the host JVM or database session time zone. Collaboration transitions, subscription periods and operations, credential expiry, role exceptions, registry synchronization, audit history, and shared entity timestamps follow this contract.
+
+A local civil date or time is a different domain concept. Future HR, payroll, accounting, and scheduling fields may use `LocalDate`, local time, or an explicit region zone when the real-world rule depends on a calendar or location; they must not use zone-free `LocalDateTime` for a globally ordered event or deadline.
+
+The current generated schema already reflects the `Instant` mappings. No migration history is maintained while the application remains unpublished with disposable databases; the future production baseline must preserve UTC-compatible timestamp columns and the same JDBC UTC setting.

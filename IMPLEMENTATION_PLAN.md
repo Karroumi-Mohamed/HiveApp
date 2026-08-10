@@ -1468,10 +1468,12 @@ flowchart TD
 - **Unlocks**: None.
 - **Order Rationale**: Time formats check. Verification: Locate entities declaring LocalDateTime properties. Remediation: Convert all datetime properties to Instant.
 - **Affected Backend Areas**: Domain entities.
-- **Database Migration**: Yes (alter timestamp columns type).
+- **Database Migration**: No additional migration at the current generated-schema stage; preserve the mappings in the future production baseline.
 - **Acceptance Criteria**: Datetime properties represent UTC Instants.
 - **Tests**: Timezone mapping unit tests.
 - **Future UI Flow**: Date labels.
+
+**Execution status — 2026-08-10:** Verification found the earlier conversions were completed incrementally by collaboration and subscription batches: production code now has zero `LocalDateTime`, `OffsetDateTime`, or `ZonedDateTime` usages, and system events/deadlines plus their DTOs use `Instant`. Shared Hibernate/JDBC configuration now explicitly uses UTC. Integration coverage proves an `Instant` round-trips unchanged with a non-UTC JVM default and that JSON emits an explicit `Z` offset. No Flyway history was added under the current unpublished/generated-schema policy. The complete 417-test backend suite passes with zero failures, errors, or skips.
 
 ---
 
@@ -1762,7 +1764,7 @@ flowchart TD
 | **PLAN-011** | Subscriber management | PARTIAL — READ FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-010 | Bounded searchable/status-filtered history and separate owner-email permission |
 | **PLAN-012** | Explicit AddOn | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Versioned aggregate, admin API, AddOn-owned quota packages, selection, catalog, snapshots, billing |
 | **PLAN-005** | Immutable snapshots | PARTIAL — VERSIONED TERM HISTORY IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Plan/AddOn/package versions, term prices, effective periods, and operation history; lineage/billing ledgers separate |
-| **TIME-001** | Unified Timestamps | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.5 | None | Instants type |
+| **TIME-001** | Unified Timestamps | IMPLEMENTED | VERIFY FIRST | Phase 5 | Batch 5.5 | None | UTC Instant persistence and offset-explicit JSON verified |
 | **MODULES-001** | Modular Interfaces | PARTIAL | DESIGN FIRST | Phase 6 | Batch 6.4 | None | Boundary check |
 | **MODULES-002** | Company domain owner | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.4 | MODULES-001 | Package check |
 | **AUDIT-001** | Audit logs | IMPLEMENTED | VERIFY FIRST | Phase 5 | Batch 5.4 | None | Append-only actor-aware mutation and failed-attempt records |

@@ -1151,21 +1151,24 @@ Snapshot the exact Plan/AddOn/quota-package versions, effective features/quotas,
 
 ### TIME-001 — Business timestamps mix `Instant` and `LocalDateTime`
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 **Evidence**
 
-- `BaseEntity` and invitation expiration use `Instant`.
-- Collaboration timestamps and subscription period end use `LocalDateTime`.
-- DTOs expose `LocalDateTime` directly for subscription period end in admin, client catalog, subscriber, and subscription responses, so clients receive no offset or zone information.
+- The original review found `Instant` in shared auditing/credential expiry while collaboration lifecycle and subscription-period fields used `LocalDateTime`.
+- Repository-wide verification now finds no production `LocalDateTime`, `OffsetDateTime`, or `ZonedDateTime` use. Collaboration lifecycle, subscription periods/operations, registry runs, credential expiry, member exceptions, DTOs, API errors, and actor audit events use `Instant`.
 
 **Risk**
 
 Time-zone conversion can make subscription expiration, collaboration activation, and scheduled operations ambiguous across deployments.
 
-**Possible fix direction**
+**Implementation evidence — 2026-08-10**
 
-Use `Instant` for persisted system events and deadlines unless a field explicitly represents a local civil time with a stored zone.
+- `spring.jpa.properties.hibernate.jdbc.time_zone` is explicitly `UTC` in shared configuration, so development, test, and production profiles use the same Hibernate/JDBC conversion rule.
+- The application `Clock` remains `Clock.systemUTC()`. Persisted system events and deadlines use `Instant`; a future civil date/time may use a domain-appropriate local type only when its zone or locale semantics are explicit.
+- `UtcTimestampIntegrationTest` changes the JVM default to a non-UTC zone and proves a microsecond-precision `Instant` survives a real JPA/H2 write/read unchanged. It separately proves JSON uses an explicit `Z` offset and round-trips exactly.
+- Existing generated schemas already derive the corrected `Instant` mappings. Under the current unpublished/disposable-database decision, no Flyway history was added; the future production baseline must preserve these UTC-compatible timestamp mappings.
+- The focused timestamp tests and complete 417-test backend suite pass with zero failures, errors, or skips.
 
 ---
 

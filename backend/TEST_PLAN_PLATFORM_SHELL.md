@@ -42,6 +42,7 @@ QuotaEnforcementIntegrationTest
 SubscriptionIntegrityIntegrationTest
 ClientSubscriptionSelfServiceIntegrationTest
 AuditMutationIntegrationTest
+UtcTimestampIntegrationTest
 ```
 
 Those tests prove the new direction is working, but they are not enough to close the platform shell. They cover unit-level invariants, critical service/policy boundaries, request-level token/surface separation, the first client resource isolation cases, member override/lifecycle boundaries, and the first complete B2B lifecycle abuse path. The remaining work is broader request-level and abuse-case coverage.
@@ -439,4 +440,19 @@ real rejected Company mutation records the attempted target and failure type
 read-only failures are deliberately outside the mutation-audit boundary
 ```
 
-Focused B2B and subscription suites verify that nested and `REQUIRES_NEW` transaction paths still behave correctly with auditing enabled. The complete backend suite currently passes 415 tests with zero failures, errors, or skips.
+Focused B2B and subscription suites verify that nested and `REQUIRES_NEW` transaction paths still behave correctly with auditing enabled.
+
+## 18. UTC Timestamp Contract
+
+`UtcTimestampIntegrationTest` pins the deployment-independent time boundary:
+
+```text
+Hibernate/JDBC uses UTC explicitly
+an Instant persisted while the JVM default zone is non-UTC reloads unchanged
+microsecond precision survives the database round-trip
+API JSON emits an explicit Z offset and deserializes to the exact Instant
+```
+
+Production source verification finds no `LocalDateTime`, `OffsetDateTime`, or `ZonedDateTime` usage. System events and deadlines use `Instant`; future fields that represent a civil date/time must model those local semantics explicitly rather than reuse a zone-free value for a global event.
+
+The complete backend suite currently passes 417 tests with zero failures, errors, or skips.
