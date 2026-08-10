@@ -2307,7 +2307,7 @@ The same two accounts and company can have several pending or active collaborati
 
 **Required resolution**
 
-Permit at most one live (`PENDING`, `ACTIVE`, or `SUSPENDED`) collaboration for a client/provider/company tuple. Enforce it with a transaction-safe database strategy. After normalizing purpose whitespace and treating capabilities as an unordered set, an identical live retry returns the existing relationship, changed details conflict, and a request after a terminal state creates a new historical record. A concurrent uniqueness loser must re-read the winner rather than return 500.
+Permit at most one live (`PENDING`, `ACTIVE`, or `SUSPENDED`) collaboration for a client/provider/company tuple. Enforce it with a transaction-safe database strategy. After normalizing purpose whitespace and treating capabilities as an unordered set, every new record returns 201, an identical live retry returns the existing relationship with 200, changed details conflict, and a request after a terminal state creates a new historical record. A concurrent uniqueness loser must re-read the winner with 200 rather than return 500.
 
 ---
 

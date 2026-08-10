@@ -65,9 +65,9 @@ public class CollaborationController {
         CollaborationInitiationResult result = collaborationService.initiateCollaboration(
                 currentAccountId(), request);
         HttpStatus status = result.outcome()
-                == CollaborationInitiationResult.Outcome.CREATED_AFTER_TERMINAL
-                ? HttpStatus.CREATED
-                : HttpStatus.OK;
+                == CollaborationInitiationResult.Outcome.EXISTING_IDENTICAL
+                ? HttpStatus.OK
+                : HttpStatus.CREATED;
         return ResponseEntity.status(status).body(result.collaboration());
     }
 

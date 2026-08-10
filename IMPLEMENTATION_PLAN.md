@@ -1300,10 +1300,10 @@ flowchart TD
 - **Order Rationale**: Constraints for B2B.
 - **Affected Backend Areas**: `Collaboration.java`.
 - **Database Migration**: No for the current unpublished/disposable H2 schema; generated schema includes the live-tuple uniqueness constraint.
-- **Acceptance Criteria**: Identical live requests return the existing relationship, changed details conflict, terminal history permits a new record, and concurrent uniqueness losers re-read instead of returning 500.
+- **Acceptance Criteria**: Every newly created relationship returns 201, an identical live request returns the existing relationship with 200, changed details conflict, terminal history permits a new record, and concurrent uniqueness losers re-read instead of returning 500.
 - **Tests**: Concurrency collaboration tests.
 - **Future UI Flow**: Collaboration request card.
-- **Execution Status**: Completed on 2026-08-10. A nullable live-tuple key permits one PENDING, ACTIVE, or SUSPENDED relationship per client/provider/company while terminal records remain reusable only as history. Purpose is whitespace-normalized and capability sets are order-insensitive for retry comparison; identical concurrent insert losers return the winning relationship.
+- **Execution Status**: Completed on 2026-08-10. A nullable live-tuple key permits one PENDING, ACTIVE, or SUSPENDED relationship per client/provider/company while terminal records remain reusable only as history. Purpose is whitespace-normalized and capability sets are order-insensitive for retry comparison. Initial and post-terminal creation return 201; identical existing retries, including concurrent insert losers, return the winning relationship with 200.
 
 #### [IMPLEMENT] COLLAB-002 — B2B delegation lacks an actor permission ceiling
 - **Prerequisites**: COLLAB-001.

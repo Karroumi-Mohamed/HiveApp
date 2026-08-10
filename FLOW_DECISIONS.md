@@ -591,10 +591,10 @@ In this flow the **provider Account** owns the Company being shared; the **exter
 - An authorized external Account actor may request or cancel a pending request. An authorized provider actor may accept or reject it. These are Account-scoped Permissionizer actions.
 - At most one pending, active, or suspended collaboration exists for the same external Account/provider Account/Company tuple.
 - Request creation has an explicit three-way retry contract after purpose whitespace is trimmed/collapsed and requested capabilities are compared as an unordered set:
-  - an initial successful create, or an identical retry of its live relationship, returns that relationship with `200 OK`;
+  - any call that creates a new relationship record returns it with `201 Created`, whether it is the tuple's first record or follows terminal history;
+  - an identical retry of a live relationship returns the existing record with `200 OK`;
   - the same live tuple with different normalized purpose or capabilities returns `409 Conflict`;
-  - after the former relationship becomes terminal, a new request creates a new historical record with `201 Created`.
-- If identical concurrent requests race at the database constraint, the losing insert re-reads and returns the winner with `200 OK`; it must not surface a persistence error.
+- If identical concurrent requests race at the database constraint, the winning creator returns `201 Created` and the losing insert re-reads and returns the winner with `200 OK`; it must not surface a persistence error.
 
 ---
 
@@ -1318,6 +1318,7 @@ Record accepted decisions here with date, reason, and affected source areas.
 | 2026-07-15 | Use provider-controlled Company share links and a complete history-preserving B2B lifecycle | External collaboration must be discoverable without global Company leakage and remain understandable through rejection, suspension, and revocation | B2B discovery, requests, lifecycle, grants, notifications, audit |
 | 2026-08-10 | Include `SUSPENDED` in the single live collaboration slot | A suspended relationship retains grants and can resume; releasing the slot could allow a newer relationship that collides when the suspended one resumes | Collaboration state model, live-tuple database constraint, request retries, lifecycle UI and tests |
 | 2026-08-10 | Company share codes do not expire automatically and are not credentials | A code identifies a Company but grants no access; the provider must still accept each request, so it remains valid until disabled/regenerated and only its SHA-256 hash is stored | Share-code persistence, discovery/request APIs, provider usage metadata, security documentation and tests |
+| 2026-08-10 | Return `201 Created` whenever collaboration initiation creates a row and `200 OK` only when it returns an identical existing row | Callers must be able to distinguish creation from idempotent retrieval consistently, including the concurrent uniqueness race | Collaboration initiation API, controller outcome mapping, client retry handling and concurrency tests |
 | 2026-07-15 | Require both provider delegation and external-member authorization for every B2B action | An Account-level grant must not give every external employee the ability to use it | Permissionizer B2B policies, provider delegation ceiling, external operator roles, runtime revalidation |
 | 2026-07-15 | Offer both now and at-renewal timing for client upgrades and downgrades | Timing is an operator/customer choice; actual feature/quota impact, not the plan label or price direction, determines required safeguards | Client plan-change preview, pending renewal operations, conflict handling, Account locking, history/audit |
 | 2026-07-15 | Defer permission-code rename/removal migration machinery and treat annotation codes as stable | Permission codes have no expected normal reason to change after a function is guarded; adding aliases/replacement flags to Permissionizer is premature | Registry retirement flow, Permissionizer scope, future developer migrations |

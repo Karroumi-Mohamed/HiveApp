@@ -173,7 +173,7 @@ The current implementation keeps client workspace role management on `platform.r
 - Revoking a collaboration immediately removes all partner access — no grace period
 - Company share codes are reusable discovery identifiers, are stored only as hashes, and remain valid until disabled or regenerated. They do not expose broad Company search or unrelated business data.
 - Providers can inspect resolution/request counts and last-use times for the current code so unexpected use is visible; rotating the code resets these counters.
-- Identical live requests compare collapsed purpose whitespace and requested capabilities as an unordered set and return the existing relationship. Changed details conflict; after a terminal relationship, a new request creates a new historical record.
+- New collaboration records return 201. Identical live requests compare collapsed purpose whitespace and requested capabilities as an unordered set and return the existing relationship with 200. Changed details conflict; after a terminal relationship, a new request creates a new historical record.
 - CANCELLED, REJECTED, and REVOKED relationships remain historical. A later request creates a new record and never reuses former grants.
 
 ---

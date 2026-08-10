@@ -309,7 +309,7 @@ provider only can grant or revoke collaboration permissions. Covered at request 
 provider only can suspend/resume; requester/provider cancellation/rejection boundaries are explicit. Covered at request level.
 either participant can revoke an accepted collaboration. Covered at request level.
 non-participant cannot read collaboration permissions. Participant detail/current-grant reads are covered.
-one PENDING/ACTIVE/SUSPENDED tuple and one grant pair are database-unique; normalized identical retries return the existing relationship, changed details conflict, concurrent insert losers re-read the winner, and terminal history allows a new request. Covered against generated H2 constraints.
+one PENDING/ACTIVE/SUSPENDED tuple and one grant pair are database-unique; new records return 201, normalized identical retries return the existing relationship with 200, changed details conflict, concurrent insert losers re-read the winner, and terminal history allows a new request. Covered against generated H2 constraints.
 stale lifecycle versions conflict instead of overwriting state. Covered at request level.
 suspension preserves grants, distinguishes review from explicit automatic resume, and automatic resume skips inactive or no-longer-entitled provider scopes. Covered at request and unit levels.
 permission revocation preserves an inactive grant row, regrant reactivates it, and terminal relationships freeze grants. Covered at request level.

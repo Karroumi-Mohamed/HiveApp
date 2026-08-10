@@ -385,7 +385,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new InitiateCollaborationRequest(
                                 firstCode, "Inspect code usage", Set.of()))))
-                .andExpect(status().isOk());
+                .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/v1/collaborations/companies/{companyId}/share-code", companyId)
                         .header("Authorization", bearer(providerToken)))
@@ -479,7 +479,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
-    void concurrentIdenticalInitialRequestsReturnOneRelationshipAndTwoOkResponses() throws Exception {
+    void concurrentIdenticalInitialRequestsReturnOneCreatedOneOkAndOneRelationship() throws Exception {
         String providerToken = registerClientAndGetToken();
         String clientToken = registerClientAndGetToken();
         UUID companyId = UUID.fromString(createCompany(
@@ -491,7 +491,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
         CompletableFuture<Integer> first = initiateAsync(clientToken, request);
         CompletableFuture<Integer> second = initiateAsync(clientToken, request);
 
-        assertThat(List.of(first.join(), second.join())).containsExactlyInAnyOrder(200, 200);
+        assertThat(List.of(first.join(), second.join())).containsExactlyInAnyOrder(201, 200);
         UUID clientAccountId = currentAccountId(clientToken);
         UUID providerAccountId = currentAccountId(providerToken);
         assertThat(collaborationRepository.findAllByClientAccountId(clientAccountId).stream()
@@ -622,7 +622,7 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(clientToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         var responseJson = objectMapper.readTree(response);
         UUID collaborationId = UUID.fromString(responseJson.get("id").asText());
