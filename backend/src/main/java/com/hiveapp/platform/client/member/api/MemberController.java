@@ -3,6 +3,8 @@ package com.hiveapp.platform.client.member.api;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.dto.MemberAccessResponse;
 import com.hiveapp.platform.client.member.dto.MemberCreationResponse;
+import com.hiveapp.platform.client.member.dto.MemberAccessResult;
+import com.hiveapp.platform.client.member.dto.MemberAccessStatusResponse;
 import com.hiveapp.platform.client.member.dto.AssignRoleRequest;
 import com.hiveapp.platform.client.member.dto.MemberDto;
 import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
@@ -13,6 +15,7 @@ import com.hiveapp.platform.client.member.service.MemberService;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
+import com.hiveapp.shared.email.delivery.EmailDeliveryTracker;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -29,6 +32,7 @@ public class MemberController {
 
     private final MemberService memberService;
     private final MemberMapper memberMapper;
+    private final EmailDeliveryTracker emailDeliveryTracker;
 
     @GetMapping
     public List<MemberDto> getMembers() {
@@ -49,7 +53,8 @@ public class MemberController {
                 access.method(),
                 access.state(),
                 access.temporaryPassword(),
-                access.linkExpiresAt());
+                access.linkExpiresAt(),
+                deliverySummary(access.emailDeliveryId()));
     }
 
     @PatchMapping("/{id}")
@@ -65,12 +70,17 @@ public class MemberController {
 
     @PostMapping("/{id}/access/regenerate")
     public MemberAccessResponse regenerateInitialAccess(@PathVariable UUID id) {
-        return memberService.regenerateInitialAccess(id);
+        return accessResponse(memberService.regenerateInitialAccess(id));
     }
 
     @PostMapping("/{id}/access/reset")
     public MemberAccessResponse resetAccess(@PathVariable UUID id) {
-        return memberService.resetAccess(id);
+        return accessResponse(memberService.resetAccess(id));
+    }
+
+    @GetMapping("/{id}/access")
+    public MemberAccessStatusResponse getAccessStatus(@PathVariable UUID id) {
+        return memberService.getAccessStatus(id);
     }
 
     @PostMapping("/{id}/access/unlock")
@@ -121,5 +131,21 @@ public class MemberController {
             @RequestParam PermissionOverrideScope scope,
             @RequestParam(required = false) UUID companyId) {
         return memberService.getMemberOverrides(id, scope, companyId);
+    }
+
+    private MemberAccessResponse accessResponse(MemberAccessResult result) {
+        var access = result.access();
+        return new MemberAccessResponse(
+                result.memberId(), access.method(), access.state(),
+                access.temporaryPassword(), access.linkExpiresAt(),
+                deliverySummary(access.emailDeliveryId()));
+    }
+
+    private com.hiveapp.shared.email.delivery.EmailDeliverySummary deliverySummary(
+            UUID deliveryId
+    ) {
+        return deliveryId == null
+                ? null
+                : emailDeliveryTracker.findSummary(deliveryId).orElse(null);
     }
 }

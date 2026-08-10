@@ -1488,6 +1488,8 @@ flowchart TD
 - **Tests**: SMTP exception simulation tests.
 - **Future UI Flow**: Email delivery status dialogs.
 
+**Execution status — 2026-08-10:** Implemented durable, secret-free credential-email delivery history. Delivery rows are queued atomically with credential changes, then marked `SENT`, `FAILED`, or development-only `SUPPRESSED` after commit using isolated status transactions and bounded failure codes. Creation/regenerate/reset responses return immediate delivery metrics, and the new Account-scoped `GET /api/v1/members/{id}/access` read model exposes later status under `platform.staff.read_access`. Safe resend uses existing protected regenerate/reset actions, rotates the token, and preserves attempt history. Automatic background retry is intentionally excluded because reusable raw links are never persisted. Production has an explicit validator for missing/blank `spring.mail.host`; development suppression cannot masquerade as delivery. SMTP causes remain available once in operational ERROR logs for diagnosis but are excluded from `EmailDelivery`, `AuditLog`, and API state. The complete 427-test backend suite passes with zero failures, errors, or skips.
+
 ---
 
 # Phase 6: Stable APIs, DTOs and read models
@@ -1828,7 +1830,7 @@ flowchart TD
 | **ADMIN-DATA-001**| Query join | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Bulk load mapping |
 | **ADMIN-DATA-002**| Page parameters | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Paginated metrics |
 | **BILLING-002** | Simulated payments | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.6 | BILLING-001 | Dev/test-only configurable untrusted simulator and production fail-fast guard |
-| **EMAIL-001** | Mail error report | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.6 | None | Exception propagate |
+| **EMAIL-001** | Mail error report | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.6 | None | Durable safe outcomes, metrics and token-rotating recovery |
 | **EMAIL-002** | Escape templates | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Escaped, validated, deadline-aware activation emails |
 | **API-ERROR-001**| Error codes payload | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.5 | None | Code mapping returned |
 | **CONFIG-001** | Profile configs | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | None | Destructive dev only |

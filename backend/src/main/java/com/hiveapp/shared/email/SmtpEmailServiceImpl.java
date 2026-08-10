@@ -5,6 +5,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.mail.MailAuthenticationException;
+import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -13,6 +15,7 @@ import org.springframework.web.util.HtmlUtils;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import com.hiveapp.identity.domain.constant.CredentialTokenPurpose;
+import com.hiveapp.shared.email.delivery.EmailDeliveryFailureCode;
 
 /**
  * Real SMTP email service. Active only when spring.mail.host is configured
@@ -30,7 +33,7 @@ public class SmtpEmailServiceImpl implements EmailService {
     private String from;
 
     @Override
-    public void sendCredentialLink(
+    public EmailDispatchOutcome sendCredentialLink(
             String to,
             String memberName,
             String workspaceName,
@@ -53,9 +56,18 @@ public class SmtpEmailServiceImpl implements EmailService {
 
             mailSender.send(message);
             log.info("Credential email sent to={} purpose={}", to, purpose);
+            return EmailDispatchOutcome.SENT;
         } catch (MessagingException e) {
-            log.error("Failed to send credential email to={}: {}", to, e.getMessage(), e);
-            throw new RuntimeException("Failed to send credential email", e);
+            log.error("Credential email construction failed to={} purpose={}", to, purpose, e);
+            throw new EmailDeliveryException(
+                    EmailDeliveryFailureCode.MESSAGE_CONSTRUCTION_FAILED, e);
+        } catch (MailAuthenticationException e) {
+            log.error("Credential email authentication failed to={} purpose={}", to, purpose, e);
+            throw new EmailDeliveryException(
+                    EmailDeliveryFailureCode.AUTHENTICATION_FAILED, e);
+        } catch (MailException e) {
+            log.error("Credential email transport failed to={} purpose={}", to, purpose, e);
+            throw new EmailDeliveryException(EmailDeliveryFailureCode.TRANSPORT_FAILED, e);
         }
     }
 

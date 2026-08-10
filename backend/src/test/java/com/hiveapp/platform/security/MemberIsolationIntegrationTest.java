@@ -61,6 +61,17 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
     }
 
     @Test
+    void clientCannotReadCredentialDeliveryStatusFromAnotherWorkspace() throws Exception {
+        String ownerToken = registerClientAndGetToken();
+        String otherToken = registerClientAndGetToken();
+        UUID ownerMemberId = currentMemberId(ownerToken);
+
+        mockMvc.perform(get("/api/v1/members/{id}/access", ownerMemberId)
+                        .header("Authorization", bearer(otherToken)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void companyScopedRoleCanOnlyBeAssignedInsideItsCompany() throws Exception {
         String token = registerClientAndGetToken();
         assignPlan(token, "PRO");

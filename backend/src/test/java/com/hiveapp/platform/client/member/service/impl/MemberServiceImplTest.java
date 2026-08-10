@@ -32,6 +32,7 @@ import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
 import com.hiveapp.shared.security.DelegationCeilingService;
+import com.hiveapp.shared.email.delivery.EmailDeliveryTracker;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
@@ -76,6 +77,7 @@ class MemberServiceImplTest {
     @Mock private MemberCredentialService memberCredentialService;
     @Mock private PlanEntitlementService planEntitlementService;
     @Mock private DelegationCeilingService delegationCeilingService;
+    @Mock private EmailDeliveryTracker emailDeliveryTracker;
 
     @InjectMocks
     private MemberServiceImpl memberService;
@@ -97,7 +99,7 @@ class MemberServiceImplTest {
                 .thenReturn(new CredentialAccessMaterial(
                         InitialAccessMethod.TEMPORARY_PASSWORD,
                         CredentialState.TEMPORARY_PASSWORD,
-                        "temporary-secret", null));
+                        "temporary-secret", null, null));
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(memberRepository.saveAndFlush(any(Member.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -181,7 +183,7 @@ class MemberServiceImplTest {
                 .thenReturn(new CredentialAccessMaterial(
                         InitialAccessMethod.TEMPORARY_PASSWORD,
                         CredentialState.TEMPORARY_PASSWORD,
-                        "temporary-secret", null));
+                        "temporary-secret", null, null));
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(memberRepository.saveAndFlush(any(Member.class))).thenAnswer(invocation -> invocation.getArgument(0));
 

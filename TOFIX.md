@@ -2746,22 +2746,29 @@ Immutable price-book revisions, itemized invoices, payment/refund/credit ledgers
 
 ### EMAIL-001 — Missing SMTP silently becomes token logging and apparent delivery success
 
-**Status:** `PARTIALLY RESOLVED — 2026-07-16`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 **Evidence**
 
 - The former invitation sender and secret-bearing fallback logging have been removed.
 - `LoggingEmailServiceImpl` is now restricted to non-production profiles and records only destination/purpose/workspace/expiry, never the action URL or token.
-- Production has no logging fallback; SMTP activation is selected explicitly by `spring.mail.host`, so a missing transport leaves the required `EmailService` dependency unsatisfied at startup.
-- Credential emails are requested transactionally and sent after commit. A delivery failure leaves the member in a pending state that an authorized Account actor can regenerate, but persistent delivery status and automatic retry do not exist yet.
+- Production has no logging fallback. An explicit startup validator rejects a missing or blank `spring.mail.host` with a configuration-specific failure before credential-email components are wired.
+- Credential emails are requested transactionally and sent after commit. Before this batch, a failure left the member pending but existed only in logs; callers and managers had no durable status or failure metric.
 
 **Risk**
 
-A delivery failure can still require a manager to regenerate access manually because persistent delivery status, retry scheduling, and UI feedback are not implemented.
+Before this batch, a delivery failure could leave access pending with no durable explanation or UI feedback. Any future automatic retry would also risk replaying a secret-bearing link or rotating credentials without an explicit request unless a stronger outbox policy is designed.
 
-**Required fix direction**
+**Implementation evidence — 2026-08-10**
 
-Complete `EMAIL-001` later with persistent delivery attempt/status, safe retry/resend, and Account-member UI feedback. Keep it independent from the already-correct post-commit identity transaction.
+- Each credential email now creates an `EmailDelivery` row in the identity transaction with Account, recipient User/address, purpose, and `PENDING` status. Raw tokens, action URLs, message bodies, provider exception messages, and reusable credentials are never stored.
+- The synchronous `AFTER_COMMIT` listener records `SENT`, `FAILED`, or non-production `SUPPRESSED` in an isolated transaction. SMTP exceptions become bounded failure codes (`MESSAGE_CONSTRUCTION_FAILED`, `AUTHENTICATION_FAILED`, `TRANSPORT_FAILED`, or `UNEXPECTED_FAILURE`) rather than provider details. The original exception and stack trace are emitted once to operational ERROR logs for diagnosis, but never persisted in `EmailDelivery` or `AuditLog`.
+- `EmailService` returns an explicit transport outcome. The development logging transport reports `SUPPRESSED`, never delivered; production still has no logging fallback, and `EmailStartupValidator` fails startup clearly when `spring.mail.host` is missing or blank.
+- Member creation, regeneration, and reset responses expose the current delivery result plus total/failed attempt counts. `GET /api/v1/members/{id}/access`, protected by `platform.staff.read_access` and Account-scoped lookup, exposes the latest credential and delivery state for later UI visits.
+- Safe retry uses the existing Permissionizer-protected regenerate/reset actions. It creates a new delivery history row and rotates the credential token; the failed link is never reused. Self-service reset remains non-disclosing, while an authorized Account actor can inspect the member status.
+- Automatic background retry is deliberately absent: safely retrying would require either persisting reusable secret-bearing content or rotating access without an operator/user request. A future provider-backed encrypted outbox may add that only with an explicit delivery policy.
+- SMTP success/failure/suppression, diagnostic exception logging without credential-link leakage, explicit production startup validation, unknown-outcome safety, immediate durable failure feedback, aggregate metrics, token-rotating recovery, and cross-Account status isolation are covered. The complete 427-test backend suite passes with zero failures, errors, or skips.
+- The generated disposable schema includes `email_deliveries` directly. No Flyway history was added under the current unpublished-database policy.
 
 ---
 

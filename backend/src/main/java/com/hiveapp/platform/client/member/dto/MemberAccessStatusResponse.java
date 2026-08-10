@@ -5,13 +5,13 @@ import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.shared.email.delivery.EmailDeliverySummary;
 
 import java.time.Instant;
+import java.util.UUID;
 
-public record MemberCreationResponse(
-        MemberDto member,
-        InitialAccessMethod initialAccessMethod,
+public record MemberAccessStatusResponse(
+        UUID memberId,
+        InitialAccessMethod method,
         CredentialState credentialState,
-        String temporaryPassword,
-        Instant activationLinkExpiresAt,
-        EmailDeliverySummary emailDelivery
+        Instant linkExpiresAt,
+        EmailDeliverySummary latestEmailDelivery
 ) {
 }

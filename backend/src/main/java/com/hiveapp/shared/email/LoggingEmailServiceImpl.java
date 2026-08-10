@@ -18,7 +18,7 @@ import org.springframework.stereotype.Service;
 public class LoggingEmailServiceImpl implements EmailService {
 
     @Override
-    public void sendCredentialLink(
+    public EmailDispatchOutcome sendCredentialLink(
             String to,
             String memberName,
             String workspaceName,
@@ -28,5 +28,6 @@ public class LoggingEmailServiceImpl implements EmailService {
     ) {
         log.info("[DEV] Credential email suppressed: to={}, purpose={}, workspace={}, expiresAt={}",
                 to, purpose, workspaceName, expiresAt);
+        return EmailDispatchOutcome.SUPPRESSED;
     }
 }

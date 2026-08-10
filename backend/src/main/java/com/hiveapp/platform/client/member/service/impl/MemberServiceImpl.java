@@ -13,7 +13,8 @@ import com.hiveapp.platform.client.member.service.MemberService;
 import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.dto.InitialRoleAssignmentRequest;
-import com.hiveapp.platform.client.member.dto.MemberAccessResponse;
+import com.hiveapp.platform.client.member.dto.MemberAccessResult;
+import com.hiveapp.platform.client.member.dto.MemberAccessStatusResponse;
 import com.hiveapp.platform.client.member.dto.MemberCreationResult;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
@@ -33,6 +34,8 @@ import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
+import com.hiveapp.shared.email.delivery.EmailDeliveryTracker;
+import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.shared.security.DelegationCeilingService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import dev.karroumi.permissionizer.PermissionNode;
@@ -66,6 +69,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     private final MemberCredentialService memberCredentialService;
     private final PlanEntitlementService planEntitlementService;
     private final DelegationCeilingService delegationCeilingService;
+    private final EmailDeliveryTracker emailDeliveryTracker;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -130,13 +134,14 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         user.setPhone(normalizeOptional(request.phone()));
         user.setActive(true);
         user.setEmailVerified(false);
-        var initialAccess = memberCredentialService.initialize(user, account);
 
         try {
             user = userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException ex) {
             throw new InvalidStateException("Username, email, or employee number is already in use");
         }
+        var initialAccess = memberCredentialService.initialize(user, account);
+        userRepository.saveAndFlush(user);
 
         Member member = new Member();
         member.setAccount(account);
@@ -201,21 +206,38 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @Override
     @Transactional
     @PermissionNode(key = "regenerate_access", description = "Regenerate unactivated member access")
-    public MemberAccessResponse regenerateInitialAccess(UUID memberId) {
+    public MemberAccessResult regenerateInitialAccess(UUID memberId) {
         Member member = requireActiveManagedMember(memberId);
         var material = memberCredentialService.regenerate(member.getUser(), member.getAccount());
         userRepository.saveAndFlush(member.getUser());
-        return accessResponse(member, material);
+        return new MemberAccessResult(member.getId(), material);
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "reset_access", description = "Reset activated member access")
-    public MemberAccessResponse resetAccess(UUID memberId) {
+    public MemberAccessResult resetAccess(UUID memberId) {
         Member member = requireActiveManagedMember(memberId);
         var material = memberCredentialService.reset(member.getUser(), member.getAccount());
         userRepository.saveAndFlush(member.getUser());
-        return accessResponse(member, material);
+        return new MemberAccessResult(member.getId(), material);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_access", description = "Read member credential and email delivery status")
+    public MemberAccessStatusResponse getAccessStatus(UUID memberId) {
+        Member member = getMember(memberId);
+        requireCurrentAccount(member);
+        User user = member.getUser();
+        InitialAccessMethod method = user.getEmail() == null
+                ? InitialAccessMethod.TEMPORARY_PASSWORD
+                : InitialAccessMethod.EMAIL_LINK;
+        var delivery = emailDeliveryTracker.findLatestSummary(
+                member.getAccount().getId(), user.getId()).orElse(null);
+        return new MemberAccessStatusResponse(
+                member.getId(), method, user.getCredentialState(),
+                user.getCredentialTokenExpiresAt(), delivery);
     }
 
     @Override
@@ -545,15 +567,6 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         if (scope == RoleAssignmentScope.COMPANY && companyId == null) {
             throw new InvalidStateException("Company role assignments require a company");
         }
-    }
-
-    private MemberAccessResponse accessResponse(
-            Member member,
-            com.hiveapp.identity.service.CredentialAccessMaterial material
-    ) {
-        return new MemberAccessResponse(
-                member.getId(), material.method(), material.state(),
-                material.temporaryPassword(), material.linkExpiresAt());
     }
 
     private String normalizeDisplayName(CreateMemberRequest request, User user) {

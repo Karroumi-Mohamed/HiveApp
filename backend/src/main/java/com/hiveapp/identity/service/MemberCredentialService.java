@@ -10,6 +10,7 @@ import com.hiveapp.shared.config.ActivationProperties;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.security.TokenAudience;
 import com.hiveapp.shared.security.TokenSessionService;
+import com.hiveapp.shared.email.delivery.EmailDeliveryTracker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -27,6 +28,7 @@ public class MemberCredentialService {
     private final ActivationProperties activationProperties;
     private final ApplicationEventPublisher eventPublisher;
     private final TokenSessionService tokenSessionService;
+    private final EmailDeliveryTracker emailDeliveryTracker;
 
     public CredentialAccessMaterial initialize(User user, Account account) {
         return hasEmail(user) ? emailAccess(user, account, CredentialTokenPurpose.ACTIVATION, true)
@@ -92,6 +94,7 @@ public class MemberCredentialService {
                 InitialAccessMethod.TEMPORARY_PASSWORD,
                 user.getCredentialState(),
                 temporaryPassword,
+                null,
                 null);
     }
 
@@ -114,13 +117,20 @@ public class MemberCredentialService {
                     : CredentialState.EMAIL_RESET_PENDING);
             user.setPasswordChangeRequired(true);
         }
+        if (user.getId() == null || account.getId() == null) {
+            throw new IllegalStateException("Credential email delivery requires persisted identities");
+        }
+        var deliveryId = emailDeliveryTracker.queue(
+                account.getId(), user.getId(), user.getEmail(), purpose);
         eventPublisher.publishEvent(new CredentialEmailRequestedEvent(
-                user.getEmail(), user.getFullName(), account.getName(), rawToken, purpose, expiresAt));
+                deliveryId, user.getEmail(), user.getFullName(), account.getName(), rawToken,
+                purpose, expiresAt));
         return new CredentialAccessMaterial(
                 InitialAccessMethod.EMAIL_LINK,
                 user.getCredentialState(),
                 null,
-                expiresAt);
+                expiresAt,
+                deliveryId);
     }
 
     public void clearToken(User user) {

@@ -47,25 +47,22 @@ The public feature catalog is available before workspace authorization at `GET /
 
 ---
 
-## 3. Invitations
+## 3. Direct Initial Access
 
-**Requires namespace:** `platform.invitations` (owner-gated in practice — members need explicit role grant)
+HiveApp has no invitation subsystem. An owner or authorized manager creates the employer-managed User and Member directly through the member flow, then the member completes one of two initial-access methods.
 
 | # | Story | Endpoint | Permission |
 |---|-------|----------|------------|
-| INV-01 | As an owner, I can invite a new or existing user to my workspace by email, optionally pre-assigning a role | `POST /api/v1/invitations` | `platform.invitations.send` |
-| INV-02 | As an owner, I can list all pending invitations for my workspace | `GET /api/v1/invitations` | `platform.invitations.list` |
-| INV-03 | As an owner, I can revoke a pending invitation before it is accepted | `DELETE /api/v1/invitations/:id` | `platform.invitations.revoke` |
-| INV-04 | As an invitee, I can validate an invitation token to see the workspace name, inviter, expiry, and whether I need to register | `GET /api/v1/invitations/validate?token=` | — (public) |
-| INV-05 | As an invitee with an existing account, I can accept an invitation and immediately join the workspace with a CLIENT JWT | `POST /api/v1/invitations/accept` | — (public) |
-| INV-06 | As a new invitee without an account, I can accept an invitation by providing first name, last name, and password — creating my account and joining the workspace in one step | `POST /api/v1/invitations/accept` | — (public) |
+| ACC-01 | As an email member, I can use my one-time activation link to choose my own password | `POST /api/v1/auth/activation/complete` | — (one-time token) |
+| ACC-02 | As a member without email, I can use the manager-provided temporary password once and receive a restricted token | `POST /api/v1/auth/login` | — (public authentication) |
+| ACC-03 | As a temporary-password member, I can replace it before accessing the workspace | `POST /api/v1/auth/initial-password/change` | restricted CLIENT token |
+| ACC-04 | As a verified-email member, I can request a non-disclosing password-reset link and complete it | `POST /api/v1/auth/password-reset/request` / `complete` | — (public/one-time token) |
 
 **Constraints:**
-- Invitations expire after 7 days (configurable via `hiveapp.invitation.expiry-days`)
-- Duplicate pending invitations to the same email are rejected — revoke first to resend
-- A user who is already a member of the workspace can still accept their invitation — it is idempotent (marks accepted, issues JWT, does not create a duplicate member)
-- Invitation email is sent automatically via `EmailService` (logs to console in dev, SMTP in prod)
-- If a `roleId` is provided, the role is pre-assigned to the new member on acceptance
+- Email is optional. Email members receive a hashed one-time link; other members receive a one-time-visible temporary password that the manager cannot retrieve later.
+- Managers can regenerate unused access, reset activated access, or unlock failed temporary access, but never see a permanent member password.
+- Credential emails are sent only after the identity transaction commits. Delivery status is persisted without the raw link or token.
+- A failed delivery is retried by generating a new token through the protected manager action; HiveApp never stores a reusable credential email for replay.
 
 ---
 
@@ -76,7 +73,7 @@ The public feature catalog is available before workspace authorization at `GET /
 | # | Story | Endpoint | Permission |
 |---|-------|----------|------------|
 | STF-01 | As an owner or authorized member, I can list all members of my workspace with their display name, email, roles, and active status | `GET /api/v1/members` | `platform.staff.read` |
-| STF-02 | As an owner or authorized member, I can add an existing platform user to my workspace by user ID | `POST /api/v1/members` | `platform.staff.add` |
+| STF-02 | As an owner or authorized member, I can directly create an employer-managed User and Member with initial roles | `POST /api/v1/members` | `platform.staff.create` |
 | STF-03 | As an owner or authorized member, I can update a member's display name | `PATCH /api/v1/members/:id` | `platform.staff.update` |
 | STF-04 | As an owner or authorized member, I can deactivate a member, revoking their workspace access | `DELETE /api/v1/members/:id` | `platform.staff.delete` |
 | STF-05 | As an owner or authorized member, I can assign a role to a member, optionally scoped to a specific company | `POST /api/v1/members/:id/roles` | `platform.staff.assign_role` |
@@ -84,9 +81,12 @@ The public feature catalog is available before workspace authorization at `GET /
 | STF-07 | As an owner or authorized member, I can grant a direct permission override (GRANT or DENY) to a member for a specific company scope | `POST /api/v1/members/:id/permissions` | `platform.staff.grant_permission` |
 | STF-08 | As an owner or authorized member, I can revoke a direct permission override from a member | `DELETE /api/v1/members/:id/permissions/:permissionCode` | `platform.staff.revoke_permission` |
 | STF-09 | As an owner or authorized member, I can view all direct permission overrides for a member scoped to a specific company | `GET /api/v1/members/:id/permissions` | `platform.staff.read_overrides` |
+| STF-10 | As an owner or authorized member, I can regenerate an unactivated member's access with a new one-time credential | `POST /api/v1/members/:id/access/regenerate` | `platform.staff.regenerate_access` |
+| STF-11 | As an owner or authorized member, I can reset an activated member's access or unlock temporary access | `POST /api/v1/members/:id/access/reset` / `unlock` | `platform.staff.reset_access` / `unlock_access` |
+| STF-12 | As an owner or authorized member, I can inspect credential state and safe email-delivery status/attempt counts | `GET /api/v1/members/:id/access` | `platform.staff.read_access` |
 
 **Constraints:**
-- `STF-02` adds by userId — the primary add flow for owners is via invitations (INV-01), not this endpoint
+- `STF-02` creates both identity and membership atomically; members do not self-enroll and no invitation is created.
 - Member quota is enforced by plan — adding beyond the quota limit returns 402/403
 - Role assignments are company-scoped: a member can have the HR role for Company A and the Manager role for Company B simultaneously
 - DENY overrides take precedence over role grants — a member explicitly denied a permission cannot act even if a role grants it
@@ -210,7 +210,6 @@ The current implementation keeps client workspace role management on `platform.r
 | Missing action | Reason |
 |----------------|--------|
 | Change own password | No `PATCH /api/v1/me` endpoint — not implemented |
-| Reset forgotten password | No password reset flow — not implemented |
 | Email verification on register | No verification gate — not implemented |
 | Switch between multiple workspaces | `ContextDetectionFilter` uses `findFirstByUserId` — multi-workspace switching is broken by design (known limitation) |
 | External checkout, invoices, or proration | Subscription self-service currently applies internally without a payment provider |
@@ -260,22 +259,26 @@ B2bCollaborationPolicy only fires when `isB2B = true` in the request context, me
 POST   /api/v1/auth/register
 POST   /api/v1/auth/login
 POST   /api/v1/auth/refresh
+POST   /api/v1/auth/logout
+POST   /api/v1/auth/activation/complete
+POST   /api/v1/auth/initial-password/change
+POST   /api/v1/auth/initial-password/logout
+POST   /api/v1/auth/password-reset/request
+POST   /api/v1/auth/password-reset/complete
 
 GET    /api/v1/me/permissions
 
 GET    /api/v1/accounts/me
 DELETE /api/v1/accounts/me
 
-POST   /api/v1/invitations
-GET    /api/v1/invitations
-DELETE /api/v1/invitations/:id
-GET    /api/v1/invitations/validate?token=       (public)
-POST   /api/v1/invitations/accept                (public)
-
 GET    /api/v1/members
 POST   /api/v1/members
 PATCH  /api/v1/members/:id
 DELETE /api/v1/members/:id
+GET    /api/v1/members/:id/access
+POST   /api/v1/members/:id/access/regenerate
+POST   /api/v1/members/:id/access/reset
+POST   /api/v1/members/:id/access/unlock
 POST   /api/v1/members/:id/roles
 DELETE /api/v1/members/:id/roles/:roleId
 POST   /api/v1/members/:id/permissions

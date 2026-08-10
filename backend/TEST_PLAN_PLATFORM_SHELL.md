@@ -455,4 +455,25 @@ API JSON emits an explicit Z offset and deserializes to the exact Instant
 
 Production source verification finds no `LocalDateTime`, `OffsetDateTime`, or `ZonedDateTime` usage. System events and deadlines use `Instant`; future fields that represent a civil date/time must model those local semantics explicitly rather than reuse a zone-free value for a global event.
 
-The complete backend suite currently passes 417 tests with zero failures, errors, or skips.
+The UTC contract remains covered in the complete backend suite.
+
+## 19. Credential Email Delivery
+
+Credential-delivery tests pin the transport and management contract:
+
+```text
+SMTP success reports SENT and transport failure exposes only a bounded safe code
+the original SMTP exception is available in operational ERROR logs without logging the credential URL
+production rejects a missing or blank spring.mail.host with an explicit startup error
+the non-production logging transport reports SUPPRESSED rather than delivered
+delivery history is queued with the credential transaction and completed after commit
+failed delivery status and aggregate counts are returned to the creating caller
+later Account-scoped status reads show the same persisted result
+regeneration rotates the raw token, creates new history, and preserves failure counts
+another Account cannot read a member's credential or delivery status
+raw tokens, action URLs, provider exception messages, and message bodies are not persisted
+```
+
+Automatic retry is not simulated: the current safe recovery operation deliberately generates a new token instead of storing reusable credential-bearing content.
+
+The complete backend suite currently passes 427 tests with zero failures, errors, or skips.
