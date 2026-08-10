@@ -453,7 +453,7 @@ A generic management permission authorizes the action without defining which mem
 
 ### SUBSCRIPTION-001 — Subscription lifecycle terminology is inconsistent
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -515,11 +515,17 @@ Invalid plan rows can break price calculation, catalog display, subscription sna
 
 Review migrations, request validation, plan services, seeders, and database tests before changing the schema.
 
+**Implementation evidence — 2026-08-10**
+
+- Verification confirmed that `plans(code)` already has a database unique constraint; an integration test now proves a duplicate insert fails even when the service pre-check is bypassed.
+- Price and currency were made non-null with explicit precision in Batch 4.1. `billing_cycle` and `is_active` are now also non-null in the generated schema, with direct SQL rejection tests.
+- No Flyway migration was added under the agreed unpublished/disposable-H2 policy.
+
 ---
 
 ### PLAN-006 — Boolean plan state cannot implement the decided lifecycle
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR THE CURRENT DEFAULT — 2026-08-10`
 
 **Evidence**
 
@@ -784,11 +790,18 @@ An ordinary plan-management action or partial database state can break all new w
 
 Make the default provisioning plan an explicit configuration/invariant. Prevent disabling/deleting it while referenced by provisioning, validate it at startup, and make workspace creation fail atomically if entitlement provisioning fails.
 
+**Implementation evidence — 2026-08-10**
+
+- `PlanCodes.DEFAULT` is the single backend identifier used by provisioning, administration, inheritance defaults, and bootstrap seeding.
+- Admin service and API paths reject both deactivation and deletion of FREE, even when it has no subscription history. Startup fails visibly if an existing FREE row is inactive.
+- Missing FREE is created by the bootstrap seeder even when unrelated Plan rows already exist. Registration already fails atomically when a usable FREE entitlement cannot be provisioned.
+- Configurable atomic replacement of FREE remains part of the later Plan lifecycle work; the current invariant deliberately protects the one supported default.
+
 ---
 
 ### PLAN-003 — Seeded plan composition diverges between fresh and existing installations
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — SAFE BOOTSTRAP IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -804,11 +817,18 @@ A newly added HR/payroll/accounting feature is automatically included in every t
 
 Separate development demo data from production catalog migrations. Plan composition must change through explicit, versioned product decisions with previews—not by "all client features" convention or database emptiness.
 
+**Implementation evidence — 2026-08-10**
+
+- Bootstrap composition now names an explicit seven-feature shell baseline; discovering a new client feature can no longer silently add it to every plan.
+- Seeding validates the complete required registry baseline before writing, creates each missing FREE/PRO/ENTERPRISE template with its composition inside one transaction, and does not skip merely because another Plan row exists.
+- Repeated startup preserves existing templates and admin-managed composition instead of overwriting them; unit tests cover fresh, repeated, partial, inactive-default, and missing-feature states.
+- This remains bootstrap-only. Versioned production catalog decisions, previews, and revisions remain scheduled for the later Plan revision workflow.
+
 ---
 
 ### PLAN-004 — Plan-feature uniqueness is enforced only by a race-prone pre-check
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -821,6 +841,12 @@ Concurrent admin requests can create duplicate feature rows, making entitlement,
 **Required fix direction**
 
 Add a database unique constraint, translate conflicts cleanly, and retain the application check only for friendly validation.
+
+**Implementation evidence — 2026-08-10**
+
+- Verification confirmed the existing generated-schema unique constraint on `(plan_id, feature_id)` and an integration test proves duplicate persistence fails when the service pre-check is bypassed.
+- The friendly pre-check remains, while `saveAndFlush` now translates a constraint race into `DuplicateResourceException` instead of leaking an ambiguous persistence failure.
+- No Flyway migration was added under the agreed pre-production database policy.
 
 ---
 

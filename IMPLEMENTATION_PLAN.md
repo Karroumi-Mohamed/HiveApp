@@ -1009,10 +1009,11 @@ flowchart TD
 - **Unlocks**: PLAN-002.
 - **Order Rationale**: Database level unique constraint verification. Verification: Check if duplicate plan codes can be saved. Remediation: Add unique database index on `plans(code)`.
 - **Affected Backend Areas**: `Plan.java`.
-- **Database Migration**: Yes (unique code constraint).
+- **Database Migration**: No for the current generated H2 schema; the unique code constraint already existed and was verified. Add versioned production migration history later.
 - **Acceptance Criteria**: Duplicate plan codes raise database errors.
 - **Tests**: JPA integration tests.
 - **Future UI Flow**: Plans builder.
+- **Execution Status**: Verified and completed on 2026-08-10. The existing database unique constraint rejects duplicate Plan codes; billing cycle and active state are now also non-null and covered by direct persistence tests.
 
 #### [IMPLEMENT] PLAN-002 — FREE/default plan availability is not protected
 - **Prerequisites**: PLAN-001.
@@ -1020,9 +1021,10 @@ flowchart TD
 - **Order Rationale**: Blocks default plan deletes.
 - **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Deleting default FREE plan throws `BusinessException`.
+- **Acceptance Criteria**: Deactivating or deleting default FREE throws `BusinessException`; startup rejects an inactive default.
 - **Tests**: Default plan deletion unit tests.
 - **Future UI Flow**: Admin plans console.
+- **Execution Status**: Implemented on 2026-08-10. One shared default code is used across provisioning, inheritance, seeding, and administration; FREE cannot be deactivated/deleted and missing FREE is bootstrapped even in a partially populated Plan table.
 
 #### [IMPLEMENT] PLAN-003 — Seeded plan composition diverges between fresh and existing installations
 - **Prerequisites**: PLAN-002.
@@ -1030,19 +1032,21 @@ flowchart TD
 - **Order Rationale**: Atomic plan seeder setup.
 - **Affected Backend Areas**: `PlanSeeder.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Seed operation leaves database matches identical.
+- **Acceptance Criteria**: Fresh and partial bootstrap states create the same explicit shell baseline; repeat execution is idempotent and preserves admin-managed existing templates.
 - **Tests**: Seeder checks.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented on 2026-08-10. Bootstrap no longer derives product composition from every `planAssignable` feature. It validates an explicit baseline before writing, creates missing templates transactionally, and never overwrites existing catalog decisions. Versioned production catalog migrations remain later revision work.
 
 #### [IMPLEMENT] PLAN-004 — Plan-feature uniqueness is enforced only by a race-prone pre-check
 - **Prerequisites**: PLAN-003.
 - **Unlocks**: PLAN-006, PLAN-008.
 - **Order Rationale**: Restricts duplications in features map.
 - **Affected Backend Areas**: `PlanFeature.java`.
-- **Database Migration**: Yes (unique index on `plan_features(plan_id, feature_id)`).
+- **Database Migration**: No for the current generated H2 schema; the unique mapping constraint already existed and was verified. Add production migration history later.
 - **Acceptance Criteria**: Duplicate plan feature mappings fail database constraint checks.
 - **Tests**: Concurrency mapping tests.
 - **Future UI Flow**: Catalog assignments setting page.
+- **Execution Status**: Verified and completed on 2026-08-10. Direct duplicate persistence fails at the database boundary, the friendly pre-check remains, and a race at flush is translated to `DuplicateResourceException`.
 
 ---
 
@@ -1679,7 +1683,7 @@ flowchart TD
 | **RBAC-006** | Exception override lifecycle | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-003 | Explicit scoped exception lifecycle, provenance, expiry, and abuse tests |
 | **SUBSCRIPTION-001**| Terminological alignment | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | PLAN-006 | Enums corrected |
 | **SUBSCRIPTION-002**| JSON strings | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | SUBSCRIPTION-001 | Converter classes |
-| **PLAN-001** | Database constraints | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.2 | BILLING-003 | Unique code |
+| **PLAN-001** | Database constraints | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.2 | BILLING-003 | Verified unique code plus non-null cycle/state persistence tests |
 | **PLAN-006** | Lifecycle states | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | State column |
 | **PLAN-007** | Branching revisions | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Draft generation |
 | **BILLING-001** | Checkouts activation | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Payment validation |
@@ -1692,9 +1696,9 @@ flowchart TD
 | **SUBSCRIPTION-007**| Downgrade safety checks | MISSING | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Rejections |
 | **QUOTA-004** | Discrete packages | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-003 | Packages map |
 | **QUOTA-003** | Compound key | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | PLAN-008 | Collision fixed |
-| **PLAN-002** | Default plan protection | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-001 | Deletion block |
-| **PLAN-003** | Atomic plan seeding | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-002 | Transactional boot |
-| **PLAN-004** | Unique assignments | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-003 | Db unique index |
+| **PLAN-002** | Default plan protection | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-001 | Deactivation/deletion blocks and startup invariant |
+| **PLAN-003** | Atomic plan seeding | PARTIAL — SAFE BOOTSTRAP IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-002 | Explicit transactional and idempotent bootstrap tests |
+| **PLAN-004** | Unique assignments | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-003 | Verified DB constraint and race translation |
 | **PLAN-008** | PlanFeature schema | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Quota config JSON |
 | **PLAN-009** | Deletion preview | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-007 | Deletion warnings |
 | **PLAN-010** | Cloning Wizard | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Copy lineages |
