@@ -1600,6 +1600,8 @@ flowchart TD
 - **Tests**: MapStruct compilation.
 - **Future UI Flow**: None.
 
+**Execution status — 2026-08-11:** Completed after verification. `MAPPER-001` reproduced on every list surface using Hibernate statement statistics rather than inspection: the role list cost one extra statement per role, the member list one per member, and the admin plan-feature list one per plan feature. Two originally cited mappers no longer exist, and `CompanyMapper`/`AccountMapper` were confirmed safe because identifier-only access never initializes a proxy. The remediation is fetch strategy rather than mapper truncation, since the affected DTOs legitimately need the projected values; entity graphs now load those relationships in the owning query. `LazyMappingQueryCountIntegrationTest` asserts statement counts stay constant as row counts grow, and every assertion was confirmed to fail before its fix. `SubscriptionMapper` remains a documented bounded exception because it has no list surface. `MAPPER-002`'s one confirmed instance was already closed by Batch 6.1; the mechanical mapping still present in the plan/add-on/quota-package admin controllers exists because those services return persistence entities, which is `SERVICE-002`/`SERVICE-003`, so its consolidation is deliberately deferred to Batch 6.3 rather than pre-empted here. The complete backend suite passes: 443 tests, 0 failures, 0 errors, 0 skipped.
+
 ---
 
 ### Batch 6.3: Boundary Segregation
@@ -1778,8 +1780,8 @@ flowchart TD
 | **AUTHZ-DTO-001**| Contextual DTO | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Explicit Account/Company context |
 | **DTO-003** | DTO boundaries | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-002 | Admin/picker/public namespaces compile |
 | **DTO-004** | Client DTO clean | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Canonical quota JSON shape |
-| **MAPPER-001** | Prevent Lazy-Init | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.2 | DTO-003 | Excluded properties |
-| **MAPPER-002** | MapStruct mappers | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.2 | MAPPER-001 | MapStruct interfaces |
+| **MAPPER-001** | Prevent Lazy-Init | IMPLEMENTED FOR LIST READ MODELS | VERIFY FIRST | Phase 6 | Batch 6.2 | DTO-003 | Constant statement count as rows grow |
+| **MAPPER-002** | MapStruct mappers | ASSESSED — CONSOLIDATION IN BATCH 6.3 | VERIFY FIRST | Phase 6 | Batch 6.2 | MAPPER-001 | Confirmed instance closed by 6.1; remainder owned by SERVICE-002/003 |
 | **SERVICE-001** | Expose DTOs | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.3 | None | UserDTO return |
 | **SERVICE-002** | Expose DTOs | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-001 | AdminDTO return |
 | **SERVICE-003** | Expose DTOs | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-002 | MemberDTO return |

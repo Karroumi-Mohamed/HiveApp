@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.domain.repository;
 
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -18,6 +19,9 @@ public interface PlanFeatureRepository extends JpaRepository<PlanFeature, UUID> 
     // Used by QuotaEnforcer and BillingCalculator
     Optional<PlanFeature> findByPlanIdAndFeature_Code(UUID planId, String featureCode);
 
-    // Used by PlanAdminService
+    // Used by PlanAdminService, snapshot assembly, and subscription entitlement resolution.
+    // Nearly every caller projects the owning feature code, so the graph loads it up front
+    // rather than initializing one proxy per plan feature.
+    @EntityGraph(attributePaths = "feature")
     List<PlanFeature> findAllByPlanId(UUID planId);
 }

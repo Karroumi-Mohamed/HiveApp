@@ -1415,7 +1415,7 @@ Expose one canonical quota shape plus current plan limit, price, and usage field
 
 ### MAPPER-001 — Mappers traverse lazy relationships
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED FOR LIST READ MODELS — 2026-08-11`
 
 **Evidence**
 
@@ -1432,11 +1432,30 @@ Without deliberate fetch queries and transaction boundaries, mapping can cause `
 
 Inspect repository fetch strategies, service transaction scopes, generated SQL tests, and list endpoint pagination before changing mapper behavior.
 
+**Verification — 2026-08-11**
+
+Two of the four cited mappers no longer exist: `CollaborationMapper` was removed in Batch 5.2 and `RegistryMapper` in Batch 6.1. The remaining traversals were measured with Hibernate statement statistics rather than reasoned about, and the defect reproduced on every list surface:
+
+- `GET /api/v1/roles` issued 13 statements for one role and 16 for four — one extra statement per role for its permission collection.
+- `GET /api/v1/members` issued 10 statements for one member and 12 for three — one extra `User` statement per member.
+- `GET /api/admin/plans/{planId}/features` issued 9 statements for one feature and 12 for four — one extra `Feature` statement per plan feature. This surface postdates the original finding and was not cited in it.
+
+`CompanyMapper` and `AccountMapper` were confirmed safe: they read only `account.id` / `owner.id`, which Hibernate serves from the proxy without initializing it. `AddOnRepository` and `QuotaPackageRepository` already carried entity graphs, so their controller traversals were never unsafe.
+
+**Implementation evidence — 2026-08-11**
+
+- The fix is fetch strategy, not mapper truncation: the DTOs legitimately need permission codes, member identity, and feature codes, so the owning queries now load those relationships up front through `@EntityGraph`.
+- `RoleRepository.findAllByAccountId` and `findAllByBoundaryCompanyId` load `permissions` and `permissions.permission`. Both have exactly one caller, each a list endpoint.
+- `MemberRepository` gains a dedicated `findWithUserByAccountId` for the member list. `findAllByAccountId` is deliberately left ungraphed because `AccountShellServiceImpl` only reads user ids, which cost nothing on a proxy.
+- `PlanFeatureRepository.findAllByPlanId` loads `feature`. Nearly all of its eleven callers project the feature code; the two that only count or delete pay one cheap join on a small collection.
+- `LazyMappingQueryCountIntegrationTest` asserts statement counts stay constant as rows grow, instead of pinning absolute numbers that authentication and authorization would make brittle. Each assertion was confirmed to fail before its corresponding fix.
+- Known bounded exception: `SubscriptionMapper` projects `plan.code`/`plan.name`/`plan.price`, which initializes the plan proxy. All five call sites are single-subscription endpoints, so this costs one statement per request and never multiplies by row count. Graphing `findActiveByAccountId` would burden the authorization and activation paths for no list-surface benefit, so it is deliberately left alone.
+
 ---
 
 ### MAPPER-002 — Most API mapping appears to be manual and distributed
 
-**Status:** `VERIFY`
+**Status:** `ASSESSED — CONSOLIDATION OWNED BY BATCH 6.3`
 
 **Evidence**
 
@@ -1451,6 +1470,14 @@ Manual mapping is sometimes necessary, but repeated parsing/filtering logic in s
 **Verify later**
 
 Locate all DTO constructors in services/controllers. Keep business-aware read-model assembly explicit, but centralize repeated parsing and audience-filter rules.
+
+**Verification — 2026-08-11**
+
+- The one *confirmed* instance is closed. `AdminUserController` and `AdminRoleController` no longer construct DTOs or call assignment repositories; Batch 6.1 moved that assembly into the admin services under `ADMIN-DATA-001`. Five MapStruct mappers now remain, not seven, after the `CollaborationMapper` and `RegistryMapper` removals.
+- The manual construction that remains in services is business-aware read-model assembly, exactly what this finding says to keep explicit. `PermissionPickerCatalogService` derives per-audience availability and a source-owned `PermissionUnavailableReason`, which is the behavior `REGISTRY-FLOW-004` decided; `RoleServiceImpl` aggregates assignment counts by scope into an impact model. Neither is field copying, and MapStruct cannot express either without an `@AfterMapping` body containing the same logic plus indirection.
+- Mechanical entity→DTO copying does still exist in `PlanAdminController`, `AddOnAdminController`, and `QuotaPackageAdminController`. It exists **because those services return persistence entities**, which is `SERVICE-002` / `SERVICE-003` — whose Batch 6.3 acceptance criterion is literally "Services return DTOs". Consolidating it inside Batch 6.2 would pre-empt that batch's contract design and be redone once the DTO-returning service interfaces exist.
+
+**Decision:** the lazy-safety half of this batch is complete under `MAPPER-001`. The remaining mapping consolidation is deliberately deferred to Batch 6.3 rather than dropped, because it is a symptom of the service boundary that batch owns. This finding closes when 6.3 lands.
 
 ---
 

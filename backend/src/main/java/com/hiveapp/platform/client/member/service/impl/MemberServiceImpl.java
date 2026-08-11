@@ -92,7 +92,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @PermissionNode(key = "read", description = "List account members")
     public List<Member> getAccountMembers(UUID accountId) {
         requireCurrentAccount(accountId);
-        return memberRepository.findAllByAccountId(accountId);
+        return memberRepository.findWithUserByAccountId(accountId);
     }
 
     @Override
