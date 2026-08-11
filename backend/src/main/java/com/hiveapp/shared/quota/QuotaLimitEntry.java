@@ -1,5 +1,9 @@
 package com.hiveapp.shared.quota;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
+
 /**
  * One included limit for a feature-owned quota slot.
  *
@@ -8,9 +12,9 @@ package com.hiveapp.shared.quota;
  * limit         — required and non-negative for FINITE; absent for UNLIMITED.
  */
 public record QuotaLimitEntry(
-        String resource,
+        @NotBlank @Size(max = 100) String resource,
         QuotaLimitMode mode,
-        Long limit
+        @PositiveOrZero Long limit
 ) {
     public QuotaLimitEntry {
         if (resource == null || resource.isBlank()) {

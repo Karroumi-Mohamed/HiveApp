@@ -48,6 +48,20 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
     private CompanyRepository companyRepository;
 
     @Test
+    void effectivePermissionResponseIdentifiesItsAccountAndCompanyContext() throws Exception {
+        String token = registerClientAndGetToken();
+        UUID accountId = currentAccountId(token);
+        UUID companyId = UUID.fromString(createCompany(token, "Context Company").get("id").asText());
+
+        mockMvc.perform(get("/api/v1/me/permissions")
+                        .header("Authorization", bearer(token))
+                        .header("X-Company-ID", companyId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountId").value(accountId.toString()))
+                .andExpect(jsonPath("$.companyId").value(companyId.toString()));
+    }
+
+    @Test
     void memberPermissionOverrideCanBeGrantedAndReadWithinCurrentWorkspace() throws Exception {
         String token = registerClientAndGetToken();
         UUID creatorId = currentMemberId(token);

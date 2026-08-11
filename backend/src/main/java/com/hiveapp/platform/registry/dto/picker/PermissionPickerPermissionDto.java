@@ -1,9 +1,6 @@
-package com.hiveapp.platform.registry.dto;
+package com.hiveapp.platform.registry.dto.picker;
 
-import java.util.UUID;
-
-public record RegistryPermissionDto(
-        UUID id,
+public record PermissionPickerPermissionDto(
         String code,
         String name,
         String description,

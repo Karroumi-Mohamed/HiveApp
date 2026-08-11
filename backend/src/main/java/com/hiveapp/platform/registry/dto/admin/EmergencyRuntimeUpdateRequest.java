@@ -1,4 +1,4 @@
-package com.hiveapp.platform.registry.dto;
+package com.hiveapp.platform.registry.dto.admin;
 
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;

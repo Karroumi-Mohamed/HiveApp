@@ -4,7 +4,8 @@ import java.util.UUID;
 import java.util.List;
 
 public record CompanyDto(
-    UUID id, 
+    UUID id,
+    UUID accountId,
     String name, 
     String legalName, 
     String taxId,

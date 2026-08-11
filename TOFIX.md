@@ -1273,7 +1273,7 @@ Do not turn all read-only methods into audit events by default. If approved, bui
 
 ### DTO-001 — Request validation is inconsistent at important write boundaries
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED FOR CURRENT WRITE BOUNDARIES — 2026-08-11`
 
 **Evidence**
 
@@ -1298,11 +1298,18 @@ If services do not repeat every validation rule, invalid pricing, quota, company
 
 Use Bean Validation for structural input rules and service validators for conditional/domain rules. Add `@Valid` for nested structures and keep one shared validator for preview/apply or create/update pairs.
 
+**Implementation evidence — 2026-08-11**
+
+- Plan, AddOn, quota-package, branch, role, Company, and organization-Group requests now enforce structural bounds before service execution, including non-negative four-decimal prices and three-letter currencies.
+- Quota API input is separated from the invariant-enforcing domain value. Nested entries are validated with `@Valid`, then converted once after mode/limit consistency succeeds.
+- Controller coverage proves invalid commercial input returns the shared structured validation response instead of reaching persistence.
+- The obsolete invitation registration fields are intentionally absent; direct member creation and credential completion own their validation contracts.
+
 ---
 
 ### DTO-002 — Several response DTOs cannot represent important entity state
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED FOR CURRENT API SURFACES — 2026-08-11`
 
 **Evidence**
 
@@ -1320,11 +1327,18 @@ The UI may be forced to guess state, make extra requests, display incomplete rec
 
 Trace each DTO through controllers, services, frontend API clients, and screens. Decide whether each endpoint is intentionally a summary or is incomplete for its promised workflow.
 
+**Implementation evidence — 2026-08-11**
+
+- Company responses expose Account identity and the existing tax/address/logo state.
+- Role, collaboration, member credential, and email-delivery read models already expose their relevant scope and lifecycle state from earlier batches.
+- Member access management now has a separate authorization-detail response rather than overloading the member-list summary.
+- Subscription summary and entitlement/catalog detail remain deliberately separate endpoints; the UI need not infer one from the other.
+
 ---
 
 ### AUTHZ-DTO-001 — Effective client permission response has no explicit company context
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -1341,11 +1355,15 @@ If the response is calculated for one company but cached or reused by the UI for
 
 Calculate permissions for an explicit account/company/B2B context and include that context in the response. If the UI needs an overview, return a scope breakdown rather than one flattened authorization set.
 
+**Implementation evidence — 2026-08-11**
+
+`MemberPermissionDto` now identifies the member, Account, and selected Company for the returned permission set. Unit and HTTP integration tests pin the explicit context so a Company-scoped result cannot be mistaken for an Account-wide overview.
+
 ---
 
 ### DTO-003 — Multiple overlapping registry/catalog DTO families need explicit boundaries
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -1365,11 +1383,17 @@ Specialized read models are appropriate, but older overlapping endpoints can dri
 
 Map each model to its controller route, audience, authorization rule, and frontend consumer. Remove or clearly mark legacy models only after current usage is known.
 
+**Implementation evidence — 2026-08-11**
+
+- Registry contracts now live in explicit `admin`, `picker`, and `publicapi` namespaces with package-level audience descriptions.
+- Controllers and services import only the contract family for their surface.
+- The unused legacy `ModuleDto`, `FeatureDto`, and `RegistryMapper` were removed after repository-wide usage verification.
+
 ---
 
 ### DTO-004 — Client plan catalog quota model contains duplicated fields
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -1382,6 +1406,10 @@ The response can contain two conflicting values for the same resource/unit, expa
 **Possible fix direction**
 
 Expose one canonical quota shape plus current plan limit, price, and usage fields.
+
+**Implementation evidence — 2026-08-11**
+
+`CatalogQuota` now carries resource/type/unit only through its canonical `QuotaSlot`. A JSON contract test proves the duplicated top-level `resource` and `unit` fields are absent.
 
 ---
 
@@ -1954,7 +1982,7 @@ Enforce a null-safe unique assignment key, define inactive-role assignment behav
 
 ### MEMBER-004 — Member DTO cannot support the implemented management flows cleanly
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -1967,6 +1995,12 @@ The client UI cannot render a trustworthy member-access management screen withou
 **Required resolution**
 
 Define separate member summary and member access-detail read models with safe user identity, active/owner status, scoped roles, and overrides.
+
+**Implementation evidence — 2026-08-11**
+
+- `GET /api/v1/members/{id}/authorization`, protected by `platform.staff.read_authorization`, returns the safe member summary plus scoped role assignments and direct overrides.
+- Role status, assignment effect scope, Company identity, override decision/effectiveness, and audit identity are explicit.
+- Account isolation is enforced before loading the detail, and eager bulk repository methods keep mapping inside the transactional read boundary.
 
 ---
 
@@ -2641,7 +2675,7 @@ Destructive admin operations obey two explicit boundaries: only a SuperAdmin may
 
 ### ADMIN-DATA-001 — Admin list endpoints perform query-per-row mapping
 
-**Status:** `OBSERVED`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -2657,11 +2691,15 @@ List cost grows linearly with extra queries and may depend on Open Session in Vi
 
 Build dedicated read queries/projections with the required relationships, assemble responses transactionally, and add query-count tests for list endpoints.
 
+**Implementation evidence — 2026-08-11**
+
+Admin user and role lists now fetch one bounded entity page and one bulk relationship set for that page. Mapping occurs transactionally in the service; controllers no longer issue one assignment query per row. Unit tests pin the bulk call and reject the former per-row repository path.
+
 ---
 
 ### ADMIN-DATA-002 — Admin users and roles are returned without pagination
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -2674,6 +2712,10 @@ Large installations will load and map every administrator/role and all related a
 **Possible fix direction**
 
 Introduce pagination/search before these collections can grow significantly, while keeping small bootstrap deployments simple.
+
+**Implementation evidence — 2026-08-11**
+
+`GET /api/admin/users` and `GET /api/admin/roles` accept zero-based `page` and bounded `size` parameters (`1..100`, default `20`). Both return the shared stable `PageResponse` contract rather than exposing Spring Data's internal serialization shape. HTTP integration coverage pins the page metadata and requested bound.
 
 ---
 

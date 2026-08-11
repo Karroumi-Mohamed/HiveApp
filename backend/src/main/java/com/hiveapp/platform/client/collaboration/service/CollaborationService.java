@@ -7,7 +7,7 @@ import com.hiveapp.platform.client.collaboration.dto.CollaborationInitiationResu
 import com.hiveapp.platform.client.collaboration.dto.CompanyShareCodeDto;
 import com.hiveapp.platform.client.collaboration.dto.CompanyShareResolutionDto;
 import com.hiveapp.platform.client.collaboration.dto.InitiateCollaborationRequest;
-import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
+import com.hiveapp.platform.registry.dto.picker.PermissionPickerCatalogDto;
 import java.util.List;
 import java.util.UUID;
 

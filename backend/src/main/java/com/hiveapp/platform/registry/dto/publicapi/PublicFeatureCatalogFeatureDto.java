@@ -1,4 +1,4 @@
-package com.hiveapp.platform.registry.dto;
+package com.hiveapp.platform.registry.dto.publicapi;
 
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.shared.quota.QuotaSlot;

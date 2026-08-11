@@ -7,6 +7,7 @@ import com.hiveapp.platform.client.member.dto.MemberAccessResponse;
 import com.hiveapp.platform.client.member.dto.MemberAccessResult;
 import com.hiveapp.platform.client.member.dto.MemberAccessStatusResponse;
 import com.hiveapp.platform.client.member.dto.MemberCreationResult;
+import com.hiveapp.platform.client.member.dto.MemberAuthorizationDto;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
@@ -24,6 +25,7 @@ public interface MemberService {
     MemberAccessResult regenerateInitialAccess(UUID memberId);
     MemberAccessResult resetAccess(UUID memberId);
     MemberAccessStatusResponse getAccessStatus(UUID memberId);
+    MemberAuthorizationDto getMemberAuthorization(UUID memberId);
     void unlockInitialAccess(UUID memberId);
 
     void assignRole(UUID memberId, UUID roleId, RoleAssignmentScope scope, UUID companyId);

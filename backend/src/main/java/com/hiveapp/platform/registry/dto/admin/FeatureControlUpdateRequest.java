@@ -1,4 +1,4 @@
-package com.hiveapp.platform.registry.dto;
+package com.hiveapp.platform.registry.dto.admin;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;

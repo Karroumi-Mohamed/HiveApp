@@ -1,4 +1,4 @@
-package com.hiveapp.platform.registry.dto;
+package com.hiveapp.platform.registry.dto.picker;
 
 public record PermissionPickerSelectionDto(
         String permissionCode,

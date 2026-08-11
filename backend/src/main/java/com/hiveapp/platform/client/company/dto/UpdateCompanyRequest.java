@@ -4,7 +4,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public record UpdateCompanyRequest(
-    @Size(max = 160) String name,
+    @Pattern(regexp = "(?s).*\\S.*", message = "must not be blank") @Size(max = 160) String name,
     @Size(max = 240) String legalName,
     @Size(max = 100) String taxId,
     @Size(max = 120) String industry,

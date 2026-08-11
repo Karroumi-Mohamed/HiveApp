@@ -1575,6 +1575,8 @@ flowchart TD
 - **Tests**: Pagination unit tests.
 - **Future UI Flow**: Admin user lists.
 
+**Execution status — 2026-08-11:** Completed Batch 6.1 after verification. Important write DTOs now reject structurally invalid commercial, quota, Company, Group, and role input through the shared validation-error contract. Response models expose explicit Account/Company authorization context, Company ownership, and a dedicated member authorization detail containing scoped roles and direct overrides. Registry contracts are separated into operator-admin, entitlement-aware picker, and anonymous-public namespaces; unused legacy catalog DTOs and mapper were removed. Client catalog quotas use `QuotaSlot` as their only resource/unit source. Admin user and role endpoints return a stable bounded page and assemble each page with one bulk relationship query instead of query-per-row controller mapping. The complete backend suite passes: 440 tests, 0 failures, 0 errors, 0 skipped.
+
 ---
 
 ### Batch 6.2: Lazy-Safe API DTO Mapping
@@ -1771,11 +1773,11 @@ flowchart TD
 | **MODULES-002** | Company domain owner | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.4 | MODULES-001 | Package check |
 | **AUDIT-001** | Audit logs | IMPLEMENTED | VERIFY FIRST | Phase 5 | Batch 5.4 | None | Append-only actor-aware mutation and failed-attempt records |
 | **AUDIT-002** | Read-access security audit | PRODUCT SCOPE OPEN | DECIDE FIRST | Future | Unscheduled | AUDIT-001 | Decide sensitive/denied read coverage, retention, privacy and volume |
-| **DTO-001** | Request validation | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | None | MethodArgumentNotValid |
-| **DTO-002** | Align response | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-001 | Mapped properties |
-| **AUTHZ-DTO-001**| Contextual DTO | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Scope context |
-| **DTO-003** | DTO boundaries | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-002 | Namespace mappings |
-| **DTO-004** | Client DTO clean | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Clean structure |
+| **DTO-001** | Request validation | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | None | Structured negative validation tests |
+| **DTO-002** | Align response | IMPLEMENTED FOR CURRENT SURFACES | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-001 | Scope/lifecycle mapping tests |
+| **AUTHZ-DTO-001**| Contextual DTO | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Explicit Account/Company context |
+| **DTO-003** | DTO boundaries | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-002 | Admin/picker/public namespaces compile |
+| **DTO-004** | Client DTO clean | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Canonical quota JSON shape |
 | **MAPPER-001** | Prevent Lazy-Init | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.2 | DTO-003 | Excluded properties |
 | **MAPPER-002** | MapStruct mappers | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.2 | MAPPER-001 | MapStruct interfaces |
 | **SERVICE-001** | Expose DTOs | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.3 | None | UserDTO return |
@@ -1798,7 +1800,7 @@ flowchart TD
 | **MEMBER-001** | Owner lockout block | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | TENANCY-002 | Owner-target and self-target deactivation rejection |
 | **MEMBER-002** | Unique memberships | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-001 | Generated-schema unique constraint and concurrent conflict translation |
 | **MEMBER-003** | Active role check | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Inactive and duplicate scoped assignment rejection |
-| **MEMBER-004** | Member DTO clean | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Align fields |
+| **MEMBER-004** | Member DTO clean | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Scoped authorization-detail read model |
 | **MEMBER-005** | Token revocation | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-003 | Access-context denial and CLIENT refresh-session revocation |
 | **EVENT-002** | Dead Event | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Account event/listener artifacts deleted |
 | **ROLE-001** | Role check delete | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.3 | MEMBER-003 | Never-assigned-only hard delete and retained used-role history |
@@ -1827,8 +1829,8 @@ flowchart TD
 | **ADMIN-AUTH-001**| Token refresh | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | None | ADMIN rotation, audience and reuse tests |
 | **ADMIN-AUTH-002**| DTO validate admin | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | ADMIN-AUTH-001 | Validated thin controller test |
 | **ADMIN-RBAC-001**| SuperAdmin checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.3 | ADMIN-002 | Access denied blocks |
-| **ADMIN-DATA-001**| Query join | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Bulk load mapping |
-| **ADMIN-DATA-002**| Page parameters | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Paginated metrics |
+| **ADMIN-DATA-001**| Query join | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Bounded page plus one bulk relationship load |
+| **ADMIN-DATA-002**| Page parameters | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Stable bounded page contract |
 | **BILLING-002** | Simulated payments | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.6 | BILLING-001 | Dev/test-only configurable untrusted simulator and production fail-fast guard |
 | **EMAIL-001** | Mail error report | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.6 | None | Durable safe outcomes, metrics and token-rotating recovery |
 | **EMAIL-002** | Escape templates | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Escaped, validated, deadline-aware activation emails |

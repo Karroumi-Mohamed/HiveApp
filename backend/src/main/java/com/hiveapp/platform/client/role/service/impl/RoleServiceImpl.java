@@ -19,7 +19,7 @@ import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.definition.WorkspaceRolesFeature;
 import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureService;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
-import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
+import com.hiveapp.platform.registry.dto.picker.PermissionPickerCatalogDto;
 import com.hiveapp.platform.registry.service.PermissionPickerCatalogService;
 import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.platform.client.plan.service.PlanEntitlementService;

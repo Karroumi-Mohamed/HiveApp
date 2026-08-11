@@ -72,8 +72,6 @@ public record ClientPlanCatalogResponse(
 
     public record CatalogQuota(
             String featureCode,
-            String resource,
-            String unit,
             QuotaSlot slot,
             QuotaLimitMode mode,
             Long limit,

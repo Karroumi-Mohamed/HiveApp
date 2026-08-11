@@ -1,4 +1,6 @@
-package com.hiveapp.platform.registry.dto;
+package com.hiveapp.platform.registry.dto.picker;
+
+import com.hiveapp.platform.registry.dto.admin.PermissionCatalogAudience;
 
 import java.util.List;
 

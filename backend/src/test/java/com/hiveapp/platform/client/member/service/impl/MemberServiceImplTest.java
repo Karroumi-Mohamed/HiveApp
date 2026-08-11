@@ -18,6 +18,8 @@ import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.dto.InitialRoleAssignmentRequest;
+import com.hiveapp.platform.client.member.dto.MemberDto;
+import com.hiveapp.platform.client.member.mapper.MemberMapper;
 import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.client.role.domain.entity.Role;
@@ -78,6 +80,7 @@ class MemberServiceImplTest {
     @Mock private PlanEntitlementService planEntitlementService;
     @Mock private DelegationCeilingService delegationCeilingService;
     @Mock private EmailDeliveryTracker emailDeliveryTracker;
+    @Mock private MemberMapper memberMapper;
 
     @InjectMocks
     private MemberServiceImpl memberService;
@@ -445,6 +448,60 @@ class MemberServiceImplTest {
         assertThat(saved.getValue().getScope()).isEqualTo(PermissionOverrideScope.ACCOUNT);
         assertThat(saved.getValue().getScopeCompany()).isNull();
         assertThat(saved.getValue().getExpiresAt()).isEqualTo(expiry);
+    }
+
+    @Test
+    void authorizationDetailReturnsScopedRolesAndOverridesWithSafeIdentity() {
+        UUID accountId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID roleId = UUID.randomUUID();
+        UUID companyId = UUID.randomUUID();
+        setContext(accountId);
+        Account account = account(accountId);
+        Member target = member(memberId, account, user(UUID.randomUUID()), false);
+        Role role = role(roleId, account, true);
+        Company company = company(companyId, account, true);
+        MemberRole assignment = new MemberRole();
+        ReflectionTestUtils.setField(assignment, "id", UUID.randomUUID());
+        assignment.setMember(target);
+        assignment.setRole(role);
+        assignment.setEffectScope(RoleAssignmentScope.COMPANY);
+        assignment.setScopeCompany(company);
+        Permission permission = permission(UUID.randomUUID(), "platform.company.delete");
+        MemberPermissionOverride override = new MemberPermissionOverride();
+        ReflectionTestUtils.setField(override, "id", UUID.randomUUID());
+        override.setMember(target);
+        override.setCreatedBy(target);
+        override.setPermission(permission);
+        override.setScope(PermissionOverrideScope.ACCOUNT);
+        override.setDecision(PermissionOverrideDecision.DENY);
+        override.setReason("Temporary restriction");
+        MemberDto summary = new MemberDto(
+                memberId, target.getUser().getId(), target.getUser().getUsername(),
+                target.getUser().getEmail(), "Nora", null, false, true,
+                target.getUser().getCredentialState(), false, false);
+        when(memberRepository.findByIdAndAccountId(memberId, accountId))
+                .thenReturn(Optional.of(target));
+        when(memberRoleRepository.findAllForAuthorizationByMemberId(memberId))
+                .thenReturn(List.of(assignment));
+        when(memberOverrideRepository.findAllForAuthorizationByMemberId(memberId))
+                .thenReturn(List.of(override));
+        when(memberMapper.toDto(target)).thenReturn(summary);
+
+        var result = memberService.getMemberAuthorization(memberId);
+
+        assertThat(result.member()).isEqualTo(summary);
+        assertThat(result.roles()).singleElement().satisfies(item -> {
+            assertThat(item.roleId()).isEqualTo(roleId);
+            assertThat(item.scope()).isEqualTo(RoleAssignmentScope.COMPANY);
+            assertThat(item.companyId()).isEqualTo(companyId);
+            assertThat(item.roleStatus()).isEqualTo(RoleStatus.ACTIVE);
+        });
+        assertThat(result.overrides()).singleElement().satisfies(item -> {
+            assertThat(item.permissionCode()).isEqualTo(permission.getCode());
+            assertThat(item.decision()).isEqualTo(PermissionOverrideDecision.DENY);
+            assertThat(item.scope()).isEqualTo(PermissionOverrideScope.ACCOUNT);
+        });
     }
 
     private static void setContext(UUID accountId) {

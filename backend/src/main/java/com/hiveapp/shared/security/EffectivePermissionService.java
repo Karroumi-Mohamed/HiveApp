@@ -49,7 +49,7 @@ public class EffectivePermissionService {
                     .filter(p -> planEntitlementService.isPermissionEntitled(accountId, p.getCode()))
                     .map(p -> p.getCode())
                     .collect(Collectors.toSet());
-            return new MemberPermissionDto(member.getId(), true, all);
+            return new MemberPermissionDto(member.getId(), accountId, targetCompanyId, true, all);
         }
 
         Set<String> permissions = new HashSet<>();
@@ -87,6 +87,6 @@ public class EffectivePermissionService {
         permissions.removeIf(permissionCode -> !planEntitlementService.isPermissionEntitled(accountId, permissionCode));
         permissions.removeIf(permissionCode -> !permissionGrantValidator
                 .isClientRoleRuntimeEligible(permissionCode));
-        return new MemberPermissionDto(member.getId(), false, permissions);
+        return new MemberPermissionDto(member.getId(), accountId, targetCompanyId, false, permissions);
     }
 }

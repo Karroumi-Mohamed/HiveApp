@@ -1,6 +1,6 @@
 package com.hiveapp.platform.registry.api;
 
-import com.hiveapp.platform.registry.dto.PublicFeatureCatalogModuleDto;
+import com.hiveapp.platform.registry.dto.publicapi.PublicFeatureCatalogModuleDto;
 import com.hiveapp.platform.registry.service.PublicFeatureCatalogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;

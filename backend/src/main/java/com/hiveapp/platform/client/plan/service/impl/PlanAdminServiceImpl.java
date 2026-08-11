@@ -318,8 +318,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         var plan = planRepository.findById(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         requireMutable(plan);
+        var quotaEntries = request.quotaEntries();
         var feature = billingConfigurationValidator.validatePlanFeature(
-                request.featureCode(), request.mode(), request.quotaConfigs(), plan.getCurrencyCode());
+                request.featureCode(), request.mode(), quotaEntries, plan.getCurrencyCode());
 
         planFeatureRepository.findByPlanIdAndFeature_Code(planId, request.featureCode())
                 .ifPresent(existing -> {
@@ -330,7 +331,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         pf.setPlan(plan);
         pf.setFeature(feature);
         pf.setMode(request.mode());
-        pf.setQuotaConfigs(request.quotaConfigs() != null ? request.quotaConfigs() : new ArrayList<>());
+        pf.setQuotaConfigs(new ArrayList<>(quotaEntries));
         try {
             return planFeatureRepository.saveAndFlush(pf);
         } catch (DataIntegrityViolationException exception) {
@@ -351,10 +352,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new InvalidRequestException("A plan feature update cannot change its feature code.");
         }
         requireMutable(pf.getPlan());
+        var quotaEntries = request.quotaEntries();
         billingConfigurationValidator.validatePlanFeature(
-                request.featureCode(), request.mode(), request.quotaConfigs(), pf.getPlan().getCurrencyCode());
+                request.featureCode(), request.mode(), quotaEntries, pf.getPlan().getCurrencyCode());
         pf.setMode(request.mode());
-        pf.setQuotaConfigs(request.quotaConfigs() != null ? request.quotaConfigs() : new ArrayList<>());
+        pf.setQuotaConfigs(new ArrayList<>(quotaEntries));
         return planFeatureRepository.save(pf);
     }
 
@@ -475,15 +477,16 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "assign_add_on_feature", description = "Assign a feature to an AddOn draft")
     public AddOnFeature assignAddOnFeature(UUID addOnId, AssignAddOnFeatureRequest request) {
         AddOn addOn = requireEditableAddOn(addOnId);
+        var quotaEntries = request.quotaEntries();
         var feature = billingConfigurationValidator.validateAddOnFeature(
-                request.featureCode(), request.quotaConfigs(), addOn.getCurrencyCode());
+                request.featureCode(), quotaEntries, addOn.getCurrencyCode());
         if (addOnFeatureRepository.findByAddOnIdAndFeature_Code(addOnId, request.featureCode()).isPresent()) {
             throw new DuplicateResourceException("AddOnFeature", "featureCode", request.featureCode());
         }
         AddOnFeature item = new AddOnFeature();
         item.setAddOn(addOn);
         item.setFeature(feature);
-        item.setQuotaConfigs(request.quotaConfigs() != null ? request.quotaConfigs() : new ArrayList<>());
+        item.setQuotaConfigs(new ArrayList<>(quotaEntries));
         addOn.touchDefinition();
         try {
             return addOnFeatureRepository.saveAndFlush(item);
@@ -502,9 +505,10 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (!item.getFeature().getCode().equals(request.featureCode())) {
             throw new InvalidRequestException("An AddOn feature update cannot change its feature code.");
         }
+        var quotaEntries = request.quotaEntries();
         billingConfigurationValidator.validateAddOnFeature(
-                request.featureCode(), request.quotaConfigs(), addOn.getCurrencyCode());
-        item.setQuotaConfigs(request.quotaConfigs() != null ? request.quotaConfigs() : new ArrayList<>());
+                request.featureCode(), quotaEntries, addOn.getCurrencyCode());
+        item.setQuotaConfigs(new ArrayList<>(quotaEntries));
         addOn.touchDefinition();
         return addOnFeatureRepository.save(item);
     }

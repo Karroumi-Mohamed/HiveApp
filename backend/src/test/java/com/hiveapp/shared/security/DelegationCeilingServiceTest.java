@@ -41,7 +41,8 @@ class DelegationCeilingServiceTest {
         HiveAppContextHolder.setContext(new HiveAppPermissionContext(
                 actorId, accountId, accountId, null, null, false));
         when(effectivePermissionService.getEffectivePermissions(actorId, accountId, companyId))
-                .thenReturn(new MemberPermissionDto(UUID.randomUUID(), false, Set.of(permission)));
+                .thenReturn(new MemberPermissionDto(
+                        UUID.randomUUID(), accountId, companyId, false, Set.of(permission)));
 
         assertThatCode(() -> service.requireActorCanDelegate(
                 accountId, companyId, List.of(permission))).doesNotThrowAnyException();
@@ -55,7 +56,8 @@ class DelegationCeilingServiceTest {
         HiveAppContextHolder.setContext(new HiveAppPermissionContext(
                 actorId, accountId, accountId, null, null, false));
         when(effectivePermissionService.getEffectivePermissions(actorId, accountId, companyId))
-                .thenReturn(new MemberPermissionDto(UUID.randomUUID(), false, Set.of()));
+                .thenReturn(new MemberPermissionDto(
+                        UUID.randomUUID(), accountId, companyId, false, Set.of()));
 
         assertThatThrownBy(() -> service.requireActorCanDelegate(
                 accountId, companyId, List.of("platform.company.delete")))

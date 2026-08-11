@@ -1,4 +1,4 @@
-package com.hiveapp.platform.registry.dto;
+package com.hiveapp.platform.registry.dto.admin;
 
 public enum PermissionCatalogAudience {
     ALL,

@@ -8,6 +8,7 @@ import com.hiveapp.platform.client.member.dto.MemberAccessStatusResponse;
 import com.hiveapp.platform.client.member.dto.AssignRoleRequest;
 import com.hiveapp.platform.client.member.dto.MemberDto;
 import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
+import com.hiveapp.platform.client.member.dto.MemberAuthorizationDto;
 import com.hiveapp.platform.client.member.dto.OverridePermissionRequest;
 import com.hiveapp.platform.client.member.dto.UpdateMemberRequest;
 import com.hiveapp.platform.client.member.mapper.MemberMapper;
@@ -81,6 +82,11 @@ public class MemberController {
     @GetMapping("/{id}/access")
     public MemberAccessStatusResponse getAccessStatus(@PathVariable UUID id) {
         return memberService.getAccessStatus(id);
+    }
+
+    @GetMapping("/{id}/authorization")
+    public MemberAuthorizationDto getAuthorization(@PathVariable UUID id) {
+        return memberService.getMemberAuthorization(id);
     }
 
     @PostMapping("/{id}/access/unlock")

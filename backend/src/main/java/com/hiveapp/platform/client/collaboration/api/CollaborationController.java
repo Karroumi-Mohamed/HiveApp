@@ -10,7 +10,7 @@ import com.hiveapp.platform.client.collaboration.dto.CompanyShareResolutionDto;
 import com.hiveapp.platform.client.collaboration.dto.InitiateCollaborationRequest;
 import com.hiveapp.platform.client.collaboration.dto.ShareCodeRequest;
 import com.hiveapp.platform.client.collaboration.service.CollaborationService;
-import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
+import com.hiveapp.platform.registry.dto.picker.PermissionPickerCatalogDto;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

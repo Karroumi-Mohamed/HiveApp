@@ -495,3 +495,13 @@ Credential changes and email transport have separate transaction meanings. The c
 Delivery history stores Account and recipient User identity, recipient address, credential purpose, status, timestamps, aggregateable attempts, and a bounded failure code. It never stores the raw token, action URL, message body, provider exception text, or any reusable credential. The original SMTP exception and stack trace are written once to access-controlled operational ERROR logs so transport failures remain diagnosable; they are never copied into `EmailDelivery` or `AuditLog`. Production has no logging fallback, and an explicit validator rejects missing or blank `spring.mail.host` before the credential listener is wired. The development fallback reports suppression explicitly.
 
 Manager recovery reuses the existing Permissionizer-protected regenerate/reset operations. Recovery rotates the credential token, creates a new delivery record, and keeps prior failures as history. Member creation and recovery responses include the resulting delivery summary; `platform.staff.read_access` protects the Account-scoped later status read. Automatic retries are not part of this model because HiveApp does not persist the secret-bearing message needed to replay a send. A future encrypted/provider-backed outbox requires its own retention, key-management, retry, and duplicate-delivery policy.
+
+## 26. Stable Management API Contracts
+
+API request models carry structural validation close to the HTTP boundary. Domain values still enforce their own invariants, but persistence/domain records are not reused as permissive request bodies. Nested quota requests are validated before conversion to `QuotaLimitEntry`; monetary inputs are non-negative and match the persisted four-decimal scale.
+
+Management list endpoints return HiveApp's `PageResponse` rather than Spring Data's internal `Page` JSON. Admin user and role pages are bounded to at most 100 rows. Each page is assembled transactionally from one entity page plus one bulk relationship load, so adding rows does not reintroduce controller-side query-per-row mapping.
+
+Read models are audience-specific. Registry DTOs are separated into platform-operator admin inventory/control, entitlement-aware permission pickers, and anonymous public catalog contracts. Client catalog quota identity is canonical inside `QuotaSlot`; duplicate resource/unit fields are not exposed.
+
+Effective-permission responses identify their Account and selected Company context. Member lists remain summaries, while `GET /api/v1/members/{id}/authorization` is the explicit access-management detail containing scoped role assignments and direct permission overrides. Neither response should be cached or reused outside its returned scope.

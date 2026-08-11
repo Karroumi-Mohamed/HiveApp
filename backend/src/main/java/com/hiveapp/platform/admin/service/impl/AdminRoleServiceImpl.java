@@ -6,6 +6,8 @@ import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminRolePermissionRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.admin.service.AdminRoleService;
+import com.hiveapp.platform.admin.dto.AdminPermissionSummaryDto;
+import com.hiveapp.platform.admin.dto.AdminRoleResponseDto;
 import com.hiveapp.platform.registry.definition.AdminRolesFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
@@ -17,9 +19,13 @@ import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -38,45 +44,60 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
     }
 
     @Override
+    @Transactional(readOnly = true)
     @PermissionNode(key = "read_detail", description = "Read an admin role")
-    public AdminRole getAdminRole(UUID id) {
-        return adminRoleRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("AdminRole", "id", id));
+    public AdminRoleResponseDto getAdminRole(UUID id) {
+        AdminRole role = requireAdminRole(id);
+        return toResponse(role, adminRolePermissionRepository
+                .findAllWithPermissionByAdminRoleIdIn(List.of(id)));
     }
 
     @Override
+    @Transactional(readOnly = true)
     @PermissionNode(key = "read", description = "List all admin roles")
-    public List<AdminRole> getAllAdminRoles() {
-        return adminRoleRepository.findAll();
+    public Page<AdminRoleResponseDto> getAdminRoles(Pageable pageable) {
+        Page<AdminRole> roles = adminRoleRepository.findAll(pageable);
+        if (roles.isEmpty()) {
+            return roles.map(role -> toResponse(role, List.of()));
+        }
+        Map<UUID, List<AdminRolePermission>> grants = adminRolePermissionRepository
+                .findAllWithPermissionByAdminRoleIdIn(
+                        roles.stream().map(AdminRole::getId).toList())
+                .stream()
+                .collect(Collectors.groupingBy(grant -> grant.getAdminRole().getId()));
+        return roles.map(role -> toResponse(
+                role, grants.getOrDefault(role.getId(), List.of())));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "create", description = "Create admin role")
-    public AdminRole createAdminRole(String name, String description) {
+    public AdminRoleResponseDto createAdminRole(String name, String description) {
         AdminRole adminRole = new AdminRole();
         adminRole.setName(name);
         adminRole.setDescription(description);
         adminRole.setActive(true);
-        return adminRoleRepository.save(adminRole);
+        return toResponse(adminRoleRepository.save(adminRole), List.of());
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "update", description = "Update admin role metadata")
-    public AdminRole updateAdminRole(UUID id, String name, String description) {
-        var adminRole = getAdminRole(id);
+    public AdminRoleResponseDto updateAdminRole(UUID id, String name, String description) {
+        var adminRole = requireAdminRole(id);
         adminMutationAuthorizer.requireCanManageRole(id, "update");
         adminRole.setName(name);
         adminRole.setDescription(description);
-        return adminRoleRepository.save(adminRole);
+        var saved = adminRoleRepository.save(adminRole);
+        return toResponse(saved, adminRolePermissionRepository
+                .findAllWithPermissionByAdminRoleIdIn(List.of(id)));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "toggle_active", description = "Activate or deactivate admin role")
     public void toggleActive(UUID id) {
-        var adminRole = getAdminRole(id);
+        var adminRole = requireAdminRole(id);
         adminMutationAuthorizer.requireCanManageRole(id, "activate or deactivate");
         adminRole.setActive(!adminRole.isActive());
         adminRoleRepository.save(adminRole);
@@ -90,7 +111,7 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
             throw new DuplicateResourceException("AdminRolePermission", "permissionId", permissionId);
         }
 
-        var adminRole = getAdminRole(adminRoleId);
+        var adminRole = requireAdminRole(adminRoleId);
         var permission = permissionRepository.findById(permissionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "id", permissionId));
         permissionGrantValidator.requirePlatformAdminRoleGrantable(permission.getCode());
@@ -107,11 +128,37 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "revoke_permission", description = "Revoke admin permission from admin role")
     public void revokePermission(UUID adminRoleId, UUID permissionId) {
-        getAdminRole(adminRoleId);
+        requireAdminRole(adminRoleId);
         var permission = permissionRepository.findById(permissionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Permission", "id", permissionId));
         adminMutationAuthorizer.requireCanManageRole(adminRoleId, "modify");
         adminMutationAuthorizer.requireCanManagePermission(permission.getCode(), "revoke");
         adminRolePermissionRepository.deleteByAdminRoleIdAndPermissionId(adminRoleId, permissionId);
+    }
+
+    private AdminRole requireAdminRole(UUID id) {
+        return adminRoleRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("AdminRole", "id", id));
+    }
+
+    private AdminRoleResponseDto toResponse(
+            AdminRole role,
+            List<AdminRolePermission> grants
+    ) {
+        return new AdminRoleResponseDto(
+                role.getId(),
+                role.getName(),
+                role.getDescription(),
+                role.isActive(),
+                grants.stream()
+                        .map(AdminRolePermission::getPermission)
+                        .map(permission -> new AdminPermissionSummaryDto(
+                                permission.getId(),
+                                permission.getCode(),
+                                permission.getName(),
+                                permission.getDescription(),
+                                permission.getAction(),
+                                permission.getResource()))
+                        .toList());
     }
 }

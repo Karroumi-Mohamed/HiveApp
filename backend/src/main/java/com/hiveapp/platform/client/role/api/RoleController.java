@@ -9,7 +9,7 @@ import com.hiveapp.platform.client.role.dto.RoleImpactDto;
 import com.hiveapp.platform.client.role.domain.constant.RoleChangeType;
 import com.hiveapp.platform.client.role.mapper.RoleMapper;
 import com.hiveapp.platform.client.role.service.RoleService;
-import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
+import com.hiveapp.platform.registry.dto.picker.PermissionPickerCatalogDto;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

@@ -61,7 +61,7 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andExpect(jsonPath("$.plans[*].currencyCode", everyItem(org.hamcrest.Matchers.is("USD"))))
                 .andExpect(jsonPath(
                         "$.plans[?(@.code == 'PRO')].features[?(@.featureCode == 'platform.workspace')]"
-                                + ".quotas[?(@.resource == 'members')].mode",
+                                + ".quotas[?(@.slot.resource == 'members')].mode",
                         hasItem("FINITE")))
                 .andExpect(jsonPath("$.plans[0].features[*].featureCode").value(not(containsString("platform.plans"))))
                 .andReturn()

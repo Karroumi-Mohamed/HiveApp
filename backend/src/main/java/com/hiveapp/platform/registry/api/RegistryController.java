@@ -1,13 +1,13 @@
 package com.hiveapp.platform.registry.api;
 
-import com.hiveapp.platform.registry.dto.EmergencyRuntimeUpdateRequest;
-import com.hiveapp.platform.registry.dto.FeatureControlUpdateRequest;
-import com.hiveapp.platform.registry.dto.FeatureOperationalChangeDto;
+import com.hiveapp.platform.registry.dto.admin.EmergencyRuntimeUpdateRequest;
+import com.hiveapp.platform.registry.dto.admin.FeatureControlUpdateRequest;
+import com.hiveapp.platform.registry.dto.admin.FeatureOperationalChangeDto;
 import jakarta.validation.Valid;
-import com.hiveapp.platform.registry.dto.FeatureCatalogAudience;
-import com.hiveapp.platform.registry.dto.PermissionCatalogAudience;
-import com.hiveapp.platform.registry.dto.RegistryModuleReadModelDto;
-import com.hiveapp.platform.registry.dto.RegistrySyncRunDto;
+import com.hiveapp.platform.registry.dto.admin.FeatureCatalogAudience;
+import com.hiveapp.platform.registry.dto.admin.PermissionCatalogAudience;
+import com.hiveapp.platform.registry.dto.admin.RegistryModuleReadModelDto;
+import com.hiveapp.platform.registry.dto.admin.RegistrySyncRunDto;
 import com.hiveapp.platform.registry.service.RegistryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

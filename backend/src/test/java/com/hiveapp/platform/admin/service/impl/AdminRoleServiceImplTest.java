@@ -15,10 +15,14 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -55,6 +59,35 @@ class AdminRoleServiceImplTest {
 
         verify(adminRolePermissionRepository, never())
                 .save(org.mockito.ArgumentMatchers.any(AdminRolePermission.class));
+    }
+
+    @Test
+    void paginatedRoleReadLoadsAllPermissionGrantsInOneBulkQuery() {
+        UUID firstId = UUID.randomUUID();
+        UUID secondId = UUID.randomUUID();
+        AdminRole first = adminRole(firstId);
+        AdminRole second = adminRole(secondId);
+        second.setName("Operations");
+        Permission permission = permission(UUID.randomUUID(), "platform.admin-users.read");
+        AdminRolePermission grant = new AdminRolePermission();
+        grant.setAdminRole(first);
+        grant.setPermission(permission);
+        PageRequest page = PageRequest.of(0, 20);
+        when(adminRoleRepository.findAll(page))
+                .thenReturn(new PageImpl<>(List.of(first, second), page, 2));
+        when(adminRolePermissionRepository.findAllWithPermissionByAdminRoleIdIn(
+                org.mockito.ArgumentMatchers.anyCollection()))
+                .thenReturn(List.of(grant));
+
+        var result = adminRoleService.getAdminRoles(page);
+
+        assertThat(result.getTotalElements()).isEqualTo(2);
+        assertThat(result.getContent()).extracting(dto -> dto.permissions().size())
+                .containsExactly(1, 0);
+        verify(adminRolePermissionRepository)
+                .findAllWithPermissionByAdminRoleIdIn(org.mockito.ArgumentMatchers.anyCollection());
+        verify(adminRolePermissionRepository, never()).findAllByAdminRoleId(firstId);
+        verify(adminRolePermissionRepository, never()).findAllByAdminRoleId(secondId);
     }
 
     private static AdminRole adminRole(UUID id) {

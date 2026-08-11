@@ -1,4 +1,4 @@
-package com.hiveapp.platform.registry.dto;
+package com.hiveapp.platform.registry.dto.admin;
 
 import com.hiveapp.platform.registry.definition.FeatureSurface;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;

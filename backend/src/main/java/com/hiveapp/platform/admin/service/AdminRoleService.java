@@ -1,15 +1,16 @@
 package com.hiveapp.platform.admin.service;
 
-import com.hiveapp.platform.admin.domain.entity.AdminRole;
+import com.hiveapp.platform.admin.dto.AdminRoleResponseDto;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
-import java.util.List;
 import java.util.UUID;
 
 public interface AdminRoleService {
-    AdminRole getAdminRole(UUID id);
-    List<AdminRole> getAllAdminRoles();
-    AdminRole createAdminRole(String name, String description);
-    AdminRole updateAdminRole(UUID id, String name, String description);
+    AdminRoleResponseDto getAdminRole(UUID id);
+    Page<AdminRoleResponseDto> getAdminRoles(Pageable pageable);
+    AdminRoleResponseDto createAdminRole(String name, String description);
+    AdminRoleResponseDto updateAdminRole(UUID id, String name, String description);
     void toggleActive(UUID id);
     void grantPermission(UUID adminRoleId, UUID permissionId);
     void revokePermission(UUID adminRoleId, UUID permissionId);

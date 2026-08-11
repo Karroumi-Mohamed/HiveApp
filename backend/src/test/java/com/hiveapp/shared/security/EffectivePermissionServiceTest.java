@@ -132,7 +132,11 @@ class EffectivePermissionServiceTest {
 
         assertThat(companyAccess.permissions())
                 .containsExactlyInAnyOrder(accountPermission.getCode(), firstPermission.getCode());
+        assertThat(companyAccess.accountId()).isEqualTo(accountId);
+        assertThat(companyAccess.companyId()).isEqualTo(firstCompanyId);
         assertThat(accountAccess.permissions()).containsExactly(accountPermission.getCode());
+        assertThat(accountAccess.accountId()).isEqualTo(accountId);
+        assertThat(accountAccess.companyId()).isNull();
     }
 
     @Test

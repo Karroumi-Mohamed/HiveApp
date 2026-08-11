@@ -1,10 +1,10 @@
 package com.hiveapp.platform.registry.service;
 
-import com.hiveapp.platform.registry.dto.FeatureCatalogAudience;
-import com.hiveapp.platform.registry.dto.PermissionCatalogAudience;
-import com.hiveapp.platform.registry.dto.RegistryModuleReadModelDto;
-import com.hiveapp.platform.registry.dto.RegistrySyncRunDto;
-import com.hiveapp.platform.registry.dto.FeatureOperationalChangeDto;
+import com.hiveapp.platform.registry.dto.admin.FeatureCatalogAudience;
+import com.hiveapp.platform.registry.dto.admin.PermissionCatalogAudience;
+import com.hiveapp.platform.registry.dto.admin.RegistryModuleReadModelDto;
+import com.hiveapp.platform.registry.dto.admin.RegistrySyncRunDto;
+import com.hiveapp.platform.registry.dto.admin.FeatureOperationalChangeDto;
 import java.util.List;
 import java.util.UUID;
 

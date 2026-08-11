@@ -21,6 +21,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
 
     @Test
+    void authorizationDetailUsesAnExplicitMemberRolesAndOverridesShape() throws Exception {
+        String token = registerClientAndGetToken();
+        UUID memberId = currentMemberId(token);
+
+        mockMvc.perform(get("/api/v1/members/{id}/authorization", memberId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.member.id").value(memberId.toString()))
+                .andExpect(jsonPath("$.roles").isArray())
+                .andExpect(jsonPath("$.overrides").isArray());
+    }
+
+    @Test
     void memberListOnlyReturnsCurrentWorkspaceMembers() throws Exception {
         String ownerToken = registerClientAndGetToken();
         String otherToken = registerClientAndGetToken();
@@ -67,6 +80,17 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
         UUID ownerMemberId = currentMemberId(ownerToken);
 
         mockMvc.perform(get("/api/v1/members/{id}/access", ownerMemberId)
+                        .header("Authorization", bearer(otherToken)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void clientCannotReadAuthorizationDetailFromAnotherWorkspace() throws Exception {
+        String ownerToken = registerClientAndGetToken();
+        String otherToken = registerClientAndGetToken();
+        UUID ownerMemberId = currentMemberId(ownerToken);
+
+        mockMvc.perform(get("/api/v1/members/{id}/authorization", ownerMemberId)
                         .header("Authorization", bearer(otherToken)))
                 .andExpect(status().isNotFound());
     }

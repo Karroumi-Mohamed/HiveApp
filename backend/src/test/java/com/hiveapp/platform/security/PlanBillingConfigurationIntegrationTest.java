@@ -16,10 +16,10 @@ import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
+import com.hiveapp.platform.client.plan.dto.QuotaLimitRequest;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
-import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -104,7 +104,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
         assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                         "platform.workspace", PlanFeatureMode.INCLUDED,
-                        List.of(new QuotaLimitEntry("projects", 5L))))
+                        List.of(new QuotaLimitRequest("projects", null, 5L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Quota resource projects is not declared for feature platform.workspace."));
@@ -113,15 +113,15 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         "platform.workspace",
                         PlanFeatureMode.INCLUDED,
                         List.of(
-                                new QuotaLimitEntry("members", 3L),
-                                new QuotaLimitEntry("members", 4L))))
+                                new QuotaLimitRequest("members", null, 3L),
+                                new QuotaLimitRequest("members", null, 4L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Duplicate quota configuration for platform.workspace.members."));
 
         assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                         "platform.company", PlanFeatureMode.OPTIONAL_ADD_ON,
-                        List.of(new QuotaLimitEntry("not-allowed", 1L))))
+                        List.of(new QuotaLimitRequest("not-allowed", null, 1L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(
                         "Only included Plan features may define base quota limits."));
@@ -144,7 +144,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
         updatePlanFeature(adminToken, draftPlanId, workspacePlanFeatureId, new AssignPlanFeatureRequest(
                         "platform.workspace", PlanFeatureMode.INCLUDED,
-                        List.of(new QuotaLimitEntry("projects", 5L))))
+                        List.of(new QuotaLimitRequest("projects", null, 5L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Quota resource projects is not declared for feature platform.workspace."));

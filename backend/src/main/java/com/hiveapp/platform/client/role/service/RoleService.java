@@ -1,7 +1,7 @@
 package com.hiveapp.platform.client.role.service;
 
 import com.hiveapp.platform.client.role.domain.entity.Role;
-import com.hiveapp.platform.registry.dto.PermissionPickerCatalogDto;
+import com.hiveapp.platform.registry.dto.picker.PermissionPickerCatalogDto;
 import com.hiveapp.platform.client.role.domain.constant.RoleChangeType;
 import com.hiveapp.platform.client.role.dto.RoleImpactDto;
 import com.hiveapp.platform.client.role.domain.constant.RoleTemplateBoundary;

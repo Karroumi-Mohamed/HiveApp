@@ -16,6 +16,9 @@ import com.hiveapp.platform.client.member.dto.InitialRoleAssignmentRequest;
 import com.hiveapp.platform.client.member.dto.MemberAccessResult;
 import com.hiveapp.platform.client.member.dto.MemberAccessStatusResponse;
 import com.hiveapp.platform.client.member.dto.MemberCreationResult;
+import com.hiveapp.platform.client.member.dto.MemberAuthorizationDto;
+import com.hiveapp.platform.client.member.dto.MemberRoleAssignmentDto;
+import com.hiveapp.platform.client.member.mapper.MemberMapper;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
@@ -50,6 +53,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.time.Instant;
+import java.util.Comparator;
 
 @Service
 @RequiredArgsConstructor
@@ -70,6 +74,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     private final PlanEntitlementService planEntitlementService;
     private final DelegationCeilingService delegationCeilingService;
     private final EmailDeliveryTracker emailDeliveryTracker;
+    private final MemberMapper memberMapper;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -238,6 +243,42 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         return new MemberAccessStatusResponse(
                 member.getId(), method, user.getCredentialState(),
                 user.getCredentialTokenExpiresAt(), delivery);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_authorization", description = "View member roles and permission overrides")
+    public MemberAuthorizationDto getMemberAuthorization(UUID memberId) {
+        Member member = getMember(memberId);
+        requireCurrentAccount(member);
+        List<MemberRoleAssignmentDto> roles = memberRoleRepository
+                .findAllForAuthorizationByMemberId(memberId)
+                .stream()
+                .sorted(Comparator
+                        .comparing((MemberRole assignment) -> assignment.getRole().getName())
+                        .thenComparing(MemberRole::getId))
+                .map(assignment -> new MemberRoleAssignmentDto(
+                        assignment.getId(),
+                        assignment.getRole().getId(),
+                        assignment.getRole().getName(),
+                        assignment.getRole().getStatus(),
+                        assignment.getEffectScope(),
+                        assignment.getScopeCompany() == null
+                                ? null : assignment.getScopeCompany().getId(),
+                        assignment.getScopeCompany() == null
+                                ? null : assignment.getScopeCompany().getName()))
+                .toList();
+        Instant now = Instant.now();
+        List<MemberPermissionOverrideDto> overrides = memberOverrideRepository
+                .findAllForAuthorizationByMemberId(memberId)
+                .stream()
+                .sorted(Comparator
+                        .comparing((MemberPermissionOverride override) ->
+                                override.getPermission().getCode())
+                        .thenComparing(MemberPermissionOverride::getId))
+                .map(override -> toOverrideDto(override, now))
+                .toList();
+        return new MemberAuthorizationDto(memberMapper.toDto(member), roles, overrides);
     }
 
     @Override
@@ -431,20 +472,27 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         Instant now = Instant.now();
         return exceptions
                 .stream()
-                .map(override -> new MemberPermissionOverrideDto(
-                        override.getId(),
-                        override.getMember().getId(),
-                        override.getScope(),
-                        override.getScopeCompany() == null ? null : override.getScopeCompany().getId(),
-                        override.getPermission().getCode(),
-                        override.getDecision(),
-                        override.getReason(),
-                        override.getCreatedBy().getId(),
-                        override.getExpiresAt(),
-                        override.isEffectiveAt(now),
-                        override.getCreatedAt(),
-                        override.getUpdatedAt()))
+                .map(override -> toOverrideDto(override, now))
                 .toList();
+    }
+
+    private MemberPermissionOverrideDto toOverrideDto(
+            MemberPermissionOverride override,
+            Instant now
+    ) {
+        return new MemberPermissionOverrideDto(
+                override.getId(),
+                override.getMember().getId(),
+                override.getScope(),
+                override.getScopeCompany() == null ? null : override.getScopeCompany().getId(),
+                override.getPermission().getCode(),
+                override.getDecision(),
+                override.getReason(),
+                override.getCreatedBy().getId(),
+                override.getExpiresAt(),
+                override.isEffectiveAt(now),
+                override.getCreatedAt(),
+                override.getUpdatedAt());
     }
 
     private com.hiveapp.platform.client.account.domain.entity.Company resolveExceptionCompany(

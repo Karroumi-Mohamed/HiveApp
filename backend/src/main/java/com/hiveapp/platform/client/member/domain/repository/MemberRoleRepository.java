@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.member.domain.repository;
 
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -11,6 +12,10 @@ import java.util.List;
 
 public interface MemberRoleRepository extends JpaRepository<MemberRole, UUID> {
     List<MemberRole> findAllByMemberId(UUID memberId);
+
+    @EntityGraph(attributePaths = {"role", "scopeCompany"})
+    @Query("SELECT assignment FROM MemberRole assignment WHERE assignment.member.id = :memberId")
+    List<MemberRole> findAllForAuthorizationByMemberId(@Param("memberId") UUID memberId);
     List<MemberRole> findAllByScopeCompanyId(UUID companyId);
     List<MemberRole> findAllByRoleId(UUID roleId);
 

@@ -28,7 +28,7 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 
 | # | Story | Endpoint | Permission |
 |---|-------|----------|------------|
-| U-01 | As an admin, I can list all platform admin users with their email, roles, and active status | `GET /api/admin/users` | `platform.admin_users.read` |
+| U-01 | As an admin, I can page through platform admin users with their email, roles, and active status | `GET /api/admin/users?page=0&size=20` | `platform.admin_users.read` |
 | U-02 | As an admin, I can view a single admin user's full details including their assigned roles | `GET /api/admin/users/:id` | `platform.admin_users.read_detail` |
 | U-03 | As a SuperAdmin, I can promote an existing platform user to admin, optionally granting SuperAdmin status | `POST /api/admin/users` | `platform.admin_users.create` |
 | U-04 | As an admin, I can toggle another admin user's active status (activate or deactivate) | `POST /api/admin/users/:id/toggle-active` | `platform.admin_users.toggle_active` |
@@ -40,6 +40,7 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 - SuperAdmin status can only be granted at creation time (no promotion endpoint)
 - Assigning an inactive role is rejected. A role must be active before it can be newly assigned to an admin user.
 - A non-SuperAdmin can assign only roles whose permissions are already within their own active-role permission ceiling.
+- Admin user lists use the stable `PageResponse` contract; `size` defaults to 20 and is bounded to 100.
 
 ---
 
@@ -49,7 +50,7 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 
 | # | Story | Endpoint | Permission |
 |---|-------|----------|------------|
-| R-01 | As an admin, I can list all admin roles with their name, description, permission count, and active status | `GET /api/admin/roles` | `platform.roles.read` |
+| R-01 | As an admin, I can page through admin roles with their name, description, permissions, and active status | `GET /api/admin/roles?page=0&size=20` | `platform.roles.read` |
 | R-02 | As an admin, I can view a single admin role's full permission matrix | `GET /api/admin/roles/:id` | `platform.roles.read_detail` |
 | R-03 | As an admin, I can create a new admin role with a name and description | `POST /api/admin/roles` | `platform.roles.create` |
 | R-04 | As an admin, I can update an admin role's name or description | `PUT /api/admin/roles/:id` | `platform.roles.update` |
@@ -62,6 +63,7 @@ All stories are scoped to the **Admin Panel** (`/admin`). Every protected story 
 - Deactivating a role immediately removes its effect on all users who hold it — no permission is granted from an inactive role
 - Admin role grants are validated by feature surface: only permissions owned by `PLATFORM_CONTROL` features may be granted to platform admin roles.
 - A non-SuperAdmin cannot grant a permission they do not already hold through their own active admin roles. SuperAdmin bypass remains the only exception.
+- Admin role lists use the same stable bounded `PageResponse` contract as admin users.
 
 ---
 

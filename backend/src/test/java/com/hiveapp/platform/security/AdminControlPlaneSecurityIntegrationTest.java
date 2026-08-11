@@ -9,6 +9,8 @@ import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
 import com.hiveapp.platform.admin.dto.GrantAdminPermissionRequest;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.util.UUID;
+import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.everyItem;
@@ -36,6 +39,52 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
     @Autowired
     private FeatureRepository featureRepository;
+
+    @Test
+    void adminUsersAndRolesExposeBoundedStablePages() throws Exception {
+        String token = loginAdminAndGetToken();
+
+        mockMvc.perform(get("/api/admin/users")
+                        .param("page", "0")
+                        .param("size", "1")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.totalElements").isNumber());
+
+        mockMvc.perform(get("/api/admin/roles")
+                        .param("page", "0")
+                        .param("size", "1")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(1));
+    }
+
+    @Test
+    void invalidCommercialPayloadReturnsStructuredValidationDetails() throws Exception {
+        String token = loginAdminAndGetToken();
+        CreatePlanRequest request = new CreatePlanRequest(
+                "INVALID_NEGATIVE",
+                "Invalid",
+                null,
+                new BigDecimal("-0.01"),
+                "USD",
+                BillingCycle.MONTHLY);
+
+        mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error").value("Validation Failed"))
+                .andExpect(jsonPath("$.details[0]").value(
+                        org.hamcrest.Matchers.containsString("price")));
+    }
 
     @Test
     void nonSuperAdminCannotReadUngrantedControlPlaneResources() throws Exception {

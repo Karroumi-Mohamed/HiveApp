@@ -23,13 +23,13 @@ The public feature catalog is available before workspace authorization at `GET /
 | AUTH-01 | As a new user, I can register with email, password, first name, and last name. The system auto-creates my workspace and assigns me a FREE subscription | `POST /api/v1/auth/register` | — (public) |
 | AUTH-02 | As a registered user, I can log in with email and password and receive a CLIENT JWT scoped to my workspace | `POST /api/v1/auth/login` | — (public) |
 | AUTH-03 | As a logged-in user, I can refresh my access token using my refresh token without re-entering credentials | `POST /api/v1/auth/refresh` | — (public) |
-| AUTH-04 | As a user, I can fetch my flat permission list so the UI can render permission-aware screens | `GET /api/v1/me/permissions` | CLIENT JWT |
+| AUTH-04 | As a user, I can fetch my permission list with its explicit Account and selected Company context so the UI can render permission-aware screens | `GET /api/v1/me/permissions` | CLIENT JWT |
 
 **Constraints:**
 - Registration auto-provisions: User + Account (workspace) + Member (owner) + Subscription (FREE plan)
 - Login checks `user.isActive` and `member.isActive` — inactive accounts are rejected
 - Refresh tokens are long-lived; access tokens are short-lived
-- `GET /api/v1/me/permissions` returns all permissions granted to the current member in their current workspace context (role union + overrides applied)
+- `GET /api/v1/me/permissions` returns permissions granted to the current member for the response's explicit Account/Company context (role union + overrides applied)
 
 ---
 
@@ -72,7 +72,7 @@ HiveApp has no invitation subsystem. An owner or authorized manager creates the 
 
 | # | Story | Endpoint | Permission |
 |---|-------|----------|------------|
-| STF-01 | As an owner or authorized member, I can list all members of my workspace with their display name, email, roles, and active status | `GET /api/v1/members` | `platform.staff.read` |
+| STF-01 | As an owner or authorized member, I can list member identity, ownership, credential, and active-state summaries for my workspace | `GET /api/v1/members` | `platform.staff.read` |
 | STF-02 | As an owner or authorized member, I can directly create an employer-managed User and Member with initial roles | `POST /api/v1/members` | `platform.staff.create` |
 | STF-03 | As an owner or authorized member, I can update a member's display name | `PATCH /api/v1/members/:id` | `platform.staff.update` |
 | STF-04 | As an owner or authorized member, I can deactivate a member, revoking their workspace access | `DELETE /api/v1/members/:id` | `platform.staff.delete` |
@@ -84,6 +84,7 @@ HiveApp has no invitation subsystem. An owner or authorized manager creates the 
 | STF-10 | As an owner or authorized member, I can regenerate an unactivated member's access with a new one-time credential | `POST /api/v1/members/:id/access/regenerate` | `platform.staff.regenerate_access` |
 | STF-11 | As an owner or authorized member, I can reset an activated member's access or unlock temporary access | `POST /api/v1/members/:id/access/reset` / `unlock` | `platform.staff.reset_access` / `unlock_access` |
 | STF-12 | As an owner or authorized member, I can inspect credential state and safe email-delivery status/attempt counts | `GET /api/v1/members/:id/access` | `platform.staff.read_access` |
+| STF-13 | As an owner or authorized member, I can inspect one member's scoped role assignments and direct permission overrides in one management read model | `GET /api/v1/members/:id/authorization` | `platform.staff.read_authorization` |
 
 **Constraints:**
 - `STF-02` creates both identity and membership atomically; members do not self-enroll and no invitation is created.
@@ -276,6 +277,7 @@ POST   /api/v1/members
 PATCH  /api/v1/members/:id
 DELETE /api/v1/members/:id
 GET    /api/v1/members/:id/access
+GET    /api/v1/members/:id/authorization
 POST   /api/v1/members/:id/access/regenerate
 POST   /api/v1/members/:id/access/reset
 POST   /api/v1/members/:id/access/unlock

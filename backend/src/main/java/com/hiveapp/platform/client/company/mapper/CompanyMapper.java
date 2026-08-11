@@ -9,6 +9,7 @@ import java.util.List;
 
 @Mapper(componentModel = "spring")
 public interface CompanyMapper {
+    @Mapping(source = "account.id", target = "accountId")
     @Mapping(source = "active", target = "isActive")
     @Mapping(target = "warnings", expression = "java(java.util.List.of())")
     CompanyDto toDto(Company company);
@@ -16,7 +17,7 @@ public interface CompanyMapper {
     default CompanyDto toDto(Company company, List<String> warnings) {
         CompanyDto mapped = toDto(company);
         return new CompanyDto(
-                mapped.id(), mapped.name(), mapped.legalName(), mapped.taxId(), mapped.industry(),
+                mapped.id(), mapped.accountId(), mapped.name(), mapped.legalName(), mapped.taxId(), mapped.industry(),
                 mapped.country(), mapped.address(), mapped.logoUrl(), mapped.isActive(),
                 warnings == null ? List.of() : List.copyOf(warnings));
     }

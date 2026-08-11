@@ -8,6 +8,8 @@ import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.admin.service.AdminUserService;
 import com.hiveapp.platform.admin.dto.AdminMeDto;
+import com.hiveapp.platform.admin.dto.AdminRoleSummaryDto;
+import com.hiveapp.platform.admin.dto.AdminUserResponseDto;
 import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.platform.registry.definition.AdminUsersFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
@@ -23,9 +25,12 @@ import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -49,22 +54,35 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     }
 
     @Override
+    @Transactional(readOnly = true)
     @PermissionNode(key = "read_detail", description = "Read an admin user")
-    public AdminUser getAdminUser(UUID id) {
-        return adminUserRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("AdminUser", "id", id));
+    public AdminUserResponseDto getAdminUser(UUID id) {
+        AdminUser admin = requireAdminUser(id);
+        return toResponse(admin, adminUserRoleRepository
+                .findAllWithRoleByAdminUserIdIn(List.of(id)));
     }
 
     @Override
+    @Transactional(readOnly = true)
     @PermissionNode(key = "read", description = "List all admin users")
-    public List<AdminUser> getAllAdminUsers() {
-        return adminUserRepository.findAll();
+    public Page<AdminUserResponseDto> getAdminUsers(Pageable pageable) {
+        Page<AdminUser> admins = adminUserRepository.findPageWithUser(pageable);
+        if (admins.isEmpty()) {
+            return admins.map(admin -> toResponse(admin, List.of()));
+        }
+        Map<UUID, List<AdminUserRole>> assignments = adminUserRoleRepository
+                .findAllWithRoleByAdminUserIdIn(
+                        admins.stream().map(AdminUser::getId).toList())
+                .stream()
+                .collect(Collectors.groupingBy(assignment -> assignment.getAdminUser().getId()));
+        return admins.map(admin -> toResponse(
+                admin, assignments.getOrDefault(admin.getId(), List.of())));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "create", description = "Create admin user")
-    public AdminUser createAdminUser(UUID userId, boolean isSuperAdmin) {
+    public AdminUserResponseDto createAdminUser(UUID userId, boolean isSuperAdmin) {
         if (adminUserRepository.findByUserId(userId).isPresent()) {
             throw new DuplicateResourceException("AdminUser", "userId", userId);
         }
@@ -78,14 +96,14 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
         adminUser.setUser(user);
         adminUser.setSuperAdmin(isSuperAdmin);
         adminUser.setActive(true);
-        return adminUserRepository.save(adminUser);
+        return toResponse(adminUserRepository.save(adminUser), List.of());
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "toggle_active", description = "Activate or deactivate admin user")
     public void toggleActive(UUID id) {
-        var adminUser = getAdminUser(id);
+        var adminUser = requireAdminUser(id);
         adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
         if (adminUser.isActive() && isCurrentActor(adminUser)) {
             throw new InvalidStateException("An administrator cannot deactivate their own account.");
@@ -102,7 +120,7 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
             throw new DuplicateResourceException("AdminUserRole", "adminRoleId", adminRoleId);
         }
 
-        var adminUser = getAdminUser(adminUserId);
+        var adminUser = requireAdminUser(adminUserId);
         var adminRole = adminRoleRepository.findById(adminRoleId)
                 .orElseThrow(() -> new ResourceNotFoundException("AdminRole", "id", adminRoleId));
         if (!adminRole.isActive()) {
@@ -121,7 +139,7 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "remove_role", description = "Remove admin role from admin user")
     public void removeRole(UUID adminUserId, UUID adminRoleId) {
-        var adminUser = getAdminUser(adminUserId);
+        var adminUser = requireAdminUser(adminUserId);
         adminRoleRepository.findById(adminRoleId)
                 .orElseThrow(() -> new ResourceNotFoundException("AdminRole", "id", adminRoleId));
         adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
@@ -170,6 +188,28 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
                 && context.actorUserId() != null
                 && target.getUser() != null
                 && context.actorUserId().equals(target.getUser().getId());
+    }
+
+    private AdminUser requireAdminUser(UUID id) {
+        return adminUserRepository.findWithUserById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("AdminUser", "id", id));
+    }
+
+    private AdminUserResponseDto toResponse(
+            AdminUser admin,
+            List<AdminUserRole> assignments
+    ) {
+        return new AdminUserResponseDto(
+                admin.getId(),
+                admin.getUser().getId(),
+                admin.getUser().getEmail(),
+                admin.isSuperAdmin(),
+                admin.isActive(),
+                assignments.stream()
+                        .map(AdminUserRole::getAdminRole)
+                        .map(role -> new AdminRoleSummaryDto(
+                                role.getId(), role.getName(), role.getDescription(), role.isActive()))
+                        .toList());
     }
 
 }

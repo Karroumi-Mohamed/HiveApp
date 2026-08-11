@@ -394,8 +394,6 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                     QuotaLimitEntry limit = quotasByResource.get(slot.resource());
                     return new ClientPlanCatalogResponse.CatalogQuota(
                             definition.code(),
-                            slot.resource(),
-                            slot.unit(),
                             slot,
                             limit.mode(),
                             limit.limit(),
@@ -424,7 +422,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .map(slot -> {
                     QuotaLimitEntry limit = quotasByResource.get(slot.resource());
                     return new ClientPlanCatalogResponse.CatalogQuota(
-                            definition.code(), slot.resource(), slot.unit(), slot,
+                            definition.code(), slot,
                             limit.mode(), limit.limit(), limit.mode() == QuotaLimitMode.UNLIMITED,
                             usage.get(definition.code() + ":" + slot.resource()));
                 })
