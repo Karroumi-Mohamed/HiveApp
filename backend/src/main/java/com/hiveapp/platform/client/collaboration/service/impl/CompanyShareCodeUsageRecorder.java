@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.collaboration.service.impl;
 
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

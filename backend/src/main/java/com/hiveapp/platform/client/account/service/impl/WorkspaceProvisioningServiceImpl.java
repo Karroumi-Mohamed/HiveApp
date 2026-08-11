@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.account.service.impl;
 
-import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.dto.WorkspaceProvisioningResult;
@@ -35,7 +35,7 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningService {
 
-    private final UserRepository userRepository;
+    private final IdentityService identityService;
     private final AccountRepository accountRepository;
     private final MemberRepository memberRepository;
     private final PlanRepository planRepository;
@@ -49,8 +49,8 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
     @Override
     @Transactional
     public WorkspaceProvisioningResult provision(UUID userId, String email) {
-        var user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+        // Entity door: the managed row is needed to own the Account and Member relationships.
+        var user = identityService.requireManagedUser(userId);
 
         var existingAccount = accountRepository.findByOwner_Id(userId);
         if (existingAccount.isPresent()) {

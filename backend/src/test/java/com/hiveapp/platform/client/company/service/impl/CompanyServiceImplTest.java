@@ -1,9 +1,9 @@
 package com.hiveapp.platform.client.company.service.impl;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.company.dto.CompanyDto;
 import com.hiveapp.platform.client.company.mapper.CompanyMapper;
 import com.hiveapp.platform.client.company.mapper.CompanyMapperImpl;

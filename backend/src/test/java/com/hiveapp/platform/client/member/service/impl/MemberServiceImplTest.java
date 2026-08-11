@@ -1,15 +1,16 @@
 package com.hiveapp.platform.client.member.service.impl;
 
 import com.hiveapp.identity.domain.entity.User;
-import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.service.IdentityService;
+import com.hiveapp.identity.service.NewUserCommand;
 import com.hiveapp.identity.domain.constant.CredentialState;
 import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.identity.service.CredentialAccessMaterial;
 import com.hiveapp.identity.service.MemberCredentialService;
 import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
@@ -71,7 +72,7 @@ class MemberServiceImplTest {
     @Mock private MemberRepository memberRepository;
     @Mock private MemberRoleRepository memberRoleRepository;
     @Mock private MemberPermissionOverrideRepository memberOverrideRepository;
-    @Mock private UserRepository userRepository;
+    @Mock private IdentityService identityService;
     @Mock private AccountRepository accountRepository;
     @Mock private RoleRepository roleRepository;
     @Mock private CompanyRepository companyRepository;
@@ -107,7 +108,8 @@ class MemberServiceImplTest {
                         InitialAccessMethod.TEMPORARY_PASSWORD,
                         CredentialState.TEMPORARY_PASSWORD,
                         "temporary-secret", null, null));
-        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(identityService.createUser(any(NewUserCommand.class)))
+                .thenAnswer(invocation -> userFrom(invocation.getArgument(0)));
         when(memberRepository.saveAndFlush(any(Member.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         var result = memberService.createMember(accountId, createRequest("nora"));
@@ -137,7 +139,7 @@ class MemberServiceImplTest {
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Member does not belong to your account");
 
-        verifyNoInteractions(quotaEnforcer, accountRepository, userRepository);
+        verifyNoInteractions(quotaEnforcer, accountRepository, identityService);
     }
 
     @Test
@@ -145,7 +147,7 @@ class MemberServiceImplTest {
         UUID accountId = UUID.randomUUID();
         setContext(accountId);
         when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account(accountId)));
-        when(userRepository.existsByUsername("nora")).thenReturn(true);
+        when(identityService.usernameExists("nora")).thenReturn(true);
 
         assertThatThrownBy(() -> memberService.createMember(accountId, createRequest("nora")))
                 .isInstanceOf(InvalidStateException.class)
@@ -190,7 +192,8 @@ class MemberServiceImplTest {
                         InitialAccessMethod.TEMPORARY_PASSWORD,
                         CredentialState.TEMPORARY_PASSWORD,
                         "temporary-secret", null, null));
-        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(identityService.createUser(any(NewUserCommand.class)))
+                .thenAnswer(invocation -> userFrom(invocation.getArgument(0)));
         when(memberRepository.saveAndFlush(any(Member.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         memberService.createMember(accountId, new CreateMemberRequest(
@@ -231,7 +234,7 @@ class MemberServiceImplTest {
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("acting member does not hold");
 
-        verify(userRepository, org.mockito.Mockito.never()).saveAndFlush(any(User.class));
+        verify(identityService, org.mockito.Mockito.never()).createUser(any(NewUserCommand.class));
         verify(memberRepository, org.mockito.Mockito.never()).saveAndFlush(any(Member.class));
     }
 
@@ -264,7 +267,6 @@ class MemberServiceImplTest {
 
         assertThat(member.isActive()).isFalse();
         verify(memberCredentialService).invalidatePendingAccess(member.getUser());
-        verify(userRepository).saveAndFlush(member.getUser());
     }
 
     @Test
@@ -592,4 +594,16 @@ class MemberServiceImplTest {
         role.getPermissions().add(rolePermission);
     }
 
+
+    private static User userFrom(NewUserCommand command) {
+        User user = new User();
+        user.setUsername(command.username());
+        user.setEmail(command.email());
+        user.setFirstName(command.firstName());
+        user.setLastName(command.lastName());
+        user.setPhone(command.phone());
+        user.setActive(command.active());
+        user.setEmailVerified(command.emailVerified());
+        return user;
+    }
 }

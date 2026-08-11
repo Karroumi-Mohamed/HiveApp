@@ -1,5 +1,7 @@
-package com.hiveapp.platform.client.account.domain.repository;
-import com.hiveapp.platform.client.account.domain.entity.Company;
+package com.hiveapp.platform.client.company.domain.repository;
+
+import com.hiveapp.platform.client.company.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;

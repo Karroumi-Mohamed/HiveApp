@@ -1,8 +1,6 @@
 package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
-import com.hiveapp.platform.client.plan.domain.entity.AddOn;
-import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.dto.AddOnDto;
 import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
@@ -35,28 +33,28 @@ public class AddOnAdminController {
 
     @GetMapping
     public List<AddOnDto> list() {
-        return planAdminService.listAddOns().stream().map(this::toDto).toList();
+        return planAdminService.listAddOns();
     }
 
     @GetMapping("/{addOnId}")
     public AddOnDto get(@PathVariable UUID addOnId) {
-        return toDto(planAdminService.getAddOn(addOnId));
+        return planAdminService.getAddOn(addOnId);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public AddOnDto create(@Valid @RequestBody CreateAddOnRequest request) {
-        return toDto(planAdminService.createAddOn(request));
+        return planAdminService.createAddOn(request);
     }
 
     @PutMapping("/{addOnId}")
     public AddOnDto update(@PathVariable UUID addOnId, @Valid @RequestBody UpdateAddOnRequest request) {
-        return toDto(planAdminService.updateAddOn(addOnId, request));
+        return planAdminService.updateAddOn(addOnId, request);
     }
 
     @PatchMapping("/{addOnId}/status")
     public AddOnDto transitionStatus(@PathVariable UUID addOnId, @RequestParam AddOnStatus status) {
-        return toDto(planAdminService.transitionAddOnStatus(addOnId, status));
+        return planAdminService.transitionAddOnStatus(addOnId, status);
     }
 
     @DeleteMapping("/{addOnId}")
@@ -69,7 +67,7 @@ public class AddOnAdminController {
     @ResponseStatus(HttpStatus.CREATED)
     public AddOnDto.FeatureItem assignFeature(
             @PathVariable UUID addOnId, @Valid @RequestBody AssignAddOnFeatureRequest request) {
-        return toDto(planAdminService.assignAddOnFeature(addOnId, request));
+        return planAdminService.assignAddOnFeature(addOnId, request);
     }
 
     @PutMapping("/{addOnId}/features/{addOnFeatureId}")
@@ -77,7 +75,7 @@ public class AddOnAdminController {
             @PathVariable UUID addOnId,
             @PathVariable UUID addOnFeatureId,
             @Valid @RequestBody AssignAddOnFeatureRequest request) {
-        return toDto(planAdminService.updateAddOnFeature(addOnId, addOnFeatureId, request));
+        return planAdminService.updateAddOnFeature(addOnId, addOnFeatureId, request);
     }
 
     @DeleteMapping("/{addOnId}/features/{addOnFeatureId}")
@@ -86,17 +84,4 @@ public class AddOnAdminController {
         planAdminService.removeAddOnFeature(addOnId, addOnFeatureId);
     }
 
-    private AddOnDto toDto(AddOn addOn) {
-        return new AddOnDto(
-                addOn.getId(), addOn.getCode(), addOn.getName(), addOn.getDescription(),
-                addOn.getPrice(), addOn.getCurrencyCode(), addOn.getBillingCycle(), addOn.getStatus(),
-                addOn.getDefinitionVersion(), addOn.getAllowedPlanCodes(), addOn.getBlockedPlanCodes(),
-                addOn.getDependencyCodes(), addOn.getExclusionCodes(),
-                addOn.getFeatures().stream().map(this::toDto).toList());
-    }
-
-    private AddOnDto.FeatureItem toDto(AddOnFeature feature) {
-        return new AddOnDto.FeatureItem(
-                feature.getId(), feature.getFeature().getCode(), feature.getQuotaConfigs());
-    }
 }

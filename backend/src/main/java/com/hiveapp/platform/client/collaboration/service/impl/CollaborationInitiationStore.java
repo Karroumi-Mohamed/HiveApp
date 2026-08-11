@@ -1,9 +1,9 @@
 package com.hiveapp.platform.client.collaboration.service.impl;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.collaboration.domain.constant.CollaborationStatus;
 import com.hiveapp.platform.client.collaboration.domain.entity.Collaboration;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationRepository;

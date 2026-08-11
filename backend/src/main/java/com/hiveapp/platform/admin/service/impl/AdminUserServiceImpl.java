@@ -89,8 +89,8 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
         if (isSuperAdmin && !adminMutationAuthorizer.currentActorIsSuperAdmin()) {
             throw new InvalidPermissionGrantException("Only a SuperAdmin can create another SuperAdmin.");
         }
-        var user = identityService.getUserById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+        // Entity door: the managed row is needed to own the AdminUser @OneToOne relationship.
+        var user = identityService.requireManagedUser(userId);
 
         AdminUser adminUser = new AdminUser();
         adminUser.setUser(user);

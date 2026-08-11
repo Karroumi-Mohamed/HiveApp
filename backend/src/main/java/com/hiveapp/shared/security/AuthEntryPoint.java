@@ -2,6 +2,7 @@ package com.hiveapp.shared.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hiveapp.shared.exception.ApiError;
+import com.hiveapp.shared.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -31,7 +32,7 @@ public class AuthEntryPoint implements AuthenticationEntryPoint {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(
                 response.getOutputStream(),
-                ApiError.of(401, "Unauthorized", "Authentication is required to access this resource")
+                ApiError.of(401, ErrorCode.AUTHENTICATION_REQUIRED, "Unauthorized", "Authentication is required to access this resource")
         );
     }
 }

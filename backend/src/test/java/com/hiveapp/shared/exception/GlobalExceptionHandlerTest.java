@@ -18,6 +18,7 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().status()).isEqualTo(400);
+        assertThat(response.getBody().code()).isEqualTo(ErrorCode.INVALID_REQUEST);
         assertThat(response.getBody().error()).isEqualTo("Bad Request");
         assertThat(response.getBody().message()).isEqualTo("Invalid feature code");
         assertThat(response.getBody().timestamp()).isNotNull();
@@ -30,6 +31,7 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().status()).isEqualTo(409);
+        assertThat(response.getBody().code()).isEqualTo(ErrorCode.INVALID_STATE);
         assertThat(response.getBody().error()).isEqualTo("Conflict");
         assertThat(response.getBody().message()).isEqualTo("Credential link is expired");
     }
@@ -41,6 +43,7 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().status()).isEqualTo(403);
+        assertThat(response.getBody().code()).isEqualTo(ErrorCode.PERMISSION_DENIED);
         assertThat(response.getBody().error()).isEqualTo("Forbidden");
         assertThat(response.getBody().message()).isEqualTo("You do not have permission to access this resource");
     }
@@ -53,6 +56,7 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYMENT_REQUIRED);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().status()).isEqualTo(402);
+        assertThat(response.getBody().code()).isEqualTo(ErrorCode.QUOTA_EXCEEDED);
         assertThat(response.getBody().error()).isEqualTo("Quota Exceeded");
         assertThat(response.getBody().details())
                 .containsExactly(
@@ -61,5 +65,31 @@ class GlobalExceptionHandlerTest {
                         "current: 1",
                         "unit: companies"
                 );
+    }
+
+    /**
+     * The point of the code is that one HTTP status distinguishes several situations. If these
+     * ever collapse to the same code, clients lose the ability to tell them apart.
+     */
+    @Test
+    void conflictStatusIsSplitByCodeSoClientsCanTellCasesApart() {
+        var duplicate = handler.handleDuplicate(
+                new DuplicateResourceException("Collaboration", "tuple", "x"));
+        var invalidState = handler.handleInvalidState(new InvalidStateException("Already pending"));
+        var blocked = handler.handleOperationBlocked(
+                new OperationBlockedException("Blocked", java.util.List.of("reason")));
+
+        assertThat(duplicate.getBody().status()).isEqualTo(409);
+        assertThat(invalidState.getBody().status()).isEqualTo(409);
+        assertThat(blocked.getBody().status()).isEqualTo(409);
+
+        assertThat(java.util.Set.of(
+                duplicate.getBody().code(),
+                invalidState.getBody().code(),
+                blocked.getBody().code()))
+                .containsExactlyInAnyOrder(
+                        ErrorCode.RESOURCE_ALREADY_EXISTS,
+                        ErrorCode.INVALID_STATE,
+                        ErrorCode.OPERATION_BLOCKED);
     }
 }

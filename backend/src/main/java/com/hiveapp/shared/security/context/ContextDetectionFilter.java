@@ -2,6 +2,7 @@ package com.hiveapp.shared.security.context;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hiveapp.shared.exception.ApiError;
+import com.hiveapp.shared.exception.ErrorCode;
 import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
@@ -49,19 +50,19 @@ public class ContextDetectionFilter extends OncePerRequestFilter {
         } catch (UnauthorizedException e) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            objectMapper.writeValue(response.getOutputStream(), ApiError.of(401, "Unauthorized", e.getMessage()));
+            objectMapper.writeValue(response.getOutputStream(), ApiError.of(401, ErrorCode.UNAUTHENTICATED, "Unauthorized", e.getMessage()));
         } catch (ForbiddenException e) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            objectMapper.writeValue(response.getOutputStream(), ApiError.of(403, "Forbidden", e.getMessage()));
+            objectMapper.writeValue(response.getOutputStream(), ApiError.of(403, ErrorCode.FORBIDDEN, "Forbidden", e.getMessage()));
         } catch (InvalidRequestException e) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            objectMapper.writeValue(response.getOutputStream(), ApiError.of(400, "Bad Request", e.getMessage()));
+            objectMapper.writeValue(response.getOutputStream(), ApiError.of(400, ErrorCode.INVALID_REQUEST, "Bad Request", e.getMessage()));
         } catch (ResourceNotFoundException e) {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            objectMapper.writeValue(response.getOutputStream(), ApiError.of(404, "Not Found", e.getMessage()));
+            objectMapper.writeValue(response.getOutputStream(), ApiError.of(404, ErrorCode.RESOURCE_NOT_FOUND, "Not Found", e.getMessage()));
         } finally {
             HiveAppContextHolder.clearContext();
         }

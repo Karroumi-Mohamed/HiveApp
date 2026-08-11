@@ -1,4 +1,6 @@
-package com.hiveapp.platform.client.account.domain.entity;
+package com.hiveapp.platform.client.company.domain.entity;
+
+import com.hiveapp.platform.client.account.domain.entity.Account;
 
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;

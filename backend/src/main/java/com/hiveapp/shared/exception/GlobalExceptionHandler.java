@@ -15,6 +15,11 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 
+/**
+ * Every response carries a stable {@link ErrorCode}. HTTP status alone is ambiguous — 409 covers a
+ * duplicate resource, a database conflict, an invalid state transition and a blocked operation —
+ * so the code is what a client branches on.
+ */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -23,91 +28,94 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleNotFound(ResourceNotFoundException ex) {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
-                .body(ApiError.of(404, "Not Found", ex.getMessage()));
+                .body(ApiError.of(404, ErrorCode.RESOURCE_NOT_FOUND, "Not Found", ex.getMessage()));
     }
 
     @ExceptionHandler(DuplicateResourceException.class)
     public ResponseEntity<ApiError> handleDuplicate(DuplicateResourceException ex) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
-                .body(ApiError.of(409, "Conflict", ex.getMessage()));
+                .body(ApiError.of(409, ErrorCode.RESOURCE_ALREADY_EXISTS, "Conflict", ex.getMessage()));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiError> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
-                .body(ApiError.of(409, "Conflict", "The requested change conflicts with existing data."));
+                .body(ApiError.of(409, ErrorCode.DATA_CONFLICT, "Conflict",
+                        "The requested change conflicts with existing data."));
     }
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiError> handleBusiness(BusinessException ex) {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiError.of(400, "Bad Request", ex.getMessage()));
+                .body(ApiError.of(400, ErrorCode.BUSINESS_RULE_VIOLATED, "Bad Request", ex.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex) {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiError.of(400, "Bad Request", ex.getMessage()));
+                .body(ApiError.of(400, ErrorCode.INVALID_ARGUMENT, "Bad Request", ex.getMessage()));
     }
 
     @ExceptionHandler(InvalidRequestException.class)
     public ResponseEntity<ApiError> handleInvalidRequest(InvalidRequestException ex) {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiError.of(400, "Bad Request", ex.getMessage()));
+                .body(ApiError.of(400, ErrorCode.INVALID_REQUEST, "Bad Request", ex.getMessage()));
     }
 
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ApiError> handleUnauthorized(UnauthorizedException ex) {
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
-                .body(ApiError.of(401, "Unauthorized", ex.getMessage()));
+                .body(ApiError.of(401, ErrorCode.UNAUTHENTICATED, "Unauthorized", ex.getMessage()));
     }
 
     @ExceptionHandler(ForbiddenException.class)
     public ResponseEntity<ApiError> handleForbidden(ForbiddenException ex) {
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
-                .body(ApiError.of(403, "Forbidden", ex.getMessage()));
+                .body(ApiError.of(403, ErrorCode.FORBIDDEN, "Forbidden", ex.getMessage()));
     }
 
     @ExceptionHandler(PermissionDeniedException.class)
     public ResponseEntity<ApiError> handlePermissionDenied(PermissionDeniedException ex) {
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
-                .body(ApiError.of(403, "Forbidden", "You do not have permission to access this resource"));
+                .body(ApiError.of(403, ErrorCode.PERMISSION_DENIED, "Forbidden",
+                        "You do not have permission to access this resource"));
     }
 
     @ExceptionHandler(InvalidStateException.class)
     public ResponseEntity<ApiError> handleInvalidState(InvalidStateException ex) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
-                .body(ApiError.of(409, "Conflict", ex.getMessage()));
+                .body(ApiError.of(409, ErrorCode.INVALID_STATE, "Conflict", ex.getMessage()));
     }
 
     @ExceptionHandler(OperationBlockedException.class)
     public ResponseEntity<ApiError> handleOperationBlocked(OperationBlockedException ex) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
-                .body(ApiError.of(409, "Conflict", ex.getMessage(), ex.getDetails()));
+                .body(ApiError.of(409, ErrorCode.OPERATION_BLOCKED, "Conflict",
+                        ex.getMessage(), ex.getDetails()));
     }
 
     @ExceptionHandler(InvalidPermissionGrantException.class)
     public ResponseEntity<ApiError> handleInvalidGrant(InvalidPermissionGrantException ex) {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiError.of(400, "Bad Request", ex.getMessage()));
+                .body(ApiError.of(400, ErrorCode.INVALID_PERMISSION_GRANT, "Bad Request", ex.getMessage()));
     }
 
     @ExceptionHandler(QuotaExceededException.class)
     public ResponseEntity<ApiError> handleQuotaExceeded(QuotaExceededException ex) {
         return ResponseEntity
                 .status(HttpStatus.PAYMENT_REQUIRED)
-                .body(ApiError.of(402, "Quota Exceeded", ex.getMessage(),
+                .body(ApiError.of(402, ErrorCode.QUOTA_EXCEEDED, "Quota Exceeded", ex.getMessage(),
                         List.of(
                                 "resource: " + ex.getResource(),
                                 "limit: " + ex.getLimit(),
@@ -120,14 +128,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleBadCredentials(BadCredentialsException ex) {
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
-                .body(ApiError.of(401, "Unauthorized", "Invalid email or password"));
+                .body(ApiError.of(401, ErrorCode.INVALID_CREDENTIALS, "Unauthorized",
+                        "Invalid email or password"));
     }
 
     @ExceptionHandler(DisabledException.class)
     public ResponseEntity<ApiError> handleDisabled(DisabledException ex) {
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
-                .body(ApiError.of(403, "Forbidden", "Account is disabled"));
+                .body(ApiError.of(403, ErrorCode.ACCOUNT_DISABLED, "Forbidden", "Account is disabled"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -140,7 +149,8 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(ApiError.of(422, "Validation Failed", "Request validation failed", details));
+                .body(ApiError.of(422, ErrorCode.VALIDATION_FAILED, "Validation Failed",
+                        "Request validation failed", details));
     }
 
     @ExceptionHandler(Exception.class)
@@ -148,6 +158,7 @@ public class GlobalExceptionHandler {
         log.error("Unhandled exception", ex);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiError.of(500, "Internal Server Error", "An unexpected error occurred"));
+                .body(ApiError.of(500, ErrorCode.INTERNAL_ERROR, "Internal Server Error",
+                        "An unexpected error occurred"));
     }
 }

@@ -12,7 +12,7 @@ import com.hiveapp.platform.client.collaboration.dto.B2BPermissionRequest;
 import com.hiveapp.platform.client.collaboration.dto.CollaborationCommandRequest;
 import com.hiveapp.platform.client.collaboration.dto.InitiateCollaborationRequest;
 import com.hiveapp.platform.client.collaboration.dto.ShareCodeRequest;
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.collaboration.domain.constant.SuspensionScheduleAction;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;

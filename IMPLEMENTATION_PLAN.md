@@ -1771,8 +1771,9 @@ flowchart TD
 | **PLAN-012** | Explicit AddOn | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Versioned aggregate, admin API, AddOn-owned quota packages, selection, catalog, snapshots, billing |
 | **PLAN-005** | Immutable snapshots | PARTIAL — VERSIONED TERM HISTORY IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Plan/AddOn/package versions, term prices, effective periods, and operation history; lineage/billing ledgers separate |
 | **TIME-001** | Unified Timestamps | IMPLEMENTED | VERIFY FIRST | Phase 5 | Batch 5.5 | None | UTC Instant persistence and offset-explicit JSON verified |
-| **MODULES-001** | Modular Interfaces | PARTIAL | DESIGN FIRST | Phase 6 | Batch 6.4 | None | Boundary check |
-| **MODULES-002** | Company domain owner | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.4 | MODULES-001 | Package check |
+| **MODULES-001** | Modular Interfaces | IMPLEMENTED | DESIGN FIRST | Phase 6 | Batch 6.4 | None | Rule decided, four bypasses removed, enforced by test |
+| **MODULES-002** | Company domain owner | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.4 | MODULES-001 | Company owned by the company package |
+| **MODULES-003** | Identity to member coupling | CONFIRMED | IMPLEMENT | Phase 6 | Batch 6.4 | MODULES-001 | Unguarded membership lookup consumed by identity |
 | **AUDIT-001** | Audit logs | IMPLEMENTED | VERIFY FIRST | Phase 5 | Batch 5.4 | None | Append-only actor-aware mutation and failed-attempt records |
 | **AUDIT-002** | Read-access security audit | PRODUCT SCOPE OPEN | DECIDE FIRST | Future | Unscheduled | AUDIT-001 | Decide sensitive/denied read coverage, retention, privacy and volume |
 | **DTO-001** | Request validation | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | None | Structured negative validation tests |
@@ -1781,11 +1782,11 @@ flowchart TD
 | **DTO-003** | DTO boundaries | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-002 | Admin/picker/public namespaces compile |
 | **DTO-004** | Client DTO clean | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Canonical quota JSON shape |
 | **MAPPER-001** | Prevent Lazy-Init | IMPLEMENTED FOR LIST READ MODELS | VERIFY FIRST | Phase 6 | Batch 6.2 | DTO-003 | Constant statement count as rows grow |
-| **MAPPER-002** | MapStruct mappers | ASSESSED — CONSOLIDATION IN BATCH 6.3 | VERIFY FIRST | Phase 6 | Batch 6.2 | MAPPER-001 | Confirmed instance closed by 6.1; remainder owned by SERVICE-002/003 |
-| **SERVICE-001** | Expose DTOs | BLOCKED ON MODULES-001 | VERIFY FIRST | Phase 6 | Batch 6.3 | None | Sole caller needs the managed entity for a @OneToOne |
+| **MAPPER-002** | MapStruct mappers | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.2 | MAPPER-001 | No controller maps a persistence entity |
+| **SERVICE-001** | Expose DTOs | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.3 | None | UserView for facts; one named entity door |
 | **SERVICE-002** | Expose DTOs | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-001 | Admin services return read models |
 | **SERVICE-003** | Expose DTOs | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-002 | Company, member and role return read models |
-| **SERVICE-004** | Plan admin DTOs | CONFIRMED | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-003 | PlanAdminService returns read models |
+| **SERVICE-004** | Plan admin DTOs | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-003 | PlanAdminService returns read models |
 | **AUTH-001** | Email Canonicalized | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.2 | None | Mixed-case registration/login test |
 | **AUTH-002** | Invalidate sessions | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-001 | Rotation, reuse, logout, purpose and audience tests |
 | **AUTH-003** | Align Security Context | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-002 | Active membership/account context test |
@@ -1837,7 +1838,7 @@ flowchart TD
 | **BILLING-002** | Simulated payments | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.6 | BILLING-001 | Dev/test-only configurable untrusted simulator and production fail-fast guard |
 | **EMAIL-001** | Mail error report | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.6 | None | Durable safe outcomes, metrics and token-rotating recovery |
 | **EMAIL-002** | Escape templates | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Escaped, validated, deadline-aware activation emails |
-| **API-ERROR-001**| Error codes payload | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.5 | None | Code mapping returned |
+| **API-ERROR-001**| Error codes payload | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.5 | None | Stable ErrorCode on every ApiError |
 | **CONFIG-001** | Profile configs | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | None | Destructive dev only |
 | **AUTHZ-001** | Explicit service guards | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | PERM-002 | Guarded services enforced |
 | **AUTHZ-002** | B2B operator check | PARTIAL — SAFE ACCOUNT-WIDE CEILING IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.3 | COLLAB-008 | Provider grant plus Account-scoped owner/role/exception operator coverage |

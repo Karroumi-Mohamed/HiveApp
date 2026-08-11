@@ -30,11 +30,16 @@ import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.money.Money;
 import org.junit.jupiter.api.BeforeEach;
+import com.hiveapp.platform.client.plan.dto.PlanDto;
+import com.hiveapp.platform.client.plan.dto.AddOnDto;
+import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
+import com.hiveapp.platform.client.plan.service.PlanAdminReadModels;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -65,6 +70,8 @@ class PlanAdminServiceImplTest {
     @Mock private AddOnRepository addOnRepository;
     @Mock private AddOnFeatureRepository addOnFeatureRepository;
     @Mock private QuotaPackageRepository quotaPackageRepository;
+    // Real projection so these assertions also cover the read model the service now owns.
+    @Spy private PlanAdminReadModels readModels = new PlanAdminReadModels();
 
     @InjectMocks
     private PlanAdminServiceImpl planAdminService;
@@ -78,7 +85,7 @@ class PlanAdminServiceImplTest {
     void createPlanIsAnExplicitEmptyNormalizedDraft() {
         when(planRepository.findByCode("STARTER")).thenReturn(Optional.empty());
 
-        Plan created = planAdminService.createPlan(new CreatePlanRequest(
+        PlanDto created = planAdminService.createPlan(new CreatePlanRequest(
                 " starter ",
                 "Starter",
                 null,
@@ -87,10 +94,10 @@ class PlanAdminServiceImplTest {
                 BillingCycle.MONTHLY
         ));
 
-        assertThat(created.getStatus()).isEqualTo(PlanStatus.DRAFT);
-        assertThat(created.getCode()).isEqualTo("STARTER");
-        assertThat(created.getRevisionNumber()).isEqualTo(1);
-        assertThat(created.getSourcePlan()).isNull();
+        assertThat(created.status()).isEqualTo(PlanStatus.DRAFT);
+        assertThat(created.code()).isEqualTo("STARTER");
+        assertThat(created.revisionNumber()).isEqualTo(1);
+        assertThat(created.sourcePlanId()).isNull();
         verify(planFeatureRepository, never()).saveAll(any());
     }
 
@@ -106,7 +113,7 @@ class PlanAdminServiceImplTest {
         when(planRepository.findById(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
         when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of(sourceFeature));
 
-        Plan duplicate = planAdminService.duplicatePlan(sourcePlanId, new PlanBranchRequest(
+        PlanDto duplicate = planAdminService.duplicatePlan(sourcePlanId, new PlanBranchRequest(
                 "TEAM",
                 "Team",
                 null,
@@ -115,9 +122,9 @@ class PlanAdminServiceImplTest {
                 BillingCycle.MONTHLY
         ));
 
-        assertThat(duplicate.getSourcePlan()).isSameAs(sourcePlan);
-        assertThat(duplicate.getLineageId()).isNotEqualTo(sourcePlan.getLineageId());
-        assertThat(duplicate.getRevisionNumber()).isEqualTo(1);
+        assertThat(duplicate.sourcePlanId()).isEqualTo(sourcePlan.getId());
+        assertThat(duplicate.lineageId()).isNotEqualTo(sourcePlan.getLineageId());
+        assertThat(duplicate.revisionNumber()).isEqualTo(1);
         assertThat(capturedInheritedFeatures()).singleElement()
                 .satisfies(copy -> {
                     assertThat(copy.getFeature()).isSameAs(workspace);
@@ -138,12 +145,12 @@ class PlanAdminServiceImplTest {
         when(planRepository.findMaximumRevisionNumber(sourcePlan.getLineageId())).thenReturn(3);
         when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of(includedFeature));
 
-        Plan created = planAdminService.revisePlan(sourcePlanId, new PlanBranchRequest(
+        PlanDto created = planAdminService.revisePlan(sourcePlanId, new PlanBranchRequest(
                 "EUROPE", "Europe", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY));
 
-        assertThat(created.getCurrencyCode()).isEqualTo("EUR");
-        assertThat(created.getLineageId()).isEqualTo(sourcePlan.getLineageId());
-        assertThat(created.getRevisionNumber()).isEqualTo(4);
+        assertThat(created.currencyCode()).isEqualTo("EUR");
+        assertThat(created.lineageId()).isEqualTo(sourcePlan.getLineageId());
+        assertThat(created.revisionNumber()).isEqualTo(4);
         assertThat(capturedInheritedFeatures()).hasSize(1);
         verify(billingConfigurationValidator).validatePlanFeature(
                 "platform.workspace", PlanFeatureMode.INCLUDED, List.of(), "EUR");
@@ -255,12 +262,12 @@ class PlanAdminServiceImplTest {
         Plan plan = plan(planId, "DRAFT");
         plan.setStatus(PlanStatus.DRAFT);
         when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
-        Plan updated = planAdminService.updatePlan(
+        PlanDto updated = planAdminService.updatePlan(
                 planId,
                 new UpdatePlanRequest("Draft", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY));
 
-        assertThat(updated.getCurrencyCode()).isEqualTo("EUR");
-        assertThat(updated.getPrice()).isEqualByComparingTo("10.00");
+        assertThat(updated.currencyCode()).isEqualTo("EUR");
+        assertThat(updated.price()).isEqualByComparingTo("10.00");
     }
 
     @Test
@@ -328,19 +335,24 @@ class PlanAdminServiceImplTest {
     void addOnDraftNormalizesIdentityAndCannotActivateWithoutFeatures() {
         when(addOnRepository.findByCode("REPORTING_MODULE")).thenReturn(Optional.empty());
         when(planRepository.findByCode("FREE")).thenReturn(Optional.of(plan(UUID.randomUUID(), "FREE")));
-        when(addOnRepository.save(any(AddOn.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        java.util.concurrent.atomic.AtomicReference<AddOn> savedEntity =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        when(addOnRepository.save(any(AddOn.class))).thenAnswer(invocation -> {
+            savedEntity.set(invocation.getArgument(0));
+            return invocation.getArgument(0);
+        });
 
-        AddOn addOn = planAdminService.createAddOn(new CreateAddOnRequest(
+        AddOnDto addOn = planAdminService.createAddOn(new CreateAddOnRequest(
                 " reporting_module ", "Reporting", null, BigDecimal.TEN, "usd",
                 BillingCycle.MONTHLY, Set.of("FREE"), Set.of(), Set.of(), Set.of()));
 
-        assertThat(addOn.getCode()).isEqualTo("REPORTING_MODULE");
-        assertThat(addOn.getCurrencyCode()).isEqualTo("USD");
-        assertThat(addOn.getStatus()).isEqualTo(AddOnStatus.DRAFT);
+        assertThat(addOn.code()).isEqualTo("REPORTING_MODULE");
+        assertThat(addOn.currencyCode()).isEqualTo("USD");
+        assertThat(addOn.status()).isEqualTo(AddOnStatus.DRAFT);
 
         UUID addOnId = UUID.randomUUID();
-        ReflectionTestUtils.setField(addOn, "id", addOnId);
-        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(addOn));
+        ReflectionTestUtils.setField(savedEntity.get(), "id", addOnId);
+        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(savedEntity.get()));
         when(addOnFeatureRepository.findAllByAddOnId(addOnId)).thenReturn(List.of());
 
         assertThatThrownBy(() -> planAdminService.transitionAddOnStatus(addOnId, AddOnStatus.ACTIVE))
@@ -375,9 +387,9 @@ class PlanAdminServiceImplTest {
         when(addOnRepository.saveAndFlush(addOn)).thenReturn(addOn);
         when(addOnRepository.findDetailedById(addOnId)).thenReturn(Optional.of(addOn));
 
-        AddOn activated = planAdminService.transitionAddOnStatus(addOnId, AddOnStatus.ACTIVE);
+        AddOnDto activated = planAdminService.transitionAddOnStatus(addOnId, AddOnStatus.ACTIVE);
 
-        assertThat(activated.getStatus()).isEqualTo(AddOnStatus.ACTIVE);
+        assertThat(activated.status()).isEqualTo(AddOnStatus.ACTIVE);
         verify(billingConfigurationValidator).validateAddOnFeature(
                 "platform.company", List.of(), "USD");
     }

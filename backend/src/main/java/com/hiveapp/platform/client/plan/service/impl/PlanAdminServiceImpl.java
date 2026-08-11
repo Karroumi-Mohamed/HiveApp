@@ -36,6 +36,11 @@ import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
+import com.hiveapp.platform.client.plan.dto.PlanDto;
+import com.hiveapp.platform.client.plan.dto.PlanFeatureDto;
+import com.hiveapp.platform.client.plan.dto.AddOnDto;
+import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
+import com.hiveapp.platform.client.plan.service.PlanAdminReadModels;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PlansFeature;
@@ -77,6 +82,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private static final Pattern COMMERCIAL_CODE = Pattern.compile("^[A-Z][A-Z0-9_]*$");
 
     private final PlanRepository planRepository;
+    private final PlanAdminReadModels readModels;
     private final PlanFeatureRepository planFeatureRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
@@ -93,8 +99,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @PermissionNode(key = "list", description = "List all plans")
     @Transactional(readOnly = true)
-    public List<Plan> listPlans() {
-        return planRepository.findAll();
+    public List<PlanDto> listPlans() {
+        return planRepository.findAll().stream().map(readModels::toDto).toList();
     }
 
     @Override
@@ -145,28 +151,28 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @Transactional
     @PermissionNode(key = "create", description = "Create a new plan")
-    public Plan createPlan(CreatePlanRequest request) {
+    public PlanDto createPlan(CreatePlanRequest request) {
         String code = normalizeCommercialCode(request.code(), "Plan code");
         Money price = validatePlanBasics(
                 code, request.name(), request.price(), request.currencyCode(), request.billingCycle());
-        return saveNewPlan(code, request.name(), request.description(), price, request.billingCycle(),
-                null, UUID.randomUUID(), 1, PlanCreationReason.CREATED);
+        return readModels.toDto(saveNewPlan(code, request.name(), request.description(), price, request.billingCycle(),
+                null, UUID.randomUUID(), 1, PlanCreationReason.CREATED));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "duplicate", description = "Duplicate plan commercial configuration into a draft")
-    public Plan duplicatePlan(UUID sourcePlanId, PlanBranchRequest request) {
+    public PlanDto duplicatePlan(UUID sourcePlanId, PlanBranchRequest request) {
         Plan source = requirePlan(sourcePlanId);
         Plan duplicate = createBranch(source, request, UUID.randomUUID(), 1, PlanCreationReason.DUPLICATED);
         copyPlanComposition(source, duplicate);
-        return duplicate;
+        return readModels.toDto(duplicate);
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "revise", description = "Create the next draft revision of a published plan")
-    public Plan revisePlan(UUID sourcePlanId, PlanBranchRequest request) {
+    public PlanDto revisePlan(UUID sourcePlanId, PlanBranchRequest request) {
         Plan source = planRepository.findByIdForUpdate(sourcePlanId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", sourcePlanId));
         if (source.getStatus() == PlanStatus.DRAFT) {
@@ -176,13 +182,13 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         Plan revision = createBranch(
                 source, request, source.getLineageId(), nextRevision, PlanCreationReason.REVISED);
         copyPlanComposition(source, revision);
-        return revision;
+        return readModels.toDto(revision);
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "update", description = "Update plan template basics")
-    public Plan updatePlan(UUID planId, UpdatePlanRequest request) {
+    public PlanDto updatePlan(UUID planId, UpdatePlanRequest request) {
         Plan plan = requirePlan(planId);
         requireMutable(plan);
         Money price = validatePlanBasics(
@@ -196,19 +202,19 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         plan.setDescription(request.description());
         plan.setMoney(price);
         plan.setBillingCycle(request.billingCycle());
-        return planRepository.save(plan);
+        return readModels.toDto(planRepository.save(plan));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "transition_status", description = "Transition a plan lifecycle state")
-    public Plan transitionStatus(UUID planId, PlanStatus targetStatus) {
+    public PlanDto transitionStatus(UUID planId, PlanStatus targetStatus) {
         var plan = requirePlan(planId);
         if (targetStatus == null) {
             throw new InvalidRequestException("Target Plan status is required.");
         }
         if (plan.getStatus() == targetStatus) {
-            return plan;
+            return readModels.toDto(plan);
         }
         if (plan.getStatus() == PlanStatus.ARCHIVED) {
             throw new BusinessException("Archived plans are terminal and cannot transition.");
@@ -226,7 +232,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             validateActivation(plan);
         }
         plan.setStatus(targetStatus);
-        return planRepository.save(plan);
+        return readModels.toDto(planRepository.save(plan));
     }
 
     @Override
@@ -267,11 +273,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @PermissionNode(key = "list_features", description = "List features assigned to a plan")
     @Transactional(readOnly = true)
-    public List<PlanFeature> listPlanFeatures(UUID planId) {
+    public List<PlanFeatureDto> listPlanFeatures(UUID planId) {
         if (!planRepository.existsById(planId)) {
             throw new ResourceNotFoundException("Plan", "id", planId);
         }
-        return planFeatureRepository.findAllByPlanId(planId);
+        return planFeatureRepository.findAllByPlanId(planId).stream().map(readModels::toDto).toList();
     }
 
     @Override
@@ -314,7 +320,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @Transactional
     @PermissionNode(key = "assign_feature", description = "Assign a feature to a plan")
-    public PlanFeature assignFeature(UUID planId, AssignPlanFeatureRequest request) {
+    public PlanFeatureDto assignFeature(UUID planId, AssignPlanFeatureRequest request) {
         var plan = planRepository.findById(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         requireMutable(plan);
@@ -333,7 +339,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         pf.setMode(request.mode());
         pf.setQuotaConfigs(new ArrayList<>(quotaEntries));
         try {
-            return planFeatureRepository.saveAndFlush(pf);
+            return readModels.toDto(planFeatureRepository.saveAndFlush(pf));
         } catch (DataIntegrityViolationException exception) {
             throw new DuplicateResourceException("PlanFeature", "featureCode", request.featureCode());
         }
@@ -342,7 +348,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @Transactional
     @PermissionNode(key = "update_feature", description = "Update a plan's feature quota/price config")
-    public PlanFeature updateFeature(UUID planId, UUID planFeatureId, AssignPlanFeatureRequest request) {
+    public PlanFeatureDto updateFeature(UUID planId, UUID planFeatureId, AssignPlanFeatureRequest request) {
         var pf = planFeatureRepository.findById(planFeatureId)
                 .orElseThrow(() -> new ResourceNotFoundException("PlanFeature", "id", planFeatureId));
         if (!pf.getPlan().getId().equals(planId)) {
@@ -357,7 +363,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 request.featureCode(), request.mode(), quotaEntries, pf.getPlan().getCurrencyCode());
         pf.setMode(request.mode());
         pf.setQuotaConfigs(new ArrayList<>(quotaEntries));
-        return planFeatureRepository.save(pf);
+        return readModels.toDto(planFeatureRepository.save(pf));
     }
 
     @Override
@@ -376,22 +382,22 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "list_add_ons", description = "List commercial AddOns")
-    public List<AddOn> listAddOns() {
-        return addOnRepository.findAllByOrderByCodeAsc();
+    public List<AddOnDto> listAddOns() {
+        return addOnRepository.findAllByOrderByCodeAsc().stream().map(readModels::toDto).toList();
     }
 
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "read_add_on", description = "Read commercial AddOn detail")
-    public AddOn getAddOn(UUID addOnId) {
-        return addOnRepository.findDetailedById(addOnId)
-                .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", addOnId));
+    public AddOnDto getAddOn(UUID addOnId) {
+        return readModels.toDto(addOnRepository.findDetailedById(addOnId)
+                .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", addOnId)));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "create_add_on", description = "Create a commercial AddOn draft")
-    public AddOn createAddOn(CreateAddOnRequest request) {
+    public AddOnDto createAddOn(CreateAddOnRequest request) {
         String code = normalizeCommercialCode(request.code(), "AddOn code");
         if (addOnRepository.findByCode(code).isPresent()) {
             throw new DuplicateResourceException("AddOn", "code", code);
@@ -402,32 +408,32 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 request.currencyCode(), request.billingCycle(), request.allowedPlanCodes(),
                 request.blockedPlanCodes(), request.dependencyCodes(), request.exclusionCodes());
         addOn.setStatus(AddOnStatus.DRAFT);
-        return addOnRepository.save(addOn);
+        return readModels.toDto(addOnRepository.save(addOn));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "update_add_on", description = "Update a commercial AddOn draft")
-    public AddOn updateAddOn(UUID addOnId, UpdateAddOnRequest request) {
+    public AddOnDto updateAddOn(UUID addOnId, UpdateAddOnRequest request) {
         AddOn addOn = requireEditableAddOn(addOnId);
         applyAddOnBasics(addOn, request.name(), request.description(), request.price(),
                 request.currencyCode(), request.billingCycle(), request.allowedPlanCodes(),
                 request.blockedPlanCodes(), request.dependencyCodes(), request.exclusionCodes());
         addOn.touchDefinition();
         addOnRepository.saveAndFlush(addOn);
-        return addOnRepository.findDetailedById(addOnId).orElseThrow();
+        return readModels.toDto(addOnRepository.findDetailedById(addOnId).orElseThrow());
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "transition_add_on", description = "Transition a commercial AddOn lifecycle state")
-    public AddOn transitionAddOnStatus(UUID addOnId, AddOnStatus targetStatus) {
+    public AddOnDto transitionAddOnStatus(UUID addOnId, AddOnStatus targetStatus) {
         AddOn addOn = requireAddOn(addOnId);
         if (targetStatus == null) {
             throw new InvalidRequestException("Target AddOn status is required.");
         }
         if (addOn.getStatus() == targetStatus) {
-            return addOn;
+            return readModels.toDto(addOn);
         }
         if (addOn.getStatus() == AddOnStatus.ARCHIVED) {
             throw new BusinessException("Archived AddOns are terminal and cannot transition.");
@@ -443,7 +449,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         }
         addOn.setStatus(targetStatus);
         addOnRepository.saveAndFlush(addOn);
-        return addOnRepository.findDetailedById(addOnId).orElseThrow();
+        return readModels.toDto(addOnRepository.findDetailedById(addOnId).orElseThrow());
     }
 
     @Override
@@ -475,7 +481,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @Transactional
     @PermissionNode(key = "assign_add_on_feature", description = "Assign a feature to an AddOn draft")
-    public AddOnFeature assignAddOnFeature(UUID addOnId, AssignAddOnFeatureRequest request) {
+    public AddOnDto.FeatureItem assignAddOnFeature(UUID addOnId, AssignAddOnFeatureRequest request) {
         AddOn addOn = requireEditableAddOn(addOnId);
         var quotaEntries = request.quotaEntries();
         var feature = billingConfigurationValidator.validateAddOnFeature(
@@ -489,7 +495,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         item.setQuotaConfigs(new ArrayList<>(quotaEntries));
         addOn.touchDefinition();
         try {
-            return addOnFeatureRepository.saveAndFlush(item);
+            return readModels.toDto(addOnFeatureRepository.saveAndFlush(item));
         } catch (DataIntegrityViolationException exception) {
             throw new DuplicateResourceException("AddOnFeature", "featureCode", request.featureCode());
         }
@@ -498,7 +504,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @Transactional
     @PermissionNode(key = "update_add_on_feature", description = "Update an AddOn feature configuration")
-    public AddOnFeature updateAddOnFeature(
+    public AddOnDto.FeatureItem updateAddOnFeature(
             UUID addOnId, UUID addOnFeatureId, AssignAddOnFeatureRequest request) {
         AddOn addOn = requireEditableAddOn(addOnId);
         AddOnFeature item = requireAddOnFeature(addOnId, addOnFeatureId);
@@ -510,7 +516,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 request.featureCode(), quotaEntries, addOn.getCurrencyCode());
         item.setQuotaConfigs(new ArrayList<>(quotaEntries));
         addOn.touchDefinition();
-        return addOnFeatureRepository.save(item);
+        return readModels.toDto(addOnFeatureRepository.save(item));
     }
 
     @Override
@@ -526,22 +532,22 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "list_quota_packages", description = "List commercial quota packages")
-    public List<QuotaPackage> listQuotaPackages() {
-        return quotaPackageRepository.findAllByOrderByCodeAsc();
+    public List<QuotaPackageDto> listQuotaPackages() {
+        return quotaPackageRepository.findAllByOrderByCodeAsc().stream().map(readModels::toDto).toList();
     }
 
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "read_quota_package", description = "Read commercial quota package detail")
-    public QuotaPackage getQuotaPackage(UUID quotaPackageId) {
-        return quotaPackageRepository.findDetailedById(quotaPackageId)
-                .orElseThrow(() -> new ResourceNotFoundException("QuotaPackage", "id", quotaPackageId));
+    public QuotaPackageDto getQuotaPackage(UUID quotaPackageId) {
+        return readModels.toDto(quotaPackageRepository.findDetailedById(quotaPackageId)
+                .orElseThrow(() -> new ResourceNotFoundException("QuotaPackage", "id", quotaPackageId)));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "create_quota_package", description = "Create a commercial quota package draft")
-    public QuotaPackage createQuotaPackage(CreateQuotaPackageRequest request) {
+    public QuotaPackageDto createQuotaPackage(CreateQuotaPackageRequest request) {
         String code = normalizeCommercialCode(request.code(), "Quota package code");
         if (quotaPackageRepository.findByCode(code).isPresent()) {
             throw new DuplicateResourceException("QuotaPackage", "code", code);
@@ -554,13 +560,13 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 request.repeatable(), request.maximumQuantity(), request.allowedPlanCodes(),
                 request.allowedAddOnCodes());
         item.setStatus(QuotaPackageStatus.DRAFT);
-        return quotaPackageRepository.save(item);
+        return readModels.toDto(quotaPackageRepository.save(item));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "update_quota_package", description = "Update a commercial quota package draft")
-    public QuotaPackage updateQuotaPackage(UUID quotaPackageId, UpdateQuotaPackageRequest request) {
+    public QuotaPackageDto updateQuotaPackage(UUID quotaPackageId, UpdateQuotaPackageRequest request) {
         QuotaPackage item = requireEditableQuotaPackage(quotaPackageId);
         applyQuotaPackageBasics(
                 item, request.name(), request.description(), request.featureCode(), request.resource(),
@@ -569,19 +575,19 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 request.allowedAddOnCodes());
         item.touchDefinition();
         quotaPackageRepository.saveAndFlush(item);
-        return quotaPackageRepository.findDetailedById(quotaPackageId).orElseThrow();
+        return readModels.toDto(quotaPackageRepository.findDetailedById(quotaPackageId).orElseThrow());
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "transition_quota_package", description = "Transition a quota package lifecycle state")
-    public QuotaPackage transitionQuotaPackageStatus(UUID quotaPackageId, QuotaPackageStatus targetStatus) {
+    public QuotaPackageDto transitionQuotaPackageStatus(UUID quotaPackageId, QuotaPackageStatus targetStatus) {
         QuotaPackage item = requireQuotaPackage(quotaPackageId);
         if (targetStatus == null) {
             throw new InvalidRequestException("Target quota package status is required.");
         }
         if (item.getStatus() == targetStatus) {
-            return item;
+            return readModels.toDto(item);
         }
         if (item.getStatus() == QuotaPackageStatus.ARCHIVED) {
             throw new BusinessException("Archived quota packages are terminal and cannot transition.");
@@ -597,7 +603,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         }
         item.setStatus(targetStatus);
         quotaPackageRepository.saveAndFlush(item);
-        return quotaPackageRepository.findDetailedById(quotaPackageId).orElseThrow();
+        return readModels.toDto(quotaPackageRepository.findDetailedById(quotaPackageId).orElseThrow());
     }
 
     @Override

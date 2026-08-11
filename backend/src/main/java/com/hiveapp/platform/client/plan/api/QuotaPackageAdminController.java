@@ -1,7 +1,6 @@
 package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
-import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
@@ -33,18 +32,18 @@ public class QuotaPackageAdminController {
 
     @GetMapping
     public List<QuotaPackageDto> list() {
-        return planAdminService.listQuotaPackages().stream().map(this::toDto).toList();
+        return planAdminService.listQuotaPackages();
     }
 
     @GetMapping("/{quotaPackageId}")
     public QuotaPackageDto get(@PathVariable UUID quotaPackageId) {
-        return toDto(planAdminService.getQuotaPackage(quotaPackageId));
+        return planAdminService.getQuotaPackage(quotaPackageId);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public QuotaPackageDto create(@Valid @RequestBody CreateQuotaPackageRequest request) {
-        return toDto(planAdminService.createQuotaPackage(request));
+        return planAdminService.createQuotaPackage(request);
     }
 
     @PutMapping("/{quotaPackageId}")
@@ -52,7 +51,7 @@ public class QuotaPackageAdminController {
             @PathVariable UUID quotaPackageId,
             @Valid @RequestBody UpdateQuotaPackageRequest request
     ) {
-        return toDto(planAdminService.updateQuotaPackage(quotaPackageId, request));
+        return planAdminService.updateQuotaPackage(quotaPackageId, request);
     }
 
     @PatchMapping("/{quotaPackageId}/status")
@@ -60,7 +59,7 @@ public class QuotaPackageAdminController {
             @PathVariable UUID quotaPackageId,
             @RequestParam QuotaPackageStatus status
     ) {
-        return toDto(planAdminService.transitionQuotaPackageStatus(quotaPackageId, status));
+        return planAdminService.transitionQuotaPackageStatus(quotaPackageId, status);
     }
 
     @DeleteMapping("/{quotaPackageId}")
@@ -69,12 +68,4 @@ public class QuotaPackageAdminController {
         planAdminService.deleteQuotaPackage(quotaPackageId);
     }
 
-    private QuotaPackageDto toDto(QuotaPackage item) {
-        return new QuotaPackageDto(
-                item.getId(), item.getCode(), item.getName(), item.getDescription(),
-                item.getFeature().getCode(), item.getResource(), item.getCapacityPerUnit(),
-                item.getPrice(), item.getCurrencyCode(), item.getBillingCycle(), item.isRepeatable(),
-                item.getMaximumQuantity(), item.getStatus(), item.getDefinitionVersion(),
-                item.getAllowedPlanCodes(), item.getAllowedAddOnCodes());
-    }
 }

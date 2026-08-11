@@ -1,7 +1,7 @@
 package com.hiveapp.platform.client.collaboration.domain.entity;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.collaboration.domain.constant.CollaborationStatus;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.domain.TenantInvariant;

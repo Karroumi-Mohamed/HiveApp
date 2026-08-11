@@ -1,6 +1,5 @@
 package com.hiveapp.platform.client.plan.api;
 
-import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
@@ -36,9 +35,7 @@ public class PlanAdminController {
 
     @GetMapping
     public List<PlanDto> listPlans() {
-        return planAdminService.listPlans().stream()
-                .map(this::toDto)
-                .toList();
+        return planAdminService.listPlans();
     }
 
     @GetMapping("/{planId}")
@@ -50,7 +47,7 @@ public class PlanAdminController {
     @ResponseStatus(HttpStatus.CREATED)
     public PlanDto createPlan(@Valid @RequestBody CreatePlanRequest request) {
         var p = planAdminService.createPlan(request);
-        return toDto(p);
+        return p;
     }
 
     @PostMapping("/{sourcePlanId}/duplicate")
@@ -59,7 +56,7 @@ public class PlanAdminController {
             @PathVariable UUID sourcePlanId,
             @Valid @RequestBody PlanBranchRequest request
     ) {
-        return toDto(planAdminService.duplicatePlan(sourcePlanId, request));
+        return planAdminService.duplicatePlan(sourcePlanId, request);
     }
 
     @PostMapping("/{sourcePlanId}/revisions")
@@ -68,18 +65,18 @@ public class PlanAdminController {
             @PathVariable UUID sourcePlanId,
             @Valid @RequestBody PlanBranchRequest request
     ) {
-        return toDto(planAdminService.revisePlan(sourcePlanId, request));
+        return planAdminService.revisePlan(sourcePlanId, request);
     }
 
     @PutMapping("/{planId}")
     public PlanDto updatePlan(@PathVariable UUID planId, @Valid @RequestBody UpdatePlanRequest request) {
-        return toDto(planAdminService.updatePlan(planId, request));
+        return planAdminService.updatePlan(planId, request);
     }
 
     @PatchMapping("/{planId}/status")
     public PlanDto transitionStatus(@PathVariable UUID planId, @RequestParam PlanStatus status) {
         var p = planAdminService.transitionStatus(planId, status);
-        return toDto(p);
+        return p;
     }
 
     @GetMapping("/{planId}/deletion-preview")
@@ -100,9 +97,7 @@ public class PlanAdminController {
 
     @GetMapping("/{planId}/features")
     public List<PlanFeatureDto> listFeatures(@PathVariable UUID planId) {
-        return planAdminService.listPlanFeatures(planId).stream()
-                .map(this::toDto)
-                .toList();
+        return planAdminService.listPlanFeatures(planId);
     }
 
     @GetMapping("/{planId}/subscribers")
@@ -128,14 +123,14 @@ public class PlanAdminController {
     @ResponseStatus(HttpStatus.CREATED)
     public PlanFeatureDto assignFeature(@PathVariable UUID planId,
                                         @Valid @RequestBody AssignPlanFeatureRequest request) {
-        return toDto(planAdminService.assignFeature(planId, request));
+        return planAdminService.assignFeature(planId, request);
     }
 
     @PutMapping("/{planId}/features/{planFeatureId}")
     public PlanFeatureDto updateFeature(@PathVariable UUID planId,
                                         @PathVariable UUID planFeatureId,
                                         @Valid @RequestBody AssignPlanFeatureRequest request) {
-        return toDto(planAdminService.updateFeature(planId, planFeatureId, request));
+        return planAdminService.updateFeature(planId, planFeatureId, request);
     }
 
     @DeleteMapping("/{planId}/features/{planFeatureId}")
@@ -144,20 +139,4 @@ public class PlanAdminController {
         planAdminService.removeFeature(planId, planFeatureId);
     }
 
-    private PlanFeatureDto toDto(PlanFeature pf) {
-        return new PlanFeatureDto(
-                pf.getId(),
-                pf.getFeature().getCode(),
-                pf.getMode(),
-                pf.getQuotaConfigs()
-        );
-    }
-
-    private PlanDto toDto(com.hiveapp.platform.client.plan.domain.entity.Plan p) {
-        return new PlanDto(p.getId(), p.getCode(), p.getName(),
-                p.getDescription(), p.getPrice(), p.getCurrencyCode(), p.getBillingCycle(), p.getStatus(),
-                p.getLineageId(), p.getRevisionNumber(),
-                p.getSourcePlan() != null ? p.getSourcePlan().getId() : null,
-                p.getCreationReason());
-    }
 }

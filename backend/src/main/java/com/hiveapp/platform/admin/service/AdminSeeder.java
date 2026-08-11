@@ -1,9 +1,10 @@
 package com.hiveapp.platform.admin.service;
 
 import com.hiveapp.identity.domain.entity.User;
-import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.platform.admin.config.AdminBootstrapProperties;
 import com.hiveapp.platform.admin.domain.entity.AdminUser;
+import com.hiveapp.identity.service.IdentityService;
+import com.hiveapp.identity.service.NewUserCommand;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class AdminSeeder {
 
-    private final UserRepository userRepository;
+    private final IdentityService identityService;
     private final AdminUserRepository adminUserRepository;
     private final PasswordEncoder passwordEncoder;
     private final AdminBootstrapProperties properties;
@@ -39,22 +40,22 @@ public class AdminSeeder {
             return;
         }
 
-        if (userRepository.findByEmail(adminEmail).isPresent()) {
+        if (identityService.emailExists(adminEmail)) {
             throw new IllegalStateException(
                     "Refusing to promote an existing non-admin user during admin bootstrap: " + adminEmail);
         }
 
         log.info("Creating configured bootstrap SuperAdmin for {}", adminEmail);
 
-        User user = new User();
-        user.setEmail(adminEmail);
-        user.setUsername("admin-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 20));
-        user.setPasswordHash(passwordEncoder.encode(properties.password()));
-        user.setFirstName(properties.firstName());
-        user.setLastName(properties.lastName());
-        user.setActive(true);
-        user.setEmailVerified(true);
-        user = userRepository.save(user);
+        User user = identityService.createUser(new NewUserCommand(
+                "admin-" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 20),
+                adminEmail,
+                properties.firstName(),
+                properties.lastName(),
+                null,
+                passwordEncoder.encode(properties.password()),
+                true,
+                true));
 
         AdminUser admin = new AdminUser();
         admin.setUser(user);

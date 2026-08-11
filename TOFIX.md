@@ -1174,7 +1174,24 @@ Time-zone conversion can make subscription expiration, collaboration activation,
 
 ### MODULES-001 — Cross-domain data exchange inside the monolith has no confirmed contract yet
 
-**Status:** `DECISION`
+**Status:** `RESOLVED — 2026-08-11`
+
+**Decided rule — 2026-08-11**
+
+A domain reaches another domain only through its service:
+
+1. Another domain's **repository** — never.
+2. Another domain's **facts** — through an immutable read view.
+3. Another domain's **entity** — only through explicitly named service methods, and only to create the row or establish a JPA relationship inside a transaction.
+
+Cross-domain JPA relationships stay. `TENANCY-002` already established that a raw UUID reference is a defect because the database cannot guarantee it points at an existing row; reverting to id-only references would reopen it, and would push this monolith toward a distributed shape the architecture decision explicitly rejects.
+
+**Implementation evidence — 2026-08-11**
+
+- `IdentityService` now exposes `findUserView(..)` for facts and `createUser(..)` / `requireManagedUser(..)` as the only entity doors. `UserView` and `NewUserCommand` carry the cross-domain contract.
+- All four bypasses are gone. `AdminSeeder` and `MemberServiceImpl` create identities through identity; `WorkspaceProvisioningServiceImpl` and `AdminUserServiceImpl` take the managed row through the named door; `AdminAuthenticationServiceImpl` stopped consulting identity entirely and resolves the administrator from its own aggregate.
+- `MemberCredentialService` persists its own credential-state changes, so no other domain writes the user row.
+- `CrossDomainAccessRuleTest` fails the build if any platform class imports an identity repository, turning the rule from a review habit into an enforced invariant.
 
 **Evidence**
 
@@ -1200,7 +1217,11 @@ Do not finalize the integration design until services, events, and current packa
 
 ### MODULES-002 — Company domain ownership is structurally unclear
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-08-11`
+
+**Decision and evidence — 2026-08-11**
+
+`Company` belongs to the company package. `FLOW_DECISIONS` treats a Company as a business/legal operating scope with its own lifecycle, deletion flow and quota — an aggregate in its own right, not a detail of Account. The entity and its repository moved from `platform.client.account.domain` to `platform.client.company.domain`, joining the services, DTOs and APIs that already lived there. `Company.account` remains a real relationship, so tenant isolation is unchanged. Package and imports only; no schema or logic change.
 
 **Evidence**
 
@@ -1455,7 +1476,7 @@ Two of the four cited mappers no longer exist: `CollaborationMapper` was removed
 
 ### MAPPER-002 — Most API mapping appears to be manual and distributed
 
-**Status:** `ASSESSED — CONSOLIDATION OWNED BY BATCH 6.3`
+**Status:** `RESOLVED — 2026-08-11`
 
 **Evidence**
 
@@ -1477,7 +1498,7 @@ Locate all DTO constructors in services/controllers. Keep business-aware read-mo
 - The manual construction that remains in services is business-aware read-model assembly, exactly what this finding says to keep explicit. `PermissionPickerCatalogService` derives per-audience availability and a source-owned `PermissionUnavailableReason`, which is the behavior `REGISTRY-FLOW-004` decided; `RoleServiceImpl` aggregates assignment counts by scope into an impact model. Neither is field copying, and MapStruct cannot express either without an `@AfterMapping` body containing the same logic plus indirection.
 - Mechanical entity→DTO copying does still exist in `PlanAdminController`, `AddOnAdminController`, and `QuotaPackageAdminController`. It exists **because those services return persistence entities**, which is `SERVICE-002` / `SERVICE-003` — whose Batch 6.3 acceptance criterion is literally "Services return DTOs". Consolidating it inside Batch 6.2 would pre-empt that batch's contract design and be redone once the DTO-returning service interfaces exist.
 
-**Decision:** the lazy-safety half of this batch is complete under `MAPPER-001`. The remaining consolidation is a symptom of services returning entities, so it is owned by the boundary findings rather than by this one. Batch 6.3 closed `SERVICE-002` and `SERVICE-003`; the plan/add-on/quota-package controllers are now tracked explicitly as `SERVICE-004`. This finding closes when `SERVICE-004` lands.
+**Decision:** the lazy-safety half was completed under `MAPPER-001`. The remaining consolidation was a symptom of services returning entities, so it was owned by the boundary findings rather than by this one — `SERVICE-002`, `SERVICE-003` and finally `SERVICE-004` removed every controller-side projection. **Closed 2026-08-11:** no controller in the codebase now maps a persistence entity.
 
 ---
 
@@ -1485,7 +1506,13 @@ Locate all DTO constructors in services/controllers. Keep business-aware read-mo
 
 ### SERVICE-001 — Identity service exposes its JPA entity as a cross-domain contract
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-08-11`
+
+**Resolution — 2026-08-11**
+
+Resolved under the `MODULES-001` rule. Verification had shown the finding's own fix direction did not fit its only caller: `AdminUserServiceImpl` never read identity fields, it needed the managed row to establish the `AdminUser` `@OneToOne`. The contract now separates the two needs — `findUserView(..)` for facts, `requireManagedUser(..)` for relationship establishment — so the general-purpose `getUserById` accessor is gone without breaking the legitimate case.
+
+Two entity-returning methods exist rather than one, because creation inherently yields a managed row; forcing a re-fetch would add a query without adding safety. Both are explicitly named and documented as the entity door.
 
 **Evidence**
 
@@ -1590,7 +1617,7 @@ Required shape when this is finished:
 
 ### SERVICE-004 — Plan administration service exposes persistence entities
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-11`
 
 **Evidence**
 
@@ -1605,6 +1632,37 @@ The commercial administration surface keeps API response shape coupled to persis
 **Required resolution**
 
 Return read models from `PlanAdminService` and delete the controller-side `toDto` methods, matching what `SERVICE-002` and `SERVICE-003` did. Verify the plan-feature and add-on projections keep the entity graphs added under `MAPPER-001`, so moving the mapping does not reintroduce per-row statements.
+
+**Implementation evidence — 2026-08-11**
+
+- All 21 entity-returning methods on `PlanAdminService` now return read models, including the two `AddOnFeature` surfaces. No entity type remains in the contract.
+- The five controller-side `toDto` methods moved into `PlanAdminReadModels`, a component in the plan service package. `PlanAdminController`, `AddOnAdminController` and `QuotaPackageAdminController` no longer import a persistence entity or perform any mapping.
+- Method bodies and their `@PermissionNode` / `@Transactional` annotations were left in place; only return expressions were wrapped, so no guarded method changed its identity or moved behind a self-invocation.
+- `LazyMappingQueryCountIntegrationTest` still passes, confirming the `MAPPER-001` entity graphs continue to cover the projections now that they run inside the service.
+
+---
+
+### MODULES-003 — Identity depends on member persistence for authentication facts
+
+**Status:** `CONFIRMED`
+
+**Evidence**
+
+`AuthServiceImpl`, `ClientCredentialAuthenticationService`, and `CredentialLifecycleService` all import `com.hiveapp.platform.client.member.domain.repository.MemberRepository`. Identity therefore reads another domain's schema directly, which is the mirror image of the platform-to-identity coupling closed under `MODULES-001`.
+
+Found by `CrossDomainAccessRuleTest` while implementing that rule; the reverse assertion is deliberately not enabled until this is fixed.
+
+**Risk**
+
+Membership is the tenant boundary. Identity resolving it through the member table means a change to membership semantics — the one-active-membership invariant, deactivation, or scoping — must be re-implemented correctly in the authentication path, with nothing forcing the two to agree.
+
+**Why it is not simply MODULES-001 in reverse**
+
+Authentication runs *before* any permission context exists, so the guarded `MemberService` cannot serve it — calling it would evaluate Permissionizer policies against an unauthenticated actor. The fix needs a small unguarded membership lookup owned by the member domain and consumed by identity, not a call into the existing service.
+
+**Required resolution**
+
+Introduce a membership lookup in the member domain exposing only the facts authentication needs (active membership for a user, its account, its active state), have the three identity classes consume it, then enable the reverse assertion in `CrossDomainAccessRuleTest`.
 
 ---
 
@@ -2927,7 +2985,14 @@ The replacement activation/reset template HTML-escapes member name, workspace na
 
 ### API-ERROR-001 — Error responses lack stable machine-readable business codes
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED — 2026-08-11`
+
+**Implementation evidence — 2026-08-11**
+
+- `ApiError` carries a stable `ErrorCode`; clients branch on it instead of matching message text, which is now free to be reworded or translated.
+- Every construction site supplies one — all 17 handlers in `GlobalExceptionHandler` plus `ContextDetectionFilter`, `AccessDeniedHandler` and `AuthEntryPoint`. No response can be emitted without a code.
+- Codes were derived from the handlers that already exist, not invented speculatively. The concrete win is that `409` now splits into `RESOURCE_ALREADY_EXISTS`, `DATA_CONFLICT`, `INVALID_STATE` and `OPERATION_BLOCKED`, which `GlobalExceptionHandlerTest` asserts stay distinct.
+- Contract recorded on the enum: once shipped, a constant is never renamed or repurposed.
 
 **Evidence**
 

@@ -2,7 +2,7 @@ package com.hiveapp.shared.security.policy;
 
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;

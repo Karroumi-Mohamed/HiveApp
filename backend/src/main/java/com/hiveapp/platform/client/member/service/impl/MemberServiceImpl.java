@@ -21,7 +21,7 @@ import com.hiveapp.platform.client.member.dto.MemberAuthorizationDto;
 import com.hiveapp.platform.client.member.dto.MemberRoleAssignmentDto;
 import com.hiveapp.platform.client.member.mapper.MemberMapper;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
@@ -29,7 +29,8 @@ import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureService;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
-import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.service.IdentityService;
+import com.hiveapp.identity.service.NewUserCommand;
 import com.hiveapp.identity.domain.EmailIdentity;
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.service.MemberCredentialService;
@@ -64,7 +65,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     private final MemberRepository memberRepository;
     private final MemberRoleRepository memberRoleRepository;
     private final MemberPermissionOverrideRepository memberOverrideRepository;
-    private final UserRepository userRepository;
+    private final IdentityService identityService;
     private final AccountRepository accountRepository;
     private final RoleRepository roleRepository;
     private final CompanyRepository companyRepository;
@@ -112,10 +113,10 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         String email = EmailIdentity.canonicalize(request.email());
         email = email == null || email.isBlank() ? null : email;
         String employeeNumber = normalizeOptional(request.employeeNumber());
-        if (userRepository.existsByUsername(username)) {
+        if (identityService.usernameExists(username)) {
             throw new InvalidStateException("Username is already in use");
         }
-        if (email != null && userRepository.existsByEmail(email)) {
+        if (email != null && identityService.emailExists(email)) {
             throw new InvalidStateException("Email is already in use");
         }
         if (employeeNumber != null
@@ -133,22 +134,15 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         List<ValidatedRoleAssignment> assignments = validateInitialRoles(
                 accountId, request.initialRoles());
 
-        User user = new User();
-        user.setUsername(username);
-        user.setEmail(email);
-        user.setFirstName(request.firstName().trim());
-        user.setLastName(request.lastName().trim());
-        user.setPhone(normalizeOptional(request.phone()));
-        user.setActive(true);
-        user.setEmailVerified(false);
-
-        try {
-            user = userRepository.saveAndFlush(user);
-        } catch (DataIntegrityViolationException ex) {
-            throw new InvalidStateException("Username, email, or employee number is already in use");
-        }
+        // Identity owns creating the row, its uniqueness rules, and translating their violation.
+        User user = identityService.createUser(NewUserCommand.withoutCredentials(
+                username,
+                email,
+                request.firstName().trim(),
+                request.lastName().trim(),
+                normalizeOptional(request.phone())));
+        // MemberCredentialService persists its own credential-state changes.
         var initialAccess = memberCredentialService.initialize(user, account);
-        userRepository.saveAndFlush(user);
 
         Member member = new Member();
         member.setAccount(account);
@@ -205,7 +199,6 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
             throw new ForbiddenException("Workspace owner cannot be deactivated. Transfer ownership first.");
         }
         memberCredentialService.invalidatePendingAccess(member.getUser());
-        userRepository.saveAndFlush(member.getUser());
         member.setActive(false);
         memberRepository.saveAndFlush(member);
     }
@@ -216,7 +209,6 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     public MemberAccessResult regenerateInitialAccess(UUID memberId) {
         Member member = requireActiveManagedMember(memberId);
         var material = memberCredentialService.regenerate(member.getUser(), member.getAccount());
-        userRepository.saveAndFlush(member.getUser());
         return new MemberAccessResult(member.getId(), material);
     }
 
@@ -226,7 +218,6 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     public MemberAccessResult resetAccess(UUID memberId) {
         Member member = requireActiveManagedMember(memberId);
         var material = memberCredentialService.reset(member.getUser(), member.getAccount());
-        userRepository.saveAndFlush(member.getUser());
         return new MemberAccessResult(member.getId(), material);
     }
 
@@ -289,7 +280,6 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     public void unlockInitialAccess(UUID memberId) {
         Member member = requireActiveManagedMember(memberId);
         memberCredentialService.unlock(member.getUser());
-        userRepository.saveAndFlush(member.getUser());
     }
 
     @Override
@@ -497,7 +487,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
                 override.getUpdatedAt());
     }
 
-    private com.hiveapp.platform.client.account.domain.entity.Company resolveExceptionCompany(
+    private com.hiveapp.platform.client.company.domain.entity.Company resolveExceptionCompany(
             UUID accountId, PermissionOverrideScope scope, UUID companyId) {
         if (scope == null) {
             throw new InvalidStateException("Permission exception scope is required");
@@ -631,7 +621,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     private record ValidatedRoleAssignment(
             com.hiveapp.platform.client.role.domain.entity.Role role,
             RoleAssignmentScope scope,
-            com.hiveapp.platform.client.account.domain.entity.Company company
+            com.hiveapp.platform.client.company.domain.entity.Company company
     ) {
     }
 
@@ -656,7 +646,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         }
     }
 
-    private void requireSameAccount(Member member, com.hiveapp.platform.client.account.domain.entity.Company company) {
+    private void requireSameAccount(Member member, com.hiveapp.platform.client.company.domain.entity.Company company) {
         if (!company.getAccount().getId().equals(member.getAccount().getId())) {
             throw new ForbiddenException("Company does not belong to the member account");
         }

@@ -15,7 +15,7 @@ import com.hiveapp.platform.client.role.dto.RoleImpactDto;
 import com.hiveapp.platform.client.role.dto.RoleImpactScopeDto;
 import com.hiveapp.platform.client.role.service.RoleService;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.definition.WorkspaceRolesFeature;

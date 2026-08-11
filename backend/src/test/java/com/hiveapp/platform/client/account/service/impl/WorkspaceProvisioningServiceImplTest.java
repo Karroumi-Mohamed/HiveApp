@@ -1,7 +1,7 @@
 package com.hiveapp.platform.client.account.service.impl;
 
 import com.hiveapp.identity.domain.entity.User;
-import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.member.domain.entity.Member;
@@ -45,7 +45,7 @@ import static org.mockito.Mockito.doAnswer;
 @ExtendWith(MockitoExtension.class)
 class WorkspaceProvisioningServiceImplTest {
 
-    @Mock UserRepository userRepository;
+    @Mock IdentityService identityService;
     @Mock AccountRepository accountRepository;
     @Mock MemberRepository memberRepository;
     @Mock PlanRepository planRepository;
@@ -59,7 +59,7 @@ class WorkspaceProvisioningServiceImplTest {
     @Test
     void missingFreePlanFailsBeforeWorkspaceCreation() {
         UUID userId = UUID.randomUUID();
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user(userId)));
+        when(identityService.requireManagedUser(userId)).thenReturn(user(userId));
         when(accountRepository.findByOwner_Id(userId)).thenReturn(Optional.empty());
         when(planRepository.findByCode("FREE")).thenReturn(Optional.empty());
 
@@ -83,7 +83,7 @@ class WorkspaceProvisioningServiceImplTest {
         subscription.setEntitlementSnapshot(SubscriptionEntitlementSnapshot.empty(
                 "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY));
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(account.getOwner()));
+        when(identityService.requireManagedUser(userId)).thenReturn(account.getOwner());
         when(accountRepository.findByOwner_Id(userId)).thenReturn(Optional.of(account));
         when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(owner));
         when(subscriptionRepository.findAllByAccountIdAndStatusIn(
@@ -109,7 +109,7 @@ class WorkspaceProvisioningServiceImplTest {
         SubscriptionEntitlementSnapshot snapshot = SubscriptionEntitlementSnapshot.empty(
                 "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(identityService.requireManagedUser(userId)).thenReturn(user);
         when(accountRepository.findByOwner_Id(userId)).thenReturn(Optional.empty());
         when(planRepository.findByCode("FREE")).thenReturn(Optional.of(freePlan));
         when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> {
@@ -152,7 +152,7 @@ class WorkspaceProvisioningServiceImplTest {
 
     private WorkspaceProvisioningServiceImpl service() {
         return new WorkspaceProvisioningServiceImpl(
-                userRepository,
+                identityService,
                 accountRepository,
                 memberRepository,
                 planRepository,

@@ -4,6 +4,7 @@ import com.hiveapp.identity.domain.constant.CredentialState;
 import com.hiveapp.identity.domain.constant.CredentialTokenPurpose;
 import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.identity.domain.entity.User;
+import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.event.CredentialEmailRequestedEvent;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.shared.config.ActivationProperties;
@@ -29,10 +30,12 @@ public class MemberCredentialService {
     private final ApplicationEventPublisher eventPublisher;
     private final TokenSessionService tokenSessionService;
     private final EmailDeliveryTracker emailDeliveryTracker;
+    private final UserRepository userRepository;
 
     public CredentialAccessMaterial initialize(User user, Account account) {
-        return hasEmail(user) ? emailAccess(user, account, CredentialTokenPurpose.ACTIVATION, true)
-                : temporaryAccess(user);
+        return persisted(user, hasEmail(user)
+                ? emailAccess(user, account, CredentialTokenPurpose.ACTIVATION, true)
+                : temporaryAccess(user));
     }
 
     public CredentialAccessMaterial regenerate(User user, Account account) {
@@ -43,8 +46,9 @@ public class MemberCredentialService {
         CredentialTokenPurpose purpose = user.isEmailVerified()
                 ? CredentialTokenPurpose.PASSWORD_RESET
                 : CredentialTokenPurpose.ACTIVATION;
-        return hasEmail(user) ? emailAccess(user, account, purpose, true)
-                : temporaryAccess(user);
+        return persisted(user, hasEmail(user)
+                ? emailAccess(user, account, purpose, true)
+                : temporaryAccess(user));
     }
 
     public CredentialAccessMaterial reset(User user, Account account) {
@@ -52,8 +56,9 @@ public class MemberCredentialService {
             throw new InvalidStateException("Unactivated access must be regenerated, not reset");
         }
         tokenSessionService.revokeAll(List.of(user.getId()), TokenAudience.CLIENT);
-        return hasEmail(user) ? emailAccess(user, account, CredentialTokenPurpose.PASSWORD_RESET, true)
-                : temporaryAccess(user);
+        return persisted(user, hasEmail(user)
+                ? emailAccess(user, account, CredentialTokenPurpose.PASSWORD_RESET, true)
+                : temporaryAccess(user));
     }
 
     public CredentialAccessMaterial requestSelfServiceReset(User user, Account account) {
@@ -72,6 +77,7 @@ public class MemberCredentialService {
             user.setInitialAccessFailedAttempts(0);
         }
         tokenSessionService.revokeAll(List.of(user.getId()), TokenAudience.CLIENT);
+        userRepository.saveAndFlush(user);
     }
 
     public void unlock(User user) {
@@ -80,6 +86,7 @@ public class MemberCredentialService {
         }
         user.setInitialAccessLocked(false);
         user.setInitialAccessFailedAttempts(0);
+        userRepository.saveAndFlush(user);
     }
 
     private CredentialAccessMaterial temporaryAccess(User user) {
@@ -141,5 +148,14 @@ public class MemberCredentialService {
 
     private boolean hasEmail(User user) {
         return user.getEmail() != null && !user.getEmail().isBlank();
+    }
+
+    /**
+     * Identity persists its own credential-state changes. Callers in other domains must not
+     * write to the user row themselves.
+     */
+    private CredentialAccessMaterial persisted(User user, CredentialAccessMaterial material) {
+        userRepository.saveAndFlush(user);
+        return material;
     }
 }

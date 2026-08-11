@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.company.domain.entity;
 
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.company.domain.constant.GroupStatus;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.domain.TenantInvariant;

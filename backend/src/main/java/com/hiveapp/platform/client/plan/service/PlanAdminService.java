@@ -4,7 +4,6 @@ import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
-import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
@@ -28,27 +27,35 @@ import org.springframework.data.domain.Pageable;
 import java.util.List;
 import java.util.UUID;
 
+import com.hiveapp.platform.client.plan.dto.PlanDto;
+
+import com.hiveapp.platform.client.plan.dto.PlanFeatureDto;
+
+import com.hiveapp.platform.client.plan.dto.AddOnDto;
+
+import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
+
 public interface PlanAdminService {
 
-    List<Plan> listPlans();
+    List<PlanDto> listPlans();
 
     PlanDetailDto getPlanDetail(UUID planId);
 
-    Plan createPlan(CreatePlanRequest request);
+    PlanDto createPlan(CreatePlanRequest request);
 
-    Plan duplicatePlan(UUID sourcePlanId, PlanBranchRequest request);
+    PlanDto duplicatePlan(UUID sourcePlanId, PlanBranchRequest request);
 
-    Plan revisePlan(UUID sourcePlanId, PlanBranchRequest request);
+    PlanDto revisePlan(UUID sourcePlanId, PlanBranchRequest request);
 
-    Plan updatePlan(UUID planId, UpdatePlanRequest request);
+    PlanDto updatePlan(UUID planId, UpdatePlanRequest request);
 
-    Plan transitionStatus(UUID planId, PlanStatus targetStatus);
+    PlanDto transitionStatus(UUID planId, PlanStatus targetStatus);
 
     PlanDeletionPreview previewPlanDeletion(UUID planId);
 
     void deletePlan(UUID planId, DeletePlanRequest request);
 
-    List<PlanFeature> listPlanFeatures(UUID planId);
+    List<PlanFeatureDto> listPlanFeatures(UUID planId);
 
     Page<PlanSubscriberDto> listPlanSubscribers(
             UUID planId, String search, com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus status,
@@ -57,39 +64,39 @@ public interface PlanAdminService {
     Page<PlanSubscriberOwnerLookupDto> findPlanSubscribersByOwnerEmail(
             UUID planId, String ownerEmail, Pageable pageable);
 
-    PlanFeature assignFeature(UUID planId, AssignPlanFeatureRequest request);
+    PlanFeatureDto assignFeature(UUID planId, AssignPlanFeatureRequest request);
 
-    PlanFeature updateFeature(UUID planId, UUID planFeatureId, AssignPlanFeatureRequest request);
+    PlanFeatureDto updateFeature(UUID planId, UUID planFeatureId, AssignPlanFeatureRequest request);
 
     void removeFeature(UUID planId, UUID planFeatureId);
 
-    List<AddOn> listAddOns();
+    List<AddOnDto> listAddOns();
 
-    AddOn getAddOn(UUID addOnId);
+    AddOnDto getAddOn(UUID addOnId);
 
-    AddOn createAddOn(CreateAddOnRequest request);
+    AddOnDto createAddOn(CreateAddOnRequest request);
 
-    AddOn updateAddOn(UUID addOnId, UpdateAddOnRequest request);
+    AddOnDto updateAddOn(UUID addOnId, UpdateAddOnRequest request);
 
-    AddOn transitionAddOnStatus(UUID addOnId, AddOnStatus targetStatus);
+    AddOnDto transitionAddOnStatus(UUID addOnId, AddOnStatus targetStatus);
 
     void deleteAddOn(UUID addOnId);
 
-    AddOnFeature assignAddOnFeature(UUID addOnId, AssignAddOnFeatureRequest request);
+    AddOnDto.FeatureItem assignAddOnFeature(UUID addOnId, AssignAddOnFeatureRequest request);
 
-    AddOnFeature updateAddOnFeature(UUID addOnId, UUID addOnFeatureId, AssignAddOnFeatureRequest request);
+    AddOnDto.FeatureItem updateAddOnFeature(UUID addOnId, UUID addOnFeatureId, AssignAddOnFeatureRequest request);
 
     void removeAddOnFeature(UUID addOnId, UUID addOnFeatureId);
 
-    List<QuotaPackage> listQuotaPackages();
+    List<QuotaPackageDto> listQuotaPackages();
 
-    QuotaPackage getQuotaPackage(UUID quotaPackageId);
+    QuotaPackageDto getQuotaPackage(UUID quotaPackageId);
 
-    QuotaPackage createQuotaPackage(CreateQuotaPackageRequest request);
+    QuotaPackageDto createQuotaPackage(CreateQuotaPackageRequest request);
 
-    QuotaPackage updateQuotaPackage(UUID quotaPackageId, UpdateQuotaPackageRequest request);
+    QuotaPackageDto updateQuotaPackage(UUID quotaPackageId, UpdateQuotaPackageRequest request);
 
-    QuotaPackage transitionQuotaPackageStatus(UUID quotaPackageId, QuotaPackageStatus targetStatus);
+    QuotaPackageDto transitionQuotaPackageStatus(UUID quotaPackageId, QuotaPackageStatus targetStatus);
 
     void deleteQuotaPackage(UUID quotaPackageId);
 }

@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.account.service;
 
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.plan.service.SubscriptionImpactContributor;
 import com.hiveapp.platform.registry.definition.CompanyFeature;
 import lombok.RequiredArgsConstructor;

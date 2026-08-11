@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.member.domain.entity;
 
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.role.domain.entity.Role;
 import com.hiveapp.platform.client.role.domain.constant.RoleTemplateBoundary;

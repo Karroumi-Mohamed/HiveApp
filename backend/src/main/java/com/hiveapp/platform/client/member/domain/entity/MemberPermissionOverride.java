@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.member.domain.entity;
 
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
 import com.hiveapp.platform.registry.domain.entity.Permission;

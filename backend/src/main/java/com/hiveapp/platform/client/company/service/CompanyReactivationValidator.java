@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.company.service;
 
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.collaboration.domain.constant.CollaborationStatus;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationPermissionRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;

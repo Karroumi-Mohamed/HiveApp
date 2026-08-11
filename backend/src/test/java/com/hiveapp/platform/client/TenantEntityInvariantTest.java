@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.collaboration.domain.entity.Collaboration;
 import com.hiveapp.platform.client.company.domain.entity.GroupMembership;
 import com.hiveapp.platform.client.company.domain.entity.GroupStructureTemplate;

@@ -1,7 +1,6 @@
 package com.hiveapp.platform.admin.service.impl;
 
 import com.hiveapp.identity.domain.entity.User;
-import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.dto.AuthResponse;
 import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
@@ -25,7 +24,6 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
 
     private final CredentialAuthenticationService credentialAuthenticationService;
     private final AdminUserRepository adminUserRepository;
-    private final UserRepository userRepository;
     private final TokenSessionService tokenSessionService;
 
     @Override
@@ -45,9 +43,8 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
     @Transactional(readOnly = true)
     public AuthResponse refresh(RefreshTokenRequest request) {
         var identity = tokenSessionService.consume(request.refreshToken(), TokenAudience.ADMIN);
-        User user = userRepository.findById(identity.userId())
-                .orElseThrow(() -> new UnauthorizedException("Admin account not found"));
-        AdminUser admin = requireActiveAdmin(user);
+        // The admin domain owns this lookup; identity is not consulted at all.
+        AdminUser admin = requireActiveAdminByUserId(identity.userId());
         log.info("Admin token refreshed: {}", admin.getUser().getEmail());
         return issueTokens(admin.getUser());
     }
@@ -58,9 +55,17 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
     }
 
     private AdminUser requireActiveAdmin(User user) {
-        AdminUser admin = adminUserRepository.findByUserId(user.getId())
+        return requireActiveAdminByUserId(user.getId());
+    }
+
+    /**
+     * Resolves the administrator from its own aggregate. The user's active flag is read through
+     * the AdminUser relationship rather than by querying identity.
+     */
+    private AdminUser requireActiveAdminByUserId(java.util.UUID userId) {
+        AdminUser admin = adminUserRepository.findByUserId(userId)
                 .orElseThrow(() -> new UnauthorizedException("Invalid admin email or password"));
-        if (!admin.isActive() || !user.isActive()) {
+        if (!admin.isActive() || !admin.getUser().isActive()) {
             throw new UnauthorizedException("Admin account is inactive");
         }
         return admin;
