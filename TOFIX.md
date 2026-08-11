@@ -1505,11 +1505,19 @@ Find every `IdentityService` caller and determine whether callers need the compl
 
 Expose a small immutable identity view for cross-domain consumers. Keep entity access internal to the identity package unless a transactional domain operation truly requires it.
 
+**Verification — 2026-08-11**
+
+`AdminUserServiceImpl` is still the only external caller, and it does **not** read identity fields — it calls `adminUser.setUser(user)` to establish the `AdminUser.user` `@OneToOne`. That is precisely the "transactional domain operation truly requires it" exception in this finding's own fix direction, so swapping the return type for a read view does not apply as written; `AdminUser` must reference the `User` type regardless.
+
+The larger leak this finding implies is also already present somewhere it does not mention: `AdminSeeder` imports and uses `UserRepository` directly, bypassing `IdentityService` entirely. Narrowing only this one method would leave that untouched.
+
+**Blocked on decision.** How domains should exchange references at all is `MODULES-001`, which is `DECISION` status and owned by Batch 6.4. Resolving `SERVICE-001` properly means deciding that contract first; doing it inside Batch 6.3 would pre-commit 6.4's answer.
+
 ---
 
 ### SERVICE-002 — Platform admin service contracts expose persistence entities
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED — 2026-08-11`
 
 **Evidence**
 
@@ -1526,11 +1534,17 @@ API behavior depends on lazy entity state and controller-side database access. T
 
 Keep the monolith, but have application services return complete DTO/read models for API use. Entity-returning methods can remain internal where truly useful.
 
+**Implementation evidence — 2026-08-11**
+
+- `AdminUserService` and `AdminRoleService` already returned `AdminUserResponseDto` / `AdminRoleResponseDto` after Batch 6.1's `ADMIN-DATA-001` work; only `AdminSubscriptionService` still returned `Subscription`.
+- Its four entity-returning methods now return `AdminSubscriptionDto` / `SubscriptionDto`, and the `AdminSubscriptionDto` assembly moved out of `SubscriptionAdminController` into the service, where the account and plan relationships resolve inside the service transaction instead of during response rendering.
+- `SubscriptionAdminController` no longer injects `SubscriptionMapper`, `SubscriptionOverrideReader`, or `SubscriptionSnapshotReader`, and holds no reference to a persistence entity.
+
 ---
 
 ### SERVICE-003 — Company and member API services also expose persistence entities
 
-**Status:** `OBSERVED`
+**Status:** `PARTIALLY IMPLEMENTED — COMPANY DONE; MEMBER AND ROLE PENDING 2026-08-11`
 
 **Evidence**
 
@@ -1543,6 +1557,17 @@ This repeats the API/persistence coupling and lazy-loading dependency found in t
 **Possible fix direction**
 
 When API contracts are stabilized, return purpose-built summary/detail read models from application services while keeping internal entity methods package-focused.
+
+**Implementation evidence — 2026-08-11**
+
+- `CompanyService` now returns `CompanyDto` from every method. `CompanyMutationResult` is deleted, mapping moved into `CompanyServiceImpl`, and `CompanyController` holds no mapper and no entity. Its unit test uses the generated `CompanyMapperImpl` so the assertions also cover the projection the service now owns.
+- `MemberService` and `RoleService` still return entities. This is deliberately unfinished rather than partly applied; the attempt was reverted after it broke two credential-lifecycle tests.
+
+**Ordering constraint discovered — read before finishing this finding**
+
+`MemberController` does not merely map entities: it resolves the credential email delivery summary **after** the service transaction commits. `CredentialEmailListener` is a `@TransactionalEventListener(phase = AFTER_COMMIT)`, so a delivery summary read from inside `createMember` / `regenerateInitialAccess` / `resetAccess` always observes `PENDING` instead of `SENT` or `FAILED`. `MemberCredentialLifecycleIntegrationTest` catches this.
+
+Moving member response assembly into the service therefore requires the transactional work to be extracted into a collaborator — the shape `CollaborationInitiationStore` already uses — so the summary resolves after commit. Do not simply relocate the controller's assembly; the transaction boundary, not the mapping, is what makes it correct today.
 
 ---
 

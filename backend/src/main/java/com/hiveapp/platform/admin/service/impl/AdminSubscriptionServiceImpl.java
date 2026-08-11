@@ -1,12 +1,17 @@
 package com.hiveapp.platform.admin.service.impl;
 
+import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
 import com.hiveapp.platform.admin.service.AdminSubscriptionService;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
-import com.hiveapp.platform.client.plan.service.SubscriptionService;
-import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
+import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
+import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
+import com.hiveapp.platform.client.plan.service.SubscriptionService;
+import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.SubscriptionsFeature;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
@@ -26,6 +31,9 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
 
     private final SubscriptionService subscriptionService;
     private final SubscriptionCheckoutService subscriptionCheckoutService;
+    private final SubscriptionMapper subscriptionMapper;
+    private final SubscriptionOverrideReader subscriptionOverrideReader;
+    private final SubscriptionSnapshotReader subscriptionSnapshotReader;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -33,34 +41,36 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     }
 
     @Override
+    @Transactional(readOnly = true)
     @PermissionNode(key = "read", description = "View account subscription")
-    public Subscription getSubscription(UUID accountId) {
-        return subscriptionService.getSubscription(accountId);
+    public AdminSubscriptionDto getSubscription(UUID accountId) {
+        return toAdminDto(subscriptionService.getSubscription(accountId));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "create", description = "Manually assign a plan to account")
-    public Subscription createSubscription(UUID accountId, String planCode) {
-        return subscriptionService.createSubscription(accountId, planCode);
+    public SubscriptionDto createSubscription(UUID accountId, String planCode) {
+        return subscriptionMapper.toDto(subscriptionService.createSubscription(accountId, planCode));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "create_trial", description = "Start a trial subscription for an account")
-    public Subscription createTrial(UUID accountId, String planCode, int trialDays) {
-        return subscriptionService.createTrial(accountId, planCode, trialDays);
+    public SubscriptionDto createTrial(UUID accountId, String planCode, int trialDays) {
+        return subscriptionMapper.toDto(subscriptionService.createTrial(accountId, planCode, trialDays));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "update_overrides", description = "Apply AddOn and quota package selections to subscription")
-    public Subscription updateOverrides(
+    public SubscriptionDto updateOverrides(
             UUID accountId,
             Set<String> addOnCodes,
             List<QuotaPackageSelection> quotaPackages
     ) {
-        return subscriptionService.updateOverrides(accountId, addOnCodes, quotaPackages);
+        return subscriptionMapper.toDto(
+                subscriptionService.updateOverrides(accountId, addOnCodes, quotaPackages));
     }
 
     @Override
@@ -80,5 +90,26 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     ) {
         return subscriptionCheckoutService.toDto(subscriptionCheckoutService.confirmManual(
                 checkoutId, actorUserId, reference, reason));
+    }
+
+    /**
+     * Assembled here rather than in the controller so the account and plan relationships are
+     * resolved inside this service's transaction instead of during response rendering.
+     */
+    private AdminSubscriptionDto toAdminDto(Subscription subscription) {
+        return new AdminSubscriptionDto(
+                subscription.getId(),
+                subscription.getAccount().getId(),
+                subscription.getAccount().getName(),
+                subscription.getPlan().getCode(),
+                subscription.getPlan().getName(),
+                subscription.getStatus(),
+                subscription.getCurrentPrice(),
+                subscription.getCurrentPriceCurrencyCode(),
+                subscription.getCurrentPeriodStart(),
+                subscription.getCurrentPeriodEnd(),
+                subscription.isCancelAtPeriodEnd(),
+                subscriptionOverrideReader.read(subscription.getCustomOverrides()),
+                subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()).orElse(null));
     }
 }

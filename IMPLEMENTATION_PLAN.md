@@ -1782,9 +1782,9 @@ flowchart TD
 | **DTO-004** | Client DTO clean | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Canonical quota JSON shape |
 | **MAPPER-001** | Prevent Lazy-Init | IMPLEMENTED FOR LIST READ MODELS | VERIFY FIRST | Phase 6 | Batch 6.2 | DTO-003 | Constant statement count as rows grow |
 | **MAPPER-002** | MapStruct mappers | ASSESSED — CONSOLIDATION IN BATCH 6.3 | VERIFY FIRST | Phase 6 | Batch 6.2 | MAPPER-001 | Confirmed instance closed by 6.1; remainder owned by SERVICE-002/003 |
-| **SERVICE-001** | Expose DTOs | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.3 | None | UserDTO return |
-| **SERVICE-002** | Expose DTOs | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-001 | AdminDTO return |
-| **SERVICE-003** | Expose DTOs | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-002 | MemberDTO return |
+| **SERVICE-001** | Expose DTOs | BLOCKED ON MODULES-001 | VERIFY FIRST | Phase 6 | Batch 6.3 | None | Sole caller needs the managed entity for a @OneToOne |
+| **SERVICE-002** | Expose DTOs | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-001 | Admin services return read models |
+| **SERVICE-003** | Expose DTOs | PARTIAL — COMPANY DONE | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-002 | Company returns DTOs; member/role pending |
 | **AUTH-001** | Email Canonicalized | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.2 | None | Mixed-case registration/login test |
 | **AUTH-002** | Invalidate sessions | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-001 | Rotation, reuse, logout, purpose and audience tests |
 | **AUTH-003** | Align Security Context | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-002 | Active membership/account context test |

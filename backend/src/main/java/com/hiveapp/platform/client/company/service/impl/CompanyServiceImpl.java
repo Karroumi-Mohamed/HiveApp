@@ -3,9 +3,10 @@ package com.hiveapp.platform.client.company.service.impl;
 import com.hiveapp.platform.client.account.domain.entity.Company;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.dto.CompanyDto;
+import com.hiveapp.platform.client.company.mapper.CompanyMapper;
 import com.hiveapp.platform.client.company.service.CompanyService;
 import com.hiveapp.platform.client.company.service.CompanyCountryChangeGuard;
-import com.hiveapp.platform.client.company.service.CompanyMutationResult;
 import com.hiveapp.platform.client.company.service.CompanyReactivationValidator;
 import com.hiveapp.platform.client.company.service.OrganizationInitializer;
 import com.hiveapp.platform.registry.definition.CompanyFeature;
@@ -41,6 +42,7 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
     private final CompanyCountryChangeGuard countryChangeGuard;
     private final CompanyReactivationValidator reactivationValidator;
     private final OrganizationInitializer organizationInitializer;
+    private final CompanyMapper companyMapper;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -50,7 +52,7 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
     @Override
     @PermissionNode(key = CompanyFeature.CREATE, description = "Create Company")
     @Transactional
-    public CompanyMutationResult createCompany(
+    public CompanyDto createCompany(
             UUID accountId,
             String name,
             String legalName,
@@ -85,28 +87,30 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
         comp.setActive(true);
         var saved = companyRepository.save(comp);
         organizationInitializer.initialize(saved);
-        return new CompanyMutationResult(
+        return companyMapper.toDto(
                 saved,
                 taxIdWarnings(accountId, normalizedCountry, normalizedTaxId, saved.getId()));
     }
 
     @Override
     @PermissionNode(key = CompanyFeature.READ_ALL, description = "List Account Companies")
-    public List<Company> getAccountCompanies(UUID accountId) {
+    public List<CompanyDto> getAccountCompanies(UUID accountId) {
         requireCurrentAccount(accountId);
-        return companyRepository.findAllByAccountId(accountId);
+        return companyRepository.findAllByAccountId(accountId).stream()
+                .map(companyMapper::toDto)
+                .toList();
     }
 
     @Override
     @PermissionNode(key = CompanyFeature.READ_SINGLE, description = "Get Company Details")
-    public Company getCompany(UUID accountId, UUID id) {
-        return getOwnedCompany(accountId, id);
+    public CompanyDto getCompany(UUID accountId, UUID id) {
+        return companyMapper.toDto(getOwnedCompany(accountId, id));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = CompanyFeature.UPDATE, description = "Update Company")
-    public CompanyMutationResult updateCompany(
+    public CompanyDto updateCompany(
             UUID accountId,
             UUID id,
             String name,
@@ -129,7 +133,7 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
         if (address != null) company.setAddress(normalizeOptional(address));
         if (logoUrl != null) company.setLogoUrl(normalizeOptional(logoUrl));
         var saved = companyRepository.save(company);
-        return new CompanyMutationResult(
+        return companyMapper.toDto(
                 saved,
                 taxIdWarnings(accountId, saved.getCountry(), saved.getTaxId(), saved.getId()));
     }
@@ -149,7 +153,7 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
     @Override
     @Transactional
     @PermissionNode(key = CompanyFeature.REACTIVATE, description = "Reactivate Company")
-    public Company reactivateCompany(UUID accountId, UUID id) {
+    public CompanyDto reactivateCompany(UUID accountId, UUID id) {
         requireCurrentAccount(accountId);
         requireB2bTargetCompany(id);
         var account = accountRepository.findByIdForQuotaUpdate(accountId)
@@ -158,7 +162,7 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
         var company = companyRepository.findByIdAndAccountIdForUpdate(id, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", "id", id));
         if (company.isActive()) {
-            return company;
+            return companyMapper.toDto(company);
         }
 
         quotaEnforcer.check(
@@ -168,7 +172,7 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
                 () -> companyRepository.countByAccountIdAndIsActiveTrue(accountId));
         reactivationValidator.validate(company);
         company.setActive(true);
-        return companyRepository.save(company);
+        return companyMapper.toDto(companyRepository.save(company));
     }
 
     private Company getOwnedCompany(UUID accountId, UUID id) {
