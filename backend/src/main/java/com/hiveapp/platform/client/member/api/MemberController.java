@@ -11,7 +11,6 @@ import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
 import com.hiveapp.platform.client.member.dto.MemberAuthorizationDto;
 import com.hiveapp.platform.client.member.dto.OverridePermissionRequest;
 import com.hiveapp.platform.client.member.dto.UpdateMemberRequest;
-import com.hiveapp.platform.client.member.mapper.MemberMapper;
 import com.hiveapp.platform.client.member.service.MemberService;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
@@ -24,7 +23,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/members")
@@ -32,15 +30,12 @@ import java.util.stream.Collectors;
 public class MemberController {
 
     private final MemberService memberService;
-    private final MemberMapper memberMapper;
     private final EmailDeliveryTracker emailDeliveryTracker;
 
     @GetMapping
     public List<MemberDto> getMembers() {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return memberService.getAccountMembers(accountId).stream()
-                .map(memberMapper::toDto)
-                .collect(Collectors.toList());
+        return memberService.getAccountMembers(accountId);
     }
 
     @PostMapping
@@ -50,7 +45,7 @@ public class MemberController {
         var result = memberService.createMember(accountId, req);
         var access = result.initialAccess();
         return new MemberCreationResponse(
-                memberMapper.toDto(result.member()),
+                result.member(),
                 access.method(),
                 access.state(),
                 access.temporaryPassword(),
@@ -60,7 +55,7 @@ public class MemberController {
 
     @PatchMapping("/{id}")
     public MemberDto updateMember(@PathVariable UUID id, @Valid @RequestBody UpdateMemberRequest req) {
-        return memberMapper.toDto(memberService.updateMember(id, req.displayName()));
+        return memberService.updateMember(id, req.displayName());
     }
 
     @DeleteMapping("/{id}")

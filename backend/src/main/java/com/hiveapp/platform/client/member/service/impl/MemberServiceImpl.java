@@ -16,6 +16,7 @@ import com.hiveapp.platform.client.member.dto.InitialRoleAssignmentRequest;
 import com.hiveapp.platform.client.member.dto.MemberAccessResult;
 import com.hiveapp.platform.client.member.dto.MemberAccessStatusResponse;
 import com.hiveapp.platform.client.member.dto.MemberCreationResult;
+import com.hiveapp.platform.client.member.dto.MemberDto;
 import com.hiveapp.platform.client.member.dto.MemberAuthorizationDto;
 import com.hiveapp.platform.client.member.dto.MemberRoleAssignmentDto;
 import com.hiveapp.platform.client.member.mapper.MemberMapper;
@@ -81,8 +82,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         return StaffFeature.definition();
     }
 
-    @Override
-    public Member getMember(UUID id) {
+    private Member getMember(UUID id) {
         UUID accountId = currentAccountId();
         return memberRepository.findByIdAndAccountId(id, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member", "id", id));
@@ -90,9 +90,11 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
 
     @Override
     @PermissionNode(key = "read", description = "List account members")
-    public List<Member> getAccountMembers(UUID accountId) {
+    public List<MemberDto> getAccountMembers(UUID accountId) {
         requireCurrentAccount(accountId);
-        return memberRepository.findWithUserByAccountId(accountId);
+        return memberRepository.findWithUserByAccountId(accountId).stream()
+                .map(memberMapper::toDto)
+                .toList();
     }
 
     @Override
@@ -174,19 +176,19 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         }
         memberRoleRepository.flush();
         roleRepository.flush();
-        return new MemberCreationResult(member, initialAccess);
+        return new MemberCreationResult(memberMapper.toDto(member), initialAccess);
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "update", description = "Update member profile")
-    public Member updateMember(UUID memberId, String displayName) {
+    public MemberDto updateMember(UUID memberId, String displayName) {
         var member = getMember(memberId);
         requireCurrentAccount(member);
         if (displayName != null) {
             member.setDisplayName(displayName);
         }
-        return memberRepository.save(member);
+        return memberMapper.toDto(memberRepository.save(member));
     }
 
     @Override

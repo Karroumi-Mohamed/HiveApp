@@ -20,6 +20,7 @@ import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.dto.InitialRoleAssignmentRequest;
 import com.hiveapp.platform.client.member.dto.MemberDto;
 import com.hiveapp.platform.client.member.mapper.MemberMapper;
+import com.hiveapp.platform.client.member.mapper.MemberMapperImpl;
 import com.hiveapp.platform.client.plan.service.PlanEntitlementService;
 import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.client.role.domain.entity.Role;
@@ -46,6 +47,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -80,7 +82,9 @@ class MemberServiceImplTest {
     @Mock private PlanEntitlementService planEntitlementService;
     @Mock private DelegationCeilingService delegationCeilingService;
     @Mock private EmailDeliveryTracker emailDeliveryTracker;
-    @Mock private MemberMapper memberMapper;
+    // Real MapStruct implementation so these assertions also cover the projection the
+    // service now owns instead of the controller.
+    @Spy private MemberMapper memberMapper = new MemberMapperImpl();
 
     @InjectMocks
     private MemberServiceImpl memberService;
@@ -108,9 +112,8 @@ class MemberServiceImplTest {
 
         var result = memberService.createMember(accountId, createRequest("nora"));
 
-        assertThat(result.member().getAccount()).isSameAs(account);
-        assertThat(result.member().getUser().getUsername()).isEqualTo("nora");
-        assertThat(result.member().getDisplayName()).isEqualTo("Nora Stone");
+        assertThat(result.member().username()).isEqualTo("nora");
+        assertThat(result.member().displayName()).isEqualTo("Nora Stone");
         assertThat(result.initialAccess().temporaryPassword()).isEqualTo("temporary-secret");
 
         ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);

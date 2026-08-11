@@ -7,7 +7,6 @@ import com.hiveapp.platform.client.role.dto.DuplicateRoleRequest;
 import com.hiveapp.platform.client.role.dto.RoleImpactConfirmationRequest;
 import com.hiveapp.platform.client.role.dto.RoleImpactDto;
 import com.hiveapp.platform.client.role.domain.constant.RoleChangeType;
-import com.hiveapp.platform.client.role.mapper.RoleMapper;
 import com.hiveapp.platform.client.role.service.RoleService;
 import com.hiveapp.platform.registry.dto.picker.PermissionPickerCatalogDto;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
@@ -18,7 +17,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/roles")
@@ -26,14 +24,11 @@ import java.util.stream.Collectors;
 public class RoleController {
 
     private final RoleService roleService;
-    private final RoleMapper roleMapper;
 
     @GetMapping
     public List<RoleDto> getAccountRoles() {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return roleService.getAccountRoles(accountId).stream()
-                .map(roleMapper::toDto)
-                .collect(Collectors.toList());
+        return roleService.getAccountRoles(accountId);
     }
 
     @GetMapping("/permission-catalog")
@@ -45,28 +40,26 @@ public class RoleController {
 
     @GetMapping("/company/{companyId}")
     public List<RoleDto> getCompanyRoles(@PathVariable UUID companyId) {
-        return roleService.getCompanyRoles(companyId).stream()
-                .map(roleMapper::toDto)
-                .collect(Collectors.toList());
+        return roleService.getCompanyRoles(companyId);
     }
 
     @GetMapping("/{id}")
     public RoleDto getRole(@PathVariable UUID id) {
-        return roleMapper.toDto(roleService.getRole(id));
+        return roleService.getRole(id);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public RoleDto createRole(@Valid @RequestBody CreateRoleRequest req) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return roleMapper.toDto(roleService.createRole(
-                accountId, req.templateBoundary(), req.boundaryCompanyId(), req.name(), req.description()));
+        return roleService.createRole(
+                accountId, req.templateBoundary(), req.boundaryCompanyId(), req.name(), req.description());
     }
 
     @PutMapping("/{id}")
     public RoleDto updateRole(@PathVariable UUID id, @Valid @RequestBody UpdateRoleRequest req) {
-        return roleMapper.toDto(roleService.updateRole(
-                id, req.name(), req.description(), req.expectedVersion(), req.confirmedAssignmentCount()));
+        return roleService.updateRole(
+                id, req.name(), req.description(), req.expectedVersion(), req.confirmedAssignmentCount());
     }
 
     @DeleteMapping("/{id}")
@@ -87,24 +80,24 @@ public class RoleController {
     public RoleDto activateRole(
             @PathVariable UUID id,
             @Valid @RequestBody(required = false) RoleImpactConfirmationRequest confirmation) {
-        return roleMapper.toDto(roleService.activateRole(
-                id, expectedVersion(confirmation), confirmedAssignments(confirmation)));
+        return roleService.activateRole(
+                id, expectedVersion(confirmation), confirmedAssignments(confirmation));
     }
 
     @PostMapping("/{id}/deactivate")
     public RoleDto deactivateRole(
             @PathVariable UUID id,
             @Valid @RequestBody(required = false) RoleImpactConfirmationRequest confirmation) {
-        return roleMapper.toDto(roleService.deactivateRole(
-                id, expectedVersion(confirmation), confirmedAssignments(confirmation)));
+        return roleService.deactivateRole(
+                id, expectedVersion(confirmation), confirmedAssignments(confirmation));
     }
 
     @PostMapping("/{id}/archive")
     public RoleDto archiveRole(
             @PathVariable UUID id,
             @Valid @RequestBody(required = false) RoleImpactConfirmationRequest confirmation) {
-        return roleMapper.toDto(roleService.archiveRole(
-                id, expectedVersion(confirmation), confirmedAssignments(confirmation)));
+        return roleService.archiveRole(
+                id, expectedVersion(confirmation), confirmedAssignments(confirmation));
     }
 
     @PostMapping("/{id}/duplicate")
@@ -112,7 +105,7 @@ public class RoleController {
     public RoleDto duplicateRole(
             @PathVariable UUID id,
             @Valid @RequestBody DuplicateRoleRequest request) {
-        return roleMapper.toDto(roleService.duplicateRole(id, request.name(), request.description()));
+        return roleService.duplicateRole(id, request.name(), request.description());
     }
 
     // ── Permissions on a role ─────────────────────────────────────────────────
@@ -124,8 +117,8 @@ public class RoleController {
             @RequestParam String registryVersion,
             @RequestParam(required = false) Long expectedVersion,
             @RequestParam(required = false) Long confirmedAssignmentCount) {
-        return roleMapper.toDto(roleService.addPermissionToRole(
-                id, permissionCode, registryVersion, expectedVersion, confirmedAssignmentCount));
+        return roleService.addPermissionToRole(
+                id, permissionCode, registryVersion, expectedVersion, confirmedAssignmentCount);
     }
 
     @DeleteMapping("/{id}/permissions/{permissionCode}")
@@ -134,8 +127,8 @@ public class RoleController {
             @PathVariable String permissionCode,
             @RequestParam(required = false) Long expectedVersion,
             @RequestParam(required = false) Long confirmedAssignmentCount) {
-        return roleMapper.toDto(roleService.removePermissionFromRole(
-                id, permissionCode, expectedVersion, confirmedAssignmentCount));
+        return roleService.removePermissionFromRole(
+                id, permissionCode, expectedVersion, confirmedAssignmentCount);
     }
 
     private Long expectedVersion(RoleImpactConfirmationRequest confirmation) {

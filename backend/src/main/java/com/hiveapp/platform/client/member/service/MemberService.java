@@ -1,6 +1,5 @@
 package com.hiveapp.platform.client.member.service;
 
-import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.dto.MemberAccessResponse;
@@ -8,6 +7,7 @@ import com.hiveapp.platform.client.member.dto.MemberAccessResult;
 import com.hiveapp.platform.client.member.dto.MemberAccessStatusResponse;
 import com.hiveapp.platform.client.member.dto.MemberCreationResult;
 import com.hiveapp.platform.client.member.dto.MemberAuthorizationDto;
+import com.hiveapp.platform.client.member.dto.MemberDto;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
 import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
@@ -17,10 +17,9 @@ import java.util.List;
 import java.util.UUID;
 
 public interface MemberService {
-    Member getMember(UUID id);
-    List<Member> getAccountMembers(UUID accountId);
+    List<MemberDto> getAccountMembers(UUID accountId);
     MemberCreationResult createMember(UUID accountId, CreateMemberRequest request);
-    Member updateMember(UUID memberId, String displayName);
+    MemberDto updateMember(UUID memberId, String displayName);
     void deactivateMember(UUID id);
     MemberAccessResult regenerateInitialAccess(UUID memberId);
     MemberAccessResult resetAccess(UUID memberId);

@@ -1477,7 +1477,7 @@ Locate all DTO constructors in services/controllers. Keep business-aware read-mo
 - The manual construction that remains in services is business-aware read-model assembly, exactly what this finding says to keep explicit. `PermissionPickerCatalogService` derives per-audience availability and a source-owned `PermissionUnavailableReason`, which is the behavior `REGISTRY-FLOW-004` decided; `RoleServiceImpl` aggregates assignment counts by scope into an impact model. Neither is field copying, and MapStruct cannot express either without an `@AfterMapping` body containing the same logic plus indirection.
 - Mechanical entity→DTO copying does still exist in `PlanAdminController`, `AddOnAdminController`, and `QuotaPackageAdminController`. It exists **because those services return persistence entities**, which is `SERVICE-002` / `SERVICE-003` — whose Batch 6.3 acceptance criterion is literally "Services return DTOs". Consolidating it inside Batch 6.2 would pre-empt that batch's contract design and be redone once the DTO-returning service interfaces exist.
 
-**Decision:** the lazy-safety half of this batch is complete under `MAPPER-001`. The remaining mapping consolidation is deliberately deferred to Batch 6.3 rather than dropped, because it is a symptom of the service boundary that batch owns. This finding closes when 6.3 lands.
+**Decision:** the lazy-safety half of this batch is complete under `MAPPER-001`. The remaining consolidation is a symptom of services returning entities, so it is owned by the boundary findings rather than by this one. Batch 6.3 closed `SERVICE-002` and `SERVICE-003`; the plan/add-on/quota-package controllers are now tracked explicitly as `SERVICE-004`. This finding closes when `SERVICE-004` lands.
 
 ---
 
@@ -1544,7 +1544,7 @@ Keep the monolith, but have application services return complete DTO/read models
 
 ### SERVICE-003 — Company and member API services also expose persistence entities
 
-**Status:** `PARTIALLY IMPLEMENTED — COMPANY DONE; MEMBER AND ROLE PENDING 2026-08-11`
+**Status:** `RESOLVED — 2026-08-11`
 
 **Evidence**
 
@@ -1561,13 +1561,50 @@ When API contracts are stabilized, return purpose-built summary/detail read mode
 **Implementation evidence — 2026-08-11**
 
 - `CompanyService` now returns `CompanyDto` from every method. `CompanyMutationResult` is deleted, mapping moved into `CompanyServiceImpl`, and `CompanyController` holds no mapper and no entity. Its unit test uses the generated `CompanyMapperImpl` so the assertions also cover the projection the service now owns.
-- `MemberService` and `RoleService` still return entities. This is deliberately unfinished rather than partly applied; the attempt was reverted after it broke two credential-lifecycle tests.
+- `RoleService` now returns `RoleDto` from every method. The tenant-scoped entity lookup became a private `requireRole` helper shared by the guarded read surface and `previewRoleImpact`; that internal call previously went through `getRole`, whose `@PermissionNode` never applied to it anyway because Spring self-invocation bypasses the proxy. `RoleController` holds no mapper and no entity.
+- `MemberService` now returns `MemberDto` from its list and update surfaces, `MemberCreationResult` carries a `MemberDto` instead of a `Member`, and the tenant-scoped lookup became a private helper. `MemberAccessResult` already carried no entity, so the credential-reset surfaces needed no change at all.
+- No entity type appears in `CompanyService`, `MemberService`, or `RoleService`, and none of their controllers imports a persistence entity or a mapper.
 
-**Ordering constraint discovered — read before finishing this finding**
+**Why the first attempt failed, and why the fix was smaller than it looked**
+
+The first attempt also moved the credential-email delivery-status read into the service, which this finding never required. That broke two credential-lifecycle tests and appeared to demand restructuring transactions and auditing. It did not: the finding asks only that services stop returning *entities*, and post-commit response composition is legitimate caller work. Recording the two constraints anyway, because anything that does later move that read must respect both.
+
+**Ordering constraint — relevant only if delivery-status composition is ever moved**
 
 `MemberController` does not merely map entities: it resolves the credential email delivery summary **after** the service transaction commits. `CredentialEmailListener` is a `@TransactionalEventListener(phase = AFTER_COMMIT)`, so a delivery summary read from inside `createMember` / `regenerateInitialAccess` / `resetAccess` always observes `PENDING` instead of `SENT` or `FAILED`. `MemberCredentialLifecycleIntegrationTest` catches this.
 
-Moving member response assembly into the service therefore requires the transactional work to be extracted into a collaborator — the shape `CollaborationInitiationStore` already uses — so the summary resolves after commit. Do not simply relocate the controller's assembly; the transaction boundary, not the mapping, is what makes it correct today.
+Any future move of that read into the service requires the transactional work to be extracted into a collaborator — the shape `CollaborationInitiationStore` already uses — so the summary resolves after commit. The transaction boundary, not the mapping, is what makes the current arrangement correct.
+
+**Second constraint: the extraction must not silently disable auditing.**
+
+`AuditMutationAspect` matches `@annotation(transactional) && @annotation(permissionNode)` on the *same method*. `createMember`, `regenerateInitialAccess`, and `resetAccess` are audited today only because they carry both. Removing `@Transactional` to allow a post-commit summary read would stop auditing member creation and credential resets, and no current test asserts those particular audit rows, so the loss would be silent.
+
+Required shape when this is finished:
+
+- The extracted collaborator carries `@Transactional` plus `@AuditedMutation` with an action code matching what the aspect records today, so the audit row survives the move.
+- The service method keeps `@PermissionNode` for the authorization gate and becomes non-transactional, then resolves the delivery summary after the collaborator commits.
+- Note that the permission check then runs outside a transaction, so its policy reads no longer join a caller transaction. Confirm that is acceptable against the advisor-order invariant recorded under `AUDIT-001` before relying on it.
+- Add a test asserting an `AuditLog` row is still written for member creation, since that is the failure this note exists to prevent.
+
+---
+
+### SERVICE-004 — Plan administration service exposes persistence entities
+
+**Status:** `CONFIRMED`
+
+**Evidence**
+
+`PlanAdminService` returns `Plan`, `PlanFeature`, `AddOn`, and `QuotaPackage` from 19 methods. `PlanAdminController`, `AddOnAdminController`, and `QuotaPackageAdminController` therefore hold private `toDto` methods and map entities themselves, including a nested `AddOnDto.FeatureItem` projection.
+
+This is the same defect class as `SERVICE-002` and `SERVICE-003`, for a service that neither finding names — `SERVICE-002` lists only the admin role/user/subscription services, and `SERVICE-003` only the company and member services. It is recorded separately rather than silently widening either.
+
+**Risk**
+
+The commercial administration surface keeps API response shape coupled to persistence, which is the coupling Batch 6.3 exists to remove. It is also the surface the future admin panel depends on most heavily.
+
+**Required resolution**
+
+Return read models from `PlanAdminService` and delete the controller-side `toDto` methods, matching what `SERVICE-002` and `SERVICE-003` did. Verify the plan-feature and add-on projections keep the entity graphs added under `MAPPER-001`, so moving the mapping does not reintroduce per-row statements.
 
 ---
 

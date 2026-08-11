@@ -9,6 +9,8 @@ import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.client.role.domain.repository.RolePermissionRepository;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
+import com.hiveapp.platform.client.role.dto.RoleDto;
+import com.hiveapp.platform.client.role.mapper.RoleMapper;
 import com.hiveapp.platform.client.role.dto.RoleImpactDto;
 import com.hiveapp.platform.client.role.dto.RoleImpactScopeDto;
 import com.hiveapp.platform.client.role.service.RoleService;
@@ -51,6 +53,7 @@ import java.util.Set;
 public class RoleServiceImpl extends ClientWorkspaceFeatureService implements RoleService {
 
     private final RoleRepository roleRepository;
+    private final RoleMapper roleMapper;
     private final RolePermissionRepository rolePermissionRepository;
     private final MemberRoleRepository memberRoleRepository;
     private final AccountRepository accountRepository;
@@ -69,7 +72,15 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
 
     @Override
     @PermissionNode(key = WorkspaceRolesFeature.READ, description = "View role details")
-    public Role getRole(UUID id) {
+    public RoleDto getRole(UUID id) {
+        return roleMapper.toDto(requireRole(id));
+    }
+
+    /**
+     * Tenant-scoped lookup shared by the guarded read surface and internal callers. Kept private
+     * so the contract exposes read models only.
+     */
+    private Role requireRole(UUID id) {
         UUID accountId = currentAccountId();
         var role = roleRepository.findByIdAndAccountId(id, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", id));
@@ -79,28 +90,28 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
 
     @Override
     @PermissionNode(key = WorkspaceRolesFeature.VIEW, description = "View roles")
-    public List<Role> getAccountRoles(UUID accountId) {
+    public List<RoleDto> getAccountRoles(UUID accountId) {
         requireCurrentAccount(accountId);
         if (isB2bContext()) {
             throw new ForbiddenException("B2B role access must use the collaboration Company scope");
         }
-        return roleRepository.findAllByAccountId(accountId);
+        return roleRepository.findAllByAccountId(accountId).stream().map(roleMapper::toDto).toList();
     }
 
     @Override
     @PermissionNode(key = WorkspaceRolesFeature.VIEW_COMPANY, description = "View company-scoped roles")
-    public List<Role> getCompanyRoles(UUID companyId) {
+    public List<RoleDto> getCompanyRoles(UUID companyId) {
         UUID accountId = currentAccountId();
         var company = companyRepository.findByIdAndAccountId(companyId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", "id", companyId));
         requireB2bTargetCompany(companyId);
-        return roleRepository.findAllByBoundaryCompanyId(companyId);
+        return roleRepository.findAllByBoundaryCompanyId(companyId).stream().map(roleMapper::toDto).toList();
     }
 
     @Override
     @Transactional
     @PermissionNode(key = WorkspaceRolesFeature.CREATE, description = "Create custom role")
-    public Role createRole(UUID accountId, RoleTemplateBoundary templateBoundary, UUID boundaryCompanyId,
+    public RoleDto createRole(UUID accountId, RoleTemplateBoundary templateBoundary, UUID boundaryCompanyId,
                            String name, String description) {
         requireCurrentAccount(accountId);
         if (templateBoundary == null) {
@@ -133,13 +144,13 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
         role.setDescription(normalizeOptional(description));
         role.setStatus(RoleStatus.INACTIVE);
         requireRoleManagementScope(role);
-        return roleRepository.save(role);
+        return roleMapper.toDto(roleRepository.save(role));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = WorkspaceRolesFeature.UPDATE, description = "Update role metadata")
-    public Role updateRole(
+    public RoleDto updateRole(
             UUID roleId, String name, String description,
             Long expectedVersion, Long confirmedAssignmentCount) {
         Role role = requireLockedRole(roleId);
@@ -148,7 +159,7 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
         requireConfirmedImpact(impact, expectedVersion, confirmedAssignmentCount);
         role.setName(normalizeRequired(name, "Role name"));
         role.setDescription(normalizeOptional(description));
-        return roleRepository.saveAndFlush(role);
+        return roleMapper.toDto(roleRepository.saveAndFlush(role));
     }
 
     @Override
@@ -171,7 +182,7 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     @Override
     @Transactional
     @PermissionNode(key = WorkspaceRolesFeature.GRANT, description = "Grant permission brick to role")
-    public Role addPermissionToRole(
+    public RoleDto addPermissionToRole(
             UUID roleId, String permissionCode,
             String registryVersion, Long expectedVersion, Long confirmedAssignmentCount) {
         Role role = requireLockedRole(roleId);
@@ -203,13 +214,13 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
         rolePermissionRepository.saveAndFlush(rp);
         role.getPermissions().add(rp);
         role.setDefinitionRevision(role.getDefinitionRevision() + 1);
-        return roleRepository.saveAndFlush(role);
+        return roleMapper.toDto(roleRepository.saveAndFlush(role));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = WorkspaceRolesFeature.REVOKE, description = "Revoke permission brick from role")
-    public Role removePermissionFromRole(
+    public RoleDto removePermissionFromRole(
             UUID roleId, String permissionCode,
             Long expectedVersion, Long confirmedAssignmentCount) {
         Role role = requireLockedRole(roleId);
@@ -222,13 +233,13 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
         rolePermissionRepository.deleteByRoleIdAndPermissionCode(roleId, permissionCode);
         role.getPermissions().removeIf(rp -> permissionCode.equals(rp.getPermission().getCode()));
         role.setDefinitionRevision(role.getDefinitionRevision() + 1);
-        return roleRepository.saveAndFlush(role);
+        return roleMapper.toDto(roleRepository.saveAndFlush(role));
     }
 
     @Override
     @PermissionNode(key = WorkspaceRolesFeature.IMPACT, description = "Preview role change impact")
     public RoleImpactDto previewRoleImpact(UUID roleId, RoleChangeType changeType, String permissionCode) {
-        Role role = getRole(roleId);
+        Role role = requireRole(roleId);
         validateImpactRequest(role, changeType, permissionCode);
         return impact(role, changeType, permissionCode);
     }
@@ -236,55 +247,55 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     @Override
     @Transactional
     @PermissionNode(key = WorkspaceRolesFeature.ACTIVATE, description = "Activate custom role")
-    public Role activateRole(UUID roleId, Long expectedVersion, Long confirmedAssignmentCount) {
+    public RoleDto activateRole(UUID roleId, Long expectedVersion, Long confirmedAssignmentCount) {
         Role role = requireLockedRole(roleId);
         requireCustomRole(role, "activated");
         if (role.getStatus() == RoleStatus.ARCHIVED) {
             throw new InvalidStateException("Archived roles are terminal and cannot be activated");
         }
-        if (role.getStatus() == RoleStatus.ACTIVE) return role;
+        if (role.getStatus() == RoleStatus.ACTIVE) return roleMapper.toDto(role);
         validateActivation(role);
         requireActorCanDelegateForRole(
                 role, role.getPermissions().stream().map(rp -> rp.getPermission().getCode()).toList());
         RoleImpactDto impact = impact(role, RoleChangeType.ACTIVATE, null);
         requireConfirmedImpact(impact, expectedVersion, confirmedAssignmentCount);
         role.setStatus(RoleStatus.ACTIVE);
-        return roleRepository.saveAndFlush(role);
+        return roleMapper.toDto(roleRepository.saveAndFlush(role));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = WorkspaceRolesFeature.DEACTIVATE, description = "Deactivate custom role")
-    public Role deactivateRole(UUID roleId, Long expectedVersion, Long confirmedAssignmentCount) {
+    public RoleDto deactivateRole(UUID roleId, Long expectedVersion, Long confirmedAssignmentCount) {
         Role role = requireLockedRole(roleId);
         requireCustomRole(role, "deactivated");
         if (role.getStatus() == RoleStatus.ARCHIVED) {
             throw new InvalidStateException("Archived roles are terminal and cannot be deactivated");
         }
-        if (role.getStatus() == RoleStatus.INACTIVE) return role;
+        if (role.getStatus() == RoleStatus.INACTIVE) return roleMapper.toDto(role);
         RoleImpactDto impact = impact(role, RoleChangeType.DEACTIVATE, null);
         requireConfirmedImpact(impact, expectedVersion, confirmedAssignmentCount);
         role.setStatus(RoleStatus.INACTIVE);
-        return roleRepository.saveAndFlush(role);
+        return roleMapper.toDto(roleRepository.saveAndFlush(role));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = WorkspaceRolesFeature.ARCHIVE, description = "Archive custom role")
-    public Role archiveRole(UUID roleId, Long expectedVersion, Long confirmedAssignmentCount) {
+    public RoleDto archiveRole(UUID roleId, Long expectedVersion, Long confirmedAssignmentCount) {
         Role role = requireLockedRole(roleId);
         requireCustomRole(role, "archived");
-        if (role.getStatus() == RoleStatus.ARCHIVED) return role;
+        if (role.getStatus() == RoleStatus.ARCHIVED) return roleMapper.toDto(role);
         RoleImpactDto impact = impact(role, RoleChangeType.ARCHIVE, null);
         requireConfirmedImpact(impact, expectedVersion, confirmedAssignmentCount);
         role.setStatus(RoleStatus.ARCHIVED);
-        return roleRepository.saveAndFlush(role);
+        return roleMapper.toDto(roleRepository.saveAndFlush(role));
     }
 
     @Override
     @Transactional
     @PermissionNode(key = WorkspaceRolesFeature.DUPLICATE, description = "Duplicate role for staged rollout")
-    public Role duplicateRole(UUID roleId, String name, String description) {
+    public RoleDto duplicateRole(UUID roleId, String name, String description) {
         Role source = requireLockedRole(roleId);
         requireActorCanDelegateAtDefaultBoundary(
                 source, source.getPermissions().stream().map(rp -> rp.getPermission().getCode()).toList());
@@ -307,7 +318,7 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
             duplicate.setDefinitionRevision(1);
             duplicate = roleRepository.saveAndFlush(duplicate);
         }
-        return duplicate;
+        return roleMapper.toDto(duplicate);
     }
 
     @Override
