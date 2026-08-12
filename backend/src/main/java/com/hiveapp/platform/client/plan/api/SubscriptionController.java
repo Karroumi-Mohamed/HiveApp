@@ -6,7 +6,6 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
-import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
@@ -30,12 +29,11 @@ import java.util.List;
 public class SubscriptionController {
 
     private final SubscriptionService subscriptionService;
-    private final SubscriptionMapper subscriptionMapper;
 
     @GetMapping("/me")
     public SubscriptionDto getMySubscription() {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionMapper.toDto(subscriptionService.getSubscription(accountId));
+        return subscriptionService.getMySubscription(accountId);
     }
 
     @GetMapping("/catalog")

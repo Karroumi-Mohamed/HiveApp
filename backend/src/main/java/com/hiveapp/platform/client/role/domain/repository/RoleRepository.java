@@ -24,6 +24,11 @@ public interface RoleRepository extends JpaRepository<Role, UUID> {
     /** Company-scoped counterpart of {@link #findAllByAccountId(UUID)}; same projection needs. */
     @EntityGraph(attributePaths = {"permissions", "permissions.permission"})
     List<Role> findAllByBoundaryCompanyId(UUID companyId);
+    /**
+     * Role detail read model. Both callers project permission codes, so the graph loads them
+     * with the role instead of leaving the mapper to walk lazy collections under open-in-view.
+     */
+    @EntityGraph(attributePaths = {"permissions", "permissions.permission"})
     Optional<Role> findByIdAndAccountId(UUID id, UUID accountId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

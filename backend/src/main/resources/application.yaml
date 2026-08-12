@@ -5,6 +5,11 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+    # Disabled deliberately. A request-scoped session masks lazy access that happens outside a
+    # transaction, so a read model assembled after its service transaction closes still works in
+    # development and fails in production. Three such defects were found the day this was turned
+    # off. Read models must resolve their relationships inside the service transaction.
+    open-in-view: false
     properties:
       hibernate:
         jdbc:

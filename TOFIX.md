@@ -1436,7 +1436,7 @@ Expose one canonical quota shape plus current plan limit, price, and usage field
 
 ### MAPPER-001 — Mappers traverse lazy relationships
 
-**Status:** `RESOLVED FOR LIST READ MODELS — 2026-08-11`
+**Status:** `RESOLVED — 2026-08-11`
 
 **Evidence**
 
@@ -1470,7 +1470,10 @@ Two of the four cited mappers no longer exist: `CollaborationMapper` was removed
 - `MemberRepository` gains a dedicated `findWithUserByAccountId` for the member list. `findAllByAccountId` is deliberately left ungraphed because `AccountShellServiceImpl` only reads user ids, which cost nothing on a proxy.
 - `PlanFeatureRepository.findAllByPlanId` loads `feature`. Nearly all of its eleven callers project the feature code; the two that only count or delete pay one cheap join on a small collection.
 - `LazyMappingQueryCountIntegrationTest` asserts statement counts stay constant as rows grow, instead of pinning absolute numbers that authentication and authorization would make brittle. Each assertion was confirmed to fail before its corresponding fix.
-- Known bounded exception: `SubscriptionMapper` projects `plan.code`/`plan.name`/`plan.price`, which initializes the plan proxy. All five call sites are single-subscription endpoints, so this costs one statement per request and never multiplies by row count. Graphing `findActiveByAccountId` would burden the authorization and activation paths for no list-surface benefit, so it is deliberately left alone.
+- **Correction — 2026-08-11 (found in review by Codex):** the first pass scoped this to *list* read models and left the role **detail** surface untouched. `RoleRepository.findByIdAndAccountId` had no graph and `getRole` is not `@Transactional`, so `GET /api/v1/roles/{id}` walked `permissions` and `permissions.permission` lazily under open-in-view. Measured at 11 statements for a role with one permission and 13 for a role with three — one extra statement per permission. The graph now covers it and `roleDetailStatementCountDoesNotGrowWithThatRolesPermissions` was confirmed to fail without it.
+- **The `SubscriptionMapper` exception is closed — 2026-08-11.** It was recorded as bounded because it never multiplied by row count. That reasoning missed the real failure: the projection ran in the *controller*, after the service transaction closed, so `GET /api/v1/subscriptions/me` returned 500 with open-in-view disabled. Mapping moved into `SubscriptionService.getMySubscription(..)` under a read transaction.
+- **`previewRoleImpact` was the same defect in a third place**, walking `assignment.getMember()` with no read transaction. It is now `@Transactional(readOnly = true)`.
+- **The mask is gone:** `spring.jpa.open-in-view=false` is now set in the shared `application.yaml`, so every profile fails loudly on lazy access outside a transaction instead of absorbing it in a request-scoped session. All three defects above were invisible while it was on. Disabled globally rather than in tests alone because the setting's only externally visible effect is *when* a latent defect surfaces, and the application is unpublished — the cheapest possible moment to expose the rest.
 
 ---
 
@@ -1498,7 +1501,9 @@ Locate all DTO constructors in services/controllers. Keep business-aware read-mo
 - The manual construction that remains in services is business-aware read-model assembly, exactly what this finding says to keep explicit. `PermissionPickerCatalogService` derives per-audience availability and a source-owned `PermissionUnavailableReason`, which is the behavior `REGISTRY-FLOW-004` decided; `RoleServiceImpl` aggregates assignment counts by scope into an impact model. Neither is field copying, and MapStruct cannot express either without an `@AfterMapping` body containing the same logic plus indirection.
 - Mechanical entity→DTO copying does still exist in `PlanAdminController`, `AddOnAdminController`, and `QuotaPackageAdminController`. It exists **because those services return persistence entities**, which is `SERVICE-002` / `SERVICE-003` — whose Batch 6.3 acceptance criterion is literally "Services return DTOs". Consolidating it inside Batch 6.2 would pre-empt that batch's contract design and be redone once the DTO-returning service interfaces exist.
 
-**Decision:** the lazy-safety half was completed under `MAPPER-001`. The remaining consolidation was a symptom of services returning entities, so it was owned by the boundary findings rather than by this one — `SERVICE-002`, `SERVICE-003` and finally `SERVICE-004` removed every controller-side projection. **Closed 2026-08-11:** no controller in the codebase now maps a persistence entity.
+**Decision:** the lazy-safety half was completed under `MAPPER-001`. The remaining consolidation was a symptom of services returning entities, so it was owned by the boundary findings rather than by this one — `SERVICE-002`, `SERVICE-003` and finally `SERVICE-004` removed every controller-side projection. **Closed 2026-08-11:** no controller maps a persistence entity.
+
+**Correction — 2026-08-11 (found in review):** that sentence was written while `SubscriptionController` still called `subscriptionMapper.toDto(...)` on an entity returned by the service, so the claim was false when made and contradicted this batch's own `MAPPER-001` note recording `SubscriptionMapper` as an exception. The controller now calls `SubscriptionService.getMySubscription(..)`, which maps inside a read transaction. Verified by disabling open-in-view.
 
 ---
 

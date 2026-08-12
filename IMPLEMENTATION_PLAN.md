@@ -1781,7 +1781,7 @@ flowchart TD
 | **AUTHZ-DTO-001**| Contextual DTO | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Explicit Account/Company context |
 | **DTO-003** | DTO boundaries | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-002 | Admin/picker/public namespaces compile |
 | **DTO-004** | Client DTO clean | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Canonical quota JSON shape |
-| **MAPPER-001** | Prevent Lazy-Init | IMPLEMENTED FOR LIST READ MODELS | VERIFY FIRST | Phase 6 | Batch 6.2 | DTO-003 | Constant statement count as rows grow |
+| **MAPPER-001** | Prevent Lazy-Init | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.2 | DTO-003 | Constant statement count as rows grow; suite runs with open-in-view disabled |
 | **MAPPER-002** | MapStruct mappers | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.2 | MAPPER-001 | No controller maps a persistence entity |
 | **SERVICE-001** | Expose DTOs | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.3 | None | UserView for facts; one named entity door |
 | **SERVICE-002** | Expose DTOs | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-001 | Admin services return read models |

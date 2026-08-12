@@ -237,6 +237,7 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     }
 
     @Override
+    @Transactional(readOnly = true)
     @PermissionNode(key = WorkspaceRolesFeature.IMPACT, description = "Preview role change impact")
     public RoleImpactDto previewRoleImpact(UUID roleId, RoleChangeType changeType, String permissionCode) {
         Role role = requireRole(roleId);
@@ -443,7 +444,7 @@ public class RoleServiceImpl extends ClientWorkspaceFeatureService implements Ro
     }
 
     private RoleImpactDto impact(Role role, RoleChangeType changeType, String permissionCode) {
-        List<MemberRole> assignments = memberRoleRepository.findAllByRoleId(role.getId());
+        List<MemberRole> assignments = memberRoleRepository.findWithMemberByRoleId(role.getId());
         List<String> currentPermissions = role.getPermissions().stream()
                 .map(rp -> rp.getPermission().getCode())
                 .sorted()

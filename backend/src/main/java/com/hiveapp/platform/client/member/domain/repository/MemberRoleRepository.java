@@ -19,6 +19,14 @@ public interface MemberRoleRepository extends JpaRepository<MemberRole, UUID> {
     List<MemberRole> findAllByScopeCompanyId(UUID companyId);
     List<MemberRole> findAllByRoleId(UUID roleId);
 
+    /**
+     * Impact-preview read model. Only that caller projects member state
+     * ({@code getMember().isActive()}), so the member join lives here rather than on
+     * {@link #findAllByRoleId(UUID)}, whose other callers just count assignments.
+     */
+    @EntityGraph(attributePaths = {"role", "scopeCompany", "member"})
+    List<MemberRole> findWithMemberByRoleId(UUID roleId);
+
     boolean existsByMemberIdAndRoleIdAndScopeCompanyId(UUID memberId, UUID roleId, UUID companyId);
 
     boolean existsByMemberIdAndRoleIdAndScopeCompanyIsNull(UUID memberId, UUID roleId);

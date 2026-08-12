@@ -12,8 +12,18 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+
 public interface SubscriptionService {
+    /** Internal cross-service lookup; callers carry their own authorization. */
     Subscription getSubscription(UUID accountId);
+
+    /**
+     * Read model for the client's own subscription. Mapping happens inside this service's
+     * transaction; the controller must not project the entity after the transaction closes,
+     * which fails with open-in-view disabled.
+     */
+    SubscriptionDto getMySubscription(UUID accountId);
     ClientPlanCatalogResponse catalog(UUID accountId);
     SubscriptionChangePreviewResponse previewChange(UUID accountId, SubscriptionChangeRequest request);
     SubscriptionChangeApplyResponse applyChange(

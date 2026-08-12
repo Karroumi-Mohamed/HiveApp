@@ -1,6 +1,8 @@
 package com.hiveapp.shared.mapping;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
+import com.hiveapp.platform.client.member.dto.AssignRoleRequest;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
@@ -104,6 +106,52 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
                 .isEqualTo(oneFeature);
     }
 
+    /**
+     * Role DETAIL, not just the list. This surface is what a role screen opens, and it was
+     * left relying on open-in-view when the list paths were fixed.
+     */
+    @Test
+    void roleDetailStatementCountDoesNotGrowWithThatRolesPermissions() throws Exception {
+        String token = registerClientAndGetToken();
+        UUID sparse = createRole(token, "Sparse Manager");
+        addPermission(token, sparse, PERMISSION_CODES.get(0));
+        UUID dense = createRole(token, "Dense Manager");
+        for (String code : PERMISSION_CODES) {
+            addPermission(token, dense, code);
+        }
+
+        long onePermission = statementsFor(() -> readRole(token, sparse));
+        long threePermissions = statementsFor(() -> readRole(token, dense));
+
+        assertThat(threePermissions)
+                .as("role detail must not issue an extra statement per permission on the role")
+                .isEqualTo(onePermission);
+    }
+
+    /**
+     * Role impact preview walks every assignment's member. Adding assignments must not add
+     * statements. The owner is a protected target for role assignment and the FREE plan allows
+     * three members, so this compares one ordinary member against two.
+     */
+    @Test
+    void roleImpactStatementCountDoesNotGrowWithAssignments() throws Exception {
+        String token = registerClientAndGetToken();
+        UUID roleId = createRole(token, "Impact Manager");
+        addPermission(token, roleId, PERMISSION_CODES.get(0));
+        activateRole(token, roleId);   // roles are created INACTIVE per ROLE-FLOW-001
+        assignRoleToMember(token, createOrdinaryMember(token), roleId);
+
+        long oneAssignment = statementsFor(() -> readImpact(token, roleId));
+
+        assignRoleToMember(token, createOrdinaryMember(token), roleId);
+
+        long twoAssignments = statementsFor(() -> readImpact(token, roleId));
+
+        assertThat(twoAssignments)
+                .as("role impact preview must not issue an extra member statement per assignment")
+                .isEqualTo(oneAssignment);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private interface RequestBlock {
@@ -133,12 +181,48 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
     private void createRoleWithEveryPermission(String token, String name) throws Exception {
         UUID roleId = createRole(token, name);
         for (String permissionCode : PERMISSION_CODES) {
-            mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
-                            .header("Authorization", bearer(token))
-                            .param("permissionCode", permissionCode)
-                            .param("registryVersion", registryCatalogVersionService.currentVersion()))
-                    .andExpect(status().isOk());
+            addPermission(token, roleId, permissionCode);
         }
+    }
+
+    private void addPermission(String token, UUID roleId, String permissionCode) throws Exception {
+        mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
+                        .header("Authorization", bearer(token))
+                        .param("permissionCode", permissionCode)
+                        .param("registryVersion", registryCatalogVersionService.currentVersion()))
+                .andExpect(status().isOk());
+    }
+
+    private void activateRole(String token, UUID roleId) throws Exception {
+        mockMvc.perform(post("/api/v1/roles/{id}/activate", roleId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
+    }
+
+    private void assignRoleToMember(String token, UUID memberId, UUID roleId) throws Exception {
+        mockMvc.perform(post("/api/v1/members/{id}/roles", memberId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new AssignRoleRequest(roleId, RoleAssignmentScope.ACCOUNT, null))))
+                .andExpect(status().isNoContent());
+    }
+
+    private JsonNode readImpact(String token, UUID roleId) throws Exception {
+        String response = mockMvc.perform(get("/api/v1/roles/{id}/impact", roleId)
+                        .header("Authorization", bearer(token))
+                        .param("changeType", "DEACTIVATE"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response);
+    }
+
+    private JsonNode readRole(String token, UUID roleId) throws Exception {
+        String response = mockMvc.perform(get("/api/v1/roles/{id}", roleId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response);
     }
 
     private JsonNode listPlanFeatures(String adminToken, UUID planId) throws Exception {

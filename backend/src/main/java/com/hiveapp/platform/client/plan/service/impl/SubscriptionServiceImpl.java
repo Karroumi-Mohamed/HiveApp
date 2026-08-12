@@ -26,6 +26,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
@@ -77,6 +78,7 @@ import java.util.stream.Collectors;
 public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService implements SubscriptionService {
 
     private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionMapper subscriptionMapper;
     private final PlanRepository planRepository;
     private final PlanFeatureRepository planFeatureRepository;
     private final AddOnRepository addOnRepository;
@@ -100,10 +102,29 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return ClientSubscriptionFeature.definition();
     }
 
+    /**
+     * Internal cross-service lookup returning the entity. Unguarded on purpose: its only caller
+     * is the admin subscription surface, which carries its own guard. The client-facing guard
+     * lives on {@link #getMySubscription(UUID)}.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Subscription getSubscription(UUID accountId) {
+        return requireUsableSubscription(accountId);
+    }
+
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "read", description = "View my subscription")
-    public Subscription getSubscription(UUID accountId) {
+    public SubscriptionDto getMySubscription(UUID accountId) {
+        return subscriptionMapper.toDto(requireUsableSubscription(accountId));
+    }
+
+    /**
+     * The single definition of "the Account's usable subscription" — ACTIVE, else TRIALING.
+     * Shared so the entity and read-model surfaces cannot drift apart.
+     */
+    private Subscription requireUsableSubscription(UUID accountId) {
         return subscriptionRepository.findActiveByAccountId(accountId)
                 .or(() -> subscriptionRepository.findByAccountIdAndStatus(
                         accountId, SubscriptionStatus.TRIALING))
