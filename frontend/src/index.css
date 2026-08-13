@@ -1,0 +1,24 @@
+@import "../styles/globals.css";
+
+#root {
+  min-height: 100dvh;
+}
+
+.skip-link {
+  position: fixed;
+  inset-block-start: 0.75rem;
+  inset-inline-start: 0.75rem;
+  z-index: 100;
+  translate: 0 -180%;
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: translate var(--duration-fast) ease;
+}
+
+.skip-link:focus {
+  translate: 0;
+}
