@@ -19,6 +19,8 @@ export function AdminLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   if (!session.session) return <Navigate replace state={{ from: location.pathname }} to="/admin/login" />;
+  // A restricted session can call nothing here; the portal would be a wall of denials.
+  if (session.session.passwordChangeRequired) return <Navigate replace to="/admin/initial-password" />;
   if (session.error)
     return (
       <main className="mx-auto max-w-3xl p-8" id="main-content">

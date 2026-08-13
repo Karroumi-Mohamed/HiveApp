@@ -46,23 +46,28 @@ public class TokenSessionService {
         return new RefreshTokenIdentity(parsed.userId(), expectedAudience);
     }
 
-    public IssuedInitialAccessToken issueInitialAccess(UUID userId) {
+    public IssuedInitialAccessToken issueInitialAccess(UUID userId, TokenAudience audience) {
         removeExpiredSessions();
         UUID tokenId = UUID.randomUUID();
-        String accessToken = jwtTokenProvider.generateInitialAccessToken(userId, tokenId);
+        String accessToken = jwtTokenProvider.generateInitialAccessToken(userId, tokenId, audience);
         long expiresIn = jwtTokenProvider.getAccessTokenExpiration();
         activeInitialAccessTokens.put(tokenId,
-                new InitialAccessSession(userId, Instant.now().plusSeconds(expiresIn)));
+                new InitialAccessSession(userId, audience, Instant.now().plusSeconds(expiresIn)));
         return new IssuedInitialAccessToken(accessToken, expiresIn);
     }
 
-    public UUID consumeInitialAccess(String token) {
+    /**
+     * @param expectedAudience checked <em>before</em> the session is removed. Validating after
+     *     removal would let a token presented to the wrong surface be destroyed on its way to
+     *     being rejected.
+     */
+    public UUID consumeInitialAccess(String token, TokenAudience expectedAudience) {
         try {
             if (!jwtTokenProvider.validateToken(token)) {
                 throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
             }
             Claims claims = jwtTokenProvider.getClaimsFromToken(token);
-            if (!jwtTokenProvider.hasPurpose(claims, TokenAudience.CLIENT, TokenUse.INITIAL_ACCESS)
+            if (!jwtTokenProvider.hasPurpose(claims, expectedAudience, TokenUse.INITIAL_ACCESS)
                     || claims.getId() == null) {
                 throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
             }
@@ -71,6 +76,7 @@ public class TokenSessionService {
             InitialAccessSession session = activeInitialAccessTokens.get(tokenId);
             if (session == null
                     || !session.userId().equals(userId)
+                    || session.audience() != expectedAudience
                     || !activeInitialAccessTokens.remove(tokenId, session)) {
                 throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
             }
@@ -91,8 +97,11 @@ public class TokenSessionService {
         activeRefreshTokens.entrySet().removeIf(entry ->
                 entry.getValue().audience() == audience
                         && revokedUserIds.contains(entry.getValue().userId()));
+        // Scoped to the audience being revoked: signing out of the client portal must not
+        // destroy an operator's pending admin password change, or the reverse.
         activeInitialAccessTokens.entrySet().removeIf(entry ->
-                revokedUserIds.contains(entry.getValue().userId()));
+                entry.getValue().audience() == audience
+                        && revokedUserIds.contains(entry.getValue().userId()));
     }
 
     private void removeExpiredSessions() {
@@ -124,7 +133,7 @@ public class TokenSessionService {
     private record RefreshSession(UUID userId, TokenAudience audience, Instant expiresAt) {
     }
 
-    private record InitialAccessSession(UUID userId, Instant expiresAt) {
+    private record InitialAccessSession(UUID userId, TokenAudience audience, Instant expiresAt) {
     }
 
     private record ParsedRefreshToken(UUID userId, UUID tokenId) {

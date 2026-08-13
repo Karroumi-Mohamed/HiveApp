@@ -6,6 +6,7 @@ import { authApi } from "@/api/client-api";
 import type { AuthResponse } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { useAdminSession, useClientSession } from "@/auth/session-provider";
+import { canSubmitNewPassword } from "@/auth/session-rules";
 import { writeSession } from "@/auth/session-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,14 +95,22 @@ export function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  if (session.session) return <Navigate replace to="/admin" />;
+  if (session.session)
+    return <Navigate replace to={session.session.passwordChangeRequired ? "/admin/initial-password" : "/admin"} />;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      await session.login({ identifier, password });
-      navigate((location.state as { from?: string } | null)?.from ?? "/admin", { replace: true });
+      const response = await session.login({ identifier, password });
+      // A temporary password yields a restricted session that can do nothing but choose a real
+      // password, so sending the operator to the portal would show them a wall of denials.
+      navigate(
+        response.passwordChangeRequired
+          ? "/admin/initial-password"
+          : ((location.state as { from?: string } | null)?.from ?? "/admin"),
+        { replace: true },
+      );
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : "Connexion impossible.");
     } finally {
@@ -134,6 +143,76 @@ export function AdminLoginPage() {
         <Link className="block text-center text-sm underline" to="/admin/password-reset">
           Mot de passe oublié ?
         </Link>
+      </form>
+    </LoginFrame>
+  );
+}
+
+/**
+ * The operator chooses their own password before the portal is reachable. Mirrors the client
+ * initial-password screen; the session held at this point can call nothing else.
+ */
+export function AdminInitialPasswordPage() {
+  const session = useAdminSession();
+  const navigate = useNavigate();
+  const { password, setPassword, confirmation, setConfirmation, canSubmit } = useNewPassword();
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  if (!session.session) return <Navigate replace to="/admin/login" />;
+  if (!session.session.passwordChangeRequired) return <Navigate replace to="/admin" />;
+  const currentSession = session.session;
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const response = await adminApi.changeInitialPassword(currentSession.accessToken, password);
+      writeSession("admin", {
+        accessToken: response.accessToken,
+        refreshToken: response.refreshToken,
+        expiresAt: Date.now() + response.expiresIn * 1000,
+        passwordChangeRequired: response.passwordChangeRequired,
+      });
+      navigate("/admin", { replace: true });
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.message : "Modification impossible.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <LoginFrame title="Choisissez votre mot de passe">
+      <p className="mt-3 text-sm text-muted-foreground">
+        Cet accès temporaire a été utilisé. Définissez votre mot de passe pour accéder à l’administration.
+      </p>
+      <form className="mt-8 space-y-5" onSubmit={submit}>
+        <NewPasswordFields
+          confirmation={confirmation}
+          setConfirmation={setConfirmation}
+          setValue={setPassword}
+          value={password}
+        />
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        <Button className="w-full" disabled={!canSubmit || submitting} type="submit">
+          {submitting ? "Enregistrement…" : "Continuer"}
+        </Button>
+        <Button
+          className="w-full"
+          onClick={() => {
+            // Clear and leave first, then revoke. Awaiting the request would leave the operator
+            // on this screen for as long as the network takes — and stranded entirely if it never
+            // answers, which is exactly the situation this button exists to escape.
+            const { accessToken } = currentSession;
+            writeSession("admin", null);
+            navigate("/admin/login", { replace: true });
+            void adminApi.logoutInitialAccess(accessToken).catch(() => undefined);
+          }}
+          type="button"
+          variant="ghost"
+        >
+          Annuler cette session
+        </Button>
       </form>
     </LoginFrame>
   );
@@ -225,8 +304,35 @@ export function ClientLoginPage() {
   );
 }
 
-function NewPasswordFields({ value, setValue }: { value: string; setValue: (value: string) => void }) {
+/**
+ * Owns a new password and its confirmation together, so the form can refuse to submit rather
+ * than only colouring the field red. Previously the mismatch was shown and the request went out
+ * anyway, setting whatever was in the first box.
+ */
+function useNewPassword() {
+  const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  return {
+    password,
+    setPassword,
+    confirmation,
+    setConfirmation,
+    matches: password === confirmation,
+    canSubmit: canSubmitNewPassword(password, confirmation),
+  };
+}
+
+function NewPasswordFields({
+  value,
+  setValue,
+  confirmation,
+  setConfirmation,
+}: {
+  value: string;
+  setValue: (value: string) => void;
+  confirmation: string;
+  setConfirmation: (value: string) => void;
+}) {
   return (
     <>
       <div className="space-y-2">
@@ -265,7 +371,7 @@ function NewPasswordFields({ value, setValue }: { value: string; setValue: (valu
 export function InitialPasswordPage() {
   const session = useClientSession();
   const navigate = useNavigate();
-  const [password, setPassword] = useState("");
+  const { password, setPassword, confirmation, setConfirmation, canSubmit } = useNewPassword();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   if (!session.session) return <Navigate replace to="/app/login" />;
@@ -273,6 +379,7 @@ export function InitialPasswordPage() {
   const currentSession = session.session;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -288,9 +395,14 @@ export function InitialPasswordPage() {
   return (
     <LoginFrame title="Choisir votre mot de passe">
       <form className="mt-8 space-y-5" onSubmit={submit}>
-        <NewPasswordFields setValue={setPassword} value={password} />
+        <NewPasswordFields
+          confirmation={confirmation}
+          setConfirmation={setConfirmation}
+          setValue={setPassword}
+          value={password}
+        />
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <Button className="w-full" disabled={password.length < 8 || submitting} type="submit">
+        <Button className="w-full" disabled={!canSubmit || submitting} type="submit">
           {submitting ? "Enregistrement…" : "Continuer"}
         </Button>
         <Button
@@ -366,11 +478,12 @@ export function AdminActivationPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const token = params.get("token") ?? "";
-  const [password, setPassword] = useState("");
+  const { password, setPassword, confirmation, setConfirmation, canSubmit } = useNewPassword();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -388,12 +501,17 @@ export function AdminActivationPage() {
         <p className="mt-8 text-sm text-destructive">Le lien ne contient aucun jeton valide.</p>
       ) : (
         <form className="mt-8 space-y-5" onSubmit={submit}>
-          <NewPasswordFields setValue={setPassword} value={password} />
+          <NewPasswordFields
+            confirmation={confirmation}
+            setConfirmation={setConfirmation}
+            setValue={setPassword}
+            value={password}
+          />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <p className="text-xs text-muted-foreground">
             Vous serez ensuite redirigé vers la connexion pour vous identifier.
           </p>
-          <Button className="w-full" disabled={password.length < 8 || submitting} type="submit">
+          <Button className="w-full" disabled={!canSubmit || submitting} type="submit">
             {submitting ? "Enregistrement…" : "Définir le mot de passe"}
           </Button>
         </form>
@@ -410,11 +528,12 @@ export function AdminPasswordResetPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const token = params.get("token") ?? "";
-  const [password, setPassword] = useState("");
+  const { password, setPassword, confirmation, setConfirmation, canSubmit } = useNewPassword();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -432,9 +551,14 @@ export function AdminPasswordResetPage() {
         <p className="mt-8 text-sm text-destructive">Le lien ne contient aucun jeton valide.</p>
       ) : (
         <form className="mt-8 space-y-5" onSubmit={submit}>
-          <NewPasswordFields setValue={setPassword} value={password} />
+          <NewPasswordFields
+            confirmation={confirmation}
+            setConfirmation={setConfirmation}
+            setValue={setPassword}
+            value={password}
+          />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button className="w-full" disabled={password.length < 8 || submitting} type="submit">
+          <Button className="w-full" disabled={!canSubmit || submitting} type="submit">
             {submitting ? "Enregistrement…" : "Définir le mot de passe"}
           </Button>
         </form>
@@ -506,11 +630,12 @@ export function PasswordCompletionPage({ mode }: { mode: "activation" | "reset" 
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const token = params.get("token") ?? "";
-  const [password, setPassword] = useState("");
+  const { password, setPassword, confirmation, setConfirmation, canSubmit } = useNewPassword();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -532,9 +657,14 @@ export function PasswordCompletionPage({ mode }: { mode: "activation" | "reset" 
         <p className="mt-8 text-sm text-destructive">Le lien ne contient aucun jeton valide.</p>
       ) : (
         <form className="mt-8 space-y-5" onSubmit={submit}>
-          <NewPasswordFields setValue={setPassword} value={password} />
+          <NewPasswordFields
+            confirmation={confirmation}
+            setConfirmation={setConfirmation}
+            setValue={setPassword}
+            value={password}
+          />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button className="w-full" disabled={password.length < 8 || submitting} type="submit">
+          <Button className="w-full" disabled={!canSubmit || submitting} type="submit">
             {submitting ? "Enregistrement…" : "Continuer"}
           </Button>
         </form>

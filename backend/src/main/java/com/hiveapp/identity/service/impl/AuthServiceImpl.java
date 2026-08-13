@@ -107,7 +107,7 @@ public class AuthServiceImpl implements AuthService {
                 .orElse(null);
         if (authentication.passwordChangeRequired()) {
             tokenSessionService.revokeAll(java.util.List.of(user.getId()), TokenAudience.CLIENT);
-            var initial = tokenSessionService.issueInitialAccess(user.getId());
+            var initial = tokenSessionService.issueInitialAccess(user.getId(), TokenAudience.CLIENT);
             auditLogin(user, accountId, true);
             return AuthResponse.initialAccess(initial.accessToken(), initial.expiresIn());
         }

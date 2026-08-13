@@ -390,7 +390,54 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         }
         assignRole(superToken, adminUserId, roleId)
                 .andExpect(status().isNoContent());
-        return new LimitedAdmin(loginAdmin(email, temporaryPassword), adminUserId, roleId);
+        return new LimitedAdmin(signInWithTemporaryPassword(email, temporaryPassword), adminUserId, roleId);
+    }
+
+    /**
+     * The bulk route must apply the same ceiling as the single-target one. Without this a
+     * delegated administrator could switch off a role holding permissions they do not hold, just
+     * by choosing the bulk endpoint.
+     */
+    @Test
+    void bulkRoleActivationObeysTheActorPermissionCeiling() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        LimitedAdmin limited = createLimitedAdmin("platform.roles.bulk_set_active");
+        UUID beyondCeiling = createAdminRole(superToken, "Beyond " + UUID.randomUUID());
+        grantPermission(superToken, beyondCeiling, "platform.registry.read")
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/admin/roles/bulk/active")
+                        .header("Authorization", bearer(limited.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new com.hiveapp.platform.admin.dto.BulkSetActiveRequest(
+                                        java.util.List.of(beyondCeiling), false))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.succeeded").value(0))
+                .andExpect(jsonPath("$.failures[0].code").value("INVALID_PERMISSION_GRANT"));
+
+        // The role is untouched.
+        mockMvc.perform(get("/api/admin/roles/{id}", beyondCeiling)
+                        .header("Authorization", bearer(superToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isActive").value(true));
+    }
+
+    /** Duplicates are collapsed before anything runs, so counts describe targets, not attempts. */
+    @Test
+    void bulkOperationsCountUniqueTargets() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        UUID roleId = createAdminRole(superToken, "Dupes " + UUID.randomUUID());
+
+        mockMvc.perform(post("/api/admin/roles/bulk/active")
+                        .header("Authorization", bearer(superToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new com.hiveapp.platform.admin.dto.BulkSetActiveRequest(
+                                        java.util.List.of(roleId, roleId, roleId), false))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requested").value(1))
+                .andExpect(jsonPath("$.succeeded").value(1));
     }
 
     private ClientIdentity registerClient() throws Exception {
@@ -508,6 +555,21 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isOk());
         JsonNode response = objectMapper.readTree(action.andReturn().getResponse().getContentAsString());
         return response.get("temporaryPassword").asText();
+    }
+
+    /**
+     * A temporary password buys only a restricted session whose one purpose is choosing a real
+     * password, so a test that needs a working operator completes that change first.
+     */
+    private String signInWithTemporaryPassword(String email, String temporaryPassword) throws Exception {
+        String restricted = loginAdmin(email, temporaryPassword);
+        return accessToken(mockMvc.perform(post("/api/admin/auth/initial-password/change")
+                        .header("Authorization", bearer(restricted))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new com.hiveapp.identity.dto.InitialPasswordChangeRequest(
+                                        "chosen-password-" + UUID.randomUUID()))))
+                .andExpect(status().isOk()));
     }
 
     private UUID responseId(ResultActions action) throws Exception {

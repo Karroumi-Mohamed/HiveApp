@@ -44,8 +44,12 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
                 adminPermissionResolver.resolve(admin));
     }
 
+    /**
+     * Writable: a temporary password is consumed on first use, and a read-only transaction would
+     * silently discard that write, leaving the handed-over password replayable forever.
+     */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         User user = credentialAuthenticationService.authenticate(
                 request.identifier(),
@@ -53,6 +57,18 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
                 "Invalid admin email or password",
                 "Admin account is inactive");
         AdminUser admin = requireActiveAdmin(user);
+
+        // A temporary password is consumed here: it works once, and until the operator chooses
+        // their own the session is restricted to the change itself. Issuing a full ADMIN session
+        // would let a handed-over password operate the platform indefinitely.
+        if (credentialAuthenticationService.consumeTemporaryPasswordIfPresent(
+                user.getId(), request.password())) {
+            tokenSessionService.revokeAll(java.util.List.of(user.getId()), TokenAudience.ADMIN);
+            var initial = tokenSessionService.issueInitialAccess(user.getId(), TokenAudience.ADMIN);
+            log.info("Admin must change their initial password: {}", admin.getUser().getEmail());
+            return AuthResponse.initialAccess(initial.accessToken(), initial.expiresIn());
+        }
+
         log.info("Admin logged in: {}", admin.getUser().getEmail());
         return issueTokens(admin.getUser());
     }

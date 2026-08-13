@@ -106,7 +106,7 @@ public class CredentialLifecycleService {
             resourceType = "USER",
             recordSuccess = false)
     public AuthResponse changeInitialPassword(String initialAccessToken, String newPassword) {
-        var userId = tokenSessionService.consumeInitialAccess(initialAccessToken);
+        var userId = tokenSessionService.consumeInitialAccess(initialAccessToken, TokenAudience.CLIENT);
         User user = userRepository.findByIdForCredentialUpdate(userId)
                 .orElseThrow(() -> new UnauthorizedException("Initial-access session is invalid"));
         if (user.getCredentialState() != CredentialState.INITIAL_PASSWORD_CHANGE
@@ -122,7 +122,12 @@ public class CredentialLifecycleService {
     }
 
     public void logoutInitialAccess(String initialAccessToken) {
-        tokenSessionService.consumeInitialAccess(initialAccessToken);
+        tokenSessionService.consumeInitialAccess(initialAccessToken, TokenAudience.CLIENT);
+    }
+
+    /** Abandons a pending operator password change, so a stale token cannot trap the operator. */
+    public void logoutOperatorInitialAccess(String initialAccessToken) {
+        tokenSessionService.consumeInitialAccess(initialAccessToken, TokenAudience.ADMIN);
     }
 
     @Transactional
@@ -199,6 +204,39 @@ public class CredentialLifecycleService {
         activatePassword(user, newPassword, true);
         auditOperatorCredentialChange(
                 "identity.credentials.operator_password_reset.complete", user, before);
+    }
+
+    /**
+     * Completes the forced change after a temporary password. Kept separate from the client
+     * equivalent for the same reason as activation: that path requires an active workspace
+     * membership an operator does not have.
+     *
+     * <p>Deliberately does not verify the email. The operator reached here with a password handed
+     * to them, which proves nothing about whether the address receives mail — the very case
+     * temporary access exists for.
+     */
+    @Transactional
+    @AuditedMutation(
+            action = "identity.credentials.operator_initial_password.complete",
+            resourceType = "USER",
+            recordSuccess = false)
+    public AuthResponse completeOperatorInitialPassword(String initialAccessToken, String newPassword) {
+        var userId = tokenSessionService.consumeInitialAccess(initialAccessToken, TokenAudience.ADMIN);
+        User user = userRepository.findByIdForCredentialUpdate(userId)
+                .orElseThrow(() -> new UnauthorizedException("Initial-access session is invalid"));
+        if (user.getKind() != IdentityKind.PLATFORM) {
+            throw new UnauthorizedException("Initial-access session is invalid");
+        }
+        if (user.getCredentialState() != CredentialState.INITIAL_PASSWORD_CHANGE
+                || !user.isPasswordChangeRequired()) {
+            throw new UnauthorizedException("Initial-access session is invalid");
+        }
+        CredentialState before = user.getCredentialState();
+        activatePassword(user, newPassword, false);
+        auditOperatorCredentialChange(
+                "identity.credentials.operator_initial_password.complete", user, before);
+        var tokens = tokenSessionService.issue(user.getId(), TokenAudience.ADMIN);
+        return AuthResponse.of(tokens.accessToken(), tokens.refreshToken(), tokens.expiresIn());
     }
 
     private User tokenUser(String rawToken, CredentialTokenPurpose purpose) {

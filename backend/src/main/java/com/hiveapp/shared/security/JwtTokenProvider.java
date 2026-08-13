@@ -52,12 +52,18 @@ public class JwtTokenProvider {
                 .compact();
     }
 
-    public String generateInitialAccessToken(UUID userId, UUID tokenId) {
+    /**
+     * @param audience the surface this restricted token belongs to. Stamped explicitly so a
+     *     client initial-access token can never be presented to an admin completion endpoint,
+     *     or the reverse — either would consume the token before the receiving side rejected it,
+     *     destroying the other surface's pending session.
+     */
+    public String generateInitialAccessToken(UUID userId, UUID tokenId, TokenAudience audience) {
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(userId.toString())
                 .id(tokenId.toString())
-                .claim("tokenType", TokenAudience.CLIENT.name())
+                .claim("tokenType", audience.name())
                 .claim("tokenUse", TokenUse.INITIAL_ACCESS.name())
                 .issuedAt(new Date(now))
                 .expiration(new Date(now + jwtProperties.getAccessTokenExpiration().toMillis()))

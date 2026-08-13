@@ -6,9 +6,8 @@ import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminRolePermissionRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
 import com.hiveapp.platform.admin.dto.BulkOperationResult;
+import com.hiveapp.platform.admin.service.AdminBulkExecutor;
 import com.hiveapp.platform.admin.dto.RoleHolderDto;
-import com.hiveapp.shared.exception.ErrorCodes;
-import com.hiveapp.shared.transaction.IsolatedOperationRunner;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.admin.service.AdminRoleService;
 import com.hiveapp.platform.admin.dto.AdminPermissionSummaryDto;
@@ -41,7 +40,7 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
     private final PermissionRepository permissionRepository;
     private final AdminRolePermissionRepository adminRolePermissionRepository;
     private final AdminUserRoleRepository adminUserRoleRepository;
-    private final IsolatedOperationRunner isolatedOperationRunner;
+    private final AdminBulkExecutor adminBulkExecutor;
     private final PermissionGrantValidator permissionGrantValidator;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
 
@@ -161,23 +160,17 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "bulk_set_active", description = "Activate or deactivate several admin roles")
     public BulkOperationResult setActiveBulk(List<UUID> ids, boolean active) {
-        List<BulkOperationResult.Failure> failures = new java.util.ArrayList<>();
-        for (UUID id : ids) {
-            try {
-                // Each role in its own transaction, so one rejection cannot undo the rest.
-                isolatedOperationRunner.run(() -> {
-                    AdminRole role = requireAdminRole(id);
-                    if (role.isActive() != active) {
-                        role.setActive(active);
-                        adminRoleRepository.save(role);
-                    }
-                });
-            } catch (RuntimeException rejection) {
-                failures.add(new BulkOperationResult.Failure(
-                        id, ErrorCodes.of(rejection), rejection.getMessage()));
+        return adminBulkExecutor.run(ids, id -> {
+            AdminRole role = requireAdminRole(id);
+            // The same ceiling the single-target path applies. Without it, choosing the bulk
+            // endpoint let a delegated administrator switch off a role holding permissions they
+            // do not themselves hold.
+            adminMutationAuthorizer.requireCanManageRole(id, "activate or deactivate");
+            if (role.isActive() != active) {
+                role.setActive(active);
+                adminRoleRepository.save(role);
             }
-        }
-        return BulkOperationResult.of(ids.size(), failures);
+        });
     }
 
     @Override

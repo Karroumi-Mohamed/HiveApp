@@ -7,6 +7,7 @@ import type {
   AdminSubscription,
   AdminUser,
   AdminUserCreation,
+  AuthResponse,
   BulkOperationResult,
   CommercialOverview,
   FeatureOperationalChange,
@@ -75,6 +76,19 @@ export const adminApi = {
   /** Single-target by design: a name identifies one person, so there is no bulk form. */
   renameOperator: (id: UUID, input: { firstName: string; lastName: string }) =>
     admin<AdminUser>(`/users/${id}`, { method: "PATCH", body: jsonBody(input) }),
+  /** Completes the change forced after a temporary password, returning a real admin session. */
+  changeInitialPassword: (initialAccessToken: string, newPassword: string) =>
+    apiRequest<AuthResponse>("/api/admin/auth/initial-password/change", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${initialAccessToken}` },
+      body: jsonBody({ newPassword }),
+    }),
+  /** Abandons a pending initial-password change, freeing the operator from that screen. */
+  logoutInitialAccess: (initialAccessToken: string) =>
+    apiRequest<void>("/api/admin/auth/initial-password/logout", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${initialAccessToken}` },
+    }),
   operatorPermissions: (id: UUID) => admin<string[]>(`/users/${id}/permissions`),
   resendOperatorActivation: (id: UUID) => admin<OperatorAccess>(`/users/${id}/access/resend`, { method: "POST" }),
   generateOperatorTemporaryAccess: (id: UUID) =>

@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -179,6 +180,18 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiError.of(400, ErrorCode.INVALID_ARGUMENT, "Bad Request",
                         "Parameter '" + ex.getName() + "' has an invalid format"));
+    }
+
+    /**
+     * A required header the caller omitted — same class of gap as the two above: a client mistake
+     * that reached the catch-all and answered 500.
+     */
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiError> handleMissingHeader(MissingRequestHeaderException ex) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiError.of(400, ErrorCode.INVALID_REQUEST, "Bad Request",
+                        "Required header '" + ex.getHeaderName() + "' is missing"));
     }
 
     @ExceptionHandler(Exception.class)

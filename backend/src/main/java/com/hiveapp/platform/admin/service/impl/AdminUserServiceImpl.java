@@ -7,6 +7,7 @@ import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.admin.service.AdminUserService;
+import com.hiveapp.platform.admin.service.AdminBulkExecutor;
 import com.hiveapp.platform.admin.service.AdminPermissionResolver;
 import com.hiveapp.platform.admin.dto.AdminMeDto;
 import com.hiveapp.platform.admin.dto.AdminAccessOverviewDto;
@@ -15,8 +16,6 @@ import com.hiveapp.platform.admin.dto.AdminUserResponseDto;
 import com.hiveapp.platform.admin.dto.AdminUserCreationResponse;
 import com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse;
 import com.hiveapp.platform.admin.dto.BulkOperationResult;
-import com.hiveapp.shared.exception.ErrorCodes;
-import com.hiveapp.shared.transaction.IsolatedOperationRunner;
 import com.hiveapp.identity.domain.constant.IdentityKind;
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.service.IdentityService;
@@ -61,7 +60,7 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     private final MemberCredentialService memberCredentialService;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
     private final AdminPermissionResolver adminPermissionResolver;
-    private final IsolatedOperationRunner isolatedOperationRunner;
+    private final AdminBulkExecutor adminBulkExecutor;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -198,16 +197,7 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
      * collecting the reasons instead of failing the whole request on the first one.
      */
     private BulkOperationResult runBulk(List<UUID> ids, java.util.function.Consumer<UUID> operation) {
-        List<BulkOperationResult.Failure> failures = new java.util.ArrayList<>();
-        for (UUID id : ids) {
-            try {
-                isolatedOperationRunner.run(() -> operation.accept(id));
-            } catch (RuntimeException rejection) {
-                failures.add(new BulkOperationResult.Failure(
-                        id, ErrorCodes.of(rejection), rejection.getMessage()));
-            }
-        }
-        return BulkOperationResult.of(ids.size(), failures);
+        return adminBulkExecutor.run(ids, operation);
     }
 
     /**

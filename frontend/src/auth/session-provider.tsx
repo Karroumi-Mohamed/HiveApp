@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { Account, AdminMe, AuthResponse, Company, MemberPermissions } from "@/api/contracts";
 import { apiRequest, jsonBody } from "@/api/http";
+import { shouldLoadAdminProfile } from "@/auth/session-rules";
 import { readSession, type StoredSession, subscribeSessions, writeSession } from "@/auth/session-store";
 
 type Credentials = { identifier?: string; password: string; accountCode?: string; employeeNumber?: string };
@@ -67,7 +68,7 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
   const meQuery = useQuery({
     queryKey: ["admin", "me", session?.accessToken],
     queryFn: () => apiRequest<AdminMe>("/api/admin/me", { audience: "admin" }),
-    enabled: Boolean(session),
+    enabled: shouldLoadAdminProfile(session),
     retry: false,
   });
 

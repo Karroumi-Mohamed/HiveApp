@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.identity.domain.constant.IdentityKind;
 import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.dto.LoginRequest;
+import com.hiveapp.identity.dto.InitialPasswordChangeRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
+import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,6 +68,58 @@ class OperatorIdentityIntegrationTest extends PlatformShellIntegrationTestSuppor
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new LoginRequest(email, "any-password"))))
                 .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * A handed-over password must not operate the platform. It buys exactly one restricted
+     * session whose only purpose is choosing a real password.
+     */
+    @Test
+    void aTemporaryPasswordGrantsOnlyARestrictedSessionUntilItIsChanged() throws Exception {
+        String token = loginAdminAndGetToken();
+        String email = operatorEmail();
+        UUID adminUserId = UUID.fromString(json(createOperator(token, email, false)
+                .andExpect(status().isCreated()))
+                .get("operator").get("id").asText());
+        String temporaryPassword = json(mockMvc.perform(
+                        post("/api/admin/users/{id}/access/temporary", adminUserId)
+                                .header("Authorization", bearer(token)))
+                        .andExpect(status().isOk()))
+                .get("temporaryPassword").asText();
+
+        JsonNode login = json(mockMvc.perform(post("/api/admin/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(email, temporaryPassword))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passwordChangeRequired").value(true)));
+        String restricted = login.get("accessToken").asText();
+
+        // The restricted session cannot operate the platform. It is an ADMIN-audience token, but
+        // its use is INITIAL_ACCESS rather than ACCESS, so the filter authenticates nothing and
+        // denies it everywhere except the two endpoints that finish or abandon the change.
+        mockMvc.perform(get("/api/admin/users").header("Authorization", bearer(restricted)))
+                .andExpect(status().isForbidden());
+
+        // The temporary password is consumed: it cannot be replayed.
+        mockMvc.perform(post("/api/admin/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(email, temporaryPassword))))
+                .andExpect(status().isUnauthorized());
+
+        String chosen = json(mockMvc.perform(post("/api/admin/auth/initial-password/change")
+                        .header("Authorization", bearer(restricted))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new InitialPasswordChangeRequest("chosen-password-1"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passwordChangeRequired").value(false)))
+                .get("accessToken").asText();
+
+        mockMvc.perform(get("/api/admin/me").header("Authorization", bearer(chosen)))
+                .andExpect(status().isOk());
+
+        // Handing over a password proves nothing about the mailbox, so it stays unverified.
+        assertThat(userRepository.findByEmail(email).orElseThrow().isEmailVerified()).isFalse();
     }
 
     @Test
@@ -155,9 +209,18 @@ class OperatorIdentityIntegrationTest extends PlatformShellIntegrationTestSuppor
                                 .header("Authorization", bearer(token)))
                         .andExpect(status().isOk()))
                 .get("temporaryPassword").asText();
-        String operatorToken = json(mockMvc.perform(post("/api/admin/auth/login")
+        String restricted = json(mockMvc.perform(post("/api/admin/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new LoginRequest(email, temporaryPassword))))
+                        .andExpect(status().isOk()))
+                .get("accessToken").asText();
+        // A temporary password buys only the change itself, so the operator chooses their own
+        // password before holding anything that can read the portal.
+        String operatorToken = json(mockMvc.perform(post("/api/admin/auth/initial-password/change")
+                        .header("Authorization", bearer(restricted))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new InitialPasswordChangeRequest("chosen-password-2"))))
                         .andExpect(status().isOk()))
                 .get("accessToken").asText();
 
@@ -170,6 +233,117 @@ class OperatorIdentityIntegrationTest extends PlatformShellIntegrationTestSuppor
         // And exempting it must not have weakened anything that is genuinely guarded.
         mockMvc.perform(get("/api/admin/users").header("Authorization", bearer(operatorToken)))
                 .andExpect(status().isForbidden());
+    }
+
+    /**
+     * A restricted token belongs to one surface. Presenting it to the other must be rejected
+     * *without consuming it* — validating after removal would let a misdirected request destroy
+     * a pending change the operator is in the middle of.
+     */
+    @Test
+    void anAdminRestrictedTokenIsRejectedByTheClientEndpointWithoutBeingConsumed() throws Exception {
+        String restricted = restrictedOperatorSession(operatorEmail());
+
+        mockMvc.perform(post("/api/v1/auth/initial-password/change")
+                        .header("Authorization", bearer(restricted))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new InitialPasswordChangeRequest("chosen-password-3"))))
+                .andExpect(status().isUnauthorized());
+
+        // Still usable on its own surface, which proves the rejection did not burn it.
+        mockMvc.perform(post("/api/admin/auth/initial-password/change")
+                        .header("Authorization", bearer(restricted))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new InitialPasswordChangeRequest("chosen-password-3"))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void loggingOutConsumesTheRestrictedSession() throws Exception {
+        String restricted = restrictedOperatorSession(operatorEmail());
+
+        mockMvc.perform(post("/api/admin/auth/initial-password/logout")
+                        .header("Authorization", bearer(restricted)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/admin/auth/initial-password/change")
+                        .header("Authorization", bearer(restricted))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new InitialPasswordChangeRequest("chosen-password-4"))))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /** The reverse direction: a client restricted token must not be spendable on the admin side. */
+    @Test
+    void aClientRestrictedTokenIsRejectedByTheAdminEndpointWithoutBeingConsumed() throws Exception {
+        String clientRestricted = restrictedClientSession();
+
+        mockMvc.perform(post("/api/admin/auth/initial-password/change")
+                        .header("Authorization", bearer(clientRestricted))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new InitialPasswordChangeRequest("chosen-password-5"))))
+                // 401, symmetric with the other direction: the audience is checked before the
+                // session is removed, so the credential is refused rather than spent.
+                .andExpect(status().isUnauthorized());
+
+        // Still usable on its own surface, which proves the rejection did not burn it.
+        mockMvc.perform(post("/api/v1/auth/initial-password/change")
+                        .header("Authorization", bearer(clientRestricted))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new InitialPasswordChangeRequest("chosen-password-5"))))
+                .andExpect(status().isOk());
+    }
+
+    /**
+     * A member created without an email gets a temporary password, and using it yields a
+     * CLIENT-audience restricted session — the counterpart to the operator one.
+     */
+    private String restrictedClientSession() throws Exception {
+        String ownerToken = registerClientAndGetToken();
+        String username = "member-" + UUID.randomUUID();
+        String employeeNumber = "EMP-" + UUID.randomUUID().toString().substring(0, 8);
+        String temporaryPassword = json(mockMvc.perform(post("/api/v1/members")
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateMemberRequest(
+                                username, null, "Temp", "Member", "Temp Member",
+                                null, employeeNumber, java.util.List.of()))))
+                        .andExpect(status().isCreated()))
+                .get("temporaryPassword").asText();
+        String accountCode = json(mockMvc.perform(get("/api/v1/accounts/me")
+                        .header("Authorization", bearer(ownerToken)))
+                        .andExpect(status().isOk()))
+                .get("slug").asText();
+
+        return json(mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new LoginRequest(null, temporaryPassword, accountCode, employeeNumber))))
+                        .andExpect(status().isOk()))
+                .get("accessToken").asText();
+    }
+
+    /** Creates an operator, hands it temporary access, and returns its restricted session. */
+    private String restrictedOperatorSession(String email) throws Exception {
+        String token = loginAdminAndGetToken();
+        UUID adminUserId = UUID.fromString(json(createOperator(token, email, false)
+                .andExpect(status().isCreated()))
+                .get("operator").get("id").asText());
+        String temporaryPassword = json(mockMvc.perform(
+                        post("/api/admin/users/{id}/access/temporary", adminUserId)
+                                .header("Authorization", bearer(token)))
+                        .andExpect(status().isOk()))
+                .get("temporaryPassword").asText();
+        return json(mockMvc.perform(post("/api/admin/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(email, temporaryPassword))))
+                        .andExpect(status().isOk()))
+                .get("accessToken").asText();
     }
 
     private ResultActions createOperator(String token, String email, boolean superAdmin) throws Exception {

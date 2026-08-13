@@ -2,6 +2,7 @@ package com.hiveapp.platform.admin.api;
 
 import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.AuthResponse;
+import com.hiveapp.identity.dto.InitialPasswordChangeRequest;
 import com.hiveapp.identity.dto.PasswordCompletionRequest;
 import com.hiveapp.identity.dto.PasswordResetRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
@@ -12,6 +13,7 @@ import com.hiveapp.platform.admin.dto.AdminMeDto;
 import com.hiveapp.shared.security.HiveAppUserDetails;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -66,6 +68,37 @@ public class AdminAuthController {
     public ResponseEntity<Void> completePasswordReset(@Valid @RequestBody PasswordCompletionRequest request) {
         credentialLifecycleService.completeOperatorPasswordReset(request.token(), request.newPassword());
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Completes the change forced after a temporary password, and only then issues a normal
+     * admin session. Mirrors the client flow: the restricted token travels as a Bearer
+     * credential, not in the body, so it is never logged as request content.
+     */
+    @PostMapping("/auth/initial-password/change")
+    public AuthResponse completeInitialPassword(
+            @RequestHeader("Authorization") String authorization,
+            @Valid @RequestBody InitialPasswordChangeRequest request
+    ) {
+        return credentialLifecycleService.completeOperatorInitialPassword(
+                bearerToken(authorization), request.newPassword());
+    }
+
+    /**
+     * Abandons a pending change. Without this an operator whose restricted token was consumed or
+     * expired mid-flow has no way out of the change screen except waiting for expiry.
+     */
+    @PostMapping("/auth/initial-password/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logoutInitialAccess(@RequestHeader("Authorization") String authorization) {
+        credentialLifecycleService.logoutOperatorInitialAccess(bearerToken(authorization));
+    }
+
+    private String bearerToken(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            throw new com.hiveapp.shared.exception.UnauthorizedException("Initial-access session is invalid");
+        }
+        return authorization.substring(7).trim();
     }
 
     @GetMapping("/me")
