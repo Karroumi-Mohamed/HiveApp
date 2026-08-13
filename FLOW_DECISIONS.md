@@ -106,13 +106,17 @@ race. The credential state machine lives there too and must not be duplicated.
 
 **Initial access**
 
-1. Creation sends an activation email. The link is the credential; no password is minted
-   alongside it. Two live credentials, one of which must travel out of band, is the pair that
-   leaks.
-2. The link opens the admin activation page, which sets the password and **issues no session**.
+1. Creation requires an explicit initial-access method. **Email activation is the default and
+   recommended choice** when the address is a real receiving mailbox. The alternative is a
+   one-time-visible temporary password for a placeholder/non-receiving login address; choosing it
+   sends no email and does not verify the address.
+2. Only the selected credential is issued. An activation link and temporary password must never
+   be minted together: two live credentials, one of which must travel out of band, is the pair
+   that leaks.
+3. The link opens the admin activation page, which sets the password and **issues no session**.
    The operator then signs in through the normal admin login. An emailed link must never by
    itself produce an authenticated admin session.
-3. If the email never arrives, an authorized operator may resend it, or explicitly generate a
+4. If the email never arrives, an authorized operator may resend it, or explicitly generate a
    temporary password. Resending issues a fresh token, so the previous link stops working.
 
 Resend and temporary-access generation are separate permissions from creation, and separate from
@@ -1384,7 +1388,7 @@ Record accepted decisions here with date, reason, and affected source areas.
 | 2026-08-10 | Include `SUSPENDED` in the single live collaboration slot | A suspended relationship retains grants and can resume; releasing the slot could allow a newer relationship that collides when the suspended one resumes | Collaboration state model, live-tuple database constraint, request retries, lifecycle UI and tests |
 | 2026-08-13 | Create platform operators outright instead of promoting existing users, and never import identities from the client pool | Selection implies a trusted pool, and client members are not one; the two sides carry different trust levels, so they are different identities even for the same human | `users.kind` discriminator, operator creation endpoint, candidate search removal, operator credentials, create-operator UI |
 | 2026-08-13 | Keep one `users` table for both sides rather than separating client and platform identity tables | Email uniqueness is a database guarantee on one table; splitting downgrades it to a cross-table application check that can race, and would duplicate the credential state machine — the copy that misses the next fix | Identity model, credential lifecycle, uniqueness enforcement, `AdminUser` invariant |
-| 2026-08-13 | Issue operators a one-time temporary password instead of an activation email | Activation completion requires an active client membership an operator does not have, so an emailed operator would receive a link they can never complete | Operator credential path, create-operator response, admin login, deferred forced-password-change |
+| 2026-08-13 | Default operator creation to admin-side email activation while requiring an explicit temporary-password alternative for non-receiving login addresses | Operators now have a dedicated activation endpoint that does not depend on client membership; explicit selection avoids emailing placeholders and never creates two live credentials together | Operator creation API/UI, activation and temporary-password completion, email verification/recovery, tests |
 | 2026-08-10 | Company share codes do not expire automatically and are not credentials | A code identifies a Company but grants no access; the provider must still accept each request, so it remains valid until disabled/regenerated and only its SHA-256 hash is stored | Share-code persistence, discovery/request APIs, provider usage metadata, security documentation and tests |
 | 2026-08-10 | Return `201 Created` whenever collaboration initiation creates a row and `200 OK` only when it returns an identical existing row | Callers must be able to distinguish creation from idempotent retrieval consistently, including the concurrent uniqueness race | Collaboration initiation API, controller outcome mapping, client retry handling and concurrency tests |
 | 2026-07-15 | Require both provider delegation and external-member authorization for every B2B action | An Account-level grant must not give every external employee the ability to use it | Permissionizer B2B policies, provider delegation ceiling, external operator roles, runtime revalidation |
