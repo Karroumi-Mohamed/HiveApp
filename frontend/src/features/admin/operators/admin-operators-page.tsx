@@ -7,7 +7,7 @@ import {
   ProhibitIcon,
 } from "@phosphor-icons/react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { RowSelectionState, SortingState } from "@tanstack/react-table";
+import type { SortingState } from "@tanstack/react-table";
 import { useState } from "react";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { usePageSelection } from "@/lib/use-page-selection";
 
 /**
  * The backend distinguishes these; the previous message blamed authorization for every
@@ -284,6 +285,7 @@ function CreateOperatorDialog() {
 }
 
 const PAGE_SIZE = 20;
+const operatorId = (operator: AdminUser) => operator.id;
 
 const column = createDataColumns<AdminUser>();
 
@@ -382,7 +384,6 @@ export function AdminOperatorsPage() {
   const [active, setActive] = useState("all");
   const [page, setPage] = useState(0);
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const queryClient = useQueryClient();
   const users = useQuery({
     queryKey: ["admin", "users", debouncedSearch, active, page, sorting],
@@ -398,8 +399,12 @@ export function AdminOperatorsPage() {
     placeholderData: keepPreviousData,
   });
   const rows = users.data?.content ?? [];
-  const selectedIds = Object.keys(rowSelection).filter((id) => rowSelection[id]);
-  const clearSelection = () => setRowSelection({});
+  const { rowSelection, setRowSelection, selectedIds, clearSelection } = usePageSelection(rows, operatorId, [
+    debouncedSearch,
+    active,
+    page,
+    sorting,
+  ]);
 
   // Every bulk call reports per-item outcomes, so a partial result is announced honestly rather
   // than shown as a flat success.
@@ -491,7 +496,7 @@ export function AdminOperatorsPage() {
             }
             columns={operatorColumns}
             data={rows}
-            getRowId={(operator) => operator.id}
+            getRowId={operatorId}
             isLoading={users.isLoading}
             onRowSelectionChange={setRowSelection}
             onSortingChange={setSorting}

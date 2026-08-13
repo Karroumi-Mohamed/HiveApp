@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { clientApi } from "@/api/client-api";
 import type { Role, RoleImpact } from "@/api/contracts";
+import { ApiError } from "@/api/http";
 import { clientPermissions } from "@/auth/permissions";
 import { useClientSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -25,37 +26,72 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { isRolePreviewReady } from "@/features/client/roles/role-edit-rules";
 
 function RoleForm({ role, duplicate, onDone }: { role?: Role; duplicate?: boolean; onDone: (role: Role) => void }) {
   const session = useClientSession();
+  const queryClient = useQueryClient();
   const [name, setName] = useState(duplicate ? `${role?.name ?? ""} — copie` : (role?.name ?? ""));
   const [description, setDescription] = useState(role?.description ?? "");
   const [boundary, setBoundary] = useState(role?.templateBoundary ?? "ACCOUNT");
   const [companyId, setCompanyId] = useState(role?.boundaryCompanyId ?? "");
-  const save = useMutation({
-    mutationFn: () =>
-      duplicate && role
-        ? clientApi.duplicateRole(role.id, { name, description: description || null })
-        : role
-          ? clientApi.updateRole(role.id, {
-              name,
-              description: description || null,
-              expectedVersion: role.version,
-              confirmedAssignmentCount: null,
-            })
-          : clientApi.createRole({
-              templateBoundary: boundary,
-              boundaryCompanyId: boundary === "COMPANY" ? companyId : null,
-              name,
-              description: description || null,
-            }),
-    onSuccess: onDone,
+  // Editing an existing role is the only branch the backend gates on an impact preview. Creating
+  // and duplicating change nothing that is already assigned, so neither the preview nor its
+  // permission is required for them.
+  const isEdit = Boolean(role) && !duplicate;
+  const impactQueryKey = ["client", "roles", role?.id, "impact", "UPDATE"] as const;
+  const impact = useQuery({
+    queryKey: impactQueryKey,
+    queryFn: () => clientApi.roleImpact(role?.id ?? "", "UPDATE"),
+    enabled: isEdit && Boolean(role?.id) && session.can(clientPermissions.rolesImpact),
   });
+
+  const save = useMutation({
+    mutationFn: () => {
+      if (duplicate && role) return clientApi.duplicateRole(role.id, { name, description: description || null });
+      if (role) {
+        // No preview, no edit. Falling back to the role's own version with a null count sent a
+        // confirmation of numbers nobody had seen — which the backend rejects for an assigned
+        // role, and which would silently confirm a stale picture if it ever stopped rejecting it.
+        const preview = impact.data;
+        if (!isRolePreviewReady(isEdit, impact) || !preview) {
+          throw new Error("Impact preview is required before confirming this change");
+        }
+        return clientApi.updateRole(role.id, {
+          name,
+          description: description || null,
+          expectedVersion: preview.version,
+          confirmedAssignmentCount: preview.assignmentCount,
+        });
+      }
+      return clientApi.createRole({
+        templateBoundary: boundary,
+        boundaryCompanyId: boundary === "COMPANY" ? companyId : null,
+        name,
+        description: description || null,
+      });
+    },
+    onSuccess: onDone,
+    onError: (error) => {
+      // The preview went stale between rendering and confirming — someone assigned or unassigned
+      // the role meanwhile. Refetch so the reader confirms against what is true now rather than
+      // retrying blindly against numbers the server has already rejected.
+      if (error instanceof ApiError && error.code === "OPERATION_BLOCKED") {
+        void queryClient.resetQueries({ queryKey: impactQueryKey, exact: true });
+      }
+    },
+  });
+  // Retained data is deliberately not confirmable while it is refreshing or after a failed
+  // refresh: it describes the state that the server already rejected as stale.
+  const previewReady = isRolePreviewReady(isEdit, impact);
+
   return (
     <form
       className="space-y-4"
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
+        // Guarded here as well as on the button: Enter submits a form whatever the button says.
+        if (!previewReady) return;
         save.mutate();
       }}
     >
@@ -63,6 +99,45 @@ function RoleForm({ role, duplicate, onDone }: { role?: Role; duplicate?: boolea
         <Label htmlFor="role-name">Nom</Label>
         <Input id="role-name" onChange={(event) => setName(event.target.value)} required value={name} />
       </div>
+      {isEdit && previewReady && impact.data && impact.data.assignmentCount > 0 ? (
+        <div className="rounded-lg border border-warning/30 bg-warning-subtle p-3 text-sm">
+          <p className="font-medium">
+            Ce rôle est attribué {impact.data.assignmentCount} fois et concerne {impact.data.affectedMemberCount}{" "}
+            membre(s), dont {impact.data.activeMemberCount} actif(s).
+          </p>
+          {impact.data.scopes.length ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Portées : {impact.data.scopes.map((entry) => `${entry.scope} (${entry.assignmentCount})`).join(", ")}
+            </p>
+          ) : null}
+          <p className="mt-2 text-xs text-muted-foreground">
+            Enregistrer confirme cette situation. Si elle change entre-temps, la confirmation est refusée et cet aperçu
+            est actualisé.
+          </p>
+        </div>
+      ) : null}
+      {isEdit && !previewReady ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-sm">
+            {impact.isFetching
+              ? "Calcul de l’impact de cette modification…"
+              : impact.isError
+                ? "L’impact de cette modification n’a pas pu être calculé. Sans cet aperçu, la modification ne peut pas être confirmée."
+                : "Cette modification exige un aperçu de son impact avant confirmation."}
+          </p>
+          {!impact.isFetching ? (
+            <Button
+              className="mt-2"
+              onClick={() => void queryClient.resetQueries({ queryKey: impactQueryKey, exact: true })}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Réessayer le calcul
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {!role ? (
         <>
           <div className="space-y-2">
@@ -101,7 +176,10 @@ function RoleForm({ role, duplicate, onDone }: { role?: Role; duplicate?: boolea
         <Textarea id="role-description" onChange={(event) => setDescription(event.target.value)} value={description} />
       </div>
       <div className="flex justify-end">
-        <Button disabled={!name.trim() || (boundary === "COMPANY" && !companyId) || save.isPending} type="submit">
+        <Button
+          disabled={!name.trim() || (boundary === "COMPANY" && !companyId) || save.isPending || !previewReady}
+          type="submit"
+        >
           Enregistrer
         </Button>
       </div>
@@ -119,7 +197,12 @@ function RoleDialog({ role, duplicate }: { role?: Role; duplicate?: boolean }) {
     : role
       ? clientPermissions.rolesUpdate
       : clientPermissions.rolesCreate;
-  if (!session.can(requiredPermission) || !session.can(clientPermissions.rolesImpact)) return null;
+  // Only editing an existing role needs the preview, so only editing needs permission to read
+  // one. Requiring it for creation and duplication hid two actions that change nothing already
+  // assigned.
+  const needsImpactPreview = Boolean(role) && !duplicate;
+  if (!session.can(requiredPermission)) return null;
+  if (needsImpactPreview && !session.can(clientPermissions.rolesImpact)) return null;
   return (
     <Dialog onOpenChange={setOpen} open={open}>
       <DialogTrigger asChild>

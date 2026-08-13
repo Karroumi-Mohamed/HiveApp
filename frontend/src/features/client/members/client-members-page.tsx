@@ -8,11 +8,11 @@ import {
   UserMinusIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useDeferredValue, useMemo, useState } from "react";
+import { type FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { clientApi } from "@/api/client-api";
-import type { Member, MemberAccess, MemberCreation } from "@/api/contracts";
+import type { Member, MemberAccess, MemberCreation, MemberRoleAssignment } from "@/api/contracts";
 import { clientPermissions } from "@/auth/permissions";
 import { useClientSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -33,6 +33,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  isAssignmentHeld,
+  isRoleAssignableTo,
+  reconcileRoleSelection,
+} from "@/features/client/members/role-assignment-rules";
 
 function AccessMaterial({ access, onClose }: { access: MemberCreation | MemberAccess; onClose?: () => void }) {
   const password = access.temporaryPassword;
@@ -202,7 +207,13 @@ function CreateMemberDialog() {
   );
 }
 
-function RoleAssignment({ memberId, currentRoleIds }: { memberId: string; currentRoleIds: string[] }) {
+/**
+ * A role may be held more than once by the same member, at different scopes: the backend's
+ * identity for an assignment is role + scope + company, not the role alone. Excluding a role
+ * outright once it appears anywhere made a legitimate second assignment — the same role at a
+ * company, having already been granted account-wide — impossible to express.
+ */
+function RoleAssignment({ memberId, assignments }: { memberId: string; assignments: MemberRoleAssignment[] }) {
   const session = useClientSession();
   const queryClient = useQueryClient();
   const roles = useQuery({
@@ -222,27 +233,50 @@ function RoleAssignment({ memberId, currentRoleIds }: { memberId: string; curren
       toast.success("Rôle attribué");
     },
   });
+  // Only the exact tuple already held is excluded, and it is recomputed whenever the scope or
+  // company changes — switching from Compte to an Entreprise re-offers a role that is only
+  // assigned account-wide.
+  const target = { scope, companyId: companyId || null };
+  const availableRoles = (roles.data ?? []).filter(
+    (role) =>
+      role.status === "ACTIVE" && isRoleAssignableTo(role, target) && !isAssignmentHeld(assignments, role.id, target),
+  );
+  // Changing the scope or company can invalidate a role already picked — it may be bound to a
+  // different company, or the new tuple may already be held. The choice is dropped rather than
+  // silently submitted against a target it does not fit.
+  const reconciledRoleId = reconcileRoleSelection(
+    roleId,
+    availableRoles.map((role) => role.id),
+  );
+  const selectionIsValid = Boolean(roleId) && reconciledRoleId === roleId;
+
+  // Roles and assignments can also change after a refetch, not only through these form controls.
+  // Keep the stored choice aligned so returning to an earlier scope cannot resurrect an invalid
+  // selection that merely looked empty.
+  useEffect(() => {
+    if (roleId !== reconciledRoleId) setRoleId(reconciledRoleId);
+  }, [reconciledRoleId, roleId]);
+
   if (!session.can(clientPermissions.membersAssignRole) || !session.can(clientPermissions.rolesRead)) return null;
   return (
     <form
       className="grid gap-3 rounded-lg border p-4 md:grid-cols-[1fr_10rem_1fr_auto]"
       onSubmit={(event) => {
         event.preventDefault();
+        if (!selectionIsValid || (scope === "COMPANY" && !companyId)) return;
         assign.mutate();
       }}
     >
-      <Select onValueChange={setRoleId} value={roleId}>
+      <Select onValueChange={setRoleId} value={reconciledRoleId}>
         <SelectTrigger aria-label="Rôle">
           <SelectValue placeholder="Rôle actif" />
         </SelectTrigger>
         <SelectContent>
-          {roles.data
-            ?.filter((role) => role.status === "ACTIVE" && !currentRoleIds.includes(role.id))
-            .map((role) => (
-              <SelectItem key={role.id} value={role.id}>
-                {role.name}
-              </SelectItem>
-            ))}
+          {availableRoles.map((role) => (
+            <SelectItem key={role.id} value={role.id}>
+              {role.name}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
       <Select onValueChange={setScope} value={scope}>
@@ -272,7 +306,10 @@ function RoleAssignment({ memberId, currentRoleIds }: { memberId: string; curren
       ) : (
         <div />
       )}
-      <Button disabled={!roleId || (scope === "COMPANY" && !companyId) || assign.isPending} type="submit">
+      <Button
+        disabled={!roleId || !selectionIsValid || (scope === "COMPANY" && !companyId) || assign.isPending}
+        type="submit"
+      >
         Attribuer
       </Button>
     </form>
@@ -349,7 +386,7 @@ function AuthorizationPanel({ memberId }: { memberId: string }) {
           <h2 className="text-sm font-semibold">Rôles attribués</h2>
           <p className="mt-1 text-xs text-muted-foreground">La portée indique où le rôle produit ses effets.</p>
         </div>
-        <RoleAssignment currentRoleIds={authorization.data.roles.map((role) => role.roleId)} memberId={memberId} />
+        <RoleAssignment assignments={authorization.data.roles} memberId={memberId} />
         {!authorization.data.roles.length ? (
           <EmptyState title="Aucun rôle" />
         ) : (

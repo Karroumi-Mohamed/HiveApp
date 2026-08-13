@@ -7,7 +7,7 @@ import {
   ShieldCheckIcon,
 } from "@phosphor-icons/react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { RowSelectionState, SortingState } from "@tanstack/react-table";
+import type { SortingState } from "@tanstack/react-table";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
@@ -37,6 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { usePageSelection } from "@/lib/use-page-selection";
 
 export function RoleFormDialog({ trigger, role }: { trigger: React.ReactNode; role?: AdminRole }) {
   const session = useAdminSession();
@@ -94,6 +95,7 @@ export function RoleFormDialog({ trigger, role }: { trigger: React.ReactNode; ro
 }
 
 const PAGE_SIZE = 20;
+const roleId = (role: AdminRole) => role.id;
 const column = createDataColumns<AdminRole>();
 
 /** Each column owns its header, cell, and width. */
@@ -214,7 +216,6 @@ export function AdminRolesPage() {
   const [active, setActive] = useState("all");
   const [page, setPage] = useState(0);
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   const roles = useQuery({
     queryKey: ["admin", "roles", debouncedSearch, active, page, sorting],
@@ -231,8 +232,12 @@ export function AdminRolesPage() {
   });
 
   const rows = roles.data?.content ?? [];
-  const selectedIds = Object.keys(rowSelection).filter((id) => rowSelection[id]);
-  const clearSelection = () => setRowSelection({});
+  const { rowSelection, setRowSelection, selectedIds, clearSelection } = usePageSelection(rows, roleId, [
+    debouncedSearch,
+    active,
+    page,
+    sorting,
+  ]);
 
   const bulkActive = useMutation({
     mutationFn: (next: boolean) => adminApi.bulkSetRolesActive(selectedIds, next),
@@ -310,7 +315,7 @@ export function AdminRolesPage() {
             columns={roleColumns}
             data={rows}
             emptyState={<EmptyState description="Modifiez les filtres ou créez un premier rôle." title="Aucun rôle" />}
-            getRowId={(role) => role.id}
+            getRowId={roleId}
             isLoading={roles.isLoading}
             onRowSelectionChange={setRowSelection}
             onSortingChange={setSorting}

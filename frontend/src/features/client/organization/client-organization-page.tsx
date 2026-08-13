@@ -33,6 +33,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { resolveOrganizationCompanyId } from "@/features/client/members/role-assignment-rules";
 
 function GroupForm({
   companyId,
@@ -553,7 +554,13 @@ function Templates({ companyId, groups }: { companyId: string; groups: Organizat
 export function ClientOrganizationPage() {
   const session = useClientSession();
   const [tab, setTab] = useState("structure");
-  const companyId = session.selectedCompanyId ?? session.companies.find((company) => company.isActive)?.id ?? null;
+  // Structure belongs to one company, so the company must be chosen deliberately. Falling back to
+  // the first active one showed a structure the reader never selected and applied their edits to
+  // it. The selection is also re-validated here: a company that has since been deactivated or
+  // removed must not be used to build a request from a stale id.
+  const companyId = resolveOrganizationCompanyId(session.selectedCompanyId, session.companies);
+  const selectionIsStale = Boolean(session.selectedCompanyId) && companyId === null;
+
   const groups = useQuery({
     queryKey: ["client", "organization", companyId],
     queryFn: () => clientApi.groups(companyId ?? ""),
@@ -563,7 +570,14 @@ export function ClientOrganizationPage() {
     return (
       <div className="space-y-7">
         <PageHeader title="Structure" />
-        <EmptyState title="Créez ou sélectionnez une entreprise" />
+        <EmptyState
+          description={
+            selectionIsStale
+              ? "L’entreprise sélectionnée n’est plus disponible. Choisissez-en une autre pour afficher sa structure."
+              : "La structure est propre à une entreprise. Sélectionnez-en une pour continuer."
+          }
+          title={selectionIsStale ? "Entreprise indisponible" : "Sélectionnez une entreprise"}
+        />
       </div>
     );
   return (

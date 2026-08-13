@@ -7,7 +7,7 @@ import type { AuthResponse } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { useAdminSession, useClientSession } from "@/auth/session-provider";
 import { canSubmitNewPassword } from "@/auth/session-rules";
-import { writeSession } from "@/auth/session-store";
+import { clearSession, writeSession } from "@/auth/session-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -204,7 +204,7 @@ export function AdminInitialPasswordPage() {
             // on this screen for as long as the network takes — and stranded entirely if it never
             // answers, which is exactly the situation this button exists to escape.
             const { accessToken } = currentSession;
-            writeSession("admin", null);
+            clearSession("admin");
             navigate("/admin/login", { replace: true });
             void adminApi.logoutInitialAccess(accessToken).catch(() => undefined);
           }}
@@ -407,11 +407,12 @@ export function InitialPasswordPage() {
         </Button>
         <Button
           className="w-full"
-          onClick={() =>
-            void authApi
-              .logoutInitialAccess(session.session?.accessToken ?? "")
-              .finally(() => writeSession("client", null))
-          }
+          onClick={() => {
+            const { accessToken } = currentSession;
+            clearSession("client");
+            navigate("/app/login", { replace: true });
+            void authApi.logoutInitialAccess(accessToken).catch(() => undefined);
+          }}
           type="button"
           variant="ghost"
         >

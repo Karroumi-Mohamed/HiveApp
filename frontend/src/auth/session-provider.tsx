@@ -11,7 +11,14 @@ import {
 import type { Account, AdminMe, AuthResponse, Company, MemberPermissions } from "@/api/contracts";
 import { apiRequest, jsonBody } from "@/api/http";
 import { shouldLoadAdminProfile } from "@/auth/session-rules";
-import { readSession, type StoredSession, subscribeSessions, writeSession } from "@/auth/session-store";
+import {
+  clearSession,
+  readSession,
+  replaceSessionIfCurrent,
+  type StoredSession,
+  subscribeSessions,
+  writeSession,
+} from "@/auth/session-store";
 
 type Credentials = { identifier?: string; password: string; accountCode?: string; employeeNumber?: string };
 
@@ -24,23 +31,52 @@ function stored(response: AuthResponse): StoredSession {
   };
 }
 
-function useSessionRefresh(audience: "admin" | "client", session: StoredSession | null) {
+/**
+ * Keeps a session's two deadlines coordinated: refresh shortly before it expires, and give up on
+ * it the moment it does.
+ *
+ * <p>The expiry timer runs for *every* session, including a restricted one that holds no refresh
+ * token. Reading an expired session as absent is not enough on its own — nothing re-renders when
+ * a moment passes, so the shell would keep showing an authenticated portal until something else
+ * happened to trigger a render, and storage and cache would still hold the dead session.
+ */
+function useSessionLifecycle(audience: "admin" | "client", session: StoredSession | null) {
   useEffect(() => {
-    if (!session?.refreshToken || session.passwordChangeRequired) return;
+    if (!session) return;
+
+    const controller = new AbortController();
+
     const refresh = async () => {
       try {
         const response = await apiRequest<AuthResponse>(
           audience === "admin" ? "/api/admin/auth/refresh" : "/api/v1/auth/refresh",
-          { method: "POST", body: jsonBody({ refreshToken: session.refreshToken }) },
+          { method: "POST", body: jsonBody({ refreshToken: session.refreshToken }), signal: controller.signal },
         );
-        writeSession(audience, stored(response));
+        replaceSessionIfCurrent(audience, session, stored(response));
       } catch {
-        writeSession(audience, null);
+        if (!controller.signal.aborted) replaceSessionIfCurrent(audience, session, null);
       }
     };
-    const delay = Math.max(1_000, session.expiresAt - Date.now() - 60_000);
-    const timer = window.setTimeout(() => void refresh(), delay);
-    return () => window.clearTimeout(timer);
+
+    const timers: number[] = [];
+
+    // A successful refresh writes a new session, which re-runs this effect and rebuilds both
+    // deadlines. If it fails, or never runs because this session cannot refresh, expiry is what
+    // ends the session.
+    if (session.refreshToken && !session.passwordChangeRequired) {
+      timers.push(window.setTimeout(() => void refresh(), Math.max(1_000, session.expiresAt - Date.now() - 60_000)));
+    }
+    timers.push(
+      window.setTimeout(
+        () => replaceSessionIfCurrent(audience, session, null),
+        Math.max(0, session.expiresAt - Date.now()),
+      ),
+    );
+
+    return () => {
+      controller.abort();
+      for (const timer of timers) window.clearTimeout(timer);
+    };
   }, [audience, session]);
 }
 
@@ -64,7 +100,7 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
     () => readSession("admin"),
     () => null,
   );
-  useSessionRefresh("admin", session);
+  useSessionLifecycle("admin", session);
   const meQuery = useQuery({
     queryKey: ["admin", "me", session?.accessToken],
     queryFn: () => apiRequest<AdminMe>("/api/admin/me", { audience: "admin" }),
@@ -84,19 +120,24 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
           method: "POST",
           body: jsonBody(credentials),
         });
+        // Drop whatever the previous holder of this portal left behind before the new session
+        // exists, so their rows cannot be shown for the moment before each query refetches.
+        queryClient.removeQueries({ queryKey: ["admin"] });
         writeSession("admin", stored(response));
         return response;
       },
       logout: async () => {
-        if (session?.refreshToken) {
-          await apiRequest<void>("/api/admin/auth/logout", {
+        // Local state first: the operator is signed out the instant they ask, even if the
+        // revocation call is slow or never answers.
+        const refreshToken = session?.refreshToken;
+        clearSession("admin");
+        if (refreshToken) {
+          void apiRequest<void>("/api/admin/auth/logout", {
             audience: "admin",
             method: "POST",
-            body: jsonBody({ refreshToken: session.refreshToken }),
+            body: jsonBody({ refreshToken }),
           }).catch(() => undefined);
         }
-        writeSession("admin", null);
-        queryClient.removeQueries({ queryKey: ["admin"] });
       },
       can: (permission) => Boolean(meQuery.data?.isSuperAdmin || meQuery.data?.permissions.includes(permission)),
     }),
@@ -139,7 +180,7 @@ export function ClientSessionProvider({ children }: { children: ReactNode }) {
     () => readSession("client"),
     () => null,
   );
-  useSessionRefresh("client", session);
+  useSessionLifecycle("client", session);
   const selectedCompanyId = useSyncExternalStore(
     subscribeSessions,
     () => window.localStorage.getItem(companyKey),
@@ -181,7 +222,7 @@ export function ClientSessionProvider({ children }: { children: ReactNode }) {
       selectedCompanyId,
       permissions: permissionsQuery.data ?? null,
       isB2B,
-      loading: Boolean(session) && (accountQuery.isLoading || permissionsQuery.isLoading),
+      loading: Boolean(session) && (accountQuery.isLoading || companiesQuery.isLoading || permissionsQuery.isLoading),
       error: accountQuery.isError || companiesQuery.isError || permissionsQuery.isError,
       retry: () => {
         void Promise.all([accountQuery.refetch(), companiesQuery.refetch(), permissionsQuery.refetch()]);
@@ -191,19 +232,24 @@ export function ClientSessionProvider({ children }: { children: ReactNode }) {
           method: "POST",
           body: jsonBody(credentials),
         });
+        // Drop whatever the previous holder of this portal left behind before the new session
+        // exists, so their rows cannot be shown for the moment before each query refetches.
+        queryClient.removeQueries({ queryKey: ["client"] });
         writeSession("client", stored(response));
         return response;
       },
       logout: async () => {
-        if (session?.refreshToken) {
-          await apiRequest<void>("/api/v1/auth/logout", {
+        // Local state first: the operator is signed out the instant they ask, even if the
+        // revocation call is slow or never answers.
+        const refreshToken = session?.refreshToken;
+        clearSession("client");
+        if (refreshToken) {
+          void apiRequest<void>("/api/v1/auth/logout", {
             audience: "client",
             method: "POST",
-            body: jsonBody({ refreshToken: session.refreshToken }),
+            body: jsonBody({ refreshToken }),
           }).catch(() => undefined);
         }
-        writeSession("client", null);
-        queryClient.removeQueries({ queryKey: ["client"] });
       },
       selectCompany: (companyId) => {
         if (companyId) window.localStorage.setItem(companyKey, companyId);
@@ -224,6 +270,7 @@ export function ClientSessionProvider({ children }: { children: ReactNode }) {
       accountQuery.refetch,
       companiesQuery.data,
       companiesQuery.isError,
+      companiesQuery.isLoading,
       companiesQuery.refetch,
       isB2B,
       permissionsQuery.data,
