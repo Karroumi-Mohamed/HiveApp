@@ -246,7 +246,7 @@ class MemberServiceImplTest {
         Member owner = member(memberId, account(accountId), user(UUID.randomUUID()), true);
         when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(owner));
 
-        assertThatThrownBy(() -> memberService.deactivateMember(memberId))
+        assertThatThrownBy(() -> memberService.deactivateMember(memberId, "Offboarding"))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Transfer ownership first");
 
@@ -263,10 +263,66 @@ class MemberServiceImplTest {
         when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(member));
         when(memberRepository.saveAndFlush(member)).thenReturn(member);
 
-        memberService.deactivateMember(memberId);
+        memberService.deactivateMember(memberId, "Offboarding");
 
         assertThat(member.isActive()).isFalse();
         verify(memberCredentialService).invalidatePendingAccess(member.getUser());
+    }
+
+    @Test
+    void memberLifecycleChangesRequireAnAuditableReasonBeforeLoadingState() {
+        UUID memberId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> memberService.deactivateMember(memberId, "   "))
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessageContaining("require a reason");
+        assertThatThrownBy(() -> memberService.reactivateMember(memberId, null))
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessageContaining("require a reason");
+
+        verifyNoInteractions(memberRepository, accountRepository, quotaEnforcer, memberCredentialService);
+    }
+
+    @Test
+    void reactivateMemberLocksAccountAndChecksActiveMemberQuota() {
+        UUID accountId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        setContext(accountId);
+        Account account = account(accountId);
+        Member member = member(memberId, account, user(UUID.randomUUID()), false);
+        member.setActive(false);
+        when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account));
+        when(memberRepository.findByIdAndAccountId(memberId, accountId)).thenReturn(Optional.of(member));
+        when(memberRepository.countByAccountIdAndIsActiveTrue(accountId)).thenReturn(2L);
+        when(memberRepository.saveAndFlush(member)).thenReturn(member);
+
+        var result = memberService.reactivateMember(memberId, "Returned to the team");
+
+        assertThat(member.isActive()).isTrue();
+        assertThat(result.id()).isEqualTo(memberId);
+        ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
+        verify(quotaEnforcer).check(
+                any(FeatureDefinition.class),
+                eq(WorkspaceFeature.MEMBERS),
+                eq(accountId),
+                usageCaptor.capture());
+        assertThat(usageCaptor.getValue().getAsLong()).isEqualTo(2L);
+        verify(memberRepository).saveAndFlush(member);
+    }
+
+    @Test
+    void reactivateMemberRejectsSuspendedAccountBeforeQuotaCheck() {
+        UUID accountId = UUID.randomUUID();
+        setContext(accountId);
+        Account account = account(accountId);
+        account.setActive(false);
+        when(accountRepository.findByIdForQuotaUpdate(accountId)).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> memberService.reactivateMember(UUID.randomUUID(), "Return"))
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessage("Workspace account is suspended");
+
+        verifyNoInteractions(quotaEnforcer);
     }
 
     @Test

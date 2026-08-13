@@ -19,6 +19,8 @@ import java.util.UUID;
 
 public interface SubscriptionRepository extends JpaRepository<Subscription, UUID> {
 
+    long countByStatus(SubscriptionStatus status);
+
     // Returns latest ACTIVE — guards against accidental duplicates (admin error, race condition).
     // Production: enforce at DB level with partial unique index: UNIQUE (account_id) WHERE status = 'ACTIVE'
     Optional<Subscription> findTopByAccountIdAndStatusOrderByCreatedAtDesc(UUID accountId, SubscriptionStatus status);

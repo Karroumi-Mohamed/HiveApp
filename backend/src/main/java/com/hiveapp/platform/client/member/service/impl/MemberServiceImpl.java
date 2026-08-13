@@ -188,7 +188,8 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
     @Override
     @Transactional
     @PermissionNode(key = "delete", description = "Deactivate member")
-    public void deactivateMember(UUID id) {
+    public void deactivateMember(UUID id, String reason) {
+        requireLifecycleReason(reason);
         var member = getMember(id);
         requireCurrentAccount(member);
         UUID actorUserId = HiveAppContextHolder.getContext().actorUserId();
@@ -201,6 +202,42 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         memberCredentialService.invalidatePendingAccess(member.getUser());
         member.setActive(false);
         memberRepository.saveAndFlush(member);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "reactivate", description = "Reactivate member")
+    public MemberDto reactivateMember(UUID id, String reason) {
+        requireLifecycleReason(reason);
+        UUID accountId = currentAccountId();
+        var account = accountRepository.findByIdForQuotaUpdate(accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
+        if (!account.isActive()) {
+            throw new InvalidStateException("Workspace account is suspended");
+        }
+        var member = memberRepository.findByIdAndAccountId(id, accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member", "id", id));
+        if (member.isActive()) {
+            throw new InvalidStateException("Member is already active");
+        }
+        quotaEnforcer.check(
+                WorkspaceFeature.definition(),
+                WorkspaceFeature.MEMBERS,
+                accountId,
+                () -> memberRepository.countByAccountIdAndIsActiveTrue(accountId)
+        );
+        member.setActive(true);
+        return memberMapper.toDto(memberRepository.saveAndFlush(member));
+    }
+
+    private void requireLifecycleReason(String reason) {
+        String normalized = normalizeOptional(reason);
+        if (normalized == null) {
+            throw new InvalidStateException("Member lifecycle changes require a reason");
+        }
+        if (normalized.length() > 500) {
+            throw new InvalidStateException("Member lifecycle reasons cannot exceed 500 characters");
+        }
     }
 
     @Override

@@ -6,6 +6,9 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionCheckoutStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
@@ -14,6 +17,7 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionCheckoutRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
@@ -66,6 +70,7 @@ class PlanAdminServiceImplTest {
     @Mock private PlanFeatureRepository planFeatureRepository;
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
+    @Mock private SubscriptionCheckoutRepository subscriptionCheckoutRepository;
     @Mock private BillingConfigurationValidator billingConfigurationValidator;
     @Mock private AddOnRepository addOnRepository;
     @Mock private AddOnFeatureRepository addOnFeatureRepository;
@@ -79,6 +84,36 @@ class PlanAdminServiceImplTest {
     @BeforeEach
     void setUp() {
         lenientSavedPlan();
+    }
+
+    @Test
+    void commercialOverviewSeparatesCurrentSubscriptionsAndAttentionWork() {
+        when(planRepository.count()).thenReturn(8L);
+        when(planRepository.countByStatus(PlanStatus.DRAFT)).thenReturn(2L);
+        when(planRepository.countByStatus(PlanStatus.ACTIVE)).thenReturn(4L);
+        when(planRepository.countByStatus(PlanStatus.INACTIVE)).thenReturn(1L);
+        when(planRepository.countByStatus(PlanStatus.ARCHIVED)).thenReturn(1L);
+        when(subscriptionRepository.countByStatus(SubscriptionStatus.ACTIVE)).thenReturn(10L);
+        when(subscriptionRepository.countByStatus(SubscriptionStatus.TRIALING)).thenReturn(3L);
+        when(subscriptionRepository.countByStatus(SubscriptionStatus.PAST_DUE)).thenReturn(2L);
+        when(subscriptionRepository.countByStatus(SubscriptionStatus.SUSPENDED)).thenReturn(1L);
+        when(subscriptionCheckoutRepository.countByStatus(SubscriptionCheckoutStatus.PENDING_CONFIRMATION))
+                .thenReturn(4L);
+        when(subscriptionChangeOperationRepository.countByStatus(SubscriptionChangeStatus.PENDING)).thenReturn(5L);
+        when(subscriptionChangeOperationRepository.countByStatus(SubscriptionChangeStatus.NEEDS_ATTENTION))
+                .thenReturn(2L);
+
+        var result = planAdminService.getCommercialOverview();
+
+        assertThat(result.totalPlans()).isEqualTo(8);
+        assertThat(result.currentSubscriptions()).isEqualTo(16);
+        assertThat(result.activeSubscriptions()).isEqualTo(10);
+        assertThat(result.trialingSubscriptions()).isEqualTo(3);
+        assertThat(result.pastDueSubscriptions()).isEqualTo(2);
+        assertThat(result.suspendedSubscriptions()).isEqualTo(1);
+        assertThat(result.pendingCheckouts()).isEqualTo(4);
+        assertThat(result.scheduledChanges()).isEqualTo(5);
+        assertThat(result.changesNeedingAttention()).isEqualTo(2);
     }
 
     @Test

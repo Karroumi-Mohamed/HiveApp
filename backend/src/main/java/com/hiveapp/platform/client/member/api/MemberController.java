@@ -8,6 +8,7 @@ import com.hiveapp.platform.client.member.dto.MemberAccessStatusResponse;
 import com.hiveapp.platform.client.member.dto.AssignRoleRequest;
 import com.hiveapp.platform.client.member.dto.MemberDto;
 import com.hiveapp.platform.client.member.dto.MemberPermissionOverrideDto;
+import com.hiveapp.platform.client.member.dto.MemberLifecycleRequest;
 import com.hiveapp.platform.client.member.dto.MemberAuthorizationDto;
 import com.hiveapp.platform.client.member.dto.OverridePermissionRequest;
 import com.hiveapp.platform.client.member.dto.UpdateMemberRequest;
@@ -58,10 +59,18 @@ public class MemberController {
         return memberService.updateMember(id, req.displayName());
     }
 
-    @DeleteMapping("/{id}")
+    @PostMapping("/{id}/deactivate")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deactivateMember(@PathVariable UUID id) {
-        memberService.deactivateMember(id);
+    public void deactivateMember(@PathVariable UUID id, @Valid @RequestBody MemberLifecycleRequest request) {
+        memberService.deactivateMember(id, request.reason());
+    }
+
+    @PostMapping("/{id}/reactivate")
+    public MemberDto reactivateMember(
+            @PathVariable UUID id,
+            @Valid @RequestBody MemberLifecycleRequest request
+    ) {
+        return memberService.reactivateMember(id, request.reason());
     }
 
     @PostMapping("/{id}/access/regenerate")

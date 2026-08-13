@@ -8,6 +8,8 @@ import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionCheckoutStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
@@ -20,8 +22,10 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionCheckoutRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
+import com.hiveapp.platform.client.plan.dto.CommercialOverviewDto;
 import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
@@ -86,10 +90,35 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final PlanFeatureRepository planFeatureRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
+    private final SubscriptionCheckoutRepository subscriptionCheckoutRepository;
     private final BillingConfigurationValidator billingConfigurationValidator;
     private final AddOnRepository addOnRepository;
     private final AddOnFeatureRepository addOnFeatureRepository;
     private final QuotaPackageRepository quotaPackageRepository;
+
+    @Override
+    @PermissionNode(key = "overview", description = "View commercial operations overview")
+    @Transactional(readOnly = true)
+    public CommercialOverviewDto getCommercialOverview() {
+        long activeSubscriptions = subscriptionRepository.countByStatus(SubscriptionStatus.ACTIVE);
+        long trialingSubscriptions = subscriptionRepository.countByStatus(SubscriptionStatus.TRIALING);
+        long pastDueSubscriptions = subscriptionRepository.countByStatus(SubscriptionStatus.PAST_DUE);
+        long suspendedSubscriptions = subscriptionRepository.countByStatus(SubscriptionStatus.SUSPENDED);
+        return new CommercialOverviewDto(
+                planRepository.count(),
+                planRepository.countByStatus(PlanStatus.DRAFT),
+                planRepository.countByStatus(PlanStatus.ACTIVE),
+                planRepository.countByStatus(PlanStatus.INACTIVE),
+                planRepository.countByStatus(PlanStatus.ARCHIVED),
+                activeSubscriptions + trialingSubscriptions + pastDueSubscriptions + suspendedSubscriptions,
+                activeSubscriptions,
+                trialingSubscriptions,
+                pastDueSubscriptions,
+                suspendedSubscriptions,
+                subscriptionCheckoutRepository.countByStatus(SubscriptionCheckoutStatus.PENDING_CONFIRMATION),
+                subscriptionChangeOperationRepository.countByStatus(SubscriptionChangeStatus.PENDING),
+                subscriptionChangeOperationRepository.countByStatus(SubscriptionChangeStatus.NEEDS_ATTENTION));
+    }
 
     @Override
     protected FeatureDefinition featureDefinition() {

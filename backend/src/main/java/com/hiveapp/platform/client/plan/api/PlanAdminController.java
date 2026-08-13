@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.api;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.CommercialOverviewDto;
 import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
 import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
 import com.hiveapp.platform.client.plan.dto.PlanDeletionPreview;
@@ -14,10 +15,10 @@ import com.hiveapp.platform.client.plan.dto.PlanSubscriberOwnerLookupDto;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.shared.api.PageResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.data.domain.Sort;
@@ -32,6 +33,11 @@ import java.util.UUID;
 public class PlanAdminController {
 
     private final PlanAdminService planAdminService;
+
+    @GetMapping("/overview")
+    public CommercialOverviewDto overview() {
+        return planAdminService.getCommercialOverview();
+    }
 
     @GetMapping
     public List<PlanDto> listPlans() {
@@ -101,22 +107,22 @@ public class PlanAdminController {
     }
 
     @GetMapping("/{planId}/subscribers")
-    public Page<PlanSubscriberDto> listSubscribers(
+    public PageResponse<PlanSubscriberDto> listSubscribers(
             @PathVariable UUID planId,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) SubscriptionStatus status,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
     ) {
-        return planAdminService.listPlanSubscribers(planId, search, status, pageable);
+        return PageResponse.from(planAdminService.listPlanSubscribers(planId, search, status, pageable));
     }
 
     @GetMapping("/{planId}/subscribers/by-owner-email")
-    public Page<PlanSubscriberOwnerLookupDto> subscribersByOwnerEmail(
+    public PageResponse<PlanSubscriberOwnerLookupDto> subscribersByOwnerEmail(
             @PathVariable UUID planId,
             @RequestParam String ownerEmail,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
     ) {
-        return planAdminService.findPlanSubscribersByOwnerEmail(planId, ownerEmail, pageable);
+        return PageResponse.from(planAdminService.findPlanSubscribersByOwnerEmail(planId, ownerEmail, pageable));
     }
 
     @PostMapping("/{planId}/features")

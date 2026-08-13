@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.plan.domain.repository;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -9,6 +10,8 @@ import java.util.UUID;
 import java.util.Optional;
 public interface PlanRepository extends JpaRepository<Plan, UUID> {
     Optional<Plan> findByCode(String code);
+
+    long countByStatus(PlanStatus status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select plan from Plan plan where plan.id = :planId")

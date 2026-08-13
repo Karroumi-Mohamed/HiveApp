@@ -68,8 +68,10 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
         String otherToken = registerClientAndGetToken();
         UUID ownerMemberId = currentMemberId(ownerToken);
 
-        mockMvc.perform(delete("/api/v1/members/{id}", ownerMemberId)
-                        .header("Authorization", bearer(otherToken)))
+        mockMvc.perform(post("/api/v1/members/{id}/deactivate", ownerMemberId)
+                        .header("Authorization", bearer(otherToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Cross-workspace isolation test\"}"))
                 .andExpect(status().isNotFound());
     }
 

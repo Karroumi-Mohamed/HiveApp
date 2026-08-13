@@ -16,6 +16,8 @@ import java.util.UUID;
 
 public interface SubscriptionChangeOperationRepository extends JpaRepository<SubscriptionChangeOperation, UUID> {
 
+    long countByStatus(SubscriptionChangeStatus status);
+
     Optional<SubscriptionChangeOperation> findByAccountIdAndStatus(UUID accountId, SubscriptionChangeStatus status);
 
     Optional<SubscriptionChangeOperation> findTopByAccountIdAndStatusIn(

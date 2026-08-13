@@ -204,8 +204,10 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
         String token = registerClientAndGetToken();
         UUID memberId = currentMemberId(token);
 
-        mockMvc.perform(delete("/api/v1/members/{id}", memberId)
-                        .header("Authorization", bearer(token)))
+        mockMvc.perform(post("/api/v1/members/{id}/deactivate", memberId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Owner protection test\"}"))
                 .andExpect(status().isForbidden());
     }
 
@@ -215,8 +217,10 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
         AcceptedMemberTokens memberTokens = createAndActivateMember(ownerToken);
         UUID createdMemberId = memberIdForNonOwner(ownerToken);
 
-        mockMvc.perform(delete("/api/v1/members/{id}", createdMemberId)
-                        .header("Authorization", bearer(ownerToken)))
+        mockMvc.perform(post("/api/v1/members/{id}/deactivate", createdMemberId)
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Security revocation test\"}"))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/members")

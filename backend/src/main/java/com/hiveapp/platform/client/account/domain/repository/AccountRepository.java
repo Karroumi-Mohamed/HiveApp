@@ -8,9 +8,24 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.util.UUID;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 
 public interface AccountRepository extends JpaRepository<Account, UUID> {
     Optional<Account> findByOwner_Id(UUID ownerId);
+
+    @EntityGraph(attributePaths = "owner")
+    @Query(
+            value = "select account from Account account join account.owner owner where "
+                    + ":query is null or lower(account.name) like lower(concat('%', :query, '%')) "
+                    + "or lower(account.slug) like lower(concat('%', :query, '%')) "
+                    + "or lower(owner.email) like lower(concat('%', :query, '%'))",
+            countQuery = "select count(account) from Account account join account.owner owner where "
+                    + ":query is null or lower(account.name) like lower(concat('%', :query, '%')) "
+                    + "or lower(account.slug) like lower(concat('%', :query, '%')) "
+                    + "or lower(owner.email) like lower(concat('%', :query, '%'))")
+    Page<Account> searchDirectory(@Param("query") String query, Pageable pageable);
 
     @Query("select account.owner.email from Account account where account.id = :accountId")
     Optional<String> findOwnerEmailById(@Param("accountId") UUID accountId);

@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.domain.repository;
 
 import com.hiveapp.platform.client.plan.domain.entity.SubscriptionCheckout;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionCheckoutStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -11,6 +12,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface SubscriptionCheckoutRepository extends JpaRepository<SubscriptionCheckout, UUID> {
+
+    long countByStatus(SubscriptionCheckoutStatus status);
 
     Optional<SubscriptionCheckout> findByChangeOperationId(UUID operationId);
 

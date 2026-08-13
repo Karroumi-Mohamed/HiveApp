@@ -83,8 +83,10 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
         UUID firstUserId = userRepository.findByUsername(first).orElseThrow().getId();
         UUID firstMemberId = memberRepository.findByUserIdAndIsActiveTrue(firstUserId).orElseThrow().getId();
 
-        mockMvc.perform(delete("/api/v1/members/{id}", firstMemberId)
-                        .header("Authorization", bearer(ownerToken)))
+        mockMvc.perform(post("/api/v1/members/{id}/deactivate", firstMemberId)
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Quota replacement test\"}"))
                 .andExpect(status().isNoContent());
 
         addMember(ownerToken, replacement, "Replacement Member")

@@ -20,7 +20,8 @@ public interface MemberService {
     List<MemberDto> getAccountMembers(UUID accountId);
     MemberCreationResult createMember(UUID accountId, CreateMemberRequest request);
     MemberDto updateMember(UUID memberId, String displayName);
-    void deactivateMember(UUID id);
+    void deactivateMember(UUID id, String reason);
+    MemberDto reactivateMember(UUID id, String reason);
     MemberAccessResult regenerateInitialAccess(UUID memberId);
     MemberAccessResult resetAccess(UUID memberId);
     MemberAccessStatusResponse getAccessStatus(UUID memberId);

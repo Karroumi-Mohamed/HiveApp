@@ -14,6 +14,7 @@ import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.CommercialOverviewDto;
 import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
 import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
 import com.hiveapp.platform.client.plan.dto.PlanDeletionPreview;
@@ -36,6 +37,8 @@ import com.hiveapp.platform.client.plan.dto.AddOnDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 
 public interface PlanAdminService {
+
+    CommercialOverviewDto getCommercialOverview();
 
     List<PlanDto> listPlans();
 
