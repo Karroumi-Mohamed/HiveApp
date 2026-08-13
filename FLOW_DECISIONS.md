@@ -52,7 +52,7 @@ This table will be updated as the relevant source folders are reviewed.
 | Admin area | Known purpose | Source review | Main open flow questions |
 |---|---|---:|---|
 | Admin authentication | Separate ADMIN access | Reviewed | Refresh, recovery, bootstrap, last-SuperAdmin safety |
-| Admin users | Promote users to platform administration and control access | Reviewed | Search/invite flow, deactivation effects, SuperAdmin protection |
+| Admin users | Create platform operators and control their access | Reviewed | Deactivation effects, SuperAdmin protection, recovery from total operator lockout |
 | Admin roles | Group platform-control permissions | Reviewed | Safe grant/revoke ceiling, deletion, inactive-role effects, audit |
 | Platform features | Inspect and operationally control code-defined capabilities | Not fully reviewed | Which states are editable, activation effects, subscribed-user effects |
 | Plans | Define sellable templates, included features, prices, and quotas | Not fully reviewed | Lifecycle, deletion/archive, editing, duplication, subscriber plan changes, history |
@@ -85,6 +85,69 @@ Implementation consequences:
 - Remove workspace-switcher assumptions from the client UI.
 
 Still to decide separately: whether a person changing employers can transfer/reuse the same login identity or must receive a new identity.
+
+---
+
+## OPERATOR-IDENTITY-FLOW-001 — Platform operator identity and credentials
+
+**Status:** `DECIDED`
+
+A platform operator is created directly, with their own identity. Operators are never searched
+for, selected from, promoted out of, or imported from the client user pool. The two carry
+different trust levels, so they are different identities even when they are the same human — a
+person who is both a HiveApp employee and a member of a customer's company holds two logins.
+
+`users.kind` (`CLIENT` | `PLATFORM`) records the side. Member creation writes `CLIENT`; platform
+administration writes `PLATFORM`. An `AdminUser` may only reference a `PLATFORM` identity.
+
+One `users` table still backs both, deliberately. Email uniqueness is a database guarantee on
+that single table; splitting it would downgrade that to a cross-table application check that can
+race. The credential state machine lives there too and must not be duplicated.
+
+**Initial access**
+
+1. Creation sends an activation email. The link is the credential; no password is minted
+   alongside it. Two live credentials, one of which must travel out of band, is the pair that
+   leaks.
+2. The link opens the admin activation page, which sets the password and **issues no session**.
+   The operator then signs in through the normal admin login. An emailed link must never by
+   itself produce an authenticated admin session.
+3. If the email never arrives, an authorized operator may resend it, or explicitly generate a
+   temporary password. Resending issues a fresh token, so the previous link stops working.
+
+Resend and temporary-access generation are separate permissions from creation, and separate from
+each other: re-triggering delivery to the operator's own inbox is a lesser act than producing a
+password that the acting administrator must then hand over.
+
+Operator activation is a distinct endpoint from client activation rather than a branch inside it.
+The client path requires an active workspace membership an operator does not have, and the two
+trust models must not be able to drift into each other.
+
+**Recovery**
+
+An operator whose email is verified recovers themselves through the admin forgot-password flow.
+Verification means exactly one thing: they followed a link sent to that address. Completing a
+credential with a temporary password verifies nothing, because the address was never exercised —
+an operator may hold a placeholder that receives no mail at all.
+
+So the two populations recover differently, deliberately:
+
+- **Verified email** — self-service reset by email.
+- **Unverified or non-receiving email** (for example a `name@hiveapp.com` placeholder) — an
+  authorized colleague generates a temporary password and hands it over directly. Temporary
+  passwords are never emailed.
+
+**Still open — secondary or changeable operator email.** An operator set up with a
+non-receiving address can never reach self-service recovery, and today has no way to move to one.
+Options not yet decided: allowing the operator's email to be changed (and re-verified), or adding
+a separate recovery address distinct from the login identifier. Until decided, those operators
+depend entirely on a colleague.
+
+**Still open — total operator lockout.** Self-service recovery narrows this considerably, but if
+every operator is locked out *and* unverified, the bootstrap seeder does nothing when its admin
+already exists, so the only way back is direct database access. The bootstrap password itself
+still works and is never rotated or expired, which is both the practical escape hatch today and a
+standing risk: a permanent SuperAdmin credential living in deployment configuration.
 
 ---
 
@@ -1319,6 +1382,9 @@ Record accepted decisions here with date, reason, and affected source areas.
 | 2026-07-15 | Keep client subscription self-service inside explicit Account authority and real commercial confirmation | A client-facing button must not fabricate payment or allow arbitrary internal/unlimited/negotiated entitlement | Subscription visibility/management permissions, pending commercial changes, sellable-option validation, audit |
 | 2026-07-15 | Use provider-controlled Company share links and a complete history-preserving B2B lifecycle | External collaboration must be discoverable without global Company leakage and remain understandable through rejection, suspension, and revocation | B2B discovery, requests, lifecycle, grants, notifications, audit |
 | 2026-08-10 | Include `SUSPENDED` in the single live collaboration slot | A suspended relationship retains grants and can resume; releasing the slot could allow a newer relationship that collides when the suspended one resumes | Collaboration state model, live-tuple database constraint, request retries, lifecycle UI and tests |
+| 2026-08-13 | Create platform operators outright instead of promoting existing users, and never import identities from the client pool | Selection implies a trusted pool, and client members are not one; the two sides carry different trust levels, so they are different identities even for the same human | `users.kind` discriminator, operator creation endpoint, candidate search removal, operator credentials, create-operator UI |
+| 2026-08-13 | Keep one `users` table for both sides rather than separating client and platform identity tables | Email uniqueness is a database guarantee on one table; splitting downgrades it to a cross-table application check that can race, and would duplicate the credential state machine — the copy that misses the next fix | Identity model, credential lifecycle, uniqueness enforcement, `AdminUser` invariant |
+| 2026-08-13 | Issue operators a one-time temporary password instead of an activation email | Activation completion requires an active client membership an operator does not have, so an emailed operator would receive a link they can never complete | Operator credential path, create-operator response, admin login, deferred forced-password-change |
 | 2026-08-10 | Company share codes do not expire automatically and are not credentials | A code identifies a Company but grants no access; the provider must still accept each request, so it remains valid until disabled/regenerated and only its SHA-256 hash is stored | Share-code persistence, discovery/request APIs, provider usage metadata, security documentation and tests |
 | 2026-08-10 | Return `201 Created` whenever collaboration initiation creates a row and `200 OK` only when it returns an identical existing row | Callers must be able to distinguish creation from idempotent retrieval consistently, including the concurrent uniqueness race | Collaboration initiation API, controller outcome mapping, client retry handling and concurrency tests |
 | 2026-07-15 | Require both provider delegation and external-member authorization for every B2B action | An Account-level grant must not give every external employee the ability to use it | Permissionizer B2B policies, provider delegation ceiling, external operator roles, runtime revalidation |

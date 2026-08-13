@@ -518,7 +518,7 @@ flowchart TD
 - **Acceptance Criteria**: Active JWT sessions are immediately invalidated on deactivation.
 - **Tests**: Token revocation checks.
 - **Future UI Flow**: Team manager dashboard.
-- **Execution Status**: Completed for the available lifecycle. Suspension preserves the Member and access configuration, removes it from runtime context/quota, and revokes every current CLIENT refresh session. Activation credential cleanup and reactivation validation follow the direct-creation lifecycle in Batch 1.5 and later operational/audit batches.
+- **Execution Status**: Completed for the current reversible lifecycle. Suspension preserves the Member and access configuration, removes it from runtime context/quota, invalidates pending access and current CLIENT refresh sessions, and requires an audited reason. Reactivation is exposed through the API/UI, locks and validates the Account, rechecks active-member quota, requires an audited reason, and restores the membership. Ownership transfer, permanent purge, and future module reassignment previews remain separate capabilities rather than being approximated here.
 
 #### [IMPLEMENT] QUOTA-001 — Member/company quota checks are inefficient and race-prone
 - **Prerequisites**: MEMBER-002.

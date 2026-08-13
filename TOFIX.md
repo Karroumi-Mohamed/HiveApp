@@ -2158,7 +2158,7 @@ Define separate member summary and member access-detail read models with safe us
 
 ### MEMBER-005 — Member deactivation does not implement the decided offboarding lifecycle
 
-**Status:** `RESOLVED FOR THE CURRENT AVAILABLE LIFECYCLE — 2026-07-16`
+**Status:** `RESOLVED FOR THE CURRENT REVERSIBLE LIFECYCLE — 2026-08-12`
 
 **Evidence**
 
@@ -2182,6 +2182,9 @@ Define separate member summary and member access-detail read models with safe us
 - Active-member quota excludes the suspended record, while owner and self-deactivation protections prevent accidental workspace lockout.
 - Integration coverage proves both an existing access token and an issued refresh token fail after deactivation.
 - Batch 1.5 now invalidates pending email tokens, unused temporary passwords, restricted initial-access sessions, and ordinary refresh sessions during deactivation. Reactivation impact validation, reason/audit capture, hard-delete eligibility, and module-contributed reassignment previews remain in the later lifecycle, audit, and operations batches rather than being approximated here.
+- The 2026-08-12 operational pass adds the client reactivation endpoint and UI, locks the Account row before reactivation, rejects suspended Accounts, rechecks the active-member quota, and persists the restored membership.
+- Deactivation and reactivation now require a non-blank, bounded reason. The mutation audit captures the actor, target arguments including that reason, outcome, and time; the UI explains the reversible effects before confirmation.
+- Permanent hard deletion, ownership transfer, and future business-module reassignment/impact previews remain separate product capabilities because their entities and contracts do not yet exist. They are not silently approximated by the reversible lifecycle.
 
 ---
 
