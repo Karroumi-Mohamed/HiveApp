@@ -146,6 +146,7 @@ function CreateOperatorDialog() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
+  const [initialAccessMethod, setInitialAccessMethod] = useState<"EMAIL_LINK" | "TEMPORARY_PASSWORD">("EMAIL_LINK");
   const [superAdmin, setSuperAdmin] = useState(false);
   const [issued, setIssued] = useState<AdminUserCreation | null>(null);
 
@@ -157,6 +158,7 @@ function CreateOperatorDialog() {
     setFirstName("");
     setLastName("");
     setEmail("");
+    setInitialAccessMethod("EMAIL_LINK");
     setSuperAdmin(false);
     setIssued(null);
   };
@@ -167,6 +169,7 @@ function CreateOperatorDialog() {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
+        initialAccessMethod,
         isSuperAdmin: superAdmin,
       }),
     onSuccess: (result) => {
@@ -200,7 +203,9 @@ function CreateOperatorDialog() {
           <DialogTitle>{issued ? "Opérateur créé" : "Créer un opérateur"}</DialogTitle>
           <DialogDescription>
             {issued
-              ? "Un lien d’activation vient d’être envoyé par email."
+              ? issued.initialAccessMethod === "EMAIL_LINK"
+                ? "Un lien d’activation vient d’être envoyé par email."
+                : "L’accès temporaire a été créé. Il ne sera affiché qu’ici."
               : "Créez l’identité de l’opérateur et son accès à l’administration."}
           </DialogDescription>
         </DialogHeader>
@@ -208,10 +213,20 @@ function CreateOperatorDialog() {
           <div className="space-y-4">
             <div className="rounded-lg border p-3">
               <p className="text-sm font-medium">{issued.operator.email}</p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                L’opérateur définit son mot de passe depuis ce lien, valable 24 heures. Aucun mot de passe n’a été créé
-                ici. Si l’email n’arrive pas, sa fiche permet de le renvoyer ou de générer un accès temporaire.
-              </p>
+              {issued.initialAccessMethod === "EMAIL_LINK" ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  L’opérateur définit son mot de passe depuis le lien reçu. Aucun mot de passe n’a été créé ici. Si
+                  l’email n’arrive pas, sa fiche permet de le renvoyer ou de générer un accès temporaire.
+                </p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  <p className="break-all font-mono text-sm font-semibold">{issued.temporaryPassword}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Copiez-le maintenant et remettez-le directement à l’opérateur. Son email reste non vérifié et la
+                    récupération autonome ne sera pas disponible avant une activation par email.
+                  </p>
+                </div>
+              )}
             </div>
             <div className="flex justify-end">
               <Button
@@ -251,6 +266,26 @@ function CreateOperatorDialog() {
               />
               <p className="text-xs text-muted-foreground">
                 Sert d’identifiant de connexion. Il doit être inutilisé sur la plateforme.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Méthode d’accès initial</Label>
+              <Select
+                onValueChange={(value) => setInitialAccessMethod(value as "EMAIL_LINK" | "TEMPORARY_PASSWORD")}
+                value={initialAccessMethod}
+              >
+                <SelectTrigger aria-label="Méthode d’accès initial">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="EMAIL_LINK">Envoyer un lien d’activation</SelectItem>
+                  <SelectItem value="TEMPORARY_PASSWORD">Créer un mot de passe temporaire</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {initialAccessMethod === "EMAIL_LINK"
+                  ? "Choix recommandé lorsque cette adresse reçoit réellement les emails."
+                  : "À utiliser pour une adresse de connexion fictive ou non consultée. Aucun email ne sera envoyé."}
               </p>
             </div>
             {canGrantSuperAdmin ? (
@@ -459,7 +494,7 @@ export function AdminOperatorsPage() {
                 setSearch(event.target.value);
                 setPage(0);
               }}
-              placeholder="Email ou identifiant…"
+              placeholder="Nom, email ou identifiant…"
               value={search}
             />
           </div>

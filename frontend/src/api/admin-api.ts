@@ -51,8 +51,13 @@ export const adminApi = {
   bulkResendOperatorActivation: (ids: UUID[]) =>
     admin<BulkOperationResult>("/users/bulk/access/resend", { method: "POST", body: jsonBody({ ids }) }),
   user: (id: UUID) => admin<AdminUser>(`/users/${id}`),
-  createUser: (input: { firstName: string; lastName: string; email: string; isSuperAdmin: boolean }) =>
-    admin<AdminUserCreation>("/users", { method: "POST", body: jsonBody(input) }),
+  createUser: (input: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    initialAccessMethod: "EMAIL_LINK" | "TEMPORARY_PASSWORD";
+    isSuperAdmin: boolean;
+  }) => admin<AdminUserCreation>("/users", { method: "POST", body: jsonBody(input) }),
   /**
    * Sets the operator's password from an emailed link. Public audience deliberately: the caller
    * holds no session yet, and the endpoint returns none — the operator signs in afterwards.

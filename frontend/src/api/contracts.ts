@@ -71,8 +71,10 @@ export type AdminUser = {
  */
 export type AdminUserCreation = {
   operator: AdminUser;
-  /** Null on the normal path — creation emails an activation link instead of minting a password. */
+  initialAccessMethod: "EMAIL_LINK" | "TEMPORARY_PASSWORD";
+  /** Populated only for the explicitly selected temporary-password method. */
   temporaryPassword: string | null;
+  linkExpiresAt: string | null;
   credentialState: string;
 };
 
