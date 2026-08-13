@@ -8,12 +8,19 @@ spring:
     hibernate:
       ddl-auto: create-drop
     show-sql: false
+  # spring.mail.host is deliberately left unset: its mere presence switches email from the
+  # logging fallback to real SMTP, so a default here would make every send fail whenever the
+  # local catcher happens not to be running.
+  #
+  # To make credential links clickable, run a local catcher and set the two variables:
+  #   mailpit                                   # SMTP on 1025, inbox at http://localhost:8025
+  #   SPRING_MAIL_HOST=localhost SPRING_MAIL_PORT=1025 mvn -f backend/pom.xml spring-boot:run …
 
 hiveapp:
   jwt:
     secret: dev-only-hiveapp-jwt-secret-change-before-deployment
   activation:
-    base-url: http://localhost:5173
+    base-url: http://localhost:3000
   billing:
     collection-enabled: false
     simulator:

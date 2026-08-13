@@ -25,7 +25,11 @@ import java.util.UUID;
 @Setter
 public class EmailDelivery extends BaseEntity {
 
-    @Column(name = "account_id", nullable = false, updatable = false)
+    /**
+     * Null for platform-scope deliveries. A HiveApp operator belongs to no client account, so
+     * there is no account to attribute their activation email to.
+     */
+    @Column(name = "account_id", updatable = false)
     private UUID accountId;
 
     @Column(name = "recipient_user_id", nullable = false, updatable = false)

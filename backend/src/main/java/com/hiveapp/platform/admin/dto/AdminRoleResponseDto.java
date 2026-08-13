@@ -8,6 +8,8 @@ public record AdminRoleResponseDto(
         String name,
         String description,
         boolean isActive,
+        /** Operators currently holding this role — what a deactivation would affect. */
+        long assignedOperatorCount,
         List<AdminPermissionSummaryDto> permissions
 ) {
 }

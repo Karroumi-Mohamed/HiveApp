@@ -42,6 +42,27 @@ class AdminUserServiceImplTest {
     @InjectMocks private AdminUserServiceImpl adminUserService;
 
     @Test
+    void accessOverviewReportsOperationalBreakdown() {
+        when(adminUserRepository.count()).thenReturn(12L);
+        when(adminUserRepository.countByIsActiveTrue()).thenReturn(9L);
+        when(adminUserRepository.countByIsActiveFalse()).thenReturn(3L);
+        when(adminUserRepository.countByIsSuperAdminTrue()).thenReturn(2L);
+        when(adminRoleRepository.count()).thenReturn(5L);
+        when(adminRoleRepository.countByIsActiveTrue()).thenReturn(4L);
+        when(adminRoleRepository.countByIsActiveFalse()).thenReturn(1L);
+
+        var result = adminUserService.getAccessOverview();
+
+        assertThat(result.totalOperators()).isEqualTo(12);
+        assertThat(result.activeOperators()).isEqualTo(9);
+        assertThat(result.inactiveOperators()).isEqualTo(3);
+        assertThat(result.superAdmins()).isEqualTo(2);
+        assertThat(result.totalRoles()).isEqualTo(5);
+        assertThat(result.activeRoles()).isEqualTo(4);
+        assertThat(result.inactiveRoles()).isEqualTo(1);
+    }
+
+    @Test
     void paginatedUserReadLoadsAllRoleAssignmentsInOneBulkQuery() {
         AdminUser first = adminUser("first@example.com");
         AdminUser second = adminUser("second@example.com");
@@ -53,7 +74,7 @@ class AdminUserServiceImplTest {
         assignment.setAdminUser(first);
         assignment.setAdminRole(role);
         PageRequest page = PageRequest.of(0, 20);
-        when(adminUserRepository.findPageWithUser(page))
+        when(adminUserRepository.searchPageWithUser(null, null, page))
                 .thenReturn(new PageImpl<>(List.of(first, second), page, 2));
         when(adminUserRoleRepository.findAllWithRoleByAdminUserIdIn(anyCollection()))
                 .thenReturn(List.of(assignment));

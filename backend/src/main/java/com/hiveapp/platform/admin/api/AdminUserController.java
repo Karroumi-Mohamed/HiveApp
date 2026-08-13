@@ -1,6 +1,7 @@
 package com.hiveapp.platform.admin.api;
 
 import com.hiveapp.platform.admin.dto.AdminUserResponseDto;
+import com.hiveapp.platform.admin.dto.AdminAccessOverviewDto;
 import com.hiveapp.platform.admin.dto.AssignAdminRoleRequest;
 import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
 import com.hiveapp.platform.admin.service.AdminUserService;
@@ -22,11 +23,21 @@ public class AdminUserController {
 
     private final AdminUserService adminUserService;
 
+    @GetMapping("/overview")
+    public AdminAccessOverviewDto overview() {
+        return adminUserService.getAccessOverview();
+    }
+
     @GetMapping
     public PageResponse<AdminUserResponseDto> getAll(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Boolean active,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return PageResponse.from(adminUserService.getAdminUsers(pageRequest(page, size)));
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction) {
+        return PageResponse.from(
+                adminUserService.getAdminUsers(search, active, pageRequest(page, size, sort, direction)));
     }
 
     @GetMapping("/{id}")
@@ -36,8 +47,28 @@ public class AdminUserController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public AdminUserResponseDto create(@Valid @RequestBody CreateAdminUserRequest req) {
-        return adminUserService.createAdminUser(req.userId(), req.isSuperAdmin());
+    public com.hiveapp.platform.admin.dto.AdminUserCreationResponse create(
+            @Valid @RequestBody CreateAdminUserRequest req) {
+        return adminUserService.createAdminUser(
+                req.firstName(), req.lastName(), req.email(), req.isSuperAdmin());
+    }
+
+    @PostMapping("/bulk/active")
+    public com.hiveapp.platform.admin.dto.BulkOperationResult setActiveBulk(
+            @Valid @RequestBody com.hiveapp.platform.admin.dto.BulkSetActiveRequest req) {
+        return adminUserService.setActiveBulk(req.ids(), req.active());
+    }
+
+    @PostMapping("/bulk/roles")
+    public com.hiveapp.platform.admin.dto.BulkOperationResult assignRoleBulk(
+            @Valid @RequestBody com.hiveapp.platform.admin.dto.BulkAssignRoleRequest req) {
+        return adminUserService.assignRoleBulk(req.ids(), req.adminRoleId());
+    }
+
+    @PostMapping("/bulk/access/resend")
+    public com.hiveapp.platform.admin.dto.BulkOperationResult resendActivationBulk(
+            @Valid @RequestBody com.hiveapp.platform.admin.dto.BulkOperatorIdsRequest req) {
+        return adminUserService.resendActivationBulk(req.ids());
     }
 
     @PostMapping("/{id}/toggle-active")
@@ -47,6 +78,30 @@ public class AdminUserController {
     }
 
     // ── Role assignments ──────────────────────────────────────────────────────
+
+    @PatchMapping("/{id}")
+    public AdminUserResponseDto rename(
+            @PathVariable UUID id,
+            @Valid @RequestBody com.hiveapp.platform.admin.dto.RenameOperatorRequest req) {
+        return adminUserService.renameOperator(id, req.firstName(), req.lastName());
+    }
+
+    @GetMapping("/{id}/permissions")
+    public java.util.List<String> getEffectivePermissions(@PathVariable UUID id) {
+        return adminUserService.getEffectivePermissions(id);
+    }
+
+    @PostMapping("/{id}/access/resend")
+    public com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse resendActivation(
+            @PathVariable UUID id) {
+        return adminUserService.resendActivation(id);
+    }
+
+    @PostMapping("/{id}/access/temporary")
+    public com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse generateTemporaryAccess(
+            @PathVariable UUID id) {
+        return adminUserService.generateTemporaryAccess(id);
+    }
 
     @PostMapping("/{id}/roles")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -60,11 +115,34 @@ public class AdminUserController {
         adminUserService.removeRole(id, roleId);
     }
 
-    private PageRequest pageRequest(int page, int size) {
+    /**
+     * Sortable columns are whitelisted. Passing an arbitrary property straight to Spring Data
+     * throws PropertyReferenceException deep in the repository, which surfaces as a 500 for what
+     * is really a bad request — and it lets a caller probe the entity's field names.
+     */
+    private static final java.util.Map<String, String> SORTABLE =
+            java.util.Map.of(
+                    "email", "user.email",
+                    "createdAt", "createdAt",
+                    "active", "isActive",
+                    "superAdmin", "isSuperAdmin");
+
+    private PageRequest pageRequest(int page, int size, String sort, String direction) {
         if (page < 0 || size < 1 || size > 100) {
             throw new com.hiveapp.shared.exception.InvalidRequestException(
                     "Page must be non-negative and size must be between 1 and 100");
         }
-        return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        if (sort == null || sort.isBlank()) {
+            return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        }
+        String property = SORTABLE.get(sort);
+        if (property == null) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "Unsupported sort column: " + sort);
+        }
+        Sort.Direction resolved = "asc".equalsIgnoreCase(direction)
+                ? Sort.Direction.ASC
+                : Sort.Direction.DESC;
+        return PageRequest.of(page, size, Sort.by(resolved, property));
     }
 }

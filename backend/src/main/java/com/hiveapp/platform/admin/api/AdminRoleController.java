@@ -25,9 +25,14 @@ public class AdminRoleController {
 
     @GetMapping
     public PageResponse<AdminRoleResponseDto> getAll(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Boolean active,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return PageResponse.from(adminRoleService.getAdminRoles(pageRequest(page, size)));
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction) {
+        return PageResponse.from(
+                adminRoleService.getAdminRoles(search, active, pageRequest(page, size, sort, direction)));
     }
 
     @GetMapping("/{id}")
@@ -44,6 +49,17 @@ public class AdminRoleController {
     @PutMapping("/{id}")
     public AdminRoleResponseDto update(@PathVariable UUID id, @Valid @RequestBody UpdateAdminRoleRequest req) {
         return adminRoleService.updateAdminRole(id, req.name(), req.description());
+    }
+
+    @GetMapping("/{id}/operators")
+    public java.util.List<com.hiveapp.platform.admin.dto.RoleHolderDto> getRoleHolders(@PathVariable UUID id) {
+        return adminRoleService.getRoleHolders(id);
+    }
+
+    @PostMapping("/bulk/active")
+    public com.hiveapp.platform.admin.dto.BulkOperationResult setActiveBulk(
+            @Valid @RequestBody com.hiveapp.platform.admin.dto.BulkSetActiveRequest req) {
+        return adminRoleService.setActiveBulk(req.ids(), req.active());
     }
 
     @PostMapping("/{id}/toggle-active")
@@ -66,11 +82,23 @@ public class AdminRoleController {
         adminRoleService.revokePermission(id, permissionId);
     }
 
-    private PageRequest pageRequest(int page, int size) {
+    /** Whitelisted so an arbitrary property cannot 500 the request or probe entity fields. */
+    private static final java.util.Map<String, String> SORTABLE =
+            java.util.Map.of("name", "name", "createdAt", "createdAt", "active", "isActive");
+
+    private PageRequest pageRequest(int page, int size, String sort, String direction) {
         if (page < 0 || size < 1 || size > 100) {
             throw new com.hiveapp.shared.exception.InvalidRequestException(
                     "Page must be non-negative and size must be between 1 and 100");
         }
-        return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        if (sort == null || sort.isBlank()) {
+            return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        }
+        String property = SORTABLE.get(sort);
+        if (property == null) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException("Unsupported sort column: " + sort);
+        }
+        Sort.Direction resolved = "asc".equalsIgnoreCase(direction) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        return PageRequest.of(page, size, Sort.by(resolved, property));
     }
 }

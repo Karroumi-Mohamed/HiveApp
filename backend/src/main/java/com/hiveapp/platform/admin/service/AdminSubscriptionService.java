@@ -9,6 +9,9 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 
 /**
  * Operator-facing subscription contract. Every method returns a read model rather than a
@@ -16,6 +19,7 @@ import java.util.UUID;
  * service instead of being completed by the controller.
  */
 public interface AdminSubscriptionService {
+    Page<AccountDirectoryEntryDto> searchAccounts(String query, Pageable pageable);
     AdminSubscriptionDto getSubscription(UUID accountId);
     SubscriptionDto createSubscription(UUID accountId, String planCode);
     SubscriptionDto createTrial(UUID accountId, String planCode, int trialDays);

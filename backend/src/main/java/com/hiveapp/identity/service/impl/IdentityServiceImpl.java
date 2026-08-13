@@ -14,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
+import org.springframework.data.domain.PageRequest;
 
 @Service
 @RequiredArgsConstructor
@@ -51,12 +53,22 @@ public class IdentityServiceImpl implements IdentityService {
         user.setPasswordHash(command.passwordHash());
         user.setActive(command.active());
         user.setEmailVerified(command.emailVerified());
+        user.setKind(command.kind());
         try {
             return userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException ex) {
             // Identity owns its uniqueness rules, so it also owns translating their violation.
             throw new InvalidStateException("Username or email is already in use");
         }
+    }
+
+    @Override
+    @Transactional
+    public UserView renameUser(UUID userId, String firstName, String lastName) {
+        User user = requireManagedUser(userId);
+        user.setFirstName(firstName.trim());
+        user.setLastName(lastName.trim());
+        return toView(userRepository.saveAndFlush(user));
     }
 
     @Override

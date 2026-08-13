@@ -4,6 +4,11 @@ import com.hiveapp.platform.admin.domain.entity.AdminRole;
 import com.hiveapp.platform.admin.domain.entity.AdminRolePermission;
 import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminRolePermissionRepository;
+import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
+import com.hiveapp.platform.admin.dto.BulkOperationResult;
+import com.hiveapp.platform.admin.dto.RoleHolderDto;
+import com.hiveapp.shared.exception.ErrorCodes;
+import com.hiveapp.shared.transaction.IsolatedOperationRunner;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.admin.service.AdminRoleService;
 import com.hiveapp.platform.admin.dto.AdminPermissionSummaryDto;
@@ -35,6 +40,8 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
     private final AdminRoleRepository adminRoleRepository;
     private final PermissionRepository permissionRepository;
     private final AdminRolePermissionRepository adminRolePermissionRepository;
+    private final AdminUserRoleRepository adminUserRoleRepository;
+    private final IsolatedOperationRunner isolatedOperationRunner;
     private final PermissionGrantValidator permissionGrantValidator;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
 
@@ -48,25 +55,36 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "read_detail", description = "Read an admin role")
     public AdminRoleResponseDto getAdminRole(UUID id) {
         AdminRole role = requireAdminRole(id);
-        return toResponse(role, adminRolePermissionRepository
-                .findAllWithPermissionByAdminRoleIdIn(List.of(id)));
+        return toResponse(
+                role,
+                adminRolePermissionRepository.findAllWithPermissionByAdminRoleIdIn(List.of(id)),
+                assignedOperatorCount(id));
     }
 
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "read", description = "List all admin roles")
-    public Page<AdminRoleResponseDto> getAdminRoles(Pageable pageable) {
-        Page<AdminRole> roles = adminRoleRepository.findAll(pageable);
+    public Page<AdminRoleResponseDto> getAdminRoles(String search, Boolean active, Pageable pageable) {
+        String normalizedSearch = search == null || search.isBlank() ? null : search.trim();
+        Page<AdminRole> roles = adminRoleRepository.search(normalizedSearch, active, pageable);
         if (roles.isEmpty()) {
-            return roles.map(role -> toResponse(role, List.of()));
+            return roles.map(role -> toResponse(role, List.of(), 0L));
         }
         Map<UUID, List<AdminRolePermission>> grants = adminRolePermissionRepository
                 .findAllWithPermissionByAdminRoleIdIn(
                         roles.stream().map(AdminRole::getId).toList())
                 .stream()
                 .collect(Collectors.groupingBy(grant -> grant.getAdminRole().getId()));
+        Map<UUID, Long> assignmentCounts = adminUserRoleRepository
+                .countByAdminRoleIdIn(roles.stream().map(AdminRole::getId).toList())
+                .stream()
+                .collect(Collectors.toMap(
+                        AdminUserRoleRepository.RoleAssignmentCount::getRoleId,
+                        AdminUserRoleRepository.RoleAssignmentCount::getTotal));
         return roles.map(role -> toResponse(
-                role, grants.getOrDefault(role.getId(), List.of())));
+                role,
+                grants.getOrDefault(role.getId(), List.of()),
+                assignmentCounts.getOrDefault(role.getId(), 0L)));
     }
 
     @Override
@@ -77,7 +95,8 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
         adminRole.setName(name);
         adminRole.setDescription(description);
         adminRole.setActive(true);
-        return toResponse(adminRoleRepository.save(adminRole), List.of());
+        // A role that has just been created is held by nobody.
+        return toResponse(adminRoleRepository.save(adminRole), List.of(), 0L);
     }
 
     @Override
@@ -89,8 +108,10 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
         adminRole.setName(name);
         adminRole.setDescription(description);
         var saved = adminRoleRepository.save(adminRole);
-        return toResponse(saved, adminRolePermissionRepository
-                .findAllWithPermissionByAdminRoleIdIn(List.of(id)));
+        return toResponse(
+                saved,
+                adminRolePermissionRepository.findAllWithPermissionByAdminRoleIdIn(List.of(id)),
+                assignedOperatorCount(saved.getId()));
     }
 
     @Override
@@ -136,20 +157,74 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
         adminRolePermissionRepository.deleteByAdminRoleIdAndPermissionId(adminRoleId, permissionId);
     }
 
+    @Override
+    @Transactional
+    @PermissionNode(key = "bulk_set_active", description = "Activate or deactivate several admin roles")
+    public BulkOperationResult setActiveBulk(List<UUID> ids, boolean active) {
+        List<BulkOperationResult.Failure> failures = new java.util.ArrayList<>();
+        for (UUID id : ids) {
+            try {
+                // Each role in its own transaction, so one rejection cannot undo the rest.
+                isolatedOperationRunner.run(() -> {
+                    AdminRole role = requireAdminRole(id);
+                    if (role.isActive() != active) {
+                        role.setActive(active);
+                        adminRoleRepository.save(role);
+                    }
+                });
+            } catch (RuntimeException rejection) {
+                failures.add(new BulkOperationResult.Failure(
+                        id, ErrorCodes.of(rejection), rejection.getMessage()));
+            }
+        }
+        return BulkOperationResult.of(ids.size(), failures);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_holders", description = "List operators holding an admin role")
+    public List<RoleHolderDto> getRoleHolders(UUID id) {
+        requireAdminRole(id);
+        return adminUserRoleRepository.findAllWithOperatorByAdminRoleId(id).stream()
+                .map(assignment -> {
+                    var admin = assignment.getAdminUser();
+                    var user = admin.getUser();
+                    return new RoleHolderDto(
+                            admin.getId(),
+                            user.getEmail(),
+                            user.getFirstName(),
+                            user.getLastName(),
+                            admin.isActive(),
+                            admin.isSuperAdmin());
+                })
+                .sorted(java.util.Comparator.comparing(RoleHolderDto::email, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+    }
+
     private AdminRole requireAdminRole(UUID id) {
         return adminRoleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("AdminRole", "id", id));
     }
 
+    /** Counts one role's assignments. Use the batched form when rendering a page of roles. */
+    private long assignedOperatorCount(UUID roleId) {
+        return adminUserRoleRepository.countByAdminRoleIdIn(List.of(roleId)).stream()
+                .findFirst()
+                .map(AdminUserRoleRepository.RoleAssignmentCount::getTotal)
+                .orElse(0L);
+    }
+
     private AdminRoleResponseDto toResponse(
             AdminRole role,
-            List<AdminRolePermission> grants
+            List<AdminRolePermission> grants,
+            long assignedOperatorCount
     ) {
         return new AdminRoleResponseDto(
                 role.getId(),
                 role.getName(),
                 role.getDescription(),
                 role.isActive(),
+                assignedOperatorCount,
                 grants.stream()
                         .map(AdminRolePermission::getPermission)
                         .map(permission -> new AdminPermissionSummaryDto(

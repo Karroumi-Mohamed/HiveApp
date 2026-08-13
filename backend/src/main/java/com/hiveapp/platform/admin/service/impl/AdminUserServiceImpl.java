@@ -7,10 +7,21 @@ import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.admin.service.AdminUserService;
+import com.hiveapp.platform.admin.service.AdminPermissionResolver;
 import com.hiveapp.platform.admin.dto.AdminMeDto;
+import com.hiveapp.platform.admin.dto.AdminAccessOverviewDto;
 import com.hiveapp.platform.admin.dto.AdminRoleSummaryDto;
 import com.hiveapp.platform.admin.dto.AdminUserResponseDto;
+import com.hiveapp.platform.admin.dto.AdminUserCreationResponse;
+import com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse;
+import com.hiveapp.platform.admin.dto.BulkOperationResult;
+import com.hiveapp.shared.exception.ErrorCodes;
+import com.hiveapp.shared.transaction.IsolatedOperationRunner;
+import com.hiveapp.identity.domain.constant.IdentityKind;
+import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.service.IdentityService;
+import com.hiveapp.identity.service.MemberCredentialService;
+import com.hiveapp.identity.service.NewUserCommand;
 import com.hiveapp.platform.registry.definition.AdminUsersFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
@@ -29,6 +40,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -46,11 +58,28 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     private final PermissionRepository permissionRepository;
     private final PermissionGrantValidator permissionGrantValidator;
     private final IdentityService identityService;
+    private final MemberCredentialService memberCredentialService;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
+    private final AdminPermissionResolver adminPermissionResolver;
+    private final IsolatedOperationRunner isolatedOperationRunner;
 
     @Override
     protected FeatureDefinition featureDefinition() {
         return AdminUsersFeature.definition();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "overview", description = "View platform access overview")
+    public AdminAccessOverviewDto getAccessOverview() {
+        return new AdminAccessOverviewDto(
+                adminUserRepository.count(),
+                adminUserRepository.countByIsActiveTrue(),
+                adminUserRepository.countByIsActiveFalse(),
+                adminUserRepository.countByIsSuperAdminTrue(),
+                adminRoleRepository.count(),
+                adminRoleRepository.countByIsActiveTrue(),
+                adminRoleRepository.countByIsActiveFalse());
     }
 
     @Override
@@ -65,8 +94,9 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "read", description = "List all admin users")
-    public Page<AdminUserResponseDto> getAdminUsers(Pageable pageable) {
-        Page<AdminUser> admins = adminUserRepository.findPageWithUser(pageable);
+    public Page<AdminUserResponseDto> getAdminUsers(String search, Boolean active, Pageable pageable) {
+        String normalizedSearch = search == null || search.isBlank() ? null : search.trim();
+        Page<AdminUser> admins = adminUserRepository.searchPageWithUser(normalizedSearch, active, pageable);
         if (admins.isEmpty()) {
             return admins.map(admin -> toResponse(admin, List.of()));
         }
@@ -79,24 +109,157 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
                 admin, assignments.getOrDefault(admin.getId(), List.of())));
     }
 
+    /**
+     * Creates the operator's identity and their platform grant in one transaction. Operators are
+     * never promoted out of the client user pool, so there is no candidate to look up: if the
+     * email is already in use — by a client member or another operator — identity rejects it and
+     * the whole creation rolls back.
+     */
     @Override
     @Transactional
     @PermissionNode(key = "create", description = "Create admin user")
-    public AdminUserResponseDto createAdminUser(UUID userId, boolean isSuperAdmin) {
-        if (adminUserRepository.findByUserId(userId).isPresent()) {
-            throw new DuplicateResourceException("AdminUser", "userId", userId);
-        }
+    public AdminUserCreationResponse createAdminUser(
+            String firstName, String lastName, String email, boolean isSuperAdmin) {
         if (isSuperAdmin && !adminMutationAuthorizer.currentActorIsSuperAdmin()) {
             throw new InvalidPermissionGrantException("Only a SuperAdmin can create another SuperAdmin.");
         }
+
         // Entity door: the managed row is needed to own the AdminUser @OneToOne relationship.
-        var user = identityService.requireManagedUser(userId);
+        User user = identityService.createUser(NewUserCommand.platformOperator(
+                generateOperatorUsername(),
+                email.trim().toLowerCase(Locale.ROOT),
+                firstName.trim(),
+                lastName.trim()));
+        var credentials = memberCredentialService.initializeForOperator(user);
+
+        // Holds by construction today. Asserted so that any future promotion path has to
+        // confront the rule rather than quietly bypass it.
+        if (user.getKind() != IdentityKind.PLATFORM) {
+            throw new InvalidStateException(
+                    "Only a platform identity can hold platform administration.");
+        }
 
         AdminUser adminUser = new AdminUser();
         adminUser.setUser(user);
         adminUser.setSuperAdmin(isSuperAdmin);
         adminUser.setActive(true);
-        return toResponse(adminUserRepository.save(adminUser), List.of());
+        return new AdminUserCreationResponse(
+                toResponse(adminUserRepository.save(adminUser), List.of()),
+                credentials.temporaryPassword(),
+                credentials.state());
+    }
+
+    /**
+     * The operator's resolved authority, not merely the roles attached to them. Assigning a role
+     * is only meaningful if you can see what it actually grants; the screen that assigns roles
+     * previously had no way to show that.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_permissions", description = "View an operator's effective permissions")
+    public List<String> getEffectivePermissions(UUID id) {
+        return adminPermissionResolver.resolve(requireAdminUser(id)).stream().sorted().toList();
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "bulk_set_active", description = "Activate or deactivate several operators")
+    public BulkOperationResult setActiveBulk(List<UUID> ids, boolean active) {
+        return runBulk(ids, id -> {
+            AdminUser adminUser = requireAdminUser(id);
+            adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
+            if (adminUser.isActive() && !active && isCurrentActor(adminUser)) {
+                throw new InvalidStateException("An administrator cannot deactivate their own account.");
+            }
+            if (adminUser.isActive() != active) {
+                adminUser.setActive(active);
+                adminUserRepository.save(adminUser);
+            }
+        });
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "bulk_assign_role", description = "Assign one admin role to several operators")
+    public BulkOperationResult assignRoleBulk(List<UUID> ids, UUID adminRoleId) {
+        return runBulk(ids, id -> assignRole(id, adminRoleId));
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "bulk_resend_activation",
+            description = "Resend activation to several operators")
+    public BulkOperationResult resendActivationBulk(List<UUID> ids) {
+        return runBulk(ids, this::resendActivation);
+    }
+
+    /**
+     * Applies an operation to every id, isolating each so one rejection cannot undo the rest, and
+     * collecting the reasons instead of failing the whole request on the first one.
+     */
+    private BulkOperationResult runBulk(List<UUID> ids, java.util.function.Consumer<UUID> operation) {
+        List<BulkOperationResult.Failure> failures = new java.util.ArrayList<>();
+        for (UUID id : ids) {
+            try {
+                isolatedOperationRunner.run(() -> operation.accept(id));
+            } catch (RuntimeException rejection) {
+                failures.add(new BulkOperationResult.Failure(
+                        id, ErrorCodes.of(rejection), rejection.getMessage()));
+            }
+        }
+        return BulkOperationResult.of(ids.size(), failures);
+    }
+
+    /**
+     * Corrects an operator's name. Deliberately single-target: a name identifies one person, so
+     * there is no coherent bulk form of this operation.
+     */
+    @Override
+    @Transactional
+    @PermissionNode(key = "rename", description = "Correct an operator's name")
+    public AdminUserResponseDto renameOperator(UUID id, String firstName, String lastName) {
+        AdminUser adminUser = requireAdminUser(id);
+        adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
+        identityService.renameUser(adminUser.getUser().getId(), firstName, lastName);
+        return toResponse(adminUser, adminUserRoleRepository.findAllByAdminUserId(id));
+    }
+
+    /**
+     * Re-sends the activation email. Separate permission from creation: handing someone the
+     * ability to re-trigger delivery is not the same as letting them mint new operators.
+     */
+    @Override
+    @Transactional
+    @PermissionNode(key = "resend_activation", description = "Resend operator activation email")
+    public AdminOperatorAccessResponse resendActivation(UUID id) {
+        AdminUser adminUser = requireAdminUser(id);
+        adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
+        return AdminOperatorAccessResponse.of(
+                memberCredentialService.resendOperatorActivation(adminUser.getUser()));
+    }
+
+    /**
+     * Explicit fallback for when email delivery fails. Its own permission because the password
+     * is shown to the acting administrator and has to travel out of band — a strictly more
+     * sensitive act than resending a link to the operator's own inbox.
+     */
+    @Override
+    @Transactional
+    @PermissionNode(key = "generate_temporary_access",
+            description = "Issue a temporary password for an operator")
+    public AdminOperatorAccessResponse generateTemporaryAccess(UUID id) {
+        AdminUser adminUser = requireAdminUser(id);
+        adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
+        return AdminOperatorAccessResponse.of(
+                memberCredentialService.generateOperatorTemporaryAccess(adminUser.getUser()));
+    }
+
+    /**
+     * Operators supply no username. Mirrors the bootstrap seeder's scheme rather than inventing a
+     * second one, and stays inside the 50-character column.
+     */
+    private static String generateOperatorUsername() {
+        return "op-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
     }
 
     @Override
@@ -147,41 +310,6 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
         adminUserRoleRepository.deleteByAdminUserIdAndAdminRoleId(adminUserId, adminRoleId);
     }
 
-    // ── No @PermissionNode — internal bootstrap endpoint, no sieve needed ──
-
-    @Override
-    @Transactional(readOnly = true)
-    public AdminMeDto getAdminDetails(UUID userId) {
-        var admin = adminUserRepository.findByUserId(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("AdminUser", "userId", userId));
-
-        Set<String> permissions;
-        if (admin.isSuperAdmin()) {
-            permissions = permissionRepository.findAll()
-                    .stream()
-                    .filter(permission -> {
-                        try {
-                            permissionGrantValidator.requirePlatformAdminRoleGrantable(permission.getCode());
-                            return true;
-                        } catch (InvalidPermissionGrantException ignored) {
-                            return false;
-                        }
-                    })
-                    .map(p -> p.getCode())
-                    .collect(Collectors.toSet());
-        } else {
-            permissions = new HashSet<>(adminUserRepository.findAllPermissionCodes(admin.getId()));
-        }
-
-        return new AdminMeDto(
-                admin.getId(),
-                admin.getUser().getEmail(),
-                admin.isSuperAdmin(),
-                admin.isActive(),
-                permissions
-        );
-    }
-
     private boolean isCurrentActor(AdminUser target) {
         var context = HiveAppContextHolder.getContext();
         return context != null
@@ -203,8 +331,11 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
                 admin.getId(),
                 admin.getUser().getId(),
                 admin.getUser().getEmail(),
+                admin.getUser().getFirstName(),
+                admin.getUser().getLastName(),
                 admin.isSuperAdmin(),
                 admin.isActive(),
+                admin.getUser().getCredentialState(),
                 assignments.stream()
                         .map(AdminUserRole::getAdminRole)
                         .map(role -> new AdminRoleSummaryDto(

@@ -4,6 +4,7 @@ import com.hiveapp.identity.domain.entity.User;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 /**
  * The only door other domains use to reach identity.
@@ -17,6 +18,7 @@ public interface IdentityService {
 
     /** Identity facts. Prefer this whenever a relationship is not being established. */
     Optional<UserView> findUserView(UUID id);
+
 
     /** Uniqueness questions belong to identity, not to its callers. */
     boolean usernameExists(String username);
@@ -34,4 +36,10 @@ public interface IdentityService {
      * transaction. Read fields through {@link #findUserView(UUID)} instead.
      */
     User requireManagedUser(UUID id);
+
+    /**
+     * Corrects a person's name. Identity owns the row, so the rename happens here rather than by
+     * handing the entity out and letting another domain write to it.
+     */
+    UserView renameUser(UUID userId, String firstName, String lastName);
 }

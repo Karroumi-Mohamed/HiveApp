@@ -1,5 +1,6 @@
 package com.hiveapp.platform.admin.service;
 
+import com.hiveapp.identity.domain.constant.IdentityKind;
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.platform.admin.config.AdminBootstrapProperties;
 import com.hiveapp.platform.admin.domain.entity.AdminUser;
@@ -55,7 +56,8 @@ public class AdminSeeder {
                 null,
                 passwordEncoder.encode(properties.password()),
                 true,
-                true));
+                true,
+                IdentityKind.PLATFORM));
 
         AdminUser admin = new AdminUser();
         admin.setUser(user);

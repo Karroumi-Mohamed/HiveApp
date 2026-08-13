@@ -219,9 +219,8 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     @Test
     void nonSuperAdminCannotCreateAnotherSuperAdmin() throws Exception {
         LimitedAdmin creator = createLimitedAdmin("platform.admin_users.create");
-        ClientIdentity candidate = registerClient();
 
-        createAdminUser(creator.token(), candidate.userId(), true)
+        createAdminUser(creator.token(), operatorEmail(), true)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Only a SuperAdmin can create another SuperAdmin."));
     }
@@ -376,9 +375,14 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
     private LimitedAdmin createLimitedAdmin(String... permissionCodes) throws Exception {
         String superToken = loginAdminAndGetToken();
-        ClientIdentity identity = registerClient();
-        UUID adminUserId = responseId(createAdminUser(superToken, identity.userId(), false)
-                .andExpect(status().isCreated()));
+        String email = operatorEmail();
+        ResultActions created = createAdminUser(superToken, email, false)
+                .andExpect(status().isCreated());
+        UUID adminUserId = createdOperatorId(created);
+        // Creation now emails an activation link and issues no password, so a test that needs a
+        // usable session takes the explicit temporary-access fallback — a real supported path
+        // rather than a shortcut around the credential flow.
+        String temporaryPassword = issueTemporaryAccess(superToken, adminUserId);
         UUID roleId = createAdminRole(superToken, "Limited " + UUID.randomUUID());
         for (String permissionCode : permissionCodes) {
             grantPermission(superToken, roleId, permissionCode)
@@ -386,7 +390,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         }
         assignRole(superToken, adminUserId, roleId)
                 .andExpect(status().isNoContent());
-        return new LimitedAdmin(loginAdmin(identity), adminUserId, roleId);
+        return new LimitedAdmin(loginAdmin(email, temporaryPassword), adminUserId, roleId);
     }
 
     private ClientIdentity registerClient() throws Exception {
@@ -399,8 +403,12 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         return new ClientIdentity(email, userId);
     }
 
-    private String loginAdmin(ClientIdentity identity) throws Exception {
-        LoginRequest request = new LoginRequest(identity.email(), CLIENT_PASSWORD);
+    private static String operatorEmail() {
+        return "op-" + UUID.randomUUID() + "@hiveapp.test";
+    }
+
+    private String loginAdmin(String email, String password) throws Exception {
+        LoginRequest request = new LoginRequest(email, password);
         return accessToken(mockMvc.perform(post("/api/admin/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request))));
@@ -415,8 +423,9 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isCreated()));
     }
 
-    private ResultActions createAdminUser(String token, UUID userId, boolean superAdmin) throws Exception {
-        CreateAdminUserRequest request = new CreateAdminUserRequest(userId, superAdmin);
+    private ResultActions createAdminUser(String token, String email, boolean superAdmin) throws Exception {
+        // Operators are created outright, never promoted from the client user pool.
+        CreateAdminUserRequest request = new CreateAdminUserRequest("Op", "Erator", email, superAdmin);
         return mockMvc.perform(post("/api/admin/users")
                 .header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -484,6 +493,21 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .content("{\"enabled\":" + enabled
                         + ",\"reason\":\"integration incident test\""
                         + ",\"impactConfirmed\":true,\"communicationConfirmed\":true}"));
+    }
+
+    /** Creation returns the operator nested alongside their one-time temporary password. */
+    private UUID createdOperatorId(ResultActions action) throws Exception {
+        JsonNode response = objectMapper.readTree(action.andReturn().getResponse().getContentAsString());
+        return UUID.fromString(response.get("operator").get("id").asText());
+    }
+
+    /** The temporary password is returned once, by the action that creates it, and never again. */
+    private String issueTemporaryAccess(String token, UUID adminUserId) throws Exception {
+        ResultActions action = mockMvc.perform(post("/api/admin/users/{id}/access/temporary", adminUserId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
+        JsonNode response = objectMapper.readTree(action.andReturn().getResponse().getContentAsString());
+        return response.get("temporaryPassword").asText();
     }
 
     private UUID responseId(ResultActions action) throws Exception {

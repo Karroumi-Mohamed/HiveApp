@@ -28,9 +28,17 @@ public class CredentialEmailListener {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void send(CredentialEmailRequestedEvent event) {
-        String path = event.purpose() == CredentialTokenPurpose.ACTIVATION
-                ? "/activate?token="
-                : "/reset-password?token=";
+        // These must match the router in App.tsx. An operator activates on the admin page, which
+        // posts to the admin endpoint and issues no session.
+        boolean activation = event.purpose() == CredentialTokenPurpose.ACTIVATION;
+        String path = switch (event.audience()) {
+            case PLATFORM_OPERATOR -> activation
+                    ? "/admin/activation/complete?token="
+                    : "/admin/password-reset/complete?token=";
+            case CLIENT -> activation
+                    ? "/app/activation/complete?token="
+                    : "/app/password-reset/complete?token=";
+        };
         String url = activationProperties.getValidatedOrigin() + path + event.rawToken();
         com.hiveapp.shared.email.EmailDispatchOutcome outcome;
         try {

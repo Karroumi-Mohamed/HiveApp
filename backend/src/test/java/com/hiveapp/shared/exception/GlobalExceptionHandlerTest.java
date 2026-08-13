@@ -92,4 +92,29 @@ class GlobalExceptionHandlerTest {
                         ErrorCode.INVALID_STATE,
                         ErrorCode.OPERATION_BLOCKED);
     }
+
+    /**
+     * These two used to fall through to the catch-all and answer 500. A mistyped URL and a
+     * malformed id are both caller mistakes; reporting them as server faults hides real ones.
+     */
+    @Test
+    void anUnmatchedUrlIsNotFoundRatherThanAServerFault() {
+        var response = handler.handleNoResource(
+                new org.springframework.web.servlet.resource.NoResourceFoundException(
+                        org.springframework.http.HttpMethod.GET, "api/admin/roles/x/operators"));
+
+        assertThat(response.getBody().status()).isEqualTo(404);
+        assertThat(response.getBody().code()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+
+    @Test
+    void aMalformedPathValueIsABadRequestAndDoesNotEchoTheValueBack() {
+        var response = handler.handleTypeMismatch(
+                new org.springframework.web.method.annotation.MethodArgumentTypeMismatchException(
+                        "<script>not-a-uuid</script>", java.util.UUID.class, "id", null, null));
+
+        assertThat(response.getBody().status()).isEqualTo(400);
+        assertThat(response.getBody().code()).isEqualTo(ErrorCode.INVALID_ARGUMENT);
+        assertThat(response.getBody().message()).contains("id").doesNotContain("script");
+    }
 }

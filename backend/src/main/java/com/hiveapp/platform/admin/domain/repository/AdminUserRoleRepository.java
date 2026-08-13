@@ -20,6 +20,23 @@ public interface AdminUserRoleRepository extends JpaRepository<AdminUserRole, UU
     List<AdminUserRole> findAllWithRoleByAdminUserIdIn(
             @Param("adminUserIds") Collection<UUID> adminUserIds);
 
+    /** How many operators hold each role, batched so a page of roles costs one query. */
+    @Query("SELECT assignment.adminRole.id AS roleId, COUNT(assignment) AS total "
+           + "FROM AdminUserRole assignment WHERE assignment.adminRole.id IN :roleIds "
+           + "GROUP BY assignment.adminRole.id")
+    List<RoleAssignmentCount> countByAdminRoleIdIn(@Param("roleIds") Collection<UUID> roleIds);
+
+    interface RoleAssignmentCount {
+        UUID getRoleId();
+
+        long getTotal();
+    }
+
+    /** Operators holding a role, with the identity fetched so rendering costs no extra query. */
+    @EntityGraph(attributePaths = {"adminUser", "adminUser.user"})
+    @Query("SELECT assignment FROM AdminUserRole assignment WHERE assignment.adminRole.id = :roleId")
+    List<AdminUserRole> findAllWithOperatorByAdminRoleId(@Param("roleId") UUID roleId);
+
     boolean existsByAdminUserIdAndAdminRoleId(UUID adminUserId, UUID adminRoleId);
 
     @Modifying

@@ -11,14 +11,27 @@ import java.util.UUID;
 import java.util.Optional;
 
 public interface AdminUserRepository extends JpaRepository<AdminUser, UUID> {
+    long countByIsActiveTrue();
+    long countByIsActiveFalse();
+    long countByIsSuperAdminTrue();
+
     Optional<AdminUser> findByUserId(UUID userId);
     Optional<AdminUser> findByUser_Email(String email);
 
     @EntityGraph(attributePaths = "user")
     @Query(
-            value = "SELECT admin FROM AdminUser admin",
-            countQuery = "SELECT COUNT(admin) FROM AdminUser admin")
-    Page<AdminUser> findPageWithUser(Pageable pageable);
+            value = "select admin from AdminUser admin join admin.user user where "
+                    + "(:active is null or admin.isActive = :active) and "
+                    + "(:search is null or lower(user.email) like lower(concat('%', :search, '%')) "
+                    + "or lower(user.username) like lower(concat('%', :search, '%')))",
+            countQuery = "select count(admin) from AdminUser admin join admin.user user where "
+                    + "(:active is null or admin.isActive = :active) and "
+                    + "(:search is null or lower(user.email) like lower(concat('%', :search, '%')) "
+                    + "or lower(user.username) like lower(concat('%', :search, '%')))")
+    Page<AdminUser> searchPageWithUser(
+            @Param("search") String search,
+            @Param("active") Boolean active,
+            Pageable pageable);
 
     @EntityGraph(attributePaths = "user")
     @Query("SELECT admin FROM AdminUser admin WHERE admin.id = :id")

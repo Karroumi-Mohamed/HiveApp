@@ -10,6 +10,8 @@ import org.springframework.security.authentication.DisabledException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -151,6 +153,32 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.UNPROCESSABLE_ENTITY)
                 .body(ApiError.of(422, ErrorCode.VALIDATION_FAILED, "Validation Failed",
                         "Request validation failed", details));
+    }
+
+    /**
+     * A URL that matches no route. Without this it reaches {@link #handleGeneric} and every
+     * mistyped path answers 500 — which reads as "the server broke" when the truth is "no such
+     * thing here", and buries genuine faults in the same log line.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiError> handleNoResource(NoResourceFoundException ex) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(404, ErrorCode.RESOURCE_NOT_FOUND, "Not Found",
+                        "No endpoint matches " + ex.getResourcePath()));
+    }
+
+    /**
+     * A path or query value that cannot be converted — most often a malformed UUID. The request
+     * is bad, not the server, and the message deliberately names only the parameter: echoing the
+     * rejected value back would reflect caller-supplied text into the response.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiError.of(400, ErrorCode.INVALID_ARGUMENT, "Bad Request",
+                        "Parameter '" + ex.getName() + "' has an invalid format"));
     }
 
     @ExceptionHandler(Exception.class)

@@ -7,6 +7,10 @@ import com.hiveapp.identity.dto.RefreshTokenRequest;
 import com.hiveapp.identity.service.CredentialAuthenticationService;
 import com.hiveapp.platform.admin.domain.entity.AdminUser;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
+import com.hiveapp.platform.admin.dto.AdminMeDto;
+import com.hiveapp.platform.admin.service.AdminPermissionResolver;
+import com.hiveapp.shared.exception.ResourceNotFoundException;
+import java.util.UUID;
 import com.hiveapp.platform.admin.service.AdminAuthenticationService;
 import com.hiveapp.shared.exception.UnauthorizedException;
 import com.hiveapp.shared.security.IssuedTokens;
@@ -25,6 +29,20 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
     private final CredentialAuthenticationService credentialAuthenticationService;
     private final AdminUserRepository adminUserRepository;
     private final TokenSessionService tokenSessionService;
+    private final AdminPermissionResolver adminPermissionResolver;
+
+    @Override
+    @Transactional(readOnly = true)
+    public AdminMeDto getAdminDetails(UUID userId) {
+        var admin = adminUserRepository.findByUserId(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("AdminUser", "userId", userId));
+        return new AdminMeDto(
+                admin.getId(),
+                admin.getUser().getEmail(),
+                admin.isSuperAdmin(),
+                admin.isActive(),
+                adminPermissionResolver.resolve(admin));
+    }
 
     @Override
     @Transactional(readOnly = true)

@@ -2,6 +2,8 @@ package com.hiveapp.platform.admin.service.impl;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
 import com.hiveapp.platform.admin.service.AdminSubscriptionService;
+import com.hiveapp.platform.client.account.service.AccountDirectoryService;
+import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
@@ -23,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 @Service
 @RequiredArgsConstructor
@@ -31,9 +35,17 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
 
     private final SubscriptionService subscriptionService;
     private final SubscriptionCheckoutService subscriptionCheckoutService;
+    private final AccountDirectoryService accountDirectoryService;
     private final SubscriptionMapper subscriptionMapper;
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
+
+    @Override
+    @PermissionNode(key = "search_accounts", description = "Search accounts for subscription operations")
+    @Transactional(readOnly = true)
+    public Page<AccountDirectoryEntryDto> searchAccounts(String query, Pageable pageable) {
+        return accountDirectoryService.search(query, pageable);
+    }
 
     @Override
     protected FeatureDefinition featureDefinition() {

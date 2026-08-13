@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Pageable;
+import java.util.List;
 import org.springframework.stereotype.Repository;
 import jakarta.persistence.LockModeType;
 
@@ -20,6 +22,7 @@ public interface UserRepository extends JpaRepository<User, UUID>{
     
     boolean existsByEmail(String email);
     boolean existsByUsername(String username);
+
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select user from User user where user.id = :userId")

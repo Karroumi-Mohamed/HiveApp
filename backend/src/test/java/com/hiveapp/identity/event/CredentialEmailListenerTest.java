@@ -41,7 +41,8 @@ class CredentialEmailListenerTest {
                 "Workspace",
                 "raw-token",
                 CredentialTokenPurpose.ACTIVATION,
-                Instant.parse("2030-04-05T06:07:08Z"));
+                Instant.parse("2030-04-05T06:07:08Z"),
+                CredentialEmailRequestedEvent.CredentialAudience.CLIENT);
 
         assertThatCode(() -> listener.send(event)).doesNotThrowAnyException();
 

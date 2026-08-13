@@ -3,6 +3,7 @@ package com.hiveapp.identity.service;
 import com.hiveapp.identity.domain.EmailIdentity;
 import com.hiveapp.identity.domain.constant.CredentialState;
 import com.hiveapp.identity.domain.constant.CredentialTokenPurpose;
+import com.hiveapp.identity.domain.constant.IdentityKind;
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.dto.AuthResponse;
@@ -50,10 +51,38 @@ public class CredentialLifecycleService {
             throw new InvalidStateException(INVALID_LINK);
         }
         Account account = requireActiveMembership(user);
-        activatePassword(user, newPassword);
+        activatePassword(user, newPassword, true);
         auditCredentialChange(
                 "identity.credentials.activation.complete", user, account, before, user.getId());
         return issueTokens(user);
+    }
+
+    /**
+     * Operator activation. Returns no tokens by design: a link arriving in an inbox must never
+     * mint an authenticated admin session. The operator sets a password and then signs in
+     * through the admin login like any other time.
+     *
+     * <p>Kept separate from {@link #completeActivation} rather than branching inside it — the
+     * client path requires an active workspace membership that an operator does not have, and
+     * the two must not be able to drift into each other's trust model.
+     */
+    @Transactional
+    @AuditedMutation(
+            action = "identity.credentials.operator_activation.complete",
+            resourceType = "USER",
+            recordSuccess = false)
+    public void completeOperatorActivation(String token, String newPassword) {
+        User user = tokenUser(token, CredentialTokenPurpose.ACTIVATION);
+        if (user.getKind() != IdentityKind.PLATFORM) {
+            throw new InvalidStateException(INVALID_LINK);
+        }
+        CredentialState before = user.getCredentialState();
+        if (before != CredentialState.EMAIL_ACTIVATION_PENDING) {
+            throw new InvalidStateException(INVALID_LINK);
+        }
+        activatePassword(user, newPassword, true);
+        auditOperatorCredentialChange(
+                "identity.credentials.operator_activation.complete", user, before);
     }
 
     @Transactional
@@ -65,7 +94,7 @@ public class CredentialLifecycleService {
         User user = tokenUser(token, CredentialTokenPurpose.PASSWORD_RESET);
         CredentialState before = user.getCredentialState();
         Account account = requireActiveMembership(user);
-        activatePassword(user, newPassword);
+        activatePassword(user, newPassword, true);
         auditCredentialChange(
                 "identity.credentials.password_reset.complete", user, account, before, user.getId());
         return issueTokens(user);
@@ -86,7 +115,7 @@ public class CredentialLifecycleService {
         }
         CredentialState before = user.getCredentialState();
         Account account = requireActiveMembership(user);
-        activatePassword(user, newPassword);
+        activatePassword(user, newPassword, false);
         auditCredentialChange(
                 "identity.credentials.initial_password.complete", user, account, before, user.getId());
         return issueTokens(user);
@@ -127,6 +156,51 @@ public class CredentialLifecycleService {
                         "credentialTokenExpiresAt", user.getCredentialTokenExpiresAt()));
     }
 
+    /**
+     * Operator-initiated recovery. Returns silently for every rejection — an unknown address, a
+     * client identity, a deactivated one, an unverified mailbox — so the endpoint cannot be used
+     * to discover which addresses belong to platform operators.
+     */
+    @Transactional
+    @AuditedMutation(
+            action = "identity.credentials.operator_password_reset.request",
+            resourceType = "USER",
+            recordSuccess = false)
+    public void requestOperatorPasswordReset(String email) {
+        User user = userRepository.findByEmail(EmailIdentity.canonicalize(email)).orElse(null);
+        if (user == null
+                || user.getKind() != IdentityKind.PLATFORM
+                || !user.isActive()
+                || !user.isEmailVerified()) {
+            return;
+        }
+        CredentialState before = user.getCredentialState();
+        memberCredentialService.requestOperatorSelfServiceReset(user);
+        userRepository.saveAndFlush(user);
+        auditOperatorCredentialChange(
+                "identity.credentials.operator_password_reset.request", user, before);
+    }
+
+    /**
+     * Mirrors {@link #completeOperatorActivation}: sets the password and issues no session, so a
+     * link in an inbox never becomes an admin session on its own.
+     */
+    @Transactional
+    @AuditedMutation(
+            action = "identity.credentials.operator_password_reset.complete",
+            resourceType = "USER",
+            recordSuccess = false)
+    public void completeOperatorPasswordReset(String token, String newPassword) {
+        User user = tokenUser(token, CredentialTokenPurpose.PASSWORD_RESET);
+        if (user.getKind() != IdentityKind.PLATFORM) {
+            throw new InvalidStateException(INVALID_LINK);
+        }
+        CredentialState before = user.getCredentialState();
+        activatePassword(user, newPassword, true);
+        auditOperatorCredentialChange(
+                "identity.credentials.operator_password_reset.complete", user, before);
+    }
+
     private User tokenUser(String rawToken, CredentialTokenPurpose purpose) {
         String hash = secretGenerator.hashToken(rawToken);
         User user = userRepository.findByCredentialTokenHashForUpdate(hash)
@@ -148,16 +222,28 @@ public class CredentialLifecycleService {
         return member.getAccount();
     }
 
-    private void activatePassword(User user, String newPassword) {
+    /**
+     * @param viaEmailLink whether the credential was completed by following a link sent to the
+     *     address on the row. Only that proves the mailbox is reachable, so only that verifies
+     *     the email. Completing with a temporary password proves nothing about the address —
+     *     an operator may hold a placeholder that receives no mail at all, and marking it
+     *     verified would later send their password reset into a void.
+     */
+    private void activatePassword(User user, String newPassword, boolean viaEmailLink) {
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         user.setCredentialState(CredentialState.ACTIVE);
         user.setPasswordChangeRequired(false);
-        user.setEmailVerified(user.getEmail() != null || user.isEmailVerified());
+        if (viaEmailLink && user.getEmail() != null) {
+            user.setEmailVerified(true);
+        }
         user.setInitialAccessFailedAttempts(0);
         user.setInitialAccessLocked(false);
         memberCredentialService.clearToken(user);
         userRepository.saveAndFlush(user);
-        tokenSessionService.revokeAll(List.of(user.getId()), TokenAudience.CLIENT);
+        // Revoke on the surface the identity actually signs in through.
+        tokenSessionService.revokeAll(
+                List.of(user.getId()),
+                user.getKind() == IdentityKind.PLATFORM ? TokenAudience.ADMIN : TokenAudience.CLIENT);
     }
 
     private void auditCredentialChange(
@@ -174,6 +260,22 @@ public class CredentialLifecycleService {
                 AuditActorSurface.CLIENT_WORKSPACE,
                 actorUserId,
                 account.getId(),
+                Map.of("credentialState", before),
+                Map.of(
+                        "credentialState", user.getCredentialState(),
+                        "passwordChangeRequired", user.isPasswordChangeRequired(),
+                        "emailVerified", user.isEmailVerified()));
+    }
+
+    /** Operator equivalent: platform surface, and no account to attribute the change to. */
+    private void auditOperatorCredentialChange(String action, User user, CredentialState before) {
+        auditTrail.recordSuccess(
+                action,
+                "USER",
+                user.getId(),
+                AuditActorSurface.PLATFORM_ADMIN,
+                user.getId(),
+                null,
                 Map.of("credentialState", before),
                 Map.of(
                         "credentialState", user.getCredentialState(),
