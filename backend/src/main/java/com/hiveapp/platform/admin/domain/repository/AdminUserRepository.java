@@ -23,11 +23,19 @@ public interface AdminUserRepository extends JpaRepository<AdminUser, UUID> {
             value = "select admin from AdminUser admin join admin.user user where "
                     + "(:active is null or admin.isActive = :active) and "
                     + "(:search is null or lower(user.email) like lower(concat('%', :search, '%')) "
-                    + "or lower(user.username) like lower(concat('%', :search, '%')))",
+                    + "or lower(user.username) like lower(concat('%', :search, '%')) "
+                    + "or lower(user.firstName) like lower(concat('%', :search, '%')) "
+                    + "or lower(user.lastName) like lower(concat('%', :search, '%')) "
+                    + "or lower(concat(concat(user.firstName, ' '), user.lastName)) "
+                    + "like lower(concat('%', :search, '%')))",
             countQuery = "select count(admin) from AdminUser admin join admin.user user where "
                     + "(:active is null or admin.isActive = :active) and "
                     + "(:search is null or lower(user.email) like lower(concat('%', :search, '%')) "
-                    + "or lower(user.username) like lower(concat('%', :search, '%')))")
+                    + "or lower(user.username) like lower(concat('%', :search, '%')) "
+                    + "or lower(user.firstName) like lower(concat('%', :search, '%')) "
+                    + "or lower(user.lastName) like lower(concat('%', :search, '%')) "
+                    + "or lower(concat(concat(user.firstName, ' '), user.lastName)) "
+                    + "like lower(concat('%', :search, '%')))")
     Page<AdminUser> searchPageWithUser(
             @Param("search") String search,
             @Param("active") Boolean active,

@@ -50,7 +50,7 @@ public class AdminUserController {
     public com.hiveapp.platform.admin.dto.AdminUserCreationResponse create(
             @Valid @RequestBody CreateAdminUserRequest req) {
         return adminUserService.createAdminUser(
-                req.firstName(), req.lastName(), req.email(), req.isSuperAdmin());
+                req.firstName(), req.lastName(), req.email(), req.initialAccessMethod(), req.isSuperAdmin());
     }
 
     @PostMapping("/bulk/active")

@@ -2,23 +2,41 @@ package com.hiveapp.platform.security;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.identity.domain.constant.IdentityKind;
+import com.hiveapp.identity.domain.constant.InitialAccessMethod;
+import com.hiveapp.identity.domain.constant.CredentialTokenPurpose;
+import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.InitialPasswordChangeRequest;
+import com.hiveapp.identity.dto.PasswordCompletionRequest;
+import com.hiveapp.identity.dto.PasswordResetRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
+import com.hiveapp.shared.email.EmailDispatchOutcome;
+import com.hiveapp.shared.email.EmailService;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -39,6 +57,16 @@ class OperatorIdentityIntegrationTest extends PlatformShellIntegrationTestSuppor
     @Autowired
     private PermissionRepository permissionRepository;
 
+    @MockBean
+    private EmailService emailService;
+
+    @BeforeEach
+    void successfulEmailTransportByDefault() {
+        doReturn(EmailDispatchOutcome.SENT).when(emailService).sendCredentialLink(
+                anyString(), anyString(), anyString(), anyString(),
+                any(CredentialTokenPurpose.class), any(Instant.class));
+    }
+
     @Test
     void creatingAnOperatorCreatesAPlatformIdentityAndItsGrantTogether() throws Exception {
         String token = loginAdminAndGetToken();
@@ -47,14 +75,109 @@ class OperatorIdentityIntegrationTest extends PlatformShellIntegrationTestSuppor
         JsonNode response = json(createOperator(token, email, false)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.operator.email").value(email))
+                .andExpect(jsonPath("$.initialAccessMethod").value("EMAIL_LINK"))
                 // The activation link is the credential; no password is minted alongside it.
                 .andExpect(jsonPath("$.temporaryPassword").doesNotExist())
+                .andExpect(jsonPath("$.linkExpiresAt").isNotEmpty())
                 .andExpect(jsonPath("$.credentialState").value("EMAIL_ACTIVATION_PENDING")));
 
         UUID operatorUserId = UUID.fromString(response.get("operator").get("userId").asText());
         assertThat(userRepository.findById(operatorUserId).orElseThrow().getKind())
                 .isEqualTo(IdentityKind.PLATFORM);
         assertThat(adminUserRepository.findByUserId(operatorUserId)).isPresent();
+    }
+
+    @Test
+    void creationCanExplicitlyIssueTemporaryAccessWithoutEmailingOrVerifyingTheAddress() throws Exception {
+        String token = loginAdminAndGetToken();
+        String email = operatorEmail();
+
+        JsonNode response = json(createOperator(
+                        token, email, false, InitialAccessMethod.TEMPORARY_PASSWORD)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.initialAccessMethod").value("TEMPORARY_PASSWORD"))
+                .andExpect(jsonPath("$.temporaryPassword").isNotEmpty())
+                .andExpect(jsonPath("$.linkExpiresAt").doesNotExist())
+                .andExpect(jsonPath("$.credentialState").value("TEMPORARY_PASSWORD")));
+
+        verify(emailService, never()).sendCredentialLink(
+                anyString(), anyString(), anyString(), anyString(), any(), any());
+        User operator = userRepository.findByEmail(email).orElseThrow();
+        assertThat(operator.isEmailVerified()).isFalse();
+
+        mockMvc.perform(post("/api/admin/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new LoginRequest(email, response.get("temporaryPassword").asText()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passwordChangeRequired").value(true));
+    }
+
+    @Test
+    void operatorActivationCompletesOnceWithoutIssuingASessionAndEnablesNormalLogin() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        String email = operatorEmail();
+        String password = "activated-operator-password";
+        createOperator(adminToken, email, false).andExpect(status().isCreated());
+        String activationToken = capturedCredentialToken(email, CredentialTokenPurpose.ACTIVATION);
+        PasswordCompletionRequest completion = new PasswordCompletionRequest(activationToken, password);
+
+        mockMvc.perform(post("/api/admin/auth/activation/complete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(completion)))
+                .andExpect(status().isNoContent())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString()).isEmpty());
+        mockMvc.perform(post("/api/admin/auth/activation/complete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(completion)))
+                .andExpect(status().isConflict());
+
+        assertThat(userRepository.findByEmail(email).orElseThrow().isEmailVerified()).isTrue();
+        mockMvc.perform(post("/api/admin/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(email, password))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passwordChangeRequired").value(false));
+    }
+
+    @Test
+    void verifiedOperatorCanCompleteAOneTimePasswordReset() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        String email = operatorEmail();
+        String originalPassword = "original-operator-password";
+        createOperator(adminToken, email, false).andExpect(status().isCreated());
+        PasswordCompletionRequest activation = new PasswordCompletionRequest(
+                capturedCredentialToken(email, CredentialTokenPurpose.ACTIVATION), originalPassword);
+        mockMvc.perform(post("/api/admin/auth/activation/complete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(activation)))
+                .andExpect(status().isNoContent());
+
+        clearInvocations(emailService);
+        mockMvc.perform(post("/api/admin/auth/password-reset/request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest(email))))
+                .andExpect(status().isNoContent());
+        String resetToken = capturedCredentialToken(email, CredentialTokenPurpose.PASSWORD_RESET);
+        String replacementPassword = "replacement-operator-password";
+        PasswordCompletionRequest reset = new PasswordCompletionRequest(resetToken, replacementPassword);
+        mockMvc.perform(post("/api/admin/auth/password-reset/complete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(reset)))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/admin/auth/password-reset/complete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(reset)))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(post("/api/admin/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(email, originalPassword))))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/admin/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(email, replacementPassword))))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -347,11 +470,29 @@ class OperatorIdentityIntegrationTest extends PlatformShellIntegrationTestSuppor
     }
 
     private ResultActions createOperator(String token, String email, boolean superAdmin) throws Exception {
+        return createOperator(token, email, superAdmin, InitialAccessMethod.EMAIL_LINK);
+    }
+
+    private ResultActions createOperator(
+            String token,
+            String email,
+            boolean superAdmin,
+            InitialAccessMethod initialAccessMethod
+    ) throws Exception {
         return mockMvc.perform(post("/api/admin/users")
                 .header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(
-                        new CreateAdminUserRequest("Op", "Erator", email, superAdmin))));
+                        new CreateAdminUserRequest(
+                                "Op", "Erator", email, initialAccessMethod, superAdmin))));
+    }
+
+    private String capturedCredentialToken(String email, CredentialTokenPurpose purpose) {
+        ArgumentCaptor<String> url = ArgumentCaptor.forClass(String.class);
+        verify(emailService).sendCredentialLink(
+                eq(email), eq("Op Erator"), anyString(), url.capture(), eq(purpose), any(Instant.class));
+        String actionUrl = url.getValue();
+        return actionUrl.substring(actionUrl.indexOf("token=") + 6);
     }
 
     private JsonNode json(ResultActions action) throws Exception {

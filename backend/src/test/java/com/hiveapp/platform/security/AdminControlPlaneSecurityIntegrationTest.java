@@ -3,6 +3,7 @@ package com.hiveapp.platform.security;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
+import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.platform.admin.dto.AssignAdminRoleRequest;
 import com.hiveapp.platform.admin.dto.CreateAdminRoleRequest;
 import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
@@ -63,6 +64,31 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.page").value(0))
                 .andExpect(jsonPath("$.size").value(1));
+    }
+
+    @Test
+    void operatorSearchIncludesTheDisplayedFullName() throws Exception {
+        String token = loginAdminAndGetToken();
+        String marker = UUID.randomUUID().toString().substring(0, 8);
+        String email = operatorEmail();
+        CreateAdminUserRequest request = new CreateAdminUserRequest(
+                "Nadia" + marker,
+                "Benali" + marker,
+                email,
+                InitialAccessMethod.EMAIL_LINK,
+                false);
+        mockMvc.perform(post("/api/admin/users")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/admin/users")
+                        .param("search", "nadia" + marker + " benali" + marker)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].email").value(email));
     }
 
     @Test
@@ -440,6 +466,60 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(jsonPath("$.succeeded").value(1));
     }
 
+    @Test
+    void remainingOperatorBulkRoutesApplyEveryTargetAndReportDuplicates() throws Exception {
+        String token = loginAdminAndGetToken();
+        UUID first = createdOperatorId(createAdminUser(token, operatorEmail(), false)
+                .andExpect(status().isCreated()));
+        UUID second = createdOperatorId(createAdminUser(token, operatorEmail(), false)
+                .andExpect(status().isCreated()));
+        UUID roleId = createAdminRole(token, "Bulk target " + UUID.randomUUID());
+        var ids = java.util.List.of(first, second);
+
+        mockMvc.perform(post("/api/admin/users/bulk/access/resend")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new com.hiveapp.platform.admin.dto.BulkOperatorIdsRequest(ids))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requested").value(2))
+                .andExpect(jsonPath("$.succeeded").value(2))
+                .andExpect(jsonPath("$.failures").isEmpty());
+
+        var roleRequest = new com.hiveapp.platform.admin.dto.BulkAssignRoleRequest(ids, roleId);
+        mockMvc.perform(post("/api/admin/users/bulk/roles")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(roleRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.succeeded").value(2));
+        mockMvc.perform(post("/api/admin/users/bulk/roles")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(roleRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.succeeded").value(0))
+                .andExpect(jsonPath("$.failures.length()").value(2))
+                .andExpect(jsonPath("$.failures[*].code", everyItem(
+                        org.hamcrest.Matchers.is("RESOURCE_ALREADY_EXISTS"))));
+
+        mockMvc.perform(post("/api/admin/users/bulk/active")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new com.hiveapp.platform.admin.dto.BulkSetActiveRequest(ids, false))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.succeeded").value(2));
+        mockMvc.perform(get("/api/admin/users/{id}", first)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isActive").value(false));
+        mockMvc.perform(get("/api/admin/users/{id}", second)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isActive").value(false));
+    }
+
     private ClientIdentity registerClient() throws Exception {
         String email = "admin-candidate-" + UUID.randomUUID() + "@example.com";
         RegisterRequest request = new RegisterRequest(email, CLIENT_PASSWORD, "Admin", "Candidate", null);
@@ -472,7 +552,8 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
     private ResultActions createAdminUser(String token, String email, boolean superAdmin) throws Exception {
         // Operators are created outright, never promoted from the client user pool.
-        CreateAdminUserRequest request = new CreateAdminUserRequest("Op", "Erator", email, superAdmin);
+        CreateAdminUserRequest request = new CreateAdminUserRequest(
+                "Op", "Erator", email, InitialAccessMethod.EMAIL_LINK, superAdmin);
         return mockMvc.perform(post("/api/admin/users")
                 .header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)

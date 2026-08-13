@@ -1,5 +1,6 @@
 package com.hiveapp.platform.admin.service;
 
+import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.platform.admin.dto.AdminUserResponseDto;
 import com.hiveapp.platform.admin.dto.AdminAccessOverviewDto;
 import com.hiveapp.platform.admin.dto.AdminUserCreationResponse;
@@ -17,7 +18,9 @@ public interface AdminUserService {
         return getAdminUsers(null, null, pageable);
     }
     AdminUserCreationResponse createAdminUser(
-            String firstName, String lastName, String email, boolean isSuperAdmin);
+            String firstName, String lastName, String email,
+            InitialAccessMethod initialAccessMethod,
+            boolean isSuperAdmin);
     /** What this operator may actually do, resolved from their active roles. */
     AdminUserResponseDto renameOperator(UUID id, String firstName, String lastName);
     java.util.List<String> getEffectivePermissions(UUID id);

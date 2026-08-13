@@ -17,6 +17,7 @@ import com.hiveapp.platform.admin.dto.AdminUserCreationResponse;
 import com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse;
 import com.hiveapp.platform.admin.dto.BulkOperationResult;
 import com.hiveapp.identity.domain.constant.IdentityKind;
+import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.identity.service.MemberCredentialService;
@@ -118,7 +119,9 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "create", description = "Create admin user")
     public AdminUserCreationResponse createAdminUser(
-            String firstName, String lastName, String email, boolean isSuperAdmin) {
+            String firstName, String lastName, String email,
+            InitialAccessMethod initialAccessMethod,
+            boolean isSuperAdmin) {
         if (isSuperAdmin && !adminMutationAuthorizer.currentActorIsSuperAdmin()) {
             throw new InvalidPermissionGrantException("Only a SuperAdmin can create another SuperAdmin.");
         }
@@ -129,7 +132,10 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
                 email.trim().toLowerCase(Locale.ROOT),
                 firstName.trim(),
                 lastName.trim()));
-        var credentials = memberCredentialService.initializeForOperator(user);
+        var credentials = switch (initialAccessMethod) {
+            case EMAIL_LINK -> memberCredentialService.initializeForOperator(user);
+            case TEMPORARY_PASSWORD -> memberCredentialService.generateOperatorTemporaryAccess(user);
+        };
 
         // Holds by construction today. Asserted so that any future promotion path has to
         // confront the rule rather than quietly bypass it.
@@ -142,10 +148,8 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
         adminUser.setUser(user);
         adminUser.setSuperAdmin(isSuperAdmin);
         adminUser.setActive(true);
-        return new AdminUserCreationResponse(
-                toResponse(adminUserRepository.save(adminUser), List.of()),
-                credentials.temporaryPassword(),
-                credentials.state());
+        return AdminUserCreationResponse.of(
+                toResponse(adminUserRepository.save(adminUser), List.of()), credentials);
     }
 
     /**
