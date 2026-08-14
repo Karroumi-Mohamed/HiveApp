@@ -31,6 +31,7 @@ export type AuthResponse = {
 export type AdminMe = {
   id: UUID;
   email: string;
+  emailVerified: boolean;
   isSuperAdmin: boolean;
   isActive: boolean;
   permissions: string[];
@@ -60,7 +61,7 @@ export type AdminPermission = {
   id: UUID;
   code: string;
   name: string;
-  description: string;
+  description: string | null;
   action: string;
   resource: string;
 };
@@ -71,6 +72,7 @@ export type AdminUser = {
   email: string;
   firstName: string;
   lastName: string;
+  emailVerified: boolean;
   isSuperAdmin: boolean;
   isActive: boolean;
   /** ACTIVE once the operator has set their own password; pending states precede that. */
@@ -89,6 +91,8 @@ export type AdminUserCreation = {
   temporaryPassword: string | null;
   linkExpiresAt: string | null;
   credentialState: string;
+  emailDeliveryId: UUID | null;
+  emailDelivery: EmailDeliverySummary | null;
 };
 
 /**
@@ -101,6 +105,8 @@ export type OperatorAccess = {
   credentialState: string;
   temporaryPassword: string | null;
   linkExpiresAt: string | null;
+  emailDeliveryId: UUID | null;
+  emailDelivery: EmailDeliverySummary | null;
 };
 
 /**

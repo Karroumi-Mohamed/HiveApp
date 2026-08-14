@@ -1,4 +1,5 @@
 import { EyeIcon, EyeSlashIcon, HexagonIcon } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from "react-router";
 import { adminApi } from "@/api/admin-api";
@@ -563,6 +564,59 @@ export function AdminPasswordResetPage() {
             {submitting ? "Enregistrement…" : "Définir le mot de passe"}
           </Button>
         </form>
+      )}
+    </LoginFrame>
+  );
+}
+
+/** Verifies a changed operator email without changing credentials or creating a session. */
+export function AdminEmailVerificationPage() {
+  const [params] = useSearchParams();
+  const queryClient = useQueryClient();
+  const token = params.get("token") ?? "";
+  const [status, setStatus] = useState<"ready" | "submitting" | "complete" | "error">("ready");
+
+  const verifyEmail = async () => {
+    if (!token || status === "submitting") return;
+    setStatus("submitting");
+    try {
+      await adminApi.completeEmailVerification(token);
+      await queryClient.invalidateQueries({ queryKey: ["admin", "me"] });
+      setStatus("complete");
+    } catch {
+      setStatus("error");
+    }
+  };
+
+  return (
+    <LoginFrame title="Vérifier votre adresse email">
+      {!token ? (
+        <p className="mt-8 text-sm text-destructive">Le lien ne contient aucun jeton valide.</p>
+      ) : status === "complete" ? (
+        <div className="mt-8 space-y-5">
+          <p className="text-sm text-muted-foreground">
+            Votre adresse est vérifiée. La récupération autonome du mot de passe est maintenant disponible.
+          </p>
+          <Button asChild className="w-full">
+            <Link to="/admin/login">Continuer vers la connexion</Link>
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-8 space-y-5">
+          <p className="text-sm leading-6 text-muted-foreground">
+            Confirmez que cette adresse vous appartient. Cette action ne modifie pas votre mot de passe et ne vous
+            connecte pas automatiquement.
+          </p>
+          {status === "error" ? (
+            <p className="text-sm text-destructive">Ce lien est invalide, expiré ou déjà utilisé.</p>
+          ) : null}
+          <Button className="w-full" disabled={status === "submitting"} onClick={() => void verifyEmail()}>
+            {status === "submitting" ? "Vérification…" : "Vérifier l’adresse email"}
+          </Button>
+          <Button asChild className="w-full" variant="ghost">
+            <Link to="/admin/login">Retour à la connexion</Link>
+          </Button>
+        </div>
       )}
     </LoginFrame>
   );

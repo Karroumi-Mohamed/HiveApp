@@ -5,8 +5,70 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-function actionLabel(action: string) {
+const ACTION_LABELS: Record<string, string> = {
+  archive: "Archiver",
+  assign_role: "Attribuer un rôle",
+  bulk_assign_role: "Attribuer un rôle en masse",
+  bulk_resend_activation: "Renvoyer les activations en masse",
+  bulk_set_active: "Modifier les statuts en masse",
+  change_email: "Changer l’adresse email",
+  confirm_checkout: "Confirmer un paiement",
+  create: "Créer",
+  create_from_preset: "Créer depuis un modèle",
+  create_trial: "Créer un essai",
+  delete: "Supprimer",
+  duplicate: "Dupliquer",
+  generate_temporary_access: "Générer un accès temporaire",
+  grant_permission: "Accorder une permission",
+  list: "Lister",
+  list_features: "Lister les fonctionnalités",
+  list_grantable_permissions: "Lister les permissions attribuables",
+  list_presets: "Lister les modèles",
+  list_subscribers: "Lister les abonnés",
+  lookup_subscriber_owner_email: "Consulter l’email du propriétaire",
+  overview: "Consulter la synthèse",
+  preview_impact: "Prévisualiser l’impact",
+  read: "Consulter",
+  read_changes: "Consulter les changements",
+  read_detail: "Consulter le détail",
+  read_history: "Consulter l’historique",
+  read_holders: "Consulter les opérateurs attribués",
+  read_permissions: "Consulter les permissions",
+  remove_role: "Retirer un rôle",
+  rename: "Modifier le nom",
+  replace_permissions: "Remplacer les permissions",
+  resend_activation: "Renvoyer l’activation",
+  revoke_permission: "Retirer une permission",
+  search_accounts: "Rechercher des comptes",
+  send_email_verification: "Envoyer la vérification email",
+  toggle_active: "Modifier le statut d’accès",
+  transition_status: "Changer le statut",
+  update: "Modifier",
+  update_overrides: "Modifier les dérogations",
+};
+
+const RESOURCE_LABELS: Record<string, string> = {
+  admin_roles: "Rôles administrateur",
+  admin_users: "Opérateurs",
+  add_ons: "Modules complémentaires",
+  plans: "Forfaits",
+  quota_packages: "Packs de quotas",
+  registry: "Registre des fonctionnalités",
+  subscriptions: "Abonnements",
+};
+
+/** Shared with every screen that displays catalogue permissions, so labels cannot drift. */
+export function permissionActionLabel(action: string) {
+  const translated = ACTION_LABELS[action.toLowerCase()];
+  if (translated) return translated;
   const spaced = action.replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+export function permissionResourceLabel(resource: string) {
+  const translated = RESOURCE_LABELS[resource.toLowerCase()];
+  if (translated) return translated;
+  const spaced = resource.replace(/_/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
@@ -89,7 +151,7 @@ export function AdminPermissionEditor({
             <SelectItem value="ALL">Tous les domaines</SelectItem>
             {resources.map((resource) => (
               <SelectItem key={resource} value={resource}>
-                {resource}
+                {permissionResourceLabel(resource)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -123,7 +185,7 @@ export function AdminPermissionEditor({
                     type="button"
                   >
                     {isCollapsed ? <CaretRightIcon /> : <CaretDownIcon />}
-                    <span className="truncate font-medium">{resource}</span>
+                    <span className="truncate font-medium">{permissionResourceLabel(resource)}</span>
                     <span className="text-xs tabular-nums text-muted-foreground">
                       {selectedCount}/{entries.length}
                     </span>
@@ -158,7 +220,9 @@ export function AdminPermissionEditor({
                             onCheckedChange={() => togglePermission(permission)}
                           />
                           <span className="min-w-0">
-                            <span className="block text-sm font-medium">{actionLabel(permission.action)}</span>
+                            <span className="block text-sm font-medium">
+                              {permissionActionLabel(permission.action)}
+                            </span>
                             {permission.description ? (
                               <span className="block text-xs text-muted-foreground">{permission.description}</span>
                             ) : null}

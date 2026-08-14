@@ -39,6 +39,7 @@ const admin = <T>(path: string, options: Parameters<typeof apiRequest<T>>[1] = {
 
 export const adminApi = {
   me: () => admin<AdminMe>("/me"),
+  sendMyEmailVerification: () => admin<OperatorAccess>("/me/email-verification", { method: "POST" }),
   accessOverview: () => admin<AdminAccessOverview>("/users/overview"),
   commercialOverview: () => admin<CommercialOverview>("/plans/overview"),
   users: (query: {
@@ -83,9 +84,16 @@ export const adminApi = {
       method: "POST",
       body: jsonBody({ token, newPassword }),
     }),
+  completeEmailVerification: (token: string) =>
+    apiRequest<void>("/api/admin/auth/email-verification/complete", {
+      method: "POST",
+      body: jsonBody({ token }),
+    }),
   /** Single-target by design: a name identifies one person, so there is no bulk form. */
   renameOperator: (id: UUID, input: { firstName: string; lastName: string }) =>
     admin<AdminUser>(`/users/${id}`, { method: "PATCH", body: jsonBody(input) }),
+  changeOperatorEmail: (id: UUID, email: string) =>
+    admin<AdminUser>(`/users/${id}/email`, { method: "PATCH", body: jsonBody({ email }) }),
   /** Completes the change forced after a temporary password, returning a real admin session. */
   changeInitialPassword: (initialAccessToken: string, newPassword: string) =>
     apiRequest<AuthResponse>("/api/admin/auth/initial-password/change", {
@@ -99,13 +107,17 @@ export const adminApi = {
       method: "POST",
       headers: { Authorization: `Bearer ${initialAccessToken}` },
     }),
-  operatorPermissions: (id: UUID) => admin<string[]>(`/users/${id}/permissions`),
+  operatorPermissions: (id: UUID) => admin<AdminPermission[]>(`/users/${id}/permissions`),
   resendOperatorActivation: (id: UUID) => admin<OperatorAccess>(`/users/${id}/access/resend`, { method: "POST" }),
+  sendOperatorEmailVerification: (id: UUID) =>
+    admin<OperatorAccess>(`/users/${id}/email-verification`, { method: "POST" }),
   generateOperatorTemporaryAccess: (id: UUID) =>
     admin<OperatorAccess>(`/users/${id}/access/temporary`, { method: "POST" }),
   toggleUser: (id: UUID) => admin<void>(`/users/${id}/toggle-active`, { method: "POST" }),
   assignUserRole: (id: UUID, adminRoleId: UUID) => admin<void>(`/users/${id}/roles/${adminRoleId}`, { method: "POST" }),
   removeUserRole: (id: UUID, roleId: UUID) => admin<void>(`/users/${id}/roles/${roleId}`, { method: "DELETE" }),
+  replaceUserRoles: (id: UUID, roleIds: UUID[]) =>
+    admin<void>(`/users/${id}/roles`, { method: "PUT", body: jsonBody({ roleIds }) }),
   roles: (query: {
     search?: string;
     active?: boolean;

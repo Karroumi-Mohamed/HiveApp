@@ -13,6 +13,7 @@ import { AdminRolesPage } from "@/features/admin/roles/admin-roles-page";
 import { AdminSubscriptionsPage } from "@/features/admin/subscriptions/admin-subscriptions-page";
 import {
   AdminActivationPage,
+  AdminEmailVerificationPage,
   AdminInitialPasswordPage,
   AdminLoginPage,
   AdminPasswordResetPage,
@@ -40,6 +41,7 @@ const router = createBrowserRouter([
   },
   { path: "/admin/login", element: <AdminLoginPage /> },
   { path: "/admin/activation/complete", element: <AdminActivationPage /> },
+  { path: "/admin/email-verification/complete", element: <AdminEmailVerificationPage /> },
   { path: "/admin/initial-password", element: <AdminInitialPasswordPage /> },
   { path: "/admin/password-reset", element: <AdminPasswordResetRequestPage /> },
   { path: "/admin/password-reset/complete", element: <AdminPasswordResetPage /> },

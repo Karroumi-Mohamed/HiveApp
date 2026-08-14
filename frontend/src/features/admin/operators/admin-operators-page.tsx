@@ -37,6 +37,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AdminRoleSearchDialog } from "@/features/admin/operators/admin-role-search-dialog";
+import { announceEmailDelivery, emailDeliveryFeedback } from "@/features/admin/operators/operator-email-delivery";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { usePageSelection } from "@/lib/use-page-selection";
 
@@ -87,9 +89,9 @@ function RowActions({ operator }: { operator: AdminUser }) {
   });
   const resend = useMutation({
     mutationFn: () => adminApi.resendOperatorActivation(operator.id),
-    onSuccess: () => {
+    onSuccess: (access) => {
       refresh();
-      toast.success("Lien d\u2019activation renvoyé");
+      announceEmailDelivery(access.emailDelivery);
     },
     onError,
   });
@@ -184,6 +186,8 @@ function CreateOperatorDialog() {
   if (!session.can(adminPermissions.usersCreate)) return null;
 
   const complete = firstName.trim() && lastName.trim() && email.trim();
+  const issuedDelivery =
+    issued?.initialAccessMethod === "EMAIL_LINK" ? emailDeliveryFeedback(issued.emailDelivery) : null;
 
   return (
     <Dialog
@@ -205,7 +209,7 @@ function CreateOperatorDialog() {
           <DialogDescription>
             {issued
               ? issued.initialAccessMethod === "EMAIL_LINK"
-                ? "Un lien d’activation vient d’être envoyé par email."
+                ? `${issuedDelivery?.title}. ${issuedDelivery?.description}`
                 : "L’accès temporaire a été créé. Il ne sera affiché qu’ici."
               : "Créez l’identité de l’opérateur et son accès à l’administration."}
           </DialogDescription>
@@ -216,8 +220,8 @@ function CreateOperatorDialog() {
               <p className="text-sm font-medium">{issued.operator.email}</p>
               {issued.initialAccessMethod === "EMAIL_LINK" ? (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  L’opérateur définit son mot de passe depuis le lien reçu. Aucun mot de passe n’a été créé ici. Si
-                  l’email n’arrive pas, sa fiche permet de le renvoyer ou de générer un accès temporaire.
+                  Si l’email est livré, l’opérateur définit son mot de passe depuis le lien. Aucun mot de passe n’a été
+                  créé ici. Sa fiche permet de réessayer ou de générer un accès temporaire.
                 </p>
               ) : (
                 <div className="mt-3 space-y-2">
@@ -463,17 +467,11 @@ export function AdminOperatorsPage() {
   });
   const bulkResend = useMutation({
     mutationFn: () => adminApi.bulkResendOperatorActivation(selectedIds),
-    onSuccess: announce("Liens renvoyés"),
+    onSuccess: announce("Demandes d’activation enregistrées"),
   });
   const bulkAssignRole = useMutation({
     mutationFn: (roleId: string) => adminApi.bulkAssignOperatorRole(selectedIds, roleId),
     onSuccess: announce("Rôle attribué"),
-  });
-
-  const assignableRoles = useQuery({
-    queryKey: ["admin", "roles", "assignable"],
-    queryFn: () => adminApi.roles({ active: true, page: 0, size: 100 }),
-    enabled: selectedIds.length > 0 && session.can(adminPermissions.rolesRead),
   });
 
   const busy = bulkActive.isPending || bulkResend.isPending || bulkAssignRole.isPending;
@@ -557,20 +555,16 @@ export function AdminOperatorsPage() {
         onClear={clearSelection}
       >
         {session.can(adminPermissions.usersBulkAssignRole) ? (
-          <Select disabled={busy} onValueChange={(value) => bulkAssignRole.mutate(value)} value="">
-            <SelectTrigger aria-label="Attribuer un rôle à la sélection" className="h-8 w-48">
-              <SelectValue placeholder="Attribuer un rôle" />
-            </SelectTrigger>
-            <SelectContent>
-              {(assignableRoles.data?.content ?? [])
-                .filter((role) => role.availableActions.includes("ASSIGN_TO_OPERATOR"))
-                .map((role) => (
-                  <SelectItem key={role.id} value={role.id}>
-                    {role.name}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
+          <AdminRoleSearchDialog
+            description={`Choisissez le rôle à attribuer aux ${selectedIds.length} opérateur(s) sélectionné(s).`}
+            onConfirm={(roleId) => bulkAssignRole.mutateAsync(roleId)}
+            pending={bulkAssignRole.isPending}
+            title="Attribuer un rôle"
+          >
+            <Button disabled={busy} size="sm" variant="outline">
+              Attribuer un rôle
+            </Button>
+          </AdminRoleSearchDialog>
         ) : null}
         <RowAction
           disabled={busy || !session.can(adminPermissions.usersBulkResendActivation)}
