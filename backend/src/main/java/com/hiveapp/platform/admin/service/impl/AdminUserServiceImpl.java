@@ -164,8 +164,20 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "read_permissions", description = "View an operator's effective permissions")
-    public List<String> getEffectivePermissions(UUID id) {
-        return adminPermissionResolver.resolve(requireAdminUser(id)).stream().sorted().toList();
+    public List<com.hiveapp.platform.admin.dto.AdminPermissionSummaryDto> getEffectivePermissions(UUID id) {
+        // Full summaries, not bare codes: the portal shows administrators what a permission
+        // means, and raw codes on screen were already rejected once on the role pages.
+        return adminPermissionResolver.resolveEntities(requireAdminUser(id)).stream()
+                .sorted(java.util.Comparator.comparing(
+                        com.hiveapp.platform.registry.domain.entity.Permission::getCode))
+                .map(permission -> new com.hiveapp.platform.admin.dto.AdminPermissionSummaryDto(
+                        permission.getId(),
+                        permission.getCode(),
+                        permission.getName(),
+                        permission.getDescription(),
+                        permission.getAction(),
+                        permission.getResource()))
+                .toList();
     }
 
     @Override
@@ -220,6 +232,34 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
         adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
         identityService.renameUser(adminUser.getUser().getId(), firstName, lastName);
         return toResponse(adminUser, adminUserRoleRepository.findAllByAdminUserId(id));
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "change_email", description = "Change an operator's login email")
+    public AdminUserResponseDto changeOperatorEmail(UUID id, String email) {
+        AdminUser adminUser = requireAdminUser(id);
+        adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
+        boolean changed = identityService.changeEmail(adminUser.getUser().getId(), email);
+        if (changed) {
+            if (adminUser.getUser().getCredentialState()
+                    == com.hiveapp.identity.domain.constant.CredentialState.EMAIL_ACTIVATION_PENDING) {
+                memberCredentialService.resendOperatorActivation(adminUser.getUser());
+            } else {
+                memberCredentialService.requestOperatorEmailVerification(adminUser.getUser());
+            }
+        }
+        return toResponse(adminUser, adminUserRoleRepository.findAllByAdminUserId(id));
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "send_email_verification", description = "Send operator email verification")
+    public AdminOperatorAccessResponse sendEmailVerification(UUID id) {
+        AdminUser adminUser = requireAdminUser(id);
+        adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
+        return AdminOperatorAccessResponse.of(
+                memberCredentialService.requestOperatorEmailVerification(adminUser.getUser()));
     }
 
     /**
@@ -364,6 +404,7 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
                 admin.getUser().getEmail(),
                 admin.getUser().getFirstName(),
                 admin.getUser().getLastName(),
+                admin.getUser().isEmailVerified(),
                 admin.isSuperAdmin(),
                 admin.isActive(),
                 admin.getUser().getCredentialState(),

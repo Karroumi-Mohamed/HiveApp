@@ -127,6 +127,8 @@ public class AdminRolePresetCatalog {
                             "platform.admin_users.read_permissions",
                             "platform.admin_users.create",
                             "platform.admin_users.rename",
+                            "platform.admin_users.change_email",
+                            "platform.admin_users.send_email_verification",
                             "platform.admin_users.resend_activation",
                             "platform.admin_users.generate_temporary_access",
                             "platform.admin_users.toggle_active",

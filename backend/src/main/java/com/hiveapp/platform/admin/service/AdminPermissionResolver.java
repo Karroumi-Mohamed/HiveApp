@@ -34,8 +34,19 @@ public class AdminPermissionResolver {
                     .map(Permission::getCode)
                     .collect(Collectors.toSet());
         }
-        // Only active roles contribute; deactivating a role withdraws its grants immediately.
+        // This is the hot session/authorization path: keep the code-only projection rather than
+        // hydrating full catalogue entities merely to discard their metadata.
         return new HashSet<>(adminUserRepository.findAllPermissionCodes(admin.getId()));
+    }
+
+    public Set<Permission> resolveEntities(AdminUser admin) {
+        if (admin.isSuperAdmin()) {
+            return permissionRepository.findAll().stream()
+                    .filter(permission -> isPlatformAdminGrantable(permission.getCode()))
+                    .collect(Collectors.toSet());
+        }
+        // Only active roles contribute; deactivating a role withdraws its grants immediately.
+        return new HashSet<>(adminUserRepository.findAllPermissions(admin.getId()));
     }
 
     private boolean isPlatformAdminGrantable(String permissionCode) {

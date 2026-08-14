@@ -14,6 +14,10 @@ import java.util.Collection;
 public interface AdminUserRoleRepository extends JpaRepository<AdminUserRole, UUID> {
     List<AdminUserRole> findAllByAdminUserId(UUID adminUserId);
 
+    @Query("SELECT assignment.adminRole.id FROM AdminUserRole assignment "
+           + "WHERE assignment.adminUser.id = :adminUserId")
+    List<UUID> findAllRoleIdsByAdminUserId(@Param("adminUserId") UUID adminUserId);
+
     @EntityGraph(attributePaths = {"adminUser", "adminRole"})
     @Query("SELECT assignment FROM AdminUserRole assignment " +
            "WHERE assignment.adminUser.id IN :adminUserIds")

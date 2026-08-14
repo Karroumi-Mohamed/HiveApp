@@ -30,6 +30,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -335,6 +336,33 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         // The rule blocks the actor, not the change: another authorized operator makes it normally.
         assignRole(superToken, admin.adminUserId(), assignableRoleId)
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void replacingAnOperatorRoleSetIsAtomic() throws Exception {
+        String token = loginAdminAndGetToken();
+        UUID operatorId = createdOperatorId(createAdminUser(token, operatorEmail(), false)
+                .andExpect(status().isCreated()));
+        UUID existingRoleId = createAdminRole(token, "Atomic existing " + UUID.randomUUID());
+        UUID newRoleId = createAdminRole(token, "Atomic new " + UUID.randomUUID());
+        assignRole(token, operatorId, existingRoleId).andExpect(status().isNoContent());
+
+        UUID missingRoleId = UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        mockMvc.perform(put("/api/admin/users/{id}/roles", operatorId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new com.hiveapp.platform.admin.dto.ReplaceAdminRolesRequest(
+                                        java.util.Set.of(newRoleId, missingRoleId)))))
+                .andExpect(status().isNotFound());
+
+        // The valid addition happened before the missing id failed. The outer transaction must
+        // roll it back, and must also preserve the role that the requested set would remove.
+        mockMvc.perform(get("/api/admin/users/{id}", operatorId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roles[*].id", hasItem(existingRoleId.toString())))
+                .andExpect(jsonPath("$.roles[*].id", not(hasItem(newRoleId.toString()))));
     }
 
     @Test

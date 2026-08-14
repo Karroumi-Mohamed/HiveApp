@@ -73,4 +73,11 @@ public interface AdminUserRepository extends JpaRepository<AdminUser, UUID> {
            "WHERE aur.adminUser.id = :adminUserId " +
            "AND aur.adminRole.status = com.hiveapp.platform.admin.domain.constant.AdminRoleStatus.ACTIVE")
     List<String> findAllPermissionCodes(@Param("adminUserId") UUID adminUserId);
+
+    @Query("SELECT DISTINCT arp.permission FROM AdminUserRole aur " +
+           "JOIN AdminRolePermission arp ON arp.adminRole = aur.adminRole " +
+           "WHERE aur.adminUser.id = :adminUserId " +
+           "AND aur.adminRole.status = com.hiveapp.platform.admin.domain.constant.AdminRoleStatus.ACTIVE")
+    List<com.hiveapp.platform.registry.domain.entity.Permission> findAllPermissions(
+            @Param("adminUserId") UUID adminUserId);
 }

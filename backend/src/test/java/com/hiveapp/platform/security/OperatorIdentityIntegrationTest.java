@@ -10,10 +10,12 @@ import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.InitialPasswordChangeRequest;
 import com.hiveapp.identity.dto.PasswordCompletionRequest;
 import com.hiveapp.identity.dto.PasswordResetRequest;
+import com.hiveapp.identity.dto.CredentialTokenRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
+import com.hiveapp.platform.admin.dto.ChangeOperatorEmailRequest;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.shared.email.EmailDispatchOutcome;
 import com.hiveapp.shared.email.EmailService;
@@ -38,6 +40,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -178,6 +181,108 @@ class OperatorIdentityIntegrationTest extends PlatformShellIntegrationTestSuppor
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new LoginRequest(email, replacementPassword))))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void changedOperatorEmailMustBeVerifiedBeforePasswordRecoveryWorks() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        String originalEmail = operatorEmail();
+        String password = "operator-email-change-password";
+        JsonNode created = json(createOperator(adminToken, originalEmail, false)
+                .andExpect(status().isCreated()));
+        UUID adminUserId = UUID.fromString(created.get("operator").get("id").asText());
+        mockMvc.perform(post("/api/admin/auth/activation/complete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordCompletionRequest(
+                                capturedCredentialToken(originalEmail, CredentialTokenPurpose.ACTIVATION),
+                                password))))
+                .andExpect(status().isNoContent());
+
+        clearInvocations(emailService);
+        String changedEmail = operatorEmail();
+        mockMvc.perform(patch("/api/admin/users/{id}/email", adminUserId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ChangeOperatorEmailRequest(changedEmail))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(changedEmail))
+                .andExpect(jsonPath("$.emailVerified").value(false));
+
+        User changed = userRepository.findByEmail(changedEmail).orElseThrow();
+        assertThat(changed.isEmailVerified()).isFalse();
+        assertThat(userRepository.findByEmail(originalEmail)).isEmpty();
+        String verificationToken = capturedCredentialToken(
+                changedEmail, CredentialTokenPurpose.EMAIL_VERIFICATION);
+
+        // The login identifier changes immediately, while recovery remains unavailable until
+        // the mailbox itself is proven.
+        String changedOperatorToken = json(mockMvc.perform(post("/api/admin/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest(changedEmail, password))))
+                .andExpect(status().isOk())).get("accessToken").asText();
+        mockMvc.perform(get("/api/admin/me")
+                        .header("Authorization", bearer(changedOperatorToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.emailVerified").value(false));
+
+        // Verification is owned by the signed-in operator's profile. It does not require the
+        // permission that lets an administrator manage somebody else's verification email.
+        clearInvocations(emailService);
+        mockMvc.perform(post("/api/admin/me/email-verification")
+                        .header("Authorization", bearer(changedOperatorToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.emailDelivery.status").value("SENT"));
+        verificationToken = capturedCredentialToken(
+                changedEmail, CredentialTokenPurpose.EMAIL_VERIFICATION);
+
+        clearInvocations(emailService);
+        mockMvc.perform(post("/api/admin/auth/password-reset/request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest(changedEmail))))
+                .andExpect(status().isNoContent());
+        verify(emailService, never()).sendCredentialLink(
+                anyString(), anyString(), anyString(), anyString(), any(), any());
+
+        CredentialTokenRequest verification = new CredentialTokenRequest(verificationToken);
+        mockMvc.perform(post("/api/admin/auth/email-verification/complete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(verification)))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/admin/auth/email-verification/complete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(verification)))
+                .andExpect(status().isConflict());
+        assertThat(userRepository.findByEmail(changedEmail).orElseThrow().isEmailVerified()).isTrue();
+        mockMvc.perform(get("/api/admin/me")
+                        .header("Authorization", bearer(changedOperatorToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.emailVerified").value(true));
+
+        clearInvocations(emailService);
+        mockMvc.perform(post("/api/admin/auth/password-reset/request")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordResetRequest(changedEmail))))
+                .andExpect(status().isNoContent());
+        capturedCredentialToken(changedEmail, CredentialTokenPurpose.PASSWORD_RESET);
+    }
+
+    @Test
+    void operatorEmailChangeRejectsAnAddressOwnedByAnotherIdentity() throws Exception {
+        String token = loginAdminAndGetToken();
+        String firstEmail = operatorEmail();
+        String secondEmail = operatorEmail();
+        createOperator(token, firstEmail, false).andExpect(status().isCreated());
+        UUID secondAdminUserId = UUID.fromString(json(createOperator(token, secondEmail, false)
+                .andExpect(status().isCreated())).get("operator").get("id").asText());
+
+        mockMvc.perform(patch("/api/admin/users/{id}/email", secondAdminUserId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ChangeOperatorEmailRequest(firstEmail))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESOURCE_ALREADY_EXISTS"));
+
+        assertThat(userRepository.findByEmail(secondEmail)).isPresent();
     }
 
     @Test
@@ -492,6 +597,12 @@ class OperatorIdentityIntegrationTest extends PlatformShellIntegrationTestSuppor
         verify(emailService).sendCredentialLink(
                 eq(email), eq("Op Erator"), anyString(), url.capture(), eq(purpose), any(Instant.class));
         String actionUrl = url.getValue();
+        String expectedPath = switch (purpose) {
+            case ACTIVATION -> "/admin/activation/complete?token=";
+            case PASSWORD_RESET -> "/admin/password-reset/complete?token=";
+            case EMAIL_VERIFICATION -> "/admin/email-verification/complete?token=";
+        };
+        assertThat(actionUrl).contains(expectedPath);
         return actionUrl.substring(actionUrl.indexOf("token=") + 6);
     }
 

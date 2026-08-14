@@ -1,11 +1,13 @@
 package com.hiveapp.identity.service.impl;
 
 import com.hiveapp.identity.domain.entity.User;
+import com.hiveapp.identity.domain.EmailIdentity;
 import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.identity.service.NewUserCommand;
 import com.hiveapp.identity.service.UserView;
 import com.hiveapp.shared.exception.InvalidStateException;
+import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -69,6 +71,32 @@ public class IdentityServiceImpl implements IdentityService {
         user.setFirstName(firstName.trim());
         user.setLastName(lastName.trim());
         return toView(userRepository.saveAndFlush(user));
+    }
+
+    @Override
+    @Transactional
+    public boolean changeEmail(UUID userId, String email) {
+        User user = requireManagedUser(userId);
+        String canonical = EmailIdentity.canonicalize(email);
+        if (canonical == null || canonical.isBlank()) {
+            throw new IllegalArgumentException("Email is required");
+        }
+        if (canonical.equals(user.getEmail())) {
+            return false;
+        }
+        userRepository.findByEmail(canonical)
+                .filter(existing -> !existing.getId().equals(userId))
+                .ifPresent(existing -> {
+                    throw new DuplicateResourceException("User", "email", canonical);
+                });
+        user.setEmail(canonical);
+        user.setEmailVerified(false);
+        try {
+            userRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException ex) {
+            throw new DuplicateResourceException("User", "email", canonical);
+        }
+        return true;
     }
 
     @Override

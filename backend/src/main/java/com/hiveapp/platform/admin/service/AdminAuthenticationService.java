@@ -16,6 +16,8 @@ public interface AdminAuthenticationService {
      * they activate — could otherwise sign in and then be refused their own profile.
      */
     com.hiveapp.platform.admin.dto.AdminMeDto getAdminDetails(java.util.UUID userId);
+    com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse requestOwnEmailVerification(
+            java.util.UUID userId);
     AuthResponse refresh(RefreshTokenRequest request);
     void logout(RefreshTokenRequest request);
 }

@@ -30,14 +30,18 @@ public class CredentialEmailListener {
     public void send(CredentialEmailRequestedEvent event) {
         // These must match the router in App.tsx. An operator activates on the admin page, which
         // posts to the admin endpoint and issues no session.
-        boolean activation = event.purpose() == CredentialTokenPurpose.ACTIVATION;
         String path = switch (event.audience()) {
-            case PLATFORM_OPERATOR -> activation
-                    ? "/admin/activation/complete?token="
-                    : "/admin/password-reset/complete?token=";
-            case CLIENT -> activation
-                    ? "/app/activation/complete?token="
-                    : "/app/password-reset/complete?token=";
+            case PLATFORM_OPERATOR -> switch (event.purpose()) {
+                case ACTIVATION -> "/admin/activation/complete?token=";
+                case PASSWORD_RESET -> "/admin/password-reset/complete?token=";
+                case EMAIL_VERIFICATION -> "/admin/email-verification/complete?token=";
+            };
+            case CLIENT -> switch (event.purpose()) {
+                case ACTIVATION -> "/app/activation/complete?token=";
+                case PASSWORD_RESET -> "/app/password-reset/complete?token=";
+                case EMAIL_VERIFICATION -> throw new IllegalStateException(
+                        "Client email verification links are not implemented");
+            };
         };
         String url = activationProperties.getValidatedOrigin() + path + event.rawToken();
         com.hiveapp.shared.email.EmailDispatchOutcome outcome;

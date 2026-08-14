@@ -23,7 +23,9 @@ public interface AdminUserService {
             boolean isSuperAdmin);
     /** What this operator may actually do, resolved from their active roles. */
     AdminUserResponseDto renameOperator(UUID id, String firstName, String lastName);
-    java.util.List<String> getEffectivePermissions(UUID id);
+    AdminUserResponseDto changeOperatorEmail(UUID id, String email);
+    com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse sendEmailVerification(UUID id);
+    java.util.List<com.hiveapp.platform.admin.dto.AdminPermissionSummaryDto> getEffectivePermissions(UUID id);
     com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse resendActivation(UUID id);
     com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse generateTemporaryAccess(UUID id);
     void toggleActive(UUID id);

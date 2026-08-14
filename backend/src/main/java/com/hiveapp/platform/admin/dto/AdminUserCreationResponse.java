@@ -5,6 +5,7 @@ import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.identity.service.CredentialAccessMaterial;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * The created operator plus their initial credentials.
@@ -17,7 +18,9 @@ public record AdminUserCreationResponse(
         InitialAccessMethod initialAccessMethod,
         String temporaryPassword,
         Instant linkExpiresAt,
-        CredentialState credentialState
+        CredentialState credentialState,
+        UUID emailDeliveryId,
+        com.hiveapp.shared.email.delivery.EmailDeliverySummary emailDelivery
 ) {
     public static AdminUserCreationResponse of(
             AdminUserResponseDto operator,
@@ -28,6 +31,15 @@ public record AdminUserCreationResponse(
                 material.method(),
                 material.temporaryPassword(),
                 material.linkExpiresAt(),
-                material.state());
+                material.state(),
+                material.emailDeliveryId(),
+                null);
+    }
+
+    public AdminUserCreationResponse withEmailDelivery(
+            com.hiveapp.shared.email.delivery.EmailDeliverySummary summary) {
+        return new AdminUserCreationResponse(
+                operator, initialAccessMethod, temporaryPassword, linkExpiresAt,
+                credentialState, emailDeliveryId, summary);
     }
 }

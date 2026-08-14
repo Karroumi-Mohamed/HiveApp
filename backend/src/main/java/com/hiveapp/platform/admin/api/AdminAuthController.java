@@ -6,9 +6,9 @@ import com.hiveapp.identity.dto.InitialPasswordChangeRequest;
 import com.hiveapp.identity.dto.PasswordCompletionRequest;
 import com.hiveapp.identity.dto.PasswordResetRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
+import com.hiveapp.identity.dto.CredentialTokenRequest;
 import com.hiveapp.identity.service.CredentialLifecycleService;
 import com.hiveapp.platform.admin.service.AdminAuthenticationService;
-import com.hiveapp.platform.admin.service.AdminUserService;
 import com.hiveapp.platform.admin.dto.AdminMeDto;
 import com.hiveapp.shared.security.HiveAppUserDetails;
 import jakarta.validation.Valid;
@@ -24,8 +24,8 @@ import org.springframework.web.bind.annotation.*;
 public class AdminAuthController {
 
     private final AdminAuthenticationService adminAuthenticationService;
-    private final AdminUserService adminUserService;
     private final CredentialLifecycleService credentialLifecycleService;
+    private final com.hiveapp.shared.email.delivery.EmailDeliveryTracker emailDeliveryTracker;
 
     @PostMapping("/auth/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
@@ -70,6 +70,13 @@ public class AdminAuthController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/auth/email-verification/complete")
+    public ResponseEntity<Void> completeEmailVerification(
+            @Valid @RequestBody CredentialTokenRequest request) {
+        credentialLifecycleService.completeOperatorEmailVerification(request.token());
+        return ResponseEntity.noContent().build();
+    }
+
     /**
      * Completes the change forced after a temporary password, and only then issues a normal
      * admin session. Mirrors the client flow: the restricted token travels as a Bearer
@@ -104,5 +111,15 @@ public class AdminAuthController {
     @GetMapping("/me")
     public ResponseEntity<AdminMeDto> getMe(@AuthenticationPrincipal HiveAppUserDetails userDetails) {
         return ResponseEntity.ok(adminAuthenticationService.getAdminDetails(userDetails.getUserId()));
+    }
+
+    @PostMapping("/me/email-verification")
+    public com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse requestOwnEmailVerification(
+            @AuthenticationPrincipal HiveAppUserDetails userDetails) {
+        var response = adminAuthenticationService.requestOwnEmailVerification(userDetails.getUserId());
+        return response.emailDeliveryId() == null
+                ? response
+                : response.withEmailDelivery(
+                        emailDeliveryTracker.findSummary(response.emailDeliveryId()).orElse(null));
     }
 }

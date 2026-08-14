@@ -206,6 +206,31 @@ public class CredentialLifecycleService {
                 "identity.credentials.operator_password_reset.complete", user, before);
     }
 
+    /** Verifies only the mailbox. It changes no password, access state, or authenticated session. */
+    @Transactional
+    @AuditedMutation(
+            action = "identity.credentials.operator_email_verification.complete",
+            resourceType = "USER",
+            recordSuccess = false)
+    public void completeOperatorEmailVerification(String token) {
+        User user = tokenUser(token, CredentialTokenPurpose.EMAIL_VERIFICATION);
+        if (user.getKind() != IdentityKind.PLATFORM) {
+            throw new InvalidStateException(INVALID_LINK);
+        }
+        user.setEmailVerified(true);
+        memberCredentialService.clearToken(user);
+        userRepository.saveAndFlush(user);
+        auditTrail.recordSuccess(
+                "identity.credentials.operator_email_verification.complete",
+                "USER",
+                user.getId(),
+                AuditActorSurface.PLATFORM_ADMIN,
+                user.getId(),
+                null,
+                Map.of("emailVerified", false),
+                Map.of("emailVerified", true));
+    }
+
     /**
      * Completes the forced change after a temporary password. Kept separate from the client
      * equivalent for the same reason as activation: that path requires an active workspace

@@ -101,6 +101,27 @@ public class MemberCredentialService {
                 user, null, PLATFORM_ORGANISATION_NAME, CredentialTokenPurpose.PASSWORD_RESET, false);
     }
 
+    /**
+     * Proves that an active operator can receive mail at their current address without changing
+     * their password or granting a session. This deliberately uses its own token purpose: an
+     * activation link changes credentials, while verification must do neither.
+     */
+    public CredentialAccessMaterial requestOperatorEmailVerification(User user) {
+        requireOperatorEmail(user);
+        if (user.getKind() != IdentityKind.PLATFORM) {
+            throw new InvalidStateException("Only a platform operator can use this verification flow");
+        }
+        if (user.isEmailVerified()) {
+            throw new InvalidStateException("This operator email is already verified");
+        }
+        if (user.getCredentialState() == CredentialState.EMAIL_ACTIVATION_PENDING) {
+            throw new InvalidStateException("Resend activation for an operator who has not activated access");
+        }
+        return persisted(user, emailAccess(
+                user, null, PLATFORM_ORGANISATION_NAME,
+                CredentialTokenPurpose.EMAIL_VERIFICATION, false));
+    }
+
     private void requireOperatorEmail(User user) {
         if (!hasEmail(user)) {
             throw new InvalidStateException("A platform operator requires an email address");
@@ -195,9 +216,12 @@ public class MemberCredentialService {
         user.setInitialAccessLocked(false);
         user.setInitialAccessFailedAttempts(0);
         if (blockExistingAccess) {
-            user.setCredentialState(purpose == CredentialTokenPurpose.ACTIVATION
-                    ? CredentialState.EMAIL_ACTIVATION_PENDING
-                    : CredentialState.EMAIL_RESET_PENDING);
+            user.setCredentialState(switch (purpose) {
+                case ACTIVATION -> CredentialState.EMAIL_ACTIVATION_PENDING;
+                case PASSWORD_RESET -> CredentialState.EMAIL_RESET_PENDING;
+                case EMAIL_VERIFICATION -> throw new IllegalArgumentException(
+                        "Email verification cannot block existing access");
+            });
             user.setPasswordChangeRequired(true);
         }
         if (user.getId() == null) {

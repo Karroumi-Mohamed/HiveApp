@@ -22,6 +22,8 @@ import java.util.UUID;
 public class AdminUserController {
 
     private final AdminUserService adminUserService;
+    private final com.hiveapp.platform.admin.service.AdminUserRoleSetService adminUserRoleSetService;
+    private final com.hiveapp.shared.email.delivery.EmailDeliveryTracker emailDeliveryTracker;
 
     @GetMapping("/overview")
     public AdminAccessOverviewDto overview() {
@@ -49,8 +51,8 @@ public class AdminUserController {
     @ResponseStatus(HttpStatus.CREATED)
     public com.hiveapp.platform.admin.dto.AdminUserCreationResponse create(
             @Valid @RequestBody CreateAdminUserRequest req) {
-        return adminUserService.createAdminUser(
-                req.firstName(), req.lastName(), req.email(), req.initialAccessMethod(), req.isSuperAdmin());
+        return withDelivery(adminUserService.createAdminUser(
+                req.firstName(), req.lastName(), req.email(), req.initialAccessMethod(), req.isSuperAdmin()));
     }
 
     @PostMapping("/bulk/active")
@@ -86,21 +88,35 @@ public class AdminUserController {
         return adminUserService.renameOperator(id, req.firstName(), req.lastName());
     }
 
+    @PatchMapping("/{id}/email")
+    public AdminUserResponseDto changeEmail(
+            @PathVariable UUID id,
+            @Valid @RequestBody com.hiveapp.platform.admin.dto.ChangeOperatorEmailRequest req) {
+        return adminUserService.changeOperatorEmail(id, req.email());
+    }
+
     @GetMapping("/{id}/permissions")
-    public java.util.List<String> getEffectivePermissions(@PathVariable UUID id) {
+    public java.util.List<com.hiveapp.platform.admin.dto.AdminPermissionSummaryDto> getEffectivePermissions(
+            @PathVariable UUID id) {
         return adminUserService.getEffectivePermissions(id);
     }
 
     @PostMapping("/{id}/access/resend")
     public com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse resendActivation(
             @PathVariable UUID id) {
-        return adminUserService.resendActivation(id);
+        return withDelivery(adminUserService.resendActivation(id));
+    }
+
+    @PostMapping("/{id}/email-verification")
+    public com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse sendEmailVerification(
+            @PathVariable UUID id) {
+        return withDelivery(adminUserService.sendEmailVerification(id));
     }
 
     @PostMapping("/{id}/access/temporary")
     public com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse generateTemporaryAccess(
             @PathVariable UUID id) {
-        return adminUserService.generateTemporaryAccess(id);
+        return withDelivery(adminUserService.generateTemporaryAccess(id));
     }
 
     @PostMapping("/{id}/roles")
@@ -115,10 +131,34 @@ public class AdminUserController {
         adminUserService.assignRole(id, roleId);
     }
 
+    @PutMapping("/{id}/roles")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void replaceRoles(
+            @PathVariable UUID id,
+            @Valid @RequestBody com.hiveapp.platform.admin.dto.ReplaceAdminRolesRequest request) {
+        adminUserRoleSetService.replaceRoles(id, request.roleIds());
+    }
+
     @DeleteMapping("/{id}/roles/{roleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeRole(@PathVariable UUID id, @PathVariable UUID roleId) {
         adminUserService.removeRole(id, roleId);
+    }
+
+    private com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse withDelivery(
+            com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse response) {
+        return response.emailDeliveryId() == null
+                ? response
+                : response.withEmailDelivery(
+                        emailDeliveryTracker.findSummary(response.emailDeliveryId()).orElse(null));
+    }
+
+    private com.hiveapp.platform.admin.dto.AdminUserCreationResponse withDelivery(
+            com.hiveapp.platform.admin.dto.AdminUserCreationResponse response) {
+        return response.emailDeliveryId() == null
+                ? response
+                : response.withEmailDelivery(
+                        emailDeliveryTracker.findSummary(response.emailDeliveryId()).orElse(null));
     }
 
     /**

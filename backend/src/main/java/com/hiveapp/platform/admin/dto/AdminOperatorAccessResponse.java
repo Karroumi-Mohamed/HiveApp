@@ -4,6 +4,7 @@ import com.hiveapp.identity.domain.constant.CredentialState;
 import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * The result of reissuing an operator's access.
@@ -17,7 +18,9 @@ public record AdminOperatorAccessResponse(
         InitialAccessMethod method,
         CredentialState credentialState,
         String temporaryPassword,
-        Instant linkExpiresAt
+        Instant linkExpiresAt,
+        UUID emailDeliveryId,
+        com.hiveapp.shared.email.delivery.EmailDeliverySummary emailDelivery
 ) {
     public static AdminOperatorAccessResponse of(
             com.hiveapp.identity.service.CredentialAccessMaterial material) {
@@ -25,6 +28,15 @@ public record AdminOperatorAccessResponse(
                 material.method(),
                 material.state(),
                 material.temporaryPassword(),
-                material.linkExpiresAt());
+                material.linkExpiresAt(),
+                material.emailDeliveryId(),
+                null);
+    }
+
+    public AdminOperatorAccessResponse withEmailDelivery(
+            com.hiveapp.shared.email.delivery.EmailDeliverySummary summary) {
+        return new AdminOperatorAccessResponse(
+                method, credentialState, temporaryPassword, linkExpiresAt,
+                emailDeliveryId, summary);
     }
 }

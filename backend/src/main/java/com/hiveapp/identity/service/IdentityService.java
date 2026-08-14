@@ -42,4 +42,7 @@ public interface IdentityService {
      * handing the entity out and letting another domain write to it.
      */
     UserView renameUser(UUID userId, String firstName, String lastName);
+
+    /** Changes the login email and clears mailbox verification only when the canonical value changes. */
+    boolean changeEmail(UUID userId, String email);
 }

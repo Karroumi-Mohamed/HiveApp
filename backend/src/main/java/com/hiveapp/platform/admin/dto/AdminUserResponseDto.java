@@ -9,6 +9,7 @@ public record AdminUserResponseDto(
     String email,
     String firstName,
     String lastName,
+    boolean emailVerified,
     boolean isSuperAdmin,
     boolean isActive,
     /** Whether the operator has activated their access yet, so the UI can offer a resend. */

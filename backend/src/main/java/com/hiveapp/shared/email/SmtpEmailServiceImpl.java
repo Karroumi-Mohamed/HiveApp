@@ -47,9 +47,11 @@ public class SmtpEmailServiceImpl implements EmailService {
 
             helper.setFrom(from);
             helper.setTo(to);
-            String action = purpose == CredentialTokenPurpose.ACTIVATION
-                    ? "Activate your HiveApp access"
-                    : "Reset your HiveApp password";
+            String action = switch (purpose) {
+                case ACTIVATION -> "Activate your HiveApp access";
+                case PASSWORD_RESET -> "Reset your HiveApp password";
+                case EMAIL_VERIFICATION -> "Verify your HiveApp email";
+            };
             helper.setSubject(action + " for " + workspaceName);
             helper.setText(buildCredentialHtml(
                     memberName, workspaceName, actionUrl, purpose, expiresAt), true);
@@ -84,12 +86,16 @@ public class SmtpEmailServiceImpl implements EmailService {
         String safeWorkspace = HtmlUtils.htmlEscape(workspaceName);
         String safeUrl = HtmlUtils.htmlEscape(actionUrl);
         String safeDeadline = HtmlUtils.htmlEscape(DateTimeFormatter.ISO_INSTANT.format(expiresAt));
-        String heading = purpose == CredentialTokenPurpose.ACTIVATION
-                ? "Activate your account"
-                : "Reset your password";
-        String button = purpose == CredentialTokenPurpose.ACTIVATION
-                ? "Choose password and activate →"
-                : "Choose a new password →";
+        String heading = switch (purpose) {
+            case ACTIVATION -> "Activate your account";
+            case PASSWORD_RESET -> "Reset your password";
+            case EMAIL_VERIFICATION -> "Verify your email address";
+        };
+        String button = switch (purpose) {
+            case ACTIVATION -> "Choose password and activate →";
+            case PASSWORD_RESET -> "Choose a new password →";
+            case EMAIL_VERIFICATION -> "Verify email address →";
+        };
         return """
                 <!DOCTYPE html>
                 <html lang="en">

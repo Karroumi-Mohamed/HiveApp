@@ -6,6 +6,7 @@ import java.util.UUID;
 public record AdminMeDto(
     UUID id,
     String email,
+    boolean emailVerified,
     boolean isSuperAdmin,
     boolean isActive,
     Set<String> permissions

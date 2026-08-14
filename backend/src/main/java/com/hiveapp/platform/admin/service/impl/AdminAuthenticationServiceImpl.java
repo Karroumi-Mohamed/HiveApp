@@ -5,6 +5,7 @@ import com.hiveapp.identity.dto.AuthResponse;
 import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
 import com.hiveapp.identity.service.CredentialAuthenticationService;
+import com.hiveapp.identity.service.MemberCredentialService;
 import com.hiveapp.platform.admin.domain.entity.AdminUser;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.dto.AdminMeDto;
@@ -30,6 +31,7 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
     private final AdminUserRepository adminUserRepository;
     private final TokenSessionService tokenSessionService;
     private final AdminPermissionResolver adminPermissionResolver;
+    private final MemberCredentialService memberCredentialService;
 
     @Override
     @Transactional(readOnly = true)
@@ -39,9 +41,20 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
         return new AdminMeDto(
                 admin.getId(),
                 admin.getUser().getEmail(),
+                admin.getUser().isEmailVerified(),
                 admin.isSuperAdmin(),
                 admin.isActive(),
                 adminPermissionResolver.resolve(admin));
+    }
+
+    /** Self-service mailbox verification belongs to the session owner, not operator management. */
+    @Override
+    @Transactional
+    public com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse requestOwnEmailVerification(
+            UUID userId) {
+        AdminUser admin = requireActiveAdminByUserId(userId);
+        return com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse.of(
+                memberCredentialService.requestOperatorEmailVerification(admin.getUser()));
     }
 
     /**
