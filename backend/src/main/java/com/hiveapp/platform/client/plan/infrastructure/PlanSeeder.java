@@ -32,6 +32,7 @@ import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Seeds plan templates and their feature compositions.
@@ -59,12 +60,19 @@ public class PlanSeeder {
             ClientSubscriptionFeature.CODE
     );
     private static final List<SeedPlan> BOOTSTRAP_PLANS = List.of(
-            new SeedPlan(PlanCodes.DEFAULT, "Free Plan", BigDecimal.ZERO, BillingCycle.MONTHLY,
-                    3L, 1L),
-            new SeedPlan("PRO", "Pro Plan", new BigDecimal("29.99"), BillingCycle.MONTHLY,
-                    10L, 5L),
-            new SeedPlan("ENTERPRISE", "Enterprise Plan", new BigDecimal("99.99"), BillingCycle.MONTHLY,
-                    null, null)
+            new SeedPlan(PlanCodes.DEFAULT, "Free", "Evaluate the complete platform shell with a small team.",
+                    BigDecimal.ZERO, BillingCycle.MONTHLY, 3L, 1L, Set.of()),
+            new SeedPlan("FLEX", "Flex", "Build a larger workspace from the core shell and optional capabilities.",
+                    new BigDecimal("9.99"), BillingCycle.MONTHLY, 5L, 2L,
+                    Set.of(OrganizationFeature.CODE, WorkspaceRolesFeature.CODE, B2bFeature.CODE)),
+            new SeedPlan("PRO", "Pro", "More capacity for growing teams and multiple companies.",
+                    new BigDecimal("29.99"), BillingCycle.MONTHLY, 10L, 5L, Set.of()),
+            new SeedPlan("BUSINESS", "Business", "Complete collaboration and access control for established operations.",
+                    new BigDecimal("59.99"), BillingCycle.MONTHLY, 30L, 10L, Set.of()),
+            new SeedPlan("SCALE", "Scale", "Higher finite capacity with the complete platform shell.",
+                    new BigDecimal("79.99"), BillingCycle.MONTHLY, 75L, 25L, Set.of()),
+            new SeedPlan("ENTERPRISE", "Enterprise", "Unlimited workspace capacity for complex organizations.",
+                    new BigDecimal("99.99"), BillingCycle.MONTHLY, null, null, Set.of())
     );
 
     private final PlanRepository planRepository;
@@ -112,22 +120,35 @@ public class PlanSeeder {
             if (WorkspaceFeature.CODE.equals(featureCode)) {
                 seedWorkspace(plan, feature, specification);
             } else {
-                assign(plan, feature, List.of());
+                PlanFeatureMode mode = modeFor(specification, featureCode);
+                assign(plan, feature, mode, List.of());
             }
         }
+    }
+
+    private PlanFeatureMode modeFor(SeedPlan specification, String featureCode) {
+        if (specification.optionalFeatureCodes().contains(featureCode)) {
+            return PlanFeatureMode.OPTIONAL_ADD_ON;
+        }
+        return PlanFeatureMode.INCLUDED;
     }
 
     private void seedWorkspace(Plan plan, Feature feature, SeedPlan specification) {
         var memberEntry = new QuotaLimitEntry(WorkspaceFeature.MEMBERS, specification.members());
         var companyEntry = new QuotaLimitEntry(WorkspaceFeature.COMPANIES, specification.companies());
-        assign(plan, feature, List.of(memberEntry, companyEntry));
+        assign(plan, feature, PlanFeatureMode.INCLUDED, List.of(memberEntry, companyEntry));
     }
 
-    private void assign(Plan plan, Feature feature, List<QuotaLimitEntry> quotaConfigs) {
+    private void assign(
+            Plan plan,
+            Feature feature,
+            PlanFeatureMode mode,
+            List<QuotaLimitEntry> quotaConfigs
+    ) {
         var pf = new PlanFeature();
         pf.setPlan(plan);
         pf.setFeature(feature);
-        pf.setMode(PlanFeatureMode.INCLUDED);
+        pf.setMode(mode);
         pf.setQuotaConfigs(quotaConfigs);
         planFeatureRepository.save(pf);
     }
@@ -136,6 +157,7 @@ public class PlanSeeder {
         var p = new Plan();
         p.setCode(specification.code());
         p.setName(specification.name());
+        p.setDescription(specification.description());
         p.setMoney(Money.of(specification.price(), DEFAULT_CURRENCY));
         p.setBillingCycle(specification.billingCycle());
         p.setStatus(PlanStatus.ACTIVE);
@@ -146,10 +168,12 @@ public class PlanSeeder {
     private record SeedPlan(
             String code,
             String name,
+            String description,
             BigDecimal price,
             BillingCycle billingCycle,
             Long members,
-            Long companies
+            Long companies,
+            Set<String> optionalFeatureCodes
     ) {
     }
 }
