@@ -11,7 +11,9 @@ import com.hiveapp.platform.admin.dto.GrantAdminPermissionRequest;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -90,6 +92,34 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.content[0].email").value(email));
+    }
+
+    @Test
+    void composedPlanCreationRequiresTheAssignFeaturePermission() throws Exception {
+        LimitedAdmin creator = createLimitedAdmin("platform.plans.create");
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+
+        // The bulk path must enforce the same node as the dedicated assign endpoint: plans.create
+        // alone composes nothing.
+        mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(creator.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                "COMPOSED_" + suffix, "Composed", null, BigDecimal.ZERO, "USD",
+                                BillingCycle.MONTHLY,
+                                java.util.List.of(new AssignPlanFeatureRequest(
+                                        "platform.workspace", PlanFeatureMode.INCLUDED, java.util.List.of()))))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message")
+                        .value("Composing a plan at creation requires the assign-feature permission."));
+
+        // A bare creation stays within plans.create.
+        mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(creator.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                "BARE_" + suffix, "Bare", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isCreated());
     }
 
     @Test

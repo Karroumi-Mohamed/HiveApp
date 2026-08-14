@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.plan.service.impl;
 
+import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCodes;
@@ -51,6 +52,7 @@ import com.hiveapp.platform.registry.definition.PlansFeature;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
 import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.DuplicateResourceException;
+import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
@@ -86,6 +88,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private static final Pattern COMMERCIAL_CODE = Pattern.compile("^[A-Z][A-Z0-9_]*$");
 
     private final PlanRepository planRepository;
+    private final AdminMutationAuthorizer adminMutationAuthorizer;
     private final PlanAdminReadModels readModels;
     private final PlanFeatureRepository planFeatureRepository;
     private final SubscriptionRepository subscriptionRepository;
@@ -184,8 +187,23 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         String code = normalizeCommercialCode(request.code(), "Plan code");
         Money price = validatePlanBasics(
                 code, request.name(), request.price(), request.currencyCode(), request.billingCycle());
-        return readModels.toDto(saveNewPlan(code, request.name(), request.description(), price, request.billingCycle(),
-                null, UUID.randomUUID(), 1, PlanCreationReason.CREATED));
+        List<AssignPlanFeatureRequest> features =
+                request.features() == null ? List.of() : request.features();
+        // Composing at creation is the assign-feature operation in bulk; holding plans.create
+        // alone must not smuggle it past the dedicated endpoint's permission node.
+        if (!features.isEmpty()
+                && !adminMutationAuthorizer.currentActorGrantCeiling().allows("platform.plans.assign_feature")) {
+            throw new ForbiddenException(
+                    "Composing a plan at creation requires the assign-feature permission.");
+        }
+        Plan plan = saveNewPlan(code, request.name(), request.description(), price, request.billingCycle(),
+                null, UUID.randomUUID(), 1, PlanCreationReason.CREATED);
+        // Same transaction as the plan itself: one invalid feature rolls everything back, so no
+        // partial draft can survive that differs from what the operator reviewed.
+        for (AssignPlanFeatureRequest featureRequest : features) {
+            addFeature(plan, featureRequest);
+        }
+        return readModels.toDto(plan);
     }
 
     @Override
@@ -353,11 +371,16 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         var plan = planRepository.findById(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         requireMutable(plan);
+        return readModels.toDto(addFeature(plan, request));
+    }
+
+    /** The single path that turns a feature request into a PlanFeature row, for any caller. */
+    private PlanFeature addFeature(Plan plan, AssignPlanFeatureRequest request) {
         var quotaEntries = request.quotaEntries();
         var feature = billingConfigurationValidator.validatePlanFeature(
                 request.featureCode(), request.mode(), quotaEntries, plan.getCurrencyCode());
 
-        planFeatureRepository.findByPlanIdAndFeature_Code(planId, request.featureCode())
+        planFeatureRepository.findByPlanIdAndFeature_Code(plan.getId(), request.featureCode())
                 .ifPresent(existing -> {
                     throw new DuplicateResourceException("PlanFeature", "featureCode", request.featureCode());
                 });
@@ -368,7 +391,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         pf.setMode(request.mode());
         pf.setQuotaConfigs(new ArrayList<>(quotaEntries));
         try {
-            return readModels.toDto(planFeatureRepository.saveAndFlush(pf));
+            return planFeatureRepository.saveAndFlush(pf);
         } catch (DataIntegrityViolationException exception) {
             throw new DuplicateResourceException("PlanFeature", "featureCode", request.featureCode());
         }
@@ -734,6 +757,10 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             billingConfigurationValidator.validatePlanFeature(
                     feature.getFeature().getCode(), feature.getMode(),
                     feature.getQuotaConfigs(), plan.getCurrencyCode());
+            if (feature.getMode() == PlanFeatureMode.INCLUDED) {
+                billingConfigurationValidator.requireCompleteQuotaConfiguration(
+                        feature.getFeature().getCode(), feature.getQuotaConfigs());
+            }
         }
     }
 

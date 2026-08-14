@@ -17,6 +17,7 @@ import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.QuotaLimitRequest;
+import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
@@ -104,7 +105,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
         assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                         "platform.workspace", PlanFeatureMode.INCLUDED,
-                        List.of(new QuotaLimitRequest("projects", null, 5L))))
+                        List.of(new QuotaLimitRequest("projects", QuotaLimitMode.FINITE, 5L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Quota resource projects is not declared for feature platform.workspace."));
@@ -113,18 +114,86 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         "platform.workspace",
                         PlanFeatureMode.INCLUDED,
                         List.of(
-                                new QuotaLimitRequest("members", null, 3L),
-                                new QuotaLimitRequest("members", null, 4L))))
+                                new QuotaLimitRequest("members", QuotaLimitMode.FINITE, 3L),
+                                new QuotaLimitRequest("members", QuotaLimitMode.FINITE, 4L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Duplicate quota configuration for platform.workspace.members."));
 
         assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                         "platform.company", PlanFeatureMode.OPTIONAL_ADD_ON,
-                        List.of(new QuotaLimitRequest("not-allowed", null, 1L))))
+                        List.of(new QuotaLimitRequest("not-allowed", QuotaLimitMode.FINITE, 1L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(
                         "Only included Plan features may define base quota limits."));
+    }
+
+    @Test
+    void activationRequiresAnExplicitQuotaDecisionForEveryResource() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        String code = "EXPLICIT_" + shortSuffix();
+        UUID planId = createPlan(adminToken, new CreatePlanRequest(
+                code, "Explicit quotas", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY));
+        // workspace declares two quota resources; configuring only one leaves an undecided
+        // resource, which PLAN-FLOW-007 treats as an unfinished draft — never as "unlimited".
+        String assigned = assignPlanFeature(adminToken, planId, new AssignPlanFeatureRequest(
+                        "platform.workspace", PlanFeatureMode.INCLUDED,
+                        List.of(new QuotaLimitRequest("members", QuotaLimitMode.FINITE, 3L))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID planFeatureId = UUID.fromString(objectMapper.readTree(assigned).get("id").asText());
+
+        mockMvc.perform(patch("/api/admin/plans/{planId}/status", planId)
+                        .param("status", "ACTIVE")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "Feature platform.workspace: resource 'companies' has no quota configuration. "
+                                + "Declare a limit or an explicit UNLIMITED before activation."));
+
+        updatePlanFeature(adminToken, planId, planFeatureId, new AssignPlanFeatureRequest(
+                        "platform.workspace", PlanFeatureMode.INCLUDED,
+                        List.of(
+                                new QuotaLimitRequest("members", QuotaLimitMode.FINITE, 3L),
+                                new QuotaLimitRequest("companies", QuotaLimitMode.UNLIMITED, null))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/api/admin/plans/{planId}/status", planId)
+                        .param("status", "ACTIVE")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    @Test
+    void planCreationWithCompositionIsAtomic() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        String failingCode = "ATOMIC_FAIL_" + shortSuffix();
+        mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                failingCode, "Atomic", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                                List.of(
+                                        new AssignPlanFeatureRequest(
+                                                "platform.workspace", PlanFeatureMode.INCLUDED, List.of()),
+                                        new AssignPlanFeatureRequest(
+                                                "platform.unknown", PlanFeatureMode.INCLUDED, List.of()))))))
+                .andExpect(status().isBadRequest());
+        // The invalid second feature must roll the whole creation back: no plan half-matching
+        // what the operator approved may survive.
+        org.junit.jupiter.api.Assertions.assertTrue(planRepository.findByCode(failingCode).isEmpty());
+
+        String code = "ATOMIC_OK_" + shortSuffix();
+        UUID planId = createPlan(adminToken, new CreatePlanRequest(
+                code, "Atomic ok", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                List.of(new AssignPlanFeatureRequest(
+                        "platform.workspace", PlanFeatureMode.INCLUDED,
+                        List.of(new QuotaLimitRequest("members", QuotaLimitMode.FINITE, 5L))))));
+        mockMvc.perform(get("/api/admin/plans/{planId}/features", planId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].featureCode").value("platform.workspace"));
     }
 
     @Test
@@ -144,7 +213,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
         updatePlanFeature(adminToken, draftPlanId, workspacePlanFeatureId, new AssignPlanFeatureRequest(
                         "platform.workspace", PlanFeatureMode.INCLUDED,
-                        List.of(new QuotaLimitRequest("projects", null, 5L))))
+                        List.of(new QuotaLimitRequest("projects", QuotaLimitMode.FINITE, 5L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
                         .value("Quota resource projects is not declared for feature platform.workspace."));

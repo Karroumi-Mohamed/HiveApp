@@ -938,7 +938,8 @@ Creation should be guided rather than one large form:
 
 - The actor supplies a new unique code and name before duplication/revision is created.
 - The result always starts as `DRAFT`, regardless of the source plan's lifecycle.
-- Copy the source commercial configuration: description as a starting value, billing/price fields, feature modes, explicit plan blocks, dependency-satisfying composition, add-on configuration, and quota configuration. Pricing-related fields remain editable draft values and follow the later finalized pricing model.
+- Copy only Plan-owned commercial configuration: description as a starting value, billing/price fields, feature modes (including optional-add-on slots), explicit plan blocks, dependency-satisfying composition, and base quota configuration. Pricing-related fields remain editable draft values and follow the later finalized pricing model.
+- Do not copy incoming AddOn or quota-package attachments. Their `allowedPlanCodes` belong to those separate commercial items; copying them would silently mutate existing items as a side effect of creating a Plan. Operators attach compatible extensions to the new draft explicitly after reviewing it.
 - Never copy subscribers, subscription/payment/audit history, scheduled subscriber operations, Account-specific overrides/exceptions, or customer communication history.
 - Store source plan/revision identity and creation reason/type so admins can see where the draft came from. This lineage never makes later source edits mutate the copy.
 
@@ -1362,6 +1363,7 @@ Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
+| 2026-08-14 | Duplicate only Plan-owned composition and require explicit AddOn/quota-package attachment to the new draft | Incoming attachments are owned by separate commercial items through `allowedPlanCodes`; copying them would silently widen those existing items while creating a Plan | Plan duplication service and wizard, AddOn/quota-package management, schema visualization, audit |
 | 2026-07-14 | HiveApp remains one organized monolith | Company/product direction | Entire backend architecture |
 | 2026-07-14 | One active client Account membership per user | Members are employer-managed workers, not users managing multiple personal workspaces | Identity, membership, invitations, request context, B2B, client UI |
 | 2026-07-14 | Account owner automatically has every permission available within their Account | The owner is the tenant authority root and must be able to do anything another Account member can do | Permissionizer policies, owner invariant, roles, overrides, delegation, member security |

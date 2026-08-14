@@ -303,7 +303,7 @@ export type RegistryFeature = {
   displayName: string;
   description: string;
   surface: "PLATFORM_CONTROL" | "CLIENT_WORKSPACE" | "PUBLIC" | "SYSTEM";
-  status: string;
+  status: "PUBLIC" | "INTERNAL" | "BETA" | "DEPRECATED";
   publicVisible: boolean;
   newSalesEnabled: boolean;
   newGrantsEnabled: boolean;

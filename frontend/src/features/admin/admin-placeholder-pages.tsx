@@ -8,6 +8,9 @@ import {
   ReceiptIcon,
   StackIcon,
 } from "@phosphor-icons/react";
+import type { ComponentProps } from "react";
+import { Navigate } from "react-router";
+import { useAdminSession } from "@/auth/session-provider";
 import { PlaceholderPage } from "@/components/patterns/placeholder-page";
 
 /**
@@ -15,16 +18,22 @@ import { PlaceholderPage } from "@/components/patterns/placeholder-page";
  * for the section, so the navigation carries the product roadmap instead of hiding it.
  */
 
+function PlannedAdminPage(props: ComponentProps<typeof PlaceholderPage>) {
+  const session = useAdminSession();
+  if (!session.me?.isSuperAdmin) return <Navigate replace to="/admin" />;
+  return <PlaceholderPage {...props} />;
+}
+
 export function AdminRoleTemplatesPlaceholderPage() {
   return (
-    <PlaceholderPage
-      description="Rôles de départ publiés par HiveApp, que les clients adoptent dans leur espace."
+    <PlannedAdminPage
+      description="Modèles publiés par HiveApp pour créer des rôles clients indépendants."
       icon={StackIcon}
       planned={[
-        "Créer et publier des modèles versionnés, permission par permission",
-        "Visibilité calculée selon le forfait et les add-ons de chaque compte",
-        "Adoption par les clients avec comparaison des versions",
-        "Statistiques d’adoption par modèle et par version",
+        "Composer et publier des modèles à partir des permissions accordables aux clients",
+        "Calculer leur disponibilité selon le forfait et les add-ons, avec un ciblage optionnel de forfaits",
+        "Créer depuis un modèle un rôle client indépendant, modifiable et doté d’un nom unique",
+        "Mesurer combien de rôles sont créés depuis chaque modèle",
       ]}
       title="Modèles de rôles"
     />
@@ -33,7 +42,7 @@ export function AdminRoleTemplatesPlaceholderPage() {
 
 export function AdminAccountsPlaceholderPage() {
   return (
-    <PlaceholderPage
+    <PlannedAdminPage
       description="La fiche complète de chaque compte client, au même endroit."
       icon={BuildingsIcon}
       planned={[
@@ -48,7 +57,7 @@ export function AdminAccountsPlaceholderPage() {
 
 export function AdminCollaborationsPlaceholderPage() {
   return (
-    <PlaceholderPage
+    <PlannedAdminPage
       description="Supervision des collaborations B2B entre comptes clients."
       icon={HandshakeIcon}
       planned={[
@@ -63,7 +72,7 @@ export function AdminCollaborationsPlaceholderPage() {
 
 export function AdminBillingPlaceholderPage() {
   return (
-    <PlaceholderPage
+    <PlannedAdminPage
       description="Factures, paiements et remboursements des abonnements."
       icon={ReceiptIcon}
       planned={[
@@ -78,7 +87,7 @@ export function AdminBillingPlaceholderPage() {
 
 export function AdminActivitiesPlaceholderPage() {
   return (
-    <PlaceholderPage
+    <PlannedAdminPage
       description="Qui a fait quoi, sur quoi, et quand — l’historique métier de la plateforme."
       icon={PulseIcon}
       planned={[
@@ -93,7 +102,7 @@ export function AdminActivitiesPlaceholderPage() {
 
 export function AdminCommunicationsPlaceholderPage() {
   return (
-    <PlaceholderPage
+    <PlannedAdminPage
       description="Les emails que la plateforme envoie, et ce qu’ils deviennent."
       icon={EnvelopeSimpleIcon}
       planned={[
@@ -108,7 +117,7 @@ export function AdminCommunicationsPlaceholderPage() {
 
 export function AdminObservabilityPlaceholderPage() {
   return (
-    <PlaceholderPage
+    <PlannedAdminPage
       description="La santé technique de la plateforme, pour les investigations en production."
       icon={HeartbeatIcon}
       planned={[
@@ -123,7 +132,7 @@ export function AdminObservabilityPlaceholderPage() {
 
 export function AdminAnalyticsPlaceholderPage() {
   return (
-    <PlaceholderPage
+    <PlannedAdminPage
       description="Les tendances de la plateforme, au-delà des compteurs du jour."
       icon={ChartLineUpIcon}
       planned={[

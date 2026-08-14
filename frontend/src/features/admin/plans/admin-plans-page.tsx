@@ -13,7 +13,15 @@ import { type FormEvent, useDeferredValue, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { BillingCycle, Plan, PlanFeature, PlanStatus, QuotaLimit, RegistryFeature } from "@/api/contracts";
+import type {
+  BillingCycle,
+  Plan,
+  PlanFeature,
+  PlanStatus,
+  QuotaLimit,
+  QuotaPackage,
+  RegistryFeature,
+} from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -37,22 +45,17 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { PlanSchema } from "@/features/admin/plans/admin-plan-schema";
 
-const planTone: Record<PlanStatus, StatusTone> = {
-  DRAFT: "info",
-  ACTIVE: "success",
-  INACTIVE: "warning",
-  ARCHIVED: "neutral",
-};
-const statusText: Record<PlanStatus, string> = {
-  DRAFT: "Brouillon",
-  ACTIVE: "Actif",
-  INACTIVE: "Inactif",
-  ARCHIVED: "Archivé",
-};
-const cycleText: Record<BillingCycle, string> = { MONTHLY: "mois", YEARLY: "an", FOREVER: "à vie" };
-const money = (value: number, currency: string) =>
-  new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(value);
+import {
+  cycleText,
+  featureModePresentation,
+  money,
+  planTone,
+  selectableCycles,
+  statusText,
+} from "@/features/admin/plans/plan-presentation";
+import { quotaLinesOf } from "@/features/admin/plans/plan-schema-model";
 
 function PlanFormDialog({
   source,
@@ -138,7 +141,7 @@ function PlanFormDialog({
             {mode === "edit"
               ? "Modifie ce forfait sans créer de révision : la lignée et les abonnés ne changent pas."
               : mode === "revise"
-                ? `Nouvelle révision R${(source?.revisionNumber ?? 0) + 1} dans la même lignée : les abonnés actuels restent sur leur révision, les prochaines souscriptions utilisent la nouvelle. Elle démarre en brouillon.`
+                ? `Nouvelle révision R${(source?.revisionNumber ?? 0) + 1} dans la même lignée : les abonnés actuels restent sur leur révision. Après activation, la nouvelle pourra être choisie explicitement pour de prochaines souscriptions. Elle démarre en brouillon.`
                 : mode === "duplicate"
                   ? "Copie indépendante dans une nouvelle lignée, sans lien avec les abonnés du forfait source. Elle démarre en brouillon."
                   : "Un nouveau forfait démarre en brouillon : configurez ses fonctionnalités et quotas avant de l’activer."}
@@ -210,13 +213,15 @@ function PlanFormDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="MONTHLY">Mensuel</SelectItem>
-                <SelectItem value="YEARLY">Annuel</SelectItem>
-                <SelectItem value="FOREVER">Permanent</SelectItem>
+                {selectableCycles.map((cycle) => (
+                  <SelectItem key={cycle} value={cycle}>
+                    {cycle === "MONTHLY" ? "Mensuel" : "Annuel"}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <p className="text-xs leading-4 text-muted-foreground">
-              « Permanent » se paie une fois et n’expire jamais.
+              Les licences perpétuelles sont différées par la politique tarifaire.
             </p>
           </div>
           <div className="flex items-end justify-end gap-2 sm:col-span-2">
@@ -340,8 +345,8 @@ function PlanFeatureDialog({
             />
             {mode === "INCLUDED" ? (
               <p className="text-xs leading-4 text-muted-foreground">
-                Une ressource sans quota défini est illimitée. Les paquets de quotas achetés s’ajoutent à ces valeurs de
-                base.
+                Chaque ressource exige une décision explicite — limite chiffrée ou illimité assumé — avant l’activation
+                du forfait. Les paquets de quotas achetés s’ajoutent à ces valeurs de base.
               </p>
             ) : null}
             {mode !== "INCLUDED" ? (
@@ -368,7 +373,19 @@ function PlanFeatures({ plan }: { plan: Plan }) {
     queryKey: ["admin", "plans", plan.id, "features"],
     queryFn: () => adminApi.planFeatures(plan.id),
   });
-  const catalog = useQuery({ queryKey: ["admin", "registry", "plan-features"], queryFn: adminApi.registryInventory });
+  const catalog = useQuery({
+    queryKey: ["admin", "registry", "plan-features"],
+    queryFn: adminApi.registryInventory,
+    // Without registry access the rows fall back to raw codes instead of provoking 403s.
+    enabled: session.can(adminPermissions.registryRead),
+  });
+  // Where plans and quota packages meet: a package sells extra capacity for a feature this plan
+  // includes, so the composition names the packages that can extend each row.
+  const quotaPackages = useQuery({
+    queryKey: ["admin", "quota-packages"],
+    queryFn: adminApi.quotaPackages,
+    enabled: session.can(adminPermissions.quotaPackagesList),
+  });
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["admin", "plans", plan.id] });
   };
@@ -418,6 +435,12 @@ function PlanFeatures({ plan }: { plan: Plan }) {
               <PlanFeatureRow
                 available={available}
                 definition={byCode.get(feature.featureCode)}
+                extendedBy={(quotaPackages.data ?? []).filter(
+                  (pkg) =>
+                    pkg.featureCode === feature.featureCode &&
+                    pkg.status === "ACTIVE" &&
+                    pkg.allowedPlanCodes.includes(plan.code),
+                )}
                 feature={feature}
                 frozen={frozen}
                 key={feature.id}
@@ -435,32 +458,12 @@ function PlanFeatures({ plan }: { plan: Plan }) {
   );
 }
 
-/** What the configured limits mean, in words — never a bare dash. */
-function quotaSummary(feature: PlanFeature, definition: RegistryFeature | undefined) {
-  if (feature.mode !== "INCLUDED") return [];
-  if (feature.quotaConfigs.length === 0) {
-    return (definition?.quotaSchema.length ?? 0) > 0 ? ["Illimité"] : ["Sans quota applicable"];
-  }
-  return feature.quotaConfigs.map((config) => {
-    const unit = definition?.quotaSchema.find((slot) => slot.resource === config.resource)?.unit;
-    const resourceLabel = unit || config.resource;
-    return config.mode === "UNLIMITED" || config.limit === null
-      ? `Illimité — ${resourceLabel}`
-      : `${config.limit} ${resourceLabel}`;
-  });
-}
-
-const featureModePresentation: Record<string, { label: string; tone: StatusTone }> = {
-  INCLUDED: { label: "Incluse", tone: "success" },
-  OPTIONAL_ADD_ON: { label: "Add-on optionnel", tone: "info" },
-  BLOCKED_FOR_PLAN: { label: "Bloquée", tone: "neutral" },
-};
-
 function PlanFeatureRow({
   feature,
   definition,
   plan,
   available,
+  extendedBy,
   frozen,
   removing,
   onRemove,
@@ -469,6 +472,7 @@ function PlanFeatureRow({
   definition: RegistryFeature | undefined;
   plan: Plan;
   available: RegistryFeature[];
+  extendedBy: QuotaPackage[];
   frozen: boolean;
   removing: boolean;
   onRemove: () => void;
@@ -505,18 +509,28 @@ function PlanFeatureRow({
         {feature.mode !== "INCLUDED" ? (
           <span className="text-sm text-muted-foreground">Sans objet pour ce mode</span>
         ) : (
-          quotaSummary(feature, definition).map((line) => (
-            <span
-              className={
-                line.startsWith("Illimité") || line.startsWith("Sans")
-                  ? "block text-sm text-muted-foreground"
-                  : "block text-sm tabular-nums"
-              }
-              key={line}
-            >
-              {line}
-            </span>
-          ))
+          <>
+            {quotaLinesOf(feature, definition).map((line) => (
+              <span
+                className={
+                  line.startsWith("Illimité") || line.startsWith("Sans")
+                    ? "block text-sm text-muted-foreground"
+                    : "block text-sm tabular-nums"
+                }
+                key={line}
+              >
+                {line}
+              </span>
+            ))}
+            {extendedBy.length ? (
+              <span
+                className="mt-1 block text-xs text-muted-foreground"
+                title={extendedBy.map((pkg) => pkg.name).join(", ")}
+              >
+                Extensible par {extendedBy.length} paquet{extendedBy.length > 1 ? "s" : ""} de quotas
+              </span>
+            ) : null}
+          </>
         )}
       </TableCell>
       <TableCell>
@@ -785,16 +799,14 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
               {data.status !== "DRAFT" && data.status !== "ARCHIVED" ? (
                 <PlanFormDialog mode="revise" source={data} trigger={<Button variant="outline">Réviser</Button>} />
               ) : null}
-              <PlanFormDialog
-                mode="duplicate"
-                source={data}
-                trigger={
-                  <Button variant="outline">
+              {session.can(adminPermissions.plansDuplicate) ? (
+                <Button asChild variant="outline">
+                  <Link to={`/admin/plans/new?from=${data.id}`}>
                     <CopyIcon />
                     Dupliquer
-                  </Button>
-                }
-              />
+                  </Link>
+                </Button>
+              ) : null}
             </>
           }
           description={
@@ -813,6 +825,9 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
           ...(session.can(adminPermissions.plansListFeatures)
             ? [{ label: "Fonctionnalités", to: `/admin/plans/${id}/features`, count: data.featureCount }]
             : []),
+          ...(session.can(adminPermissions.plansListFeatures)
+            ? [{ label: "Schéma", to: `/admin/plans/${id}/schema` }]
+            : []),
           ...(session.can(adminPermissions.plansListSubscribers)
             ? [{ label: "Abonnés", to: `/admin/plans/${id}/subscribers`, count: data.currentSubscriberCount }]
             : []),
@@ -821,6 +836,8 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
       />
       {tab === "features" && session.can(adminPermissions.plansListFeatures) ? (
         <PlanFeatures plan={data} />
+      ) : tab === "schema" && session.can(adminPermissions.plansListFeatures) ? (
+        <PlanSchema plan={data} />
       ) : tab === "subscribers" && session.can(adminPermissions.plansListSubscribers) ? (
         <PlanSubscribers plan={data} />
       ) : tab === "lifecycle" ? (
@@ -897,8 +914,8 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
             </dl>
             <p className="mt-5 border-t pt-4 text-xs leading-5 text-muted-foreground">
               « Modifier » change ce forfait en place. « Réviser » crée R{data.revisionNumber + 1} dans la même lignée
-              pour les prochaines souscriptions, sans toucher aux abonnés actuels. « Dupliquer » démarre une lignée
-              indépendante.
+              sans toucher aux abonnés actuels ; après activation, cette révision pourra être choisie explicitement pour
+              de prochaines souscriptions. « Dupliquer » démarre une lignée indépendante.
             </p>
             {data.description ? (
               <p className="mt-5 border-t pt-4 text-sm text-muted-foreground">{data.description}</p>
@@ -957,14 +974,12 @@ export function AdminPlansPage() {
       <PageHeader
         actions={
           session.can(adminPermissions.plansCreate) ? (
-            <PlanFormDialog
-              trigger={
-                <Button>
-                  <PlusIcon />
-                  Créer un forfait
-                </Button>
-              }
-            />
+            <Button asChild>
+              <Link to="/admin/plans/new">
+                <PlusIcon />
+                Créer un forfait
+              </Link>
+            </Button>
           ) : undefined
         }
         title="Forfaits"
@@ -1032,6 +1047,9 @@ function PlanCard({ plan }: { plan: Plan }) {
       : plan.status === "ARCHIVED"
         ? "Un forfait archivé est terminal et ne peut pas être révisé"
         : null;
+  const openBlockedBy = session.can(adminPermissions.plansReadDetail)
+    ? null
+    : "Vous n’êtes pas autorisé à consulter ce forfait";
   return (
     <article className="flex flex-col rounded-xl border bg-background/40 p-5 transition-colors hover:border-ring/40">
       <div className="flex items-start justify-between gap-3">
@@ -1058,7 +1076,7 @@ function PlanCard({ plan }: { plan: Plan }) {
             disabledLabel={duplicateBlockedBy ?? undefined}
             icon={<CopyIcon />}
             label="Dupliquer le forfait"
-            onClick={() => setDialog("duplicate")}
+            to={duplicateBlockedBy === null ? `/admin/plans/new?from=${plan.id}` : undefined}
           />
           <RowAction
             disabled={reviseBlockedBy !== null}
@@ -1067,7 +1085,13 @@ function PlanCard({ plan }: { plan: Plan }) {
             label="Créer une révision"
             onClick={() => setDialog("revise")}
           />
-          <RowAction icon={<ArrowRightIcon />} label="Ouvrir le forfait" to={`/admin/plans/${plan.id}`} />
+          <RowAction
+            disabled={openBlockedBy !== null}
+            disabledLabel={openBlockedBy ?? undefined}
+            icon={<ArrowRightIcon />}
+            label="Ouvrir le forfait"
+            to={openBlockedBy === null ? `/admin/plans/${plan.id}` : undefined}
+          />
         </span>
       </div>
       {/* Mounted only while open, so each opening starts from the plan's current values. */}

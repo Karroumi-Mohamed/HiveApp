@@ -40,6 +40,24 @@ public class BillingConfigurationValidator {
         return feature;
     }
 
+    /**
+     * PLAN-FLOW-007: quota intent is always explicit. Every quota-able resource of an included
+     * feature must carry a configuration — a numeric limit or an explicit UNLIMITED — before the
+     * plan may activate; an absent configuration is an unfinished draft, never "unlimited".
+     */
+    public void requireCompleteQuotaConfiguration(String featureCode, List<QuotaLimitEntry> quotaConfigs) {
+        FeatureDefinition definition = requirePlanAssignableDefinition(featureCode);
+        Set<String> configured = quotaConfigs == null
+                ? Set.of()
+                : quotaConfigs.stream().map(QuotaLimitEntry::resource).collect(java.util.stream.Collectors.toSet());
+        for (var slot : definition.quotaSlots()) {
+            if (!configured.contains(slot.resource())) {
+                throw invalid("Feature " + definition.code() + ": resource '" + slot.resource()
+                        + "' has no quota configuration. Declare a limit or an explicit UNLIMITED before activation.");
+            }
+        }
+    }
+
     public Feature validateQuotaPackageDefinition(String featureCode, String resource) {
         FeatureDefinition definition = requirePlanAssignableDefinition(featureCode);
         Feature feature = requireConfigurableFeature(featureCode);

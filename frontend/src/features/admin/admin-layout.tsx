@@ -41,6 +41,7 @@ export function AdminLayout() {
         <LoadingState />
       </main>
     );
+  const plannedSectionsVisible = session.me.isSuperAdmin;
   const groups: ProductNavigationGroup[] = [
     {
       items: [
@@ -63,20 +64,30 @@ export function AdminLayout() {
           visible: session.can(adminPermissions.usersRead),
         },
         { label: "Rôles", to: "/admin/roles", icon: ShieldCheckIcon, visible: session.can(adminPermissions.rolesRead) },
-        { label: "Modèles de rôles", to: "/admin/role-templates", icon: StackIcon },
+        {
+          label: "Modèles de rôles",
+          to: "/admin/role-templates",
+          icon: StackIcon,
+          visible: plannedSectionsVisible,
+        },
       ],
     },
     {
       label: "Clients",
       items: [
-        { label: "Comptes", to: "/admin/accounts", icon: BuildingsIcon },
+        { label: "Comptes", to: "/admin/accounts", icon: BuildingsIcon, visible: plannedSectionsVisible },
         {
           label: "Abonnements",
           to: "/admin/subscriptions",
           icon: CreditCardIcon,
           visible: session.can(adminPermissions.subscriptionsRead) && session.can(adminPermissions.subscriptionsSearch),
         },
-        { label: "Collaborations", to: "/admin/collaborations", icon: HandshakeIcon },
+        {
+          label: "Collaborations",
+          to: "/admin/collaborations",
+          icon: HandshakeIcon,
+          visible: plannedSectionsVisible,
+        },
       ],
     },
     {
@@ -95,7 +106,7 @@ export function AdminLayout() {
           icon: HexagonIcon,
           visible: session.can(adminPermissions.quotaPackagesList),
         },
-        { label: "Facturation", to: "/admin/billing", icon: ReceiptIcon },
+        { label: "Facturation", to: "/admin/billing", icon: ReceiptIcon, visible: plannedSectionsVisible },
       ],
     },
     {
@@ -107,17 +118,36 @@ export function AdminLayout() {
           icon: HexagonIcon,
           visible: session.can(adminPermissions.registryRead),
         },
-        { label: "Activités", to: "/admin/activities", icon: PulseIcon },
-        { label: "Communications", to: "/admin/communications", icon: EnvelopeSimpleIcon },
+        { label: "Activités", to: "/admin/activities", icon: PulseIcon, visible: plannedSectionsVisible },
+        {
+          label: "Communications",
+          to: "/admin/communications",
+          icon: EnvelopeSimpleIcon,
+          visible: plannedSectionsVisible,
+        },
       ],
     },
     {
       label: "Observabilité",
-      items: [{ label: "Santé & journaux", to: "/admin/observability", icon: HeartbeatIcon }],
+      items: [
+        {
+          label: "Santé & journaux",
+          to: "/admin/observability",
+          icon: HeartbeatIcon,
+          visible: plannedSectionsVisible,
+        },
+      ],
     },
     {
       label: "Analytique",
-      items: [{ label: "Statistiques", to: "/admin/analytics", icon: ChartLineUpIcon }],
+      items: [
+        {
+          label: "Statistiques",
+          to: "/admin/analytics",
+          icon: ChartLineUpIcon,
+          visible: plannedSectionsVisible,
+        },
+      ],
     },
     {
       label: "Plateforme",

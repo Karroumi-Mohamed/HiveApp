@@ -16,6 +16,7 @@ import { AdminMePage } from "@/features/admin/me/admin-me-page";
 import { AdminOperatorDetailPage } from "@/features/admin/operators/admin-operator-detail-page";
 import { AdminOperatorsPage } from "@/features/admin/operators/admin-operators-page";
 import { AdminOverviewPage } from "@/features/admin/overview/admin-overview-page";
+import { AdminPlanCreatePage } from "@/features/admin/plans/admin-plan-create-page";
 import { AdminPlansPage } from "@/features/admin/plans/admin-plans-page";
 import { AdminFeaturesPage } from "@/features/admin/registry/admin-features-page";
 import { AdminRoleDetailPage } from "@/features/admin/roles/admin-role-detail-page";
@@ -65,6 +66,7 @@ const router = createBrowserRouter([
       { path: "roles", element: <AdminRolesPage /> },
       { path: "roles/:roleId", element: <AdminRoleDetailPage /> },
       { path: "plans", element: <AdminPlansPage /> },
+      { path: "plans/new", element: <AdminPlanCreatePage /> },
       { path: "plans/:planId", element: <AdminPlansPage /> },
       { path: "plans/:planId/:tab", element: <AdminPlansPage /> },
       { path: "subscriptions", element: <AdminSubscriptionsPage /> },

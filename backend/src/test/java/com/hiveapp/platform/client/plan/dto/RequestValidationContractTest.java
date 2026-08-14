@@ -47,6 +47,18 @@ class RequestValidationContractTest {
     }
 
     @Test
+    void quotaModeIsRequiredNeverInferred() {
+        // PLAN-FLOW-007: sending a limit is not the same statement as declaring FINITE; an
+        // omitted mode must be rejected instead of guessed from the limit's presence.
+        var missingMode = new AssignPlanFeatureRequest(
+                "platform.staff",
+                PlanFeatureMode.INCLUDED,
+                List.of(new QuotaLimitRequest("members", null, 5L)));
+
+        assertThat(violationPaths(missingMode)).contains("quotaConfigs[0].mode");
+    }
+
+    @Test
     void quotaModeAndLimitCombinationIsValidatedBeforeDomainConversion() {
         var negative = new AssignPlanFeatureRequest(
                 "platform.staff",
