@@ -1,6 +1,8 @@
 import {
   ArrowLeftIcon,
+  ArrowRightIcon,
   CopyIcon,
+  GitBranchIcon,
   MagnifyingGlassIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -18,6 +20,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { QuotaEditor } from "@/components/patterns/quota-editor";
 import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
+import { RowAction } from "@/components/patterns/row-action";
 import { SectionTabs } from "@/components/patterns/section-tabs";
 import { StatusBadge, type StatusTone } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
@@ -55,15 +58,25 @@ function PlanFormDialog({
   source,
   mode = "create",
   trigger,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   source?: Plan;
   mode?: "create" | "edit" | "duplicate" | "revise";
-  trigger: React.ReactNode;
+  /** Omit to control the dialog from outside through `open`/`onOpenChange`. */
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = trigger ? uncontrolledOpen : (controlledOpen ?? false);
+  const setOpen = (next: boolean) => {
+    if (trigger) setUncontrolledOpen(next);
+    else onOpenChange?.(next);
+  };
   const [code, setCode] = useState(
     mode === "edit"
       ? (source?.code ?? "")
@@ -109,7 +122,7 @@ function PlanFormDialog({
   if (!session.can(requiredPermission)) return null;
   return (
     <Dialog onOpenChange={setOpen} open={open}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
@@ -121,7 +134,15 @@ function PlanFormDialog({
                   ? "Dupliquer le forfait"
                   : "Créer un forfait"}
           </DialogTitle>
-          <DialogDescription>Les nouveaux forfaits et branches commencent en brouillon.</DialogDescription>
+          <DialogDescription>
+            {mode === "edit"
+              ? "Modifie ce forfait sans créer de révision : la lignée et les abonnés ne changent pas."
+              : mode === "revise"
+                ? `Nouvelle révision R${(source?.revisionNumber ?? 0) + 1} dans la même lignée : les abonnés actuels restent sur leur révision, les prochaines souscriptions utilisent la nouvelle. Elle démarre en brouillon.`
+                : mode === "duplicate"
+                  ? "Copie indépendante dans une nouvelle lignée, sans lien avec les abonnés du forfait source. Elle démarre en brouillon."
+                  : "Un nouveau forfait démarre en brouillon : configurez ses fonctionnalités et quotas avant de l’activer."}
+          </DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-5 sm:grid-cols-2"
@@ -139,11 +160,15 @@ function PlanFormDialog({
                 required
                 value={code}
               />
+              <p className="text-xs leading-4 text-muted-foreground">
+                Identifiant technique unique, stable après création.
+              </p>
             </div>
           ) : null}
           <div className="space-y-2">
             <Label htmlFor="plan-name">Nom</Label>
             <Input id="plan-name" onChange={(event) => setName(event.target.value)} required value={name} />
+            <p className="text-xs leading-4 text-muted-foreground">Nom commercial, tel qu’affiché aux clients.</p>
           </div>
           <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="plan-description">Description</Label>
@@ -152,6 +177,9 @@ function PlanFormDialog({
               onChange={(event) => setDescription(event.target.value)}
               value={description}
             />
+            <p className="text-xs leading-4 text-muted-foreground">
+              Facultative — résumé montré dans le catalogue d’abonnement.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="plan-price">Prix</Label>
@@ -163,6 +191,7 @@ function PlanFormDialog({
               type="number"
               value={price}
             />
+            <p className="text-xs leading-4 text-muted-foreground">Montant facturé à chaque cycle.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="plan-currency">Devise</Label>
@@ -172,6 +201,7 @@ function PlanFormDialog({
               onChange={(event) => setCurrency(event.target.value.toUpperCase())}
               value={currencyCode}
             />
+            <p className="text-xs leading-4 text-muted-foreground">Code ISO à 3 lettres (MAD, EUR…).</p>
           </div>
           <div className="space-y-2">
             <Label>Cycle</Label>
@@ -185,6 +215,9 @@ function PlanFormDialog({
                 <SelectItem value="FOREVER">Permanent</SelectItem>
               </SelectContent>
             </Select>
+            <p className="text-xs leading-4 text-muted-foreground">
+              « Permanent » se paie une fois et n’expire jamais.
+            </p>
           </div>
           <div className="flex items-end justify-end gap-2 sm:col-span-2">
             <Button onClick={() => setOpen(false)} type="button" variant="outline">
@@ -204,14 +237,26 @@ function PlanFeatureDialog({
   plan,
   item,
   available,
+  open: controlledOpen,
+  onOpenChange,
+  withTrigger = true,
 }: {
   plan: Plan;
   item?: PlanFeature;
   available: RegistryFeature[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** False when the dialog is driven from a row action instead of its own button. */
+  withTrigger?: boolean;
 }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = withTrigger ? uncontrolledOpen : (controlledOpen ?? false);
+  const setOpen = (next: boolean) => {
+    if (withTrigger) setUncontrolledOpen(next);
+    else onOpenChange?.(next);
+  };
   const [featureCode, setFeatureCode] = useState(item?.featureCode ?? "");
   const [mode, setMode] = useState(item?.mode ?? "INCLUDED");
   const [quotas, setQuotas] = useState<QuotaLimit[]>(item?.quotaConfigs ?? []);
@@ -230,18 +275,20 @@ function PlanFeatureDialog({
   if (!session.can(item ? adminPermissions.plansUpdateFeature : adminPermissions.plansAssignFeature)) return null;
   return (
     <Dialog onOpenChange={setOpen} open={open}>
-      <DialogTrigger asChild>
-        {item ? (
-          <Button aria-label="Modifier la configuration" size="icon-sm" variant="ghost">
-            <PencilSimpleIcon />
-          </Button>
-        ) : (
-          <Button size="sm">
-            <PlusIcon />
-            Ajouter
-          </Button>
-        )}
-      </DialogTrigger>
+      {withTrigger ? (
+        <DialogTrigger asChild>
+          {item ? (
+            <Button aria-label="Modifier la configuration" size="icon-sm" variant="ghost">
+              <PencilSimpleIcon />
+            </Button>
+          ) : (
+            <Button size="sm">
+              <PlusIcon />
+              Ajouter
+            </Button>
+          )}
+        </DialogTrigger>
+      ) : null}
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{item ? "Configurer la fonctionnalité" : "Ajouter une fonctionnalité"}</DialogTitle>
@@ -275,6 +322,13 @@ function PlanFeatureDialog({
                 <SelectItem value="BLOCKED_FOR_PLAN">Bloquée</SelectItem>
               </SelectContent>
             </Select>
+            <p className="text-xs leading-4 text-muted-foreground">
+              {mode === "INCLUDED"
+                ? "Comprise dans le forfait, avec ses quotas de base."
+                : mode === "OPTIONAL_ADD_ON"
+                  ? "Absente du forfait, mais activable en souscrivant un add-on."
+                  : "Indisponible sur ce forfait, même via un add-on."}
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Quotas de base</Label>
@@ -284,6 +338,12 @@ function PlanFeatureDialog({
               slots={definition?.quotaSchema ?? []}
               value={quotas}
             />
+            {mode === "INCLUDED" ? (
+              <p className="text-xs leading-4 text-muted-foreground">
+                Une ressource sans quota défini est illimitée. Les paquets de quotas achetés s’ajoutent à ces valeurs de
+                base.
+              </p>
+            ) : null}
             {mode !== "INCLUDED" ? (
               <p className="text-xs text-muted-foreground">
                 Seules les fonctionnalités incluses définissent des quotas de base.
@@ -321,20 +381,27 @@ function PlanFeatures({ plan }: { plan: Plan }) {
   });
   if (features.isLoading) return <LoadingState />;
   if (features.isError) return <ErrorState retry={() => void features.refetch()} />;
-  const available = (catalog.data ?? [])
-    .flatMap((module) => module.features)
-    .filter((feature) => feature.planAssignable);
+  const catalogFeatures = (catalog.data ?? []).flatMap((module) => module.features);
+  // The display join uses the whole catalogue: an already-assigned feature must keep its name
+  // even if it is no longer offered for new assignment.
+  const byCode = new Map(catalogFeatures.map((feature) => [feature.code, feature]));
+  const available = catalogFeatures.filter((feature) => feature.planAssignable);
   const addable = available.filter(
     (feature) => !features.data?.some((assigned) => assigned.featureCode === feature.code),
   );
+  const frozen = plan.status !== "DRAFT";
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
-      <div className="flex items-center justify-between border-b p-4">
+      <div className="flex items-center justify-between gap-4 border-b p-4">
         <div>
           <h2 className="text-sm font-semibold">Composition</h2>
-          <p className="mt-1 text-xs text-muted-foreground">{features.data?.length ?? 0} fonctionnalités configurées</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {frozen
+              ? "La composition d’un forfait publié est figée — créez une révision pour la faire évoluer."
+              : `${features.data?.length ?? 0} fonctionnalités configurées`}
+          </p>
         </div>
-        {plan.status === "DRAFT" ? <PlanFeatureDialog available={addable} plan={plan} /> : null}
+        {frozen ? null : <PlanFeatureDialog available={addable} plan={plan} />}
       </div>
       {features.data?.length ? (
         <Table>
@@ -342,36 +409,22 @@ function PlanFeatures({ plan }: { plan: Plan }) {
             <TableRow>
               <TableHead>Fonctionnalité</TableHead>
               <TableHead>Mode</TableHead>
-              <TableHead>Quotas</TableHead>
-              <TableHead className="w-24" />
+              <TableHead>Quotas de base</TableHead>
+              <TableHead className="w-24">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {features.data.map((feature: PlanFeature) => (
-              <TableRow key={feature.id}>
-                <TableCell>
-                  <code className="text-xs">{feature.featureCode}</code>
-                </TableCell>
-                <TableCell>{feature.mode}</TableCell>
-                <TableCell>{feature.quotaConfigs.length || "—"}</TableCell>
-                <TableCell>
-                  {plan.status === "DRAFT" ? (
-                    <div className="flex justify-end">
-                      <PlanFeatureDialog available={available} item={feature} plan={plan} />
-                      {session.can(adminPermissions.plansRemoveFeature) ? (
-                        <Button
-                          aria-label="Retirer"
-                          onClick={() => remove.mutate(feature.id)}
-                          size="icon-sm"
-                          variant="ghost"
-                        >
-                          <TrashIcon />
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </TableCell>
-              </TableRow>
+              <PlanFeatureRow
+                available={available}
+                definition={byCode.get(feature.featureCode)}
+                feature={feature}
+                frozen={frozen}
+                key={feature.id}
+                onRemove={() => remove.mutate(feature.id)}
+                plan={plan}
+                removing={remove.isPending}
+              />
             ))}
           </TableBody>
         </Table>
@@ -379,6 +432,123 @@ function PlanFeatures({ plan }: { plan: Plan }) {
         <EmptyState description="Ajoutez les capacités comprises dans ce forfait." title="Aucune fonctionnalité" />
       )}
     </section>
+  );
+}
+
+/** What the configured limits mean, in words — never a bare dash. */
+function quotaSummary(feature: PlanFeature, definition: RegistryFeature | undefined) {
+  if (feature.mode !== "INCLUDED") return [];
+  if (feature.quotaConfigs.length === 0) {
+    return (definition?.quotaSchema.length ?? 0) > 0 ? ["Illimité"] : ["Sans quota applicable"];
+  }
+  return feature.quotaConfigs.map((config) => {
+    const unit = definition?.quotaSchema.find((slot) => slot.resource === config.resource)?.unit;
+    const resourceLabel = unit || config.resource;
+    return config.mode === "UNLIMITED" || config.limit === null
+      ? `Illimité — ${resourceLabel}`
+      : `${config.limit} ${resourceLabel}`;
+  });
+}
+
+const featureModePresentation: Record<string, { label: string; tone: StatusTone }> = {
+  INCLUDED: { label: "Incluse", tone: "success" },
+  OPTIONAL_ADD_ON: { label: "Add-on optionnel", tone: "info" },
+  BLOCKED_FOR_PLAN: { label: "Bloquée", tone: "neutral" },
+};
+
+function PlanFeatureRow({
+  feature,
+  definition,
+  plan,
+  available,
+  frozen,
+  removing,
+  onRemove,
+}: {
+  feature: PlanFeature;
+  definition: RegistryFeature | undefined;
+  plan: Plan;
+  available: RegistryFeature[];
+  frozen: boolean;
+  removing: boolean;
+  onRemove: () => void;
+}) {
+  const session = useAdminSession();
+  const [editOpen, setEditOpen] = useState(false);
+  const mode = featureModePresentation[feature.mode] ?? { label: feature.mode, tone: "neutral" as StatusTone };
+  const editBlockedBy = frozen
+    ? "La composition ne se modifie qu’à l’état brouillon — créez une révision"
+    : !session.can(adminPermissions.plansUpdateFeature)
+      ? "Vous n’êtes pas autorisé à configurer les fonctionnalités"
+      : null;
+  const removeBlockedBy = frozen
+    ? "La composition ne se modifie qu’à l’état brouillon — créez une révision"
+    : !session.can(adminPermissions.plansRemoveFeature)
+      ? "Vous n’êtes pas autorisé à retirer une fonctionnalité"
+      : removing
+        ? "Retrait en cours…"
+        : null;
+  return (
+    <TableRow>
+      <TableCell className="max-w-md whitespace-normal">
+        <span className="block font-medium" title={feature.featureCode}>
+          {definition?.displayName ?? feature.featureCode}
+        </span>
+        {definition?.description ? (
+          <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{definition.description}</span>
+        ) : null}
+      </TableCell>
+      <TableCell>
+        <StatusBadge tone={mode.tone}>{mode.label}</StatusBadge>
+      </TableCell>
+      <TableCell className="whitespace-normal">
+        {feature.mode !== "INCLUDED" ? (
+          <span className="text-sm text-muted-foreground">Sans objet pour ce mode</span>
+        ) : (
+          quotaSummary(feature, definition).map((line) => (
+            <span
+              className={
+                line.startsWith("Illimité") || line.startsWith("Sans")
+                  ? "block text-sm text-muted-foreground"
+                  : "block text-sm tabular-nums"
+              }
+              key={line}
+            >
+              {line}
+            </span>
+          ))
+        )}
+      </TableCell>
+      <TableCell>
+        <span className="flex items-center gap-0.5">
+          <RowAction
+            disabled={editBlockedBy !== null}
+            disabledLabel={editBlockedBy ?? undefined}
+            icon={<PencilSimpleIcon />}
+            label="Configurer la fonctionnalité"
+            onClick={() => setEditOpen(true)}
+          />
+          <RowAction
+            disabled={removeBlockedBy !== null}
+            disabledLabel={removeBlockedBy ?? undefined}
+            icon={<TrashIcon />}
+            label="Retirer du forfait"
+            onClick={onRemove}
+            tone="danger"
+          />
+        </span>
+        {editOpen ? (
+          <PlanFeatureDialog
+            available={available}
+            item={feature}
+            onOpenChange={(next) => !next && setEditOpen(false)}
+            open
+            plan={plan}
+            withTrigger={false}
+          />
+        ) : null}
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -702,17 +872,34 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">Révision</dt>
-                <dd className="mt-1 font-medium">R{data.revisionNumber}</dd>
+                <dd className="mt-1 font-medium">
+                  R{data.revisionNumber}
+                  <span className="ms-2 text-xs font-normal text-muted-foreground">
+                    {data.creationReason === "DUPLICATED"
+                      ? "· créé par duplication"
+                      : data.creationReason === "REVISED"
+                        ? "· révision d’un forfait antérieur"
+                        : "· création directe"}
+                  </span>
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">Fonctionnalités</dt>
                 <dd className="mt-1 font-medium">{data.featureCount}</dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">Quotas configurés</dt>
-                <dd className="mt-1 font-medium">{data.quotaConfiguredFeatureCount}</dd>
+                <dt className="text-xs text-muted-foreground">Avec quota de base</dt>
+                <dd className="mt-1 font-medium">
+                  {data.quotaConfiguredFeatureCount}
+                  <span className="ms-2 text-xs font-normal text-muted-foreground">· les autres sont illimitées</span>
+                </dd>
               </div>
             </dl>
+            <p className="mt-5 border-t pt-4 text-xs leading-5 text-muted-foreground">
+              « Modifier » change ce forfait en place. « Réviser » crée R{data.revisionNumber + 1} dans la même lignée
+              pour les prochaines souscriptions, sans toucher aux abonnés actuels. « Dupliquer » démarre une lignée
+              indépendante.
+            </p>
             {data.description ? (
               <p className="mt-5 border-t pt-4 text-sm text-muted-foreground">{data.description}</p>
             ) : null}
@@ -816,40 +1003,77 @@ export function AdminPlansPage() {
         ) : !filtered.length ? (
           <EmptyState title="Aucun forfait" />
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Forfait</TableHead>
-                <TableHead>Prix</TableHead>
-                <TableHead>Révision</TableHead>
-                <TableHead>Statut</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((plan) => (
-                <TableRow key={plan.id}>
-                  <TableCell>
-                    <Link
-                      className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      to={`/admin/plans/${plan.id}`}
-                    >
-                      <span className="font-medium">{plan.name}</span>
-                      <code className="mt-1 block text-xs text-muted-foreground">{plan.code}</code>
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    {money(plan.price, plan.currencyCode)} / {cycleText[plan.billingCycle]}
-                  </TableCell>
-                  <TableCell>R{plan.revisionNumber}</TableCell>
-                  <TableCell>
-                    <StatusBadge tone={planTone[plan.status]}>{statusText[plan.status]}</StatusBadge>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <div className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((plan) => (
+              <PlanCard key={plan.id} plan={plan} />
+            ))}
+          </div>
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * A catalogue entry, not a data row: a handful of plans is easier to compare as priced cards
+ * than as a table. Actions follow the table contract anyway — always rendered, disabled with
+ * the reason, navigation on the end arrow.
+ */
+function PlanCard({ plan }: { plan: Plan }) {
+  const session = useAdminSession();
+  const [dialog, setDialog] = useState<"duplicate" | "revise" | null>(null);
+  const duplicateBlockedBy = session.can(adminPermissions.plansDuplicate)
+    ? null
+    : "Vous n’êtes pas autorisé à dupliquer un forfait";
+  const reviseBlockedBy = !session.can(adminPermissions.plansRevise)
+    ? "Vous n’êtes pas autorisé à créer une révision"
+    : plan.status === "DRAFT"
+      ? "Modifiez directement ce brouillon ; il ne peut pas être révisé"
+      : plan.status === "ARCHIVED"
+        ? "Un forfait archivé est terminal et ne peut pas être révisé"
+        : null;
+  return (
+    <article className="flex flex-col rounded-xl border bg-background/40 p-5 transition-colors hover:border-ring/40">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate font-semibold">{plan.name}</h3>
+          <code className="mt-0.5 block truncate text-xs text-muted-foreground" dir="ltr">
+            {plan.code}
+          </code>
+        </div>
+        <StatusBadge tone={planTone[plan.status]}>{statusText[plan.status]}</StatusBadge>
+      </div>
+      <p className="mt-3 line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">
+        {plan.description || "Aucune description."}
+      </p>
+      <p className="mt-4 text-2xl font-semibold tabular-nums">
+        {money(plan.price, plan.currencyCode)}
+        <span className="ms-1.5 text-sm font-normal text-muted-foreground">/ {cycleText[plan.billingCycle]}</span>
+      </p>
+      <div className="mt-5 flex items-center justify-between border-t pt-3">
+        <span className="text-xs tabular-nums text-muted-foreground">Révision R{plan.revisionNumber}</span>
+        <span className="flex items-center gap-0.5">
+          <RowAction
+            disabled={duplicateBlockedBy !== null}
+            disabledLabel={duplicateBlockedBy ?? undefined}
+            icon={<CopyIcon />}
+            label="Dupliquer le forfait"
+            onClick={() => setDialog("duplicate")}
+          />
+          <RowAction
+            disabled={reviseBlockedBy !== null}
+            disabledLabel={reviseBlockedBy ?? undefined}
+            icon={<GitBranchIcon />}
+            label="Créer une révision"
+            onClick={() => setDialog("revise")}
+          />
+          <RowAction icon={<ArrowRightIcon />} label="Ouvrir le forfait" to={`/admin/plans/${plan.id}`} />
+        </span>
+      </div>
+      {/* Mounted only while open, so each opening starts from the plan's current values. */}
+      {dialog ? (
+        <PlanFormDialog mode={dialog} onOpenChange={(next) => !next && setDialog(null)} open source={plan} />
+      ) : null}
+    </article>
   );
 }
