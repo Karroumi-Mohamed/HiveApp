@@ -170,7 +170,8 @@ export function AdminOperatorDetailPage() {
   const canResend = session.can(adminPermissions.usersResendActivation);
   const canIssueTemporary = session.can(adminPermissions.usersTemporaryAccess);
   const assignableRoles = (roles.data?.content ?? []).filter(
-    (role) => role.isActive && !data.roles.some((assigned) => assigned.id === role.id),
+    (role) =>
+      role.availableActions.includes("ASSIGN_TO_OPERATOR") && !data.roles.some((assigned) => assigned.id === role.id),
   );
 
   return (

@@ -22,6 +22,7 @@ import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { RowAction } from "@/components/patterns/row-action";
 import { StatusBadge } from "@/components/patterns/status-badge";
+import { TableActionsCell, tableActionsColumnMeta } from "@/components/patterns/table-actions-cell";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -118,7 +119,7 @@ function RowActions({ operator }: { operator: AdminUser }) {
           : null;
 
   return (
-    <span className="flex items-center gap-0.5">
+    <TableActionsCell label={`Actions pour ${operator.email}`}>
       <RowAction
         disabled={resendBlockedBy !== null}
         disabledLabel={resendBlockedBy ?? undefined}
@@ -135,7 +136,7 @@ function RowActions({ operator }: { operator: AdminUser }) {
         tone={operator.isActive ? "danger" : "default"}
       />
       <RowAction icon={<ArrowRightIcon />} label="Ouvrir la fiche" to={`/admin/operators/${operator.id}`} />
-    </span>
+    </TableActionsCell>
   );
 }
 
@@ -406,7 +407,7 @@ const operatorColumns = column.columns([
   }),
   column.display({
     id: "actions",
-    meta: { headerClassName: "w-32", cellClassName: "w-32" },
+    meta: tableActionsColumnMeta(3),
     header: "Actions",
     cell: ({ row }) => <RowActions operator={row.original} />,
   }),
@@ -562,7 +563,7 @@ export function AdminOperatorsPage() {
             </SelectTrigger>
             <SelectContent>
               {(assignableRoles.data?.content ?? [])
-                .filter((role) => role.isActive)
+                .filter((role) => role.availableActions.includes("ASSIGN_TO_OPERATOR"))
                 .map((role) => (
                   <SelectItem key={role.id} value={role.id}>
                     {role.name}

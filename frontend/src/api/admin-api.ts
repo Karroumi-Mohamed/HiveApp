@@ -3,7 +3,12 @@ import type {
   AddOn,
   AdminAccessOverview,
   AdminMe,
+  AdminPermission,
   AdminRole,
+  AdminRoleHistoryEntry,
+  AdminRoleImpact,
+  AdminRolePreset,
+  AdminRoleStatus,
   AdminSubscription,
   AdminUser,
   AdminUserCreation,
@@ -99,25 +104,43 @@ export const adminApi = {
   generateOperatorTemporaryAccess: (id: UUID) =>
     admin<OperatorAccess>(`/users/${id}/access/temporary`, { method: "POST" }),
   toggleUser: (id: UUID) => admin<void>(`/users/${id}/toggle-active`, { method: "POST" }),
-  assignUserRole: (id: UUID, adminRoleId: UUID) =>
-    admin<void>(`/users/${id}/roles`, { method: "POST", body: jsonBody({ adminRoleId }) }),
+  assignUserRole: (id: UUID, adminRoleId: UUID) => admin<void>(`/users/${id}/roles/${adminRoleId}`, { method: "POST" }),
   removeUserRole: (id: UUID, roleId: UUID) => admin<void>(`/users/${id}/roles/${roleId}`, { method: "DELETE" }),
   roles: (query: {
     search?: string;
     active?: boolean;
+    status?: AdminRoleStatus;
     page?: number;
     size?: number;
     sort?: string;
     direction?: string;
   }) => admin<PageResponse<AdminRole>>("/roles", { query }),
   roleHolders: (id: UUID) => admin<RoleHolder[]>(`/roles/${id}/operators`),
+  roleHistory: (id: UUID) => admin<AdminRoleHistoryEntry[]>(`/roles/${id}/history`),
+  rolePresets: () => admin<AdminRolePreset[]>("/role-presets"),
+  grantableRolePermissions: () => admin<AdminPermission[]>("/roles/grantable-permissions"),
   bulkSetRolesActive: (ids: UUID[], active: boolean) =>
     admin<BulkOperationResult>("/roles/bulk/active", { method: "POST", body: jsonBody({ ids, active }) }),
   role: (id: UUID) => admin<AdminRole>(`/roles/${id}`),
-  createRole: (input: { name: string; description?: string }) =>
+  createRole: (input: { name: string; description?: string; permissionIds?: UUID[] }) =>
     admin<AdminRole>("/roles", { method: "POST", body: jsonBody(input) }),
-  updateRole: (id: UUID, input: { name: string; description?: string }) =>
-    admin<AdminRole>(`/roles/${id}`, { method: "PUT", body: jsonBody(input) }),
+  createRoleFromPreset: (input: { presetCode: string; name: string; description?: string; permissionIds: UUID[] }) =>
+    admin<AdminRole>("/roles/from-preset", { method: "POST", body: jsonBody(input) }),
+  duplicateRole: (id: UUID, input: { name: string; description?: string }) =>
+    admin<AdminRole>(`/roles/${id}/duplicate`, { method: "POST", body: jsonBody(input) }),
+  updateRole: (id: UUID, input: { name: string; description?: string; expectedVersion: number }) =>
+    admin<AdminRole>(`/roles/${id}/metadata`, { method: "PATCH", body: jsonBody(input) }),
+  previewRoleImpact: (id: UUID, input: { permissionIds?: UUID[]; status?: AdminRoleStatus }) =>
+    admin<AdminRoleImpact>(`/roles/${id}/impact-preview`, { method: "POST", body: jsonBody(input) }),
+  replaceRolePermissions: (
+    id: UUID,
+    input: { permissionIds: UUID[]; expectedVersion: number; confirmedAssignmentCount: number },
+  ) => admin<AdminRole>(`/roles/${id}/permissions`, { method: "PUT", body: jsonBody(input) }),
+  transitionRoleStatus: (
+    id: UUID,
+    input: { status: AdminRoleStatus; expectedVersion: number; confirmedAssignmentCount: number },
+  ) => admin<AdminRole>(`/roles/${id}/status`, { method: "POST", body: jsonBody(input) }),
+  deleteRole: (id: UUID) => admin<void>(`/roles/${id}`, { method: "DELETE" }),
   toggleRole: (id: UUID) => admin<void>(`/roles/${id}/toggle-active`, { method: "POST" }),
   grantRolePermission: (id: UUID, permissionId: UUID) =>
     admin<void>(`/roles/${id}/permissions`, { method: "POST", body: jsonBody({ permissionId }) }),

@@ -40,8 +40,21 @@ export type AdminRoleSummary = {
   id: UUID;
   name: string;
   description: string | null;
+  status: AdminRoleStatus;
   isActive: boolean;
 };
+
+export type AdminRoleStatus = "INACTIVE" | "ACTIVE" | "ARCHIVED";
+export type AdminRoleAction =
+  | "READ_DETAIL"
+  | "EDIT_METADATA"
+  | "DUPLICATE"
+  | "EDIT_PERMISSIONS"
+  | "TRANSITION_STATUS"
+  | "DELETE"
+  | "READ_OPERATORS"
+  | "READ_HISTORY"
+  | "ASSIGN_TO_OPERATOR";
 
 export type AdminPermission = {
   id: UUID;
@@ -111,9 +124,46 @@ export type RoleHolder = {
 };
 
 export type AdminRole = AdminRoleSummary & {
+  version: number;
+  createdAt: Instant;
+  updatedAt: Instant;
+  deletable: boolean;
   /** Operators currently holding this role — what deactivating it would affect. */
   assignedOperatorCount: number;
   permissions: AdminPermission[];
+  availableActions: AdminRoleAction[];
+};
+
+export type AdminRolePreset = {
+  code: string;
+  name: string;
+  description: string;
+  permissions: AdminPermission[];
+};
+
+export type AdminRoleImpact = {
+  roleId: UUID;
+  version: number;
+  currentStatus: AdminRoleStatus;
+  proposedStatus: AdminRoleStatus;
+  assignmentCount: number;
+  permissionsAdded: string[];
+  permissionsRemoved: string[];
+  operatorsLosingLastPermissionSource: number;
+  actorMayLoseAccess: boolean;
+  confirmationRequired: boolean;
+};
+
+export type AdminRoleHistoryEntry = {
+  id: UUID;
+  occurredAt: Instant;
+  actorUserId: UUID | null;
+  actorEmail: string | null;
+  action: string;
+  /** Who the event happened to (assigned/removed operator), when the event has a subject. */
+  subject: string | null;
+  outcome: "SUCCEEDED" | "FAILED";
+  failureType: string | null;
 };
 
 export type AdminAccessOverview = {
