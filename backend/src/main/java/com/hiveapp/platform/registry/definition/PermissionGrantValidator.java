@@ -37,6 +37,10 @@ public class PermissionGrantValidator {
         requireFlag(permissionCode, GrantTarget.PLATFORM_ADMIN_ROLE);
     }
 
+    public boolean isPlatformAdminRoleGrantable(String permissionCode) {
+        return isGrantable(permissionCode, GrantTarget.PLATFORM_ADMIN_ROLE);
+    }
+
     public boolean isClientRoleGrantable(Permission permission) {
         return isGrantable(permission.getCode(), GrantTarget.CLIENT_ROLE);
     }

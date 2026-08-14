@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import java.util.List;
+import java.util.Collection;
 import java.util.UUID;
 import java.util.Optional;
 
@@ -45,6 +46,14 @@ public interface AdminUserRepository extends JpaRepository<AdminUser, UUID> {
     @Query("SELECT admin FROM AdminUser admin WHERE admin.id = :id")
     Optional<AdminUser> findWithUserById(@Param("id") UUID id);
 
+    @EntityGraph(attributePaths = "user")
+    @Query("SELECT admin FROM AdminUser admin WHERE admin.user.id IN :userIds")
+    List<AdminUser> findAllWithUserByUserIdIn(@Param("userIds") Collection<UUID> userIds);
+
+    @EntityGraph(attributePaths = "user")
+    @Query("SELECT admin FROM AdminUser admin WHERE admin.id IN :ids")
+    List<AdminUser> findAllWithUserByIdIn(@Param("ids") Collection<UUID> ids);
+
     /**
      * Returns true if the admin user has the given permission code via any
      * of their assigned active AdminRoles.
@@ -55,12 +64,13 @@ public interface AdminUserRepository extends JpaRepository<AdminUser, UUID> {
            "WHERE aur.adminUser.id = :adminUserId " +
            "AND arp.adminRole = aur.adminRole " +
            "AND arp.permission.code = :permissionCode " +
-           "AND aur.adminRole.isActive = true")
+           "AND aur.adminRole.status = com.hiveapp.platform.admin.domain.constant.AdminRoleStatus.ACTIVE")
     boolean hasPermission(@Param("adminUserId") UUID adminUserId,
                           @Param("permissionCode") String permissionCode);
 
     @Query("SELECT arp.permission.code FROM AdminUserRole aur " +
            "JOIN AdminRolePermission arp ON arp.adminRole = aur.adminRole " +
-           "WHERE aur.adminUser.id = :adminUserId AND aur.adminRole.isActive = true")
+           "WHERE aur.adminUser.id = :adminUserId " +
+           "AND aur.adminRole.status = com.hiveapp.platform.admin.domain.constant.AdminRoleStatus.ACTIVE")
     List<String> findAllPermissionCodes(@Param("adminUserId") UUID adminUserId);
 }

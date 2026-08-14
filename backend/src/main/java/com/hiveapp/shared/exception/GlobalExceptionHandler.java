@@ -41,6 +41,22 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(409, ErrorCode.RESOURCE_ALREADY_EXISTS, "Conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(com.hiveapp.platform.admin.service.AdminRoleNameConflictException.class)
+    public ResponseEntity<ApiError> handleAdminRoleNameConflict(
+            com.hiveapp.platform.admin.service.AdminRoleNameConflictException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.ROLE_NAME_CONFLICT, "Conflict", ex.getMessage()));
+    }
+
+    @ExceptionHandler(com.hiveapp.platform.admin.service.StaleAdminRoleImpactException.class)
+    public ResponseEntity<ApiError> handleStaleAdminRoleImpact(
+            com.hiveapp.platform.admin.service.StaleAdminRoleImpactException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.STALE_IMPACT_PREVIEW, "Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiError> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
         return ResponseEntity

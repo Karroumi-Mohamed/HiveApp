@@ -5,6 +5,7 @@ import com.hiveapp.platform.admin.domain.entity.AdminRolePermission;
 import com.hiveapp.platform.admin.domain.repository.AdminRolePermissionRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
+import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
@@ -21,6 +22,7 @@ import org.springframework.data.domain.PageRequest;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,6 +40,7 @@ class AdminRoleServiceImplTest {
     @Mock private PermissionGrantValidator permissionGrantValidator;
     @Mock private AdminMutationAuthorizer adminMutationAuthorizer;
     @Mock private AdminUserRoleRepository adminUserRoleRepository;
+    @Mock private AdminUserRepository adminUserRepository;
 
     @InjectMocks
     private AdminRoleServiceImpl adminRoleService;
@@ -82,6 +85,8 @@ class AdminRoleServiceImplTest {
                 .thenReturn(List.of(grant));
         when(adminUserRoleRepository.countByAdminRoleIdIn(org.mockito.ArgumentMatchers.anyCollection()))
                 .thenReturn(List.of());
+        when(adminMutationAuthorizer.currentActorGrantCeiling())
+                .thenReturn(new AdminMutationAuthorizer.GrantCeiling(true, Set.of()));
 
         var result = adminRoleService.getAdminRoles(page);
 

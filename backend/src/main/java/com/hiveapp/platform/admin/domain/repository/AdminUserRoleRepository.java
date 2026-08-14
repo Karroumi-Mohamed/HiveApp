@@ -39,6 +39,14 @@ public interface AdminUserRoleRepository extends JpaRepository<AdminUserRole, UU
 
     boolean existsByAdminUserIdAndAdminRoleId(UUID adminUserId, UUID adminRoleId);
 
+    boolean existsByAdminRoleId(UUID adminRoleId);
+
+    long countByAdminRoleId(UUID adminRoleId);
+
+    @Query("SELECT assignment.adminUser.id FROM AdminUserRole assignment "
+           + "WHERE assignment.adminRole.id = :roleId")
+    List<UUID> findAllAdminUserIdsByAdminRoleId(@Param("roleId") UUID roleId);
+
     @Modifying
     @Query("DELETE FROM AdminUserRole aur WHERE aur.adminUser.id = :adminUserId AND aur.adminRole.id = :adminRoleId")
     void deleteByAdminUserIdAndAdminRoleId(@Param("adminUserId") UUID adminUserId,

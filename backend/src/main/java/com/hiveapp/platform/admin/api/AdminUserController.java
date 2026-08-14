@@ -109,6 +109,12 @@ public class AdminUserController {
         adminUserService.assignRole(id, req.adminRoleId());
     }
 
+    @PostMapping("/{id}/roles/{roleId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void assignRole(@PathVariable UUID id, @PathVariable UUID roleId) {
+        adminUserService.assignRole(id, roleId);
+    }
+
     @DeleteMapping("/{id}/roles/{roleId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeRole(@PathVariable UUID id, @PathVariable UUID roleId) {

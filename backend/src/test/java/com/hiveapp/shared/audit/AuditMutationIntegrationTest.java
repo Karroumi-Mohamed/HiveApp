@@ -137,7 +137,8 @@ class AuditMutationIntegrationTest extends PlatformShellIntegrationTestSupport {
         assertThat(adminRoleService).isInstanceOf(Advised.class);
         Advised advised = (Advised) adminRoleService;
         Class<?> targetClass = AopUtils.getTargetClass(adminRoleService);
-        var method = targetClass.getMethod("createAdminRole", String.class, String.class);
+        var method = targetClass.getMethod(
+                "createAdminRole", String.class, String.class, List.class);
 
         List<String> chain = Arrays.stream(advised.getAdvisors())
                 .filter(advisor -> appliesTo(advisor, method, targetClass))

@@ -18,6 +18,9 @@ public interface AdminRolePermissionRepository extends JpaRepository<AdminRolePe
     List<AdminRolePermission> findAllByAdminRoleId(UUID adminRoleId);
 
     @EntityGraph(attributePaths = {"adminRole", "permission"})
+    List<AdminRolePermission> findAllWithPermissionByAdminRoleId(UUID adminRoleId);
+
+    @EntityGraph(attributePaths = {"adminRole", "permission"})
     @Query("SELECT grant FROM AdminRolePermission grant " +
            "WHERE grant.adminRole.id IN :adminRoleIds")
     List<AdminRolePermission> findAllWithPermissionByAdminRoleIdIn(
@@ -27,4 +30,8 @@ public interface AdminRolePermissionRepository extends JpaRepository<AdminRolePe
     @Query("DELETE FROM AdminRolePermission arp WHERE arp.adminRole.id = :adminRoleId AND arp.permission.id = :permissionId")
     void deleteByAdminRoleIdAndPermissionId(@Param("adminRoleId") UUID adminRoleId,
                                             @Param("permissionId") UUID permissionId);
+
+    @Modifying
+    @Query("DELETE FROM AdminRolePermission arp WHERE arp.adminRole.id = :adminRoleId")
+    void deleteAllByAdminRoleId(@Param("adminRoleId") UUID adminRoleId);
 }

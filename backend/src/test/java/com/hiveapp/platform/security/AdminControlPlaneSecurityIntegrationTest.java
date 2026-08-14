@@ -314,6 +314,30 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void nonSuperAdminCannotModifyTheirOwnRoleAssignments() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        // Empty permission set, so the actor's grant ceiling cannot be the reason for refusal.
+        UUID assignableRoleId = createAdminRole(superToken, "Self assignment target " + UUID.randomUUID());
+        LimitedAdmin admin = createLimitedAdmin(
+                "platform.admin_users.assign_role",
+                "platform.admin_users.remove_role");
+
+        assignRole(admin.token(), admin.adminUserId(), assignableRoleId)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message")
+                        .value("A platform administrator cannot modify their own role assignments."));
+
+        removeRole(admin.token(), admin.adminUserId(), admin.roleId())
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message")
+                        .value("A platform administrator cannot modify their own role assignments."));
+
+        // The rule blocks the actor, not the change: another authorized operator makes it normally.
+        assignRole(superToken, admin.adminUserId(), assignableRoleId)
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
     void nonSuperAdminCannotDeactivateRoleAboveTheirPermissionCeiling() throws Exception {
         String superToken = loginAdminAndGetToken();
         UUID targetRoleId = createAdminRole(superToken, "Elevated toggle target " + UUID.randomUUID());
@@ -543,11 +567,15 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
     private UUID createAdminRole(String token, String name) throws Exception {
         CreateAdminRoleRequest request = new CreateAdminRoleRequest(name, "Security test role");
-        return responseId(mockMvc.perform(post("/api/admin/roles")
+        UUID roleId = responseId(mockMvc.perform(post("/api/admin/roles")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated()));
+        // Product roles deliberately start inactive; most security cases below need an assignable
+        // fixture, so the helper activates it explicitly instead of weakening the creation rule.
+        toggleRole(token, roleId).andExpect(status().isNoContent());
+        return roleId;
     }
 
     private ResultActions createAdminUser(String token, String email, boolean superAdmin) throws Exception {

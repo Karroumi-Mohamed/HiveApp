@@ -77,7 +77,7 @@ class AdminMutationAuthorizerTest {
         when(adminUserRepository.findByUserId(actorUserId)).thenReturn(Optional.of(actor(false, true)));
         when(adminRolePermissionRepository.findAllByAdminRoleId(roleId))
                 .thenReturn(List.of(grant(permissionCode)));
-        when(adminUserRepository.hasPermission(actorAdminId, permissionCode)).thenReturn(false);
+        when(adminUserRepository.findAllPermissionCodes(actorAdminId)).thenReturn(List.of());
 
         assertThatThrownBy(() -> authorizer.requireCanManageRole(roleId, "modify"))
                 .isInstanceOf(InvalidPermissionGrantException.class)

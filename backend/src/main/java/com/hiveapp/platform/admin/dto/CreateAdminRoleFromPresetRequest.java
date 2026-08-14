@@ -5,16 +5,9 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
 
-public record CreateAdminRoleRequest(
+public record CreateAdminRoleFromPresetRequest(
+        @NotBlank String presetCode,
         @NotBlank @Size(max = 100) String name,
         @Size(max = 500) String description,
         @Size(max = 500) List<UUID> permissionIds
-) {
-    public CreateAdminRoleRequest(String name, String description) {
-        this(name, description, List.of());
-    }
-
-    public CreateAdminRoleRequest {
-        permissionIds = permissionIds == null ? List.of() : List.copyOf(permissionIds);
-    }
-}
+) {}

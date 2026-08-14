@@ -6,6 +6,7 @@ import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
+import com.hiveapp.platform.admin.service.AdminRoleAssignmentAudit;
 import com.hiveapp.platform.admin.service.AdminUserService;
 import com.hiveapp.platform.admin.service.AdminBulkExecutor;
 import com.hiveapp.platform.admin.service.AdminPermissionResolver;
@@ -32,6 +33,8 @@ import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
+import com.hiveapp.shared.audit.AuditTrail;
+import com.hiveapp.shared.audit.domain.AuditActorSurface;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -62,6 +65,7 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     private final AdminMutationAuthorizer adminMutationAuthorizer;
     private final AdminPermissionResolver adminPermissionResolver;
     private final AdminBulkExecutor adminBulkExecutor;
+    private final AuditTrail auditTrail;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -283,13 +287,21 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
         if (!adminRole.isActive()) {
             throw new InvalidStateException("Inactive admin roles cannot be assigned.");
         }
-        adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
         adminMutationAuthorizer.requireCanManageRole(adminRoleId, "assign");
+        adminMutationAuthorizer.requireCanModifyRoleAssignments(adminUser);
 
         AdminUserRole aur = new AdminUserRole();
         aur.setAdminUser(adminUser);
         aur.setAdminRole(adminRole);
         adminUserRoleRepository.save(aur);
+        // Assignment changes advance the role version so an earlier impact preview cannot be
+        // confirmed after the holder set changed while retaining the same count. The atomic
+        // increment lets unrelated operators be assigned concurrently without losing one write.
+        adminRoleRepository.advanceAssignmentRevision(
+                adminRoleId,
+                adminMutationAuthorizer.currentActorUserId(),
+                java.time.Instant.now());
+        recordRoleAssignmentHistory(adminRoleId, adminUserId, true);
     }
 
     @Override
@@ -297,11 +309,36 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "remove_role", description = "Remove admin role from admin user")
     public void removeRole(UUID adminUserId, UUID adminRoleId) {
         var adminUser = requireAdminUser(adminUserId);
-        adminRoleRepository.findById(adminRoleId)
+        var adminRole = adminRoleRepository.findById(adminRoleId)
                 .orElseThrow(() -> new ResourceNotFoundException("AdminRole", "id", adminRoleId));
-        adminMutationAuthorizer.requireCanModifyAdmin(adminUser);
+        if (!adminUserRoleRepository.existsByAdminUserIdAndAdminRoleId(adminUserId, adminRoleId)) {
+            throw new ResourceNotFoundException("AdminUserRole", "adminRoleId", adminRoleId);
+        }
+        adminMutationAuthorizer.requireCanModifyRoleAssignments(adminUser);
         adminMutationAuthorizer.requireCanManageRole(adminRoleId, "remove");
         adminUserRoleRepository.deleteByAdminUserIdAndAdminRoleId(adminUserId, adminRoleId);
+        adminRoleRepository.advanceAssignmentRevision(
+                adminRoleId,
+                adminMutationAuthorizer.currentActorUserId(),
+                java.time.Instant.now());
+        recordRoleAssignmentHistory(adminRoleId, adminUserId, false);
+    }
+
+    private void recordRoleAssignmentHistory(UUID roleId, UUID adminUserId, boolean assigned) {
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        auditTrail.recordSuccess(
+                assigned
+                        ? AdminRoleAssignmentAudit.ASSIGN_ACTION
+                        : AdminRoleAssignmentAudit.REMOVE_ACTION,
+                "ADMIN_ROLE",
+                roleId,
+                AuditActorSurface.PLATFORM_ADMIN,
+                actorUserId,
+                null,
+                java.util.Map.of(),
+                java.util.Map.of(
+                        AdminRoleAssignmentAudit.ADMIN_USER_ID_KEY, adminUserId,
+                        AdminRoleAssignmentAudit.ASSIGNED_KEY, assigned));
     }
 
     private boolean isCurrentActor(AdminUser target) {
@@ -333,7 +370,11 @@ public class AdminUserServiceImpl extends PlatformControlFeatureService implemen
                 assignments.stream()
                         .map(AdminUserRole::getAdminRole)
                         .map(role -> new AdminRoleSummaryDto(
-                                role.getId(), role.getName(), role.getDescription(), role.isActive()))
+                                role.getId(),
+                                role.getName(),
+                                role.getDescription(),
+                                role.getStatus(),
+                                role.isActive()))
                         .toList());
     }
 
