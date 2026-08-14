@@ -1,10 +1,18 @@
 import {
+  BuildingsIcon,
+  ChartLineUpIcon,
   CreditCardIcon,
   CubeIcon,
+  EnvelopeSimpleIcon,
   GaugeIcon,
+  HandshakeIcon,
+  HeartbeatIcon,
   HexagonIcon,
   PackageIcon,
+  PulseIcon,
+  ReceiptIcon,
   ShieldCheckIcon,
+  StackIcon,
   UserCircleIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -55,18 +63,26 @@ export function AdminLayout() {
           visible: session.can(adminPermissions.usersRead),
         },
         { label: "Rôles", to: "/admin/roles", icon: ShieldCheckIcon, visible: session.can(adminPermissions.rolesRead) },
+        { label: "Modèles de rôles", to: "/admin/role-templates", icon: StackIcon },
       ],
     },
     {
-      label: "Commercial",
+      label: "Clients",
       items: [
-        { label: "Forfaits", to: "/admin/plans", icon: CubeIcon, visible: session.can(adminPermissions.plansList) },
+        { label: "Comptes", to: "/admin/accounts", icon: BuildingsIcon },
         {
           label: "Abonnements",
           to: "/admin/subscriptions",
           icon: CreditCardIcon,
           visible: session.can(adminPermissions.subscriptionsRead) && session.can(adminPermissions.subscriptionsSearch),
         },
+        { label: "Collaborations", to: "/admin/collaborations", icon: HandshakeIcon },
+      ],
+    },
+    {
+      label: "Commercial",
+      items: [
+        { label: "Forfaits", to: "/admin/plans", icon: CubeIcon, visible: session.can(adminPermissions.plansList) },
         {
           label: "Add-ons",
           to: "/admin/add-ons",
@@ -79,10 +95,11 @@ export function AdminLayout() {
           icon: HexagonIcon,
           visible: session.can(adminPermissions.quotaPackagesList),
         },
+        { label: "Facturation", to: "/admin/billing", icon: ReceiptIcon },
       ],
     },
     {
-      label: "Plateforme",
+      label: "Opérations",
       items: [
         {
           label: "Fonctionnalités",
@@ -90,8 +107,21 @@ export function AdminLayout() {
           icon: HexagonIcon,
           visible: session.can(adminPermissions.registryRead),
         },
-        { label: "Mon accès", to: "/admin/me", icon: UserCircleIcon },
+        { label: "Activités", to: "/admin/activities", icon: PulseIcon },
+        { label: "Communications", to: "/admin/communications", icon: EnvelopeSimpleIcon },
       ],
+    },
+    {
+      label: "Observabilité",
+      items: [{ label: "Santé & journaux", to: "/admin/observability", icon: HeartbeatIcon }],
+    },
+    {
+      label: "Analytique",
+      items: [{ label: "Statistiques", to: "/admin/analytics", icon: ChartLineUpIcon }],
+    },
+    {
+      label: "Plateforme",
+      items: [{ label: "Mon accès", to: "/admin/me", icon: UserCircleIcon }],
     },
   ];
   return (

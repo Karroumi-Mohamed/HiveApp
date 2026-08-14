@@ -37,7 +37,9 @@ function Navigation({
   onNavigate?: () => void;
 }) {
   return (
-    <nav aria-label={label} className="flex flex-1 flex-col gap-5 px-3 py-5">
+    // min-h-0 + overflow: the nav scrolls inside the pinned sidebar. Letting the column grow
+    // instead pushed content past the painted background, which only covered one viewport.
+    <nav aria-label={label} className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 py-5">
       {groups.map((group, index) => {
         const items = group.items.filter((item) => item.visible !== false);
         if (items.length === 0) return null;

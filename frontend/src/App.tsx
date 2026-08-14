@@ -1,6 +1,16 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { AppProviders } from "@/app/providers";
 import { AdminLayout } from "@/features/admin/admin-layout";
+import {
+  AdminAccountsPlaceholderPage,
+  AdminActivitiesPlaceholderPage,
+  AdminAnalyticsPlaceholderPage,
+  AdminBillingPlaceholderPage,
+  AdminCollaborationsPlaceholderPage,
+  AdminCommunicationsPlaceholderPage,
+  AdminObservabilityPlaceholderPage,
+  AdminRoleTemplatesPlaceholderPage,
+} from "@/features/admin/admin-placeholder-pages";
 import { AdminAddOnsPage, AdminQuotaPackagesPage } from "@/features/admin/commercial/admin-commercial-pages";
 import { AdminMePage } from "@/features/admin/me/admin-me-page";
 import { AdminOperatorDetailPage } from "@/features/admin/operators/admin-operator-detail-page";
@@ -65,6 +75,14 @@ const router = createBrowserRouter([
       { path: "quota-packages/:packageId", element: <AdminQuotaPackagesPage /> },
       { path: "features", element: <AdminFeaturesPage /> },
       { path: "features/:featureId", element: <AdminFeaturesPage /> },
+      { path: "role-templates", element: <AdminRoleTemplatesPlaceholderPage /> },
+      { path: "accounts", element: <AdminAccountsPlaceholderPage /> },
+      { path: "collaborations", element: <AdminCollaborationsPlaceholderPage /> },
+      { path: "billing", element: <AdminBillingPlaceholderPage /> },
+      { path: "activities", element: <AdminActivitiesPlaceholderPage /> },
+      { path: "communications", element: <AdminCommunicationsPlaceholderPage /> },
+      { path: "observability", element: <AdminObservabilityPlaceholderPage /> },
+      { path: "analytics", element: <AdminAnalyticsPlaceholderPage /> },
       { path: "me", element: <AdminMePage /> },
     ],
   },
