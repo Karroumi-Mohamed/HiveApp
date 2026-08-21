@@ -118,7 +118,7 @@ describe("quota lines", () => {
   });
 
   test("a feature with no quota-able resource says so instead of showing a dash", () => {
-    expect(quotaLinesOf(planFeature("f"), registryFeature("f"))).toEqual(["Sans quota applicable"]);
+    expect(quotaLinesOf(planFeature("f"), registryFeature("f"))).toEqual(["Aucune limite de capacité"]);
   });
 });
 

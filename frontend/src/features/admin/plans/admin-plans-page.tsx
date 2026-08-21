@@ -14,6 +14,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
 import type {
+  AddOn,
   BillingCycle,
   Plan,
   PlanFeature,
@@ -24,13 +25,16 @@ import type {
 } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
+import { createDataColumns, DataTable, DataTableExpander } from "@/components/patterns/data-table";
 import { PageHeader } from "@/components/patterns/page-header";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { QuotaEditor } from "@/components/patterns/quota-editor";
+import { ReferenceTagButton } from "@/components/patterns/reference-tag";
 import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { RowAction } from "@/components/patterns/row-action";
 import { SectionTabs } from "@/components/patterns/section-tabs";
-import { StatusBadge, type StatusTone } from "@/components/patterns/status-badge";
+import { StatusBadge } from "@/components/patterns/status-badge";
+import { StatusText } from "@/components/patterns/status-text";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -48,6 +52,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PlanSchema } from "@/features/admin/plans/admin-plan-schema";
 
 import {
+  addOnAvailabilityLabel,
   cycleText,
   featureModePresentation,
   money,
@@ -56,6 +61,15 @@ import {
   statusText,
 } from "@/features/admin/plans/plan-presentation";
 import { quotaLinesOf } from "@/features/admin/plans/plan-schema-model";
+
+type PlanFeatureCommercialRow = {
+  feature: PlanFeature;
+  definition: RegistryFeature | undefined;
+  addOns: AddOn[];
+  capacityPacks: QuotaPackage[];
+};
+
+const planFeatureColumn = createDataColumns<PlanFeatureCommercialRow>();
 
 function PlanFormDialog({
   source,
@@ -297,7 +311,7 @@ function PlanFeatureDialog({
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{item ? "Configurer la fonctionnalité" : "Ajouter une fonctionnalité"}</DialogTitle>
-          <DialogDescription>Le mode et les quotas deviennent le contrat commercial du forfait.</DialogDescription>
+          <DialogDescription>Définissez ce que le client reçoit avec ce forfait.</DialogDescription>
         </DialogHeader>
         <div className="space-y-5">
           <div className="space-y-2">
@@ -316,27 +330,27 @@ function PlanFeatureDialog({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Mode</Label>
+            <Label>Disponibilité dans le forfait</Label>
             <Select onValueChange={setMode} value={mode}>
               <SelectTrigger aria-label="Mode de la fonctionnalité">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="INCLUDED">Incluse</SelectItem>
-                <SelectItem value="OPTIONAL_ADD_ON">Add-on optionnel</SelectItem>
-                <SelectItem value="BLOCKED_FOR_PLAN">Bloquée</SelectItem>
+                <SelectItem value="OPTIONAL_ADD_ON">Disponible en add-on</SelectItem>
+                <SelectItem value="BLOCKED_FOR_PLAN">Indisponible</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs leading-4 text-muted-foreground">
               {mode === "INCLUDED"
-                ? "Comprise dans le forfait, avec ses quotas de base."
+                ? "Comprise dans le forfait, avec ses limites incluses."
                 : mode === "OPTIONAL_ADD_ON"
-                  ? "Absente du forfait, mais activable en souscrivant un add-on."
-                  : "Indisponible sur ce forfait, même via un add-on."}
+                  ? "Le client peut l’obtenir en achetant un add-on compatible."
+                  : "Le client ne peut pas l’obtenir avec ce forfait."}
             </p>
           </div>
           <div className="space-y-2">
-            <Label>Quotas de base</Label>
+            <Label>Limites incluses</Label>
             <QuotaEditor
               disabled={mode !== "INCLUDED"}
               onChange={setQuotas}
@@ -346,12 +360,12 @@ function PlanFeatureDialog({
             {mode === "INCLUDED" ? (
               <p className="text-xs leading-4 text-muted-foreground">
                 Chaque ressource exige une décision explicite — limite chiffrée ou illimité assumé — avant l’activation
-                du forfait. Les paquets de quotas achetés s’ajoutent à ces valeurs de base.
+                du forfait. Les packs de capacité achetés s’ajoutent à ces limites.
               </p>
             ) : null}
             {mode !== "INCLUDED" ? (
               <p className="text-xs text-muted-foreground">
-                Seules les fonctionnalités incluses définissent des quotas de base.
+                Les limites incluses s’appliquent uniquement aux fonctionnalités comprises dans le forfait.
               </p>
             ) : null}
           </div>
@@ -369,6 +383,8 @@ function PlanFeatureDialog({
 function PlanFeatures({ plan }: { plan: Plan }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
+  const canSeeAddOns = session.can(adminPermissions.addOnsList);
+  const canSeeCapacityPacks = session.can(adminPermissions.quotaPackagesList);
   const features = useQuery({
     queryKey: ["admin", "plans", plan.id, "features"],
     queryFn: () => adminApi.planFeatures(plan.id),
@@ -379,12 +395,15 @@ function PlanFeatures({ plan }: { plan: Plan }) {
     // Without registry access the rows fall back to raw codes instead of provoking 403s.
     enabled: session.can(adminPermissions.registryRead),
   });
-  // Where plans and quota packages meet: a package sells extra capacity for a feature this plan
-  // includes, so the composition names the packages that can extend each row.
+  const addOns = useQuery({
+    queryKey: ["admin", "add-ons"],
+    queryFn: adminApi.addOns,
+    enabled: canSeeAddOns,
+  });
   const quotaPackages = useQuery({
     queryKey: ["admin", "quota-packages"],
     queryFn: adminApi.quotaPackages,
-    enabled: session.can(adminPermissions.quotaPackagesList),
+    enabled: canSeeCapacityPacks,
   });
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["admin", "plans", plan.id] });
@@ -407,11 +426,134 @@ function PlanFeatures({ plan }: { plan: Plan }) {
     (feature) => !features.data?.some((assigned) => assigned.featureCode === feature.code),
   );
   const frozen = plan.status !== "DRAFT";
+  const allPlanFeatures = features.data ?? [];
+  const rows: PlanFeatureCommercialRow[] = allPlanFeatures.map((feature) => {
+    const featureAddOns = (addOns.data ?? []).filter(
+      (addOn) =>
+        addOn.features.some((item) => item.featureCode === feature.featureCode) &&
+        !addOn.blockedPlanCodes.includes(plan.code) &&
+        (addOn.allowedPlanCodes.length === 0 || addOn.allowedPlanCodes.includes(plan.code)) &&
+        addOn.currencyCode === plan.currencyCode &&
+        addOn.billingCycle === plan.billingCycle,
+    );
+    const addOnCodes = new Set(featureAddOns.map((addOn) => addOn.code));
+    const capacityPacks = (quotaPackages.data ?? []).filter(
+      (pkg) =>
+        pkg.featureCode === feature.featureCode &&
+        (pkg.allowedPlanCodes.includes(plan.code) || pkg.allowedAddOnCodes.some((code) => addOnCodes.has(code))),
+    );
+    return {
+      feature,
+      definition: byCode.get(feature.featureCode),
+      addOns: featureAddOns,
+      capacityPacks,
+    };
+  });
+  const columns = planFeatureColumn.columns([
+    planFeatureColumn.display({
+      id: "details",
+      header: "",
+      meta: { headerClassName: "w-12", cellClassName: "w-12 ps-3 pe-0" },
+      cell: ({ row }) => (
+        <DataTableExpander
+          collapseLabel={`Masquer les offres associées à ${row.original.definition?.displayName ?? row.original.feature.featureCode}`}
+          expandLabel={`Afficher les offres associées à ${row.original.definition?.displayName ?? row.original.feature.featureCode}`}
+          row={row}
+        />
+      ),
+    }),
+    planFeatureColumn.display({
+      id: "feature",
+      header: "Fonctionnalité",
+      meta: { cellClassName: "max-w-md whitespace-normal" },
+      cell: ({ row }) => (
+        <>
+          <span className="block font-medium" title={row.original.feature.featureCode}>
+            {row.original.definition?.displayName ?? row.original.feature.featureCode}
+          </span>
+          {row.original.definition?.description ? (
+            <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
+              {row.original.definition.description}
+            </span>
+          ) : null}
+        </>
+      ),
+    }),
+    planFeatureColumn.display({
+      id: "availability",
+      header: "Disponibilité",
+      meta: { cellClassName: "max-w-64 whitespace-normal" },
+      cell: ({ row }) => (
+        <PlanFeatureAvailability
+          addOnState={!canSeeAddOns ? "HIDDEN" : addOns.isPending ? "LOADING" : addOns.isError ? "ERROR" : "READY"}
+          expanded={row.getIsExpanded()}
+          onToggleDetails={row.getToggleExpandedHandler()}
+          row={row.original}
+        />
+      ),
+    }),
+    planFeatureColumn.display({
+      id: "includedLimits",
+      header: "Limites incluses",
+      meta: { cellClassName: "whitespace-normal" },
+      cell: ({ row }) =>
+        row.original.feature.mode === "INCLUDED" ? (
+          quotaLinesOf(row.original.feature, row.original.definition).map((line) => (
+            <span
+              className={
+                line.startsWith("Illimité") || line.startsWith("Aucune")
+                  ? "block text-sm text-muted-foreground"
+                  : "block text-sm tabular-nums"
+              }
+              key={line}
+            >
+              {line}
+            </span>
+          ))
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        ),
+    }),
+    planFeatureColumn.display({
+      id: "capacityPacks",
+      header: "Packs de capacité",
+      meta: { cellClassName: "min-w-56 whitespace-normal" },
+      cell: ({ row }) => (
+        <PlanCapacityPackSummary
+          loadState={
+            !canSeeCapacityPacks
+              ? "HIDDEN"
+              : quotaPackages.isPending
+                ? "LOADING"
+                : quotaPackages.isError
+                  ? "ERROR"
+                  : "READY"
+          }
+          row={row.original}
+        />
+      ),
+    }),
+    planFeatureColumn.display({
+      id: "actions",
+      header: "Actions",
+      meta: { headerClassName: "w-24", cellClassName: "w-24" },
+      cell: ({ row }) => (
+        <PlanFeatureActions
+          available={available}
+          feature={row.original.feature}
+          frozen={frozen}
+          onRemove={() => remove.mutate(row.original.feature.id)}
+          plan={plan}
+          removing={remove.isPending}
+        />
+      ),
+    }),
+  ]);
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
       <div className="flex items-center justify-between gap-4 border-b p-4">
         <div>
-          <h2 className="text-sm font-semibold">Composition</h2>
+          <h2 className="text-sm font-semibold">Contenu du forfait</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {frozen
               ? "La composition d’un forfait publié est figée — créez une révision pour la faire évoluer."
@@ -421,36 +563,14 @@ function PlanFeatures({ plan }: { plan: Plan }) {
         {frozen ? null : <PlanFeatureDialog available={addable} plan={plan} />}
       </div>
       {features.data?.length ? (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Fonctionnalité</TableHead>
-              <TableHead>Mode</TableHead>
-              <TableHead>Quotas de base</TableHead>
-              <TableHead className="w-24">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {features.data.map((feature: PlanFeature) => (
-              <PlanFeatureRow
-                available={available}
-                definition={byCode.get(feature.featureCode)}
-                extendedBy={(quotaPackages.data ?? []).filter(
-                  (pkg) =>
-                    pkg.featureCode === feature.featureCode &&
-                    pkg.status === "ACTIVE" &&
-                    pkg.allowedPlanCodes.includes(plan.code),
-                )}
-                feature={feature}
-                frozen={frozen}
-                key={feature.id}
-                onRemove={() => remove.mutate(feature.id)}
-                plan={plan}
-                removing={remove.isPending}
-              />
-            ))}
-          </TableBody>
-        </Table>
+        <DataTable
+          columns={columns}
+          data={rows}
+          getRowCanExpand={(row) => row.addOns.length > 0 || row.capacityPacks.length > 0}
+          getRowId={(row) => row.feature.id}
+          renderExpandedRow={(row) => <PlanFeatureOffers row={row} />}
+          rowHeightPx={76}
+        />
       ) : (
         <EmptyState description="Ajoutez les capacités comprises dans ce forfait." title="Aucune fonctionnalité" />
       )}
@@ -458,28 +578,180 @@ function PlanFeatures({ plan }: { plan: Plan }) {
   );
 }
 
-function PlanFeatureRow({
+type ExtensionLoadState = "READY" | "LOADING" | "ERROR" | "HIDDEN";
+
+function PlanFeatureAvailability({
+  row,
+  addOnState,
+  expanded,
+  onToggleDetails,
+}: {
+  row: PlanFeatureCommercialRow;
+  addOnState: ExtensionLoadState;
+  expanded: boolean;
+  onToggleDetails: () => void;
+}) {
+  const modeLabel = featureModePresentation[row.feature.mode]?.label ?? row.feature.mode;
+  if (row.feature.mode === "INCLUDED") {
+    return (
+      <StatusBadge dot={false} tone="success">
+        {modeLabel}
+      </StatusBadge>
+    );
+  }
+  if (row.feature.mode !== "OPTIONAL_ADD_ON") {
+    return (
+      <span
+        className={row.feature.mode === "BLOCKED_FOR_PLAN" ? "text-sm text-muted-foreground" : "text-sm font-medium"}
+      >
+        {modeLabel}
+      </span>
+    );
+  }
+
+  if (addOnState === "LOADING") return <span className="text-sm text-muted-foreground">Vérification…</span>;
+  if (addOnState === "ERROR") return <span className="text-sm text-destructive">Vérification impossible</span>;
+  if (addOnState === "HIDDEN") return <span className="text-sm text-muted-foreground">{modeLabel}</span>;
+
+  const names = row.addOns.map((addOn) => addOn.name);
+  const label = addOnAvailabilityLabel(names);
+  if (!names.length) return <span className="text-sm font-medium text-warning">{label}</span>;
+
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 text-sm">
+      <span className="text-muted-foreground">Via</span>
+      <ReferenceTagButton
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "Masquer" : "Afficher"} les add-ons associés à ${row.definition?.displayName ?? row.feature.featureCode}`}
+        onClick={onToggleDetails}
+        title={names.join(", ")}
+      >
+        <span className="truncate">{label.replace(/^Via /, "")}</span>
+      </ReferenceTagButton>
+    </span>
+  );
+}
+
+function PlanCapacityPackSummary({ row, loadState }: { row: PlanFeatureCommercialRow; loadState: ExtensionLoadState }) {
+  if (row.feature.mode === "BLOCKED_FOR_PLAN") return <span className="text-sm text-muted-foreground">—</span>;
+  if (loadState === "LOADING") return <span className="text-sm text-muted-foreground">Chargement…</span>;
+  if (loadState === "ERROR") return <span className="text-sm text-destructive">Chargement impossible</span>;
+  if (loadState === "HIDDEN") return <span className="text-sm text-muted-foreground">Non accessible</span>;
+  if (!row.capacityPacks.length) return <span className="text-sm text-muted-foreground">—</span>;
+
+  return (
+    <ul className="space-y-1" title={row.capacityPacks.map((pkg) => pkg.name).join(", ")}>
+      {row.capacityPacks.slice(0, 2).map((pkg) => (
+        <li className="truncate text-sm" key={pkg.id}>
+          {pkg.name}
+        </li>
+      ))}
+      {row.capacityPacks.length > 2 ? (
+        <li className="text-xs text-muted-foreground">+{row.capacityPacks.length - 2} autres</li>
+      ) : null}
+    </ul>
+  );
+}
+
+function PlanFeatureOffers({ row }: { row: PlanFeatureCommercialRow }) {
+  const unitOf = (resource: string) =>
+    row.definition?.quotaSchema.find((slot) => slot.resource === resource)?.unit ?? resource;
+  return (
+    <div className="grid px-14 py-5 md:grid-cols-2">
+      <section className="min-w-0 md:pe-8">
+        <div className="flex items-center justify-between gap-4 border-b pb-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add-ons</h3>
+          <span className="text-xs tabular-nums text-muted-foreground">{row.addOns.length}</span>
+        </div>
+        {row.addOns.length ? (
+          <ul className="divide-y">
+            {row.addOns.map((addOn) => {
+              const addOnFeature = addOn.features.find((feature) => feature.featureCode === row.feature.featureCode);
+              return (
+                <li
+                  className="grid gap-x-4 gap-y-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                  key={addOn.id}
+                >
+                  <div className="min-w-0">
+                    <Link className="font-medium underline-offset-4 hover:underline" to={`/admin/add-ons/${addOn.id}`}>
+                      {addOn.name}
+                    </Link>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {money(addOn.price, addOn.currencyCode)} / {cycleText[addOn.billingCycle]}
+                      {addOnFeature?.quotaConfigs.length
+                        ? ` · ${addOnFeature.quotaConfigs
+                            .map((quota) =>
+                              quota.mode === "UNLIMITED" || quota.limit === null
+                                ? `Illimité — ${unitOf(quota.resource)}`
+                                : `${quota.limit} ${unitOf(quota.resource)}`,
+                            )
+                            .join(" · ")}`
+                        : ""}
+                    </p>
+                  </div>
+                  <StatusText className="sm:justify-self-end" tone={planTone[addOn.status]}>
+                    {statusText[addOn.status]}
+                  </StatusText>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="py-4 text-sm text-muted-foreground">Aucun add-on associé</p>
+        )}
+      </section>
+      <section className="min-w-0 border-t pt-5 md:border-t-0 md:border-s md:ps-8 md:pt-0">
+        <div className="flex items-center justify-between gap-4 border-b pb-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Packs de capacité</h3>
+          <span className="text-xs tabular-nums text-muted-foreground">{row.capacityPacks.length}</span>
+        </div>
+        {row.capacityPacks.length ? (
+          <ul className="divide-y">
+            {row.capacityPacks.map((pkg) => (
+              <li className="grid gap-x-4 gap-y-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center" key={pkg.id}>
+                <div className="min-w-0">
+                  <Link
+                    className="font-medium underline-offset-4 hover:underline"
+                    to={`/admin/quota-packages/${pkg.id}`}
+                  >
+                    {pkg.name}
+                  </Link>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    +{pkg.capacityPerUnit} {unitOf(pkg.resource)} · {money(pkg.price, pkg.currencyCode)} /{" "}
+                    {cycleText[pkg.billingCycle]}
+                  </p>
+                </div>
+                <StatusText className="sm:justify-self-end" tone={planTone[pkg.status]}>
+                  {statusText[pkg.status]}
+                </StatusText>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="py-4 text-sm text-muted-foreground">Aucun pack de capacité</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PlanFeatureActions({
   feature,
-  definition,
   plan,
   available,
-  extendedBy,
   frozen,
   removing,
   onRemove,
 }: {
   feature: PlanFeature;
-  definition: RegistryFeature | undefined;
   plan: Plan;
   available: RegistryFeature[];
-  extendedBy: QuotaPackage[];
   frozen: boolean;
   removing: boolean;
   onRemove: () => void;
 }) {
   const session = useAdminSession();
   const [editOpen, setEditOpen] = useState(false);
-  const mode = featureModePresentation[feature.mode] ?? { label: feature.mode, tone: "neutral" as StatusTone };
   const editBlockedBy = frozen
     ? "La composition ne se modifie qu’à l’état brouillon — créez une révision"
     : !session.can(adminPermissions.plansUpdateFeature)
@@ -493,76 +765,35 @@ function PlanFeatureRow({
         ? "Retrait en cours…"
         : null;
   return (
-    <TableRow>
-      <TableCell className="max-w-md whitespace-normal">
-        <span className="block font-medium" title={feature.featureCode}>
-          {definition?.displayName ?? feature.featureCode}
-        </span>
-        {definition?.description ? (
-          <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{definition.description}</span>
-        ) : null}
-      </TableCell>
-      <TableCell>
-        <StatusBadge tone={mode.tone}>{mode.label}</StatusBadge>
-      </TableCell>
-      <TableCell className="whitespace-normal">
-        {feature.mode !== "INCLUDED" ? (
-          <span className="text-sm text-muted-foreground">Sans objet pour ce mode</span>
-        ) : (
-          <>
-            {quotaLinesOf(feature, definition).map((line) => (
-              <span
-                className={
-                  line.startsWith("Illimité") || line.startsWith("Sans")
-                    ? "block text-sm text-muted-foreground"
-                    : "block text-sm tabular-nums"
-                }
-                key={line}
-              >
-                {line}
-              </span>
-            ))}
-            {extendedBy.length ? (
-              <span
-                className="mt-1 block text-xs text-muted-foreground"
-                title={extendedBy.map((pkg) => pkg.name).join(", ")}
-              >
-                Extensible par {extendedBy.length} paquet{extendedBy.length > 1 ? "s" : ""} de quotas
-              </span>
-            ) : null}
-          </>
-        )}
-      </TableCell>
-      <TableCell>
-        <span className="flex items-center gap-0.5">
-          <RowAction
-            disabled={editBlockedBy !== null}
-            disabledLabel={editBlockedBy ?? undefined}
-            icon={<PencilSimpleIcon />}
-            label="Configurer la fonctionnalité"
-            onClick={() => setEditOpen(true)}
-          />
-          <RowAction
-            disabled={removeBlockedBy !== null}
-            disabledLabel={removeBlockedBy ?? undefined}
-            icon={<TrashIcon />}
-            label="Retirer du forfait"
-            onClick={onRemove}
-            tone="danger"
-          />
-        </span>
-        {editOpen ? (
-          <PlanFeatureDialog
-            available={available}
-            item={feature}
-            onOpenChange={(next) => !next && setEditOpen(false)}
-            open
-            plan={plan}
-            withTrigger={false}
-          />
-        ) : null}
-      </TableCell>
-    </TableRow>
+    <>
+      <span className="flex items-center gap-0.5">
+        <RowAction
+          disabled={editBlockedBy !== null}
+          disabledLabel={editBlockedBy ?? undefined}
+          icon={<PencilSimpleIcon />}
+          label="Configurer la fonctionnalité"
+          onClick={() => setEditOpen(true)}
+        />
+        <RowAction
+          disabled={removeBlockedBy !== null}
+          disabledLabel={removeBlockedBy ?? undefined}
+          icon={<TrashIcon />}
+          label="Retirer du forfait"
+          onClick={onRemove}
+          tone="danger"
+        />
+      </span>
+      {editOpen ? (
+        <PlanFeatureDialog
+          available={available}
+          item={feature}
+          onOpenChange={(next) => !next && setEditOpen(false)}
+          open
+          plan={plan}
+          withTrigger={false}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -783,10 +1014,12 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
   if (plan.isLoading) return <LoadingState />;
   if (plan.isError || !plan.data) return <ErrorState retry={() => void plan.refetch()} />;
   const data = plan.data;
+  const codeRepeatsName = data.code.trim().toLocaleLowerCase() === data.name.trim().toLocaleLowerCase();
+  const canRevise = data.status !== "DRAFT" && data.status !== "ARCHIVED";
   return (
-    <div className="space-y-7">
-      <div>
-        <Button asChild size="sm" variant="ghost">
+    <div className="space-y-5">
+      <div className="space-y-3">
+        <Button asChild className="-ms-2 text-muted-foreground" size="sm" variant="ghost">
           <Link to="/admin/plans">
             <ArrowLeftIcon className="rtl:rotate-180" />
             Forfaits
@@ -795,27 +1028,53 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
         <PageHeader
           actions={
             <>
-              <PlanFormDialog mode="edit" source={data} trigger={<Button variant="outline">Modifier</Button>} />
-              {data.status !== "DRAFT" && data.status !== "ARCHIVED" ? (
-                <PlanFormDialog mode="revise" source={data} trigger={<Button variant="outline">Réviser</Button>} />
-              ) : null}
+              <PlanFormDialog
+                mode="edit"
+                source={data}
+                trigger={
+                  <Button size="sm" variant="ghost">
+                    <PencilSimpleIcon />
+                    Modifier
+                  </Button>
+                }
+              />
               {session.can(adminPermissions.plansDuplicate) ? (
-                <Button asChild variant="outline">
+                <Button asChild size="sm" variant="ghost">
                   <Link to={`/admin/plans/new?from=${data.id}`}>
                     <CopyIcon />
                     Dupliquer
                   </Link>
                 </Button>
               ) : null}
+              {canRevise ? (
+                <PlanFormDialog
+                  mode="revise"
+                  source={data}
+                  trigger={
+                    <Button size="sm">
+                      <GitBranchIcon />
+                      Réviser
+                    </Button>
+                  }
+                />
+              ) : null}
             </>
           }
           description={
-            <span className="flex items-center gap-2">
-              <code>{data.code}</code>
-              <StatusBadge tone={planTone[data.status]}>{statusText[data.status]}</StatusBadge>
+            <span className="flex items-center gap-2 text-xs">
+              {!codeRepeatsName ? <code>{data.code}</code> : null}
+              {!codeRepeatsName ? <span aria-hidden="true">·</span> : null}
+              <span>Révision {data.revisionNumber}</span>
             </span>
           }
-          title={data.name}
+          title={
+            <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span>{data.name}</span>
+              <StatusText className="text-sm tracking-normal" tone={planTone[data.status]}>
+                {statusText[data.status]}
+              </StatusText>
+            </span>
+          }
         />
       </div>
       <SectionTabs
@@ -1055,9 +1314,11 @@ function PlanCard({ plan }: { plan: Plan }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate font-semibold">{plan.name}</h3>
-          <code className="mt-0.5 block truncate text-xs text-muted-foreground" dir="ltr">
-            {plan.code}
-          </code>
+          {plan.code.toUpperCase() !== plan.name.toUpperCase() ? (
+            <code className="mt-0.5 block truncate text-xs text-muted-foreground" dir="ltr">
+              {plan.code}
+            </code>
+          ) : null}
         </div>
         <StatusBadge tone={planTone[plan.status]}>{statusText[plan.status]}</StatusBadge>
       </div>

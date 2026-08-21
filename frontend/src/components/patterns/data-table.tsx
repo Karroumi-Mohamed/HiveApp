@@ -1,13 +1,15 @@
-import { CaretDownIcon, CaretUpDownIcon, CaretUpIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretRightIcon, CaretUpDownIcon, CaretUpIcon } from "@phosphor-icons/react";
 import type { RowData, RowSelectionState, SortingState, TableFeatures } from "@tanstack/react-table";
 import {
   createColumnHelper,
+  createExpandedRowModel,
+  rowExpandingFeature,
   rowSelectionFeature,
   rowSortingFeature,
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +29,12 @@ declare module "@tanstack/table-core" {
  * client-side notion of "the current page" that could disagree with the request that produced
  * the rows.
  */
-export const dataTableFeatures = tableFeatures({ rowSortingFeature, rowSelectionFeature });
+export const dataTableFeatures = tableFeatures({
+  rowSortingFeature,
+  rowSelectionFeature,
+  rowExpandingFeature,
+  expandedRowModel: createExpandedRowModel(),
+});
 
 /** Column helper bound to the shared feature set. Use this to declare a table's columns. */
 export function createDataColumns<T extends RowData>() {
@@ -67,6 +74,38 @@ export function SortHeader({
   );
 }
 
+/**
+ * Explicit disclosure control for a detail row. It is deliberately a separate display column:
+ * the shared table never assumes that the first data cell is safe to make clickable.
+ */
+export function DataTableExpander({
+  row,
+  expandLabel,
+  collapseLabel,
+}: {
+  row: {
+    getCanExpand: () => boolean;
+    getIsExpanded: () => boolean;
+    getToggleExpandedHandler: () => () => void;
+  };
+  expandLabel: string;
+  collapseLabel: string;
+}) {
+  if (!row.getCanExpand()) return null;
+  const expanded = row.getIsExpanded();
+  return (
+    <button
+      aria-expanded={expanded}
+      aria-label={expanded ? collapseLabel : expandLabel}
+      className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={row.getToggleExpandedHandler()}
+      type="button"
+    >
+      <CaretRightIcon className={cn("size-4 transition-transform", expanded && "rotate-90")} />
+    </button>
+  );
+}
+
 export type DataTableProps<T extends RowData> = {
   columns: Parameters<ReturnType<typeof createDataColumns<T>>["columns"]>[0];
   data: T[];
@@ -85,6 +124,10 @@ export type DataTableProps<T extends RowData> = {
    * Pass undefined when nothing is selected and the row disappears.
    */
   bulkRow?: Record<string, ReactNode>;
+  /** Determines which rows expose a disclosure control. Defaults to every row when details exist. */
+  getRowCanExpand?: (row: T) => boolean;
+  /** Renders a full-width detail panel directly after an expanded row. */
+  renderExpandedRow?: (row: T) => ReactNode;
 };
 
 export function DataTable<T extends RowData>({
@@ -99,6 +142,8 @@ export function DataTable<T extends RowData>({
   isLoading = false,
   emptyState,
   bulkRow,
+  getRowCanExpand,
+  renderExpandedRow,
 }: DataTableProps<T>) {
   const table = useTable({
     features: dataTableFeatures,
@@ -108,6 +153,9 @@ export function DataTable<T extends RowData>({
     // Sorting is applied by the server across the whole result set. Letting the table sort as
     // well would reorder only the rows on screen and call the result sorted.
     manualSorting: true,
+    ...(renderExpandedRow
+      ? { getRowCanExpand: (row: { original: T }) => getRowCanExpand?.(row.original) ?? true }
+      : {}),
     ...(sorting ? { state: { sorting }, onSortingChange } : {}),
     ...(rowSelection ? { state: { rowSelection }, onRowSelectionChange } : {}),
   } as never);
@@ -130,17 +178,22 @@ export function DataTable<T extends RowData>({
       </TableHeader>
       <TableBody>
         {rows.map((row) => (
-          <TableRow
-            data-state={row.getIsSelected() ? "selected" : undefined}
-            key={row.id}
-            style={{ height: rowHeightPx }}
-          >
-            {row.getAllCells().map((cell) => (
-              <TableCell className={cell.column.columnDef.meta?.cellClassName} key={cell.id}>
-                <table.FlexRender cell={cell} />
-              </TableCell>
-            ))}
-          </TableRow>
+          <Fragment key={row.id}>
+            <TableRow data-state={row.getIsSelected() ? "selected" : undefined} style={{ height: rowHeightPx }}>
+              {row.getAllCells().map((cell) => (
+                <TableCell className={cell.column.columnDef.meta?.cellClassName} key={cell.id}>
+                  <table.FlexRender cell={cell} />
+                </TableCell>
+              ))}
+            </TableRow>
+            {renderExpandedRow && row.getIsExpanded() ? (
+              <TableRow className="bg-muted/50 hover:bg-muted/50">
+                <TableCell className="p-0 first:ps-0 last:pe-0" colSpan={leafColumns.length}>
+                  {renderExpandedRow(row.original as T)}
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </Fragment>
         ))}
         {bulkRow ? (
           // Rendered inside the same table so its cells inherit the column widths exactly. A

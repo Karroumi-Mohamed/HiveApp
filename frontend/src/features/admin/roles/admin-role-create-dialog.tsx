@@ -96,9 +96,9 @@ export function AdminRoleCreateDialog({ trigger }: { trigger: ReactNode }) {
   return (
     <Dialog onOpenChange={(next) => (next ? setOpen(true) : close())} open={open}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 sm:max-w-4xl">
         {!source ? (
-          <>
+          <div className="overflow-y-auto p-6">
             <DialogHeader>
               <DialogTitle>Créer un rôle</DialogTitle>
               <DialogDescription>Commencez vide ou utilisez un préréglage HiveApp.</DialogDescription>
@@ -135,10 +135,13 @@ export function AdminRoleCreateDialog({ trigger }: { trigger: ReactNode }) {
                 </button>
               ))}
             </div>
-          </>
+          </div>
         ) : (
-          <form className="space-y-6" onSubmit={submit}>
-            <DialogHeader>
+          <form
+            className="grid h-[min(52rem,calc(100dvh-2rem))] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto]"
+            onSubmit={submit}
+          >
+            <DialogHeader className="px-6 pt-6 pb-5">
               <button
                 className="mb-1 inline-flex min-h-11 w-fit items-center gap-2 rounded-md pe-3 text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => setSource(null)}
@@ -151,7 +154,7 @@ export function AdminRoleCreateDialog({ trigger }: { trigger: ReactNode }) {
                 Définissez le nom, la description et les permissions du nouveau rôle.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 px-6 pb-5 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="new-admin-role-name">Nom</Label>
                 <Input
@@ -177,25 +180,31 @@ export function AdminRoleCreateDialog({ trigger }: { trigger: ReactNode }) {
                 />
               </div>
             </div>
-            <AdminPermissionEditor
-              disabled={permissions.isLoading || permissions.isError}
-              onChange={setSelectedIds}
-              permissions={permissions.data ?? (source.kind === "preset" ? source.preset.permissions : [])}
-              selectedIds={selectedIds}
-            />
-            {save.isError && !nameConflict ? (
-              <p className="text-sm text-destructive">
-                {save.error instanceof ApiError ? save.error.message : "Création impossible."}
-              </p>
-            ) : null}
-            <DialogFooter className="sticky bottom-0 -mx-6 border-t bg-background px-6 py-4">
-              <Button onClick={close} type="button" variant="outline">
-                Annuler
-              </Button>
-              <Button disabled={save.isPending || !name.trim()} type="submit">
-                <PlusIcon /> {save.isPending ? "Création…" : "Créer le rôle"}
-              </Button>
-            </DialogFooter>
+            <div className="min-h-0 overflow-hidden border-t px-6 pt-4">
+              <AdminPermissionEditor
+                className="flex h-full min-h-0 flex-col gap-4 space-y-0"
+                disabled={permissions.isLoading || permissions.isError}
+                listClassName="min-h-0 flex-1 overflow-y-auto overscroll-contain pe-1"
+                onChange={setSelectedIds}
+                permissions={permissions.data ?? (source.kind === "preset" ? source.preset.permissions : [])}
+                selectedIds={selectedIds}
+              />
+            </div>
+            <div className="bg-background">
+              {save.isError && !nameConflict ? (
+                <p className="border-t px-6 pt-3 text-sm text-destructive">
+                  {save.error instanceof ApiError ? save.error.message : "Création impossible."}
+                </p>
+              ) : null}
+              <DialogFooter className="border-t px-6 py-4">
+                <Button onClick={close} type="button" variant="outline">
+                  Annuler
+                </Button>
+                <Button disabled={save.isPending || !name.trim()} type="submit">
+                  <PlusIcon /> {save.isPending ? "Création…" : "Créer le rôle"}
+                </Button>
+              </DialogFooter>
+            </div>
           </form>
         )}
       </DialogContent>

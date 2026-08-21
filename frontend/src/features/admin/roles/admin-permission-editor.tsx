@@ -4,6 +4,7 @@ import type { AdminPermission } from "@/api/contracts";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 const ACTION_LABELS: Record<string, string> = {
   archive: "Archiver",
@@ -77,12 +78,16 @@ export function AdminPermissionEditor({
   selectedIds,
   editableIds,
   disabled = false,
+  className,
+  listClassName,
   onChange,
 }: {
   permissions: AdminPermission[];
   selectedIds: ReadonlySet<string>;
   editableIds?: ReadonlySet<string>;
   disabled?: boolean;
+  className?: string;
+  listClassName?: string;
   onChange: (next: Set<string>) => void;
 }) {
   const [search, setSearch] = useState("");
@@ -131,9 +136,9 @@ export function AdminPermissionEditor({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="relative w-full lg:max-w-sm">
+    <div className={cn("space-y-4", className)}>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative min-w-[min(100%,18rem)] flex-1">
           <MagnifyingGlassIcon className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             aria-label="Filtrer les permissions"
@@ -144,7 +149,7 @@ export function AdminPermissionEditor({
           />
         </div>
         <Select onValueChange={setResourceFilter} value={resourceFilter}>
-          <SelectTrigger aria-label="Domaine de permission" className="w-full lg:w-64">
+          <SelectTrigger aria-label="Domaine de permission" className="w-full sm:w-60">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -156,7 +161,7 @@ export function AdminPermissionEditor({
             ))}
           </SelectContent>
         </Select>
-        <span className="text-sm tabular-nums text-muted-foreground lg:ms-auto">
+        <span className="shrink-0 whitespace-nowrap text-sm tabular-nums text-muted-foreground sm:ms-auto">
           {selectedIds.size} sélectionnée(s)
         </span>
       </div>
@@ -164,7 +169,7 @@ export function AdminPermissionEditor({
       {groups.length === 0 ? (
         <p className="border-y py-8 text-center text-sm text-muted-foreground">Aucune permission correspondante.</p>
       ) : (
-        <div className="divide-y border-y">
+        <div className={cn("divide-y border-y", listClassName)}>
           {groups.map(([resource, entries]) => {
             const isCollapsed = collapsed.has(resource);
             const selectedCount = entries.filter((permission) => selectedIds.has(permission.id)).length;

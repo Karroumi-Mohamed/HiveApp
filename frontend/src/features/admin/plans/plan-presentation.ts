@@ -27,8 +27,15 @@ export const selectableCycles: BillingCycle[] = ["MONTHLY", "YEARLY"];
 
 export const featureModePresentation: Record<string, { label: string; tone: StatusTone }> = {
   INCLUDED: { label: "Incluse", tone: "success" },
-  OPTIONAL_ADD_ON: { label: "Add-on optionnel", tone: "info" },
-  BLOCKED_FOR_PLAN: { label: "Bloquée", tone: "neutral" },
+  OPTIONAL_ADD_ON: { label: "Disponible en add-on", tone: "info" },
+  BLOCKED_FOR_PLAN: { label: "Indisponible", tone: "neutral" },
+};
+
+/** Compact Plan-table wording; the expanded row remains the source of the complete list. */
+export const addOnAvailabilityLabel = (names: string[]) => {
+  const [first] = names;
+  if (!first) return "Aucun add-on associé";
+  return names.length === 1 ? `Via ${first}` : `Via ${first} +${names.length - 1}`;
 };
 
 export const money = (value: number, currency: string) =>

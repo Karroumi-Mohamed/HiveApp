@@ -94,7 +94,7 @@ export function shouldShowNoCommercialExtensions(input: {
 export function quotaLinesOf(feature: PlanFeature, definition: RegistryFeature | undefined): string[] {
   if (feature.mode !== "INCLUDED") return [];
   const slots = definition?.quotaSchema ?? [];
-  if (slots.length === 0) return ["Sans quota applicable"];
+  if (slots.length === 0) return ["Aucune limite de capacité"];
   return slots.map((slot) => {
     const label = slot.unit || slot.resource;
     const config = feature.quotaConfigs.find((entry) => entry.resource === slot.resource);
