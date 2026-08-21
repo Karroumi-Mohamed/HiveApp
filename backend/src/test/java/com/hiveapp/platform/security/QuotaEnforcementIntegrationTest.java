@@ -8,7 +8,7 @@ import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
-import com.hiveapp.platform.registry.definition.WorkspaceFeature;
+import com.hiveapp.platform.registry.definition.CompanyFeature;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -269,7 +269,7 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
     private String createCompanyQuotaPackage(String adminToken) throws Exception {
         String code = "PRO_COMPANY_1_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
         var request = new CreateQuotaPackageRequest(
-                code, "One additional company", null, WorkspaceFeature.CODE, WorkspaceFeature.COMPANIES,
+                code, "One additional company", null, CompanyFeature.CODE, CompanyFeature.COMPANIES,
                 1, new java.math.BigDecimal("5.00"), "USD", BillingCycle.MONTHLY,
                 false, 1, java.util.Set.of("PRO"), java.util.Set.of());
         String response = mockMvc.perform(post("/api/admin/quota-packages")

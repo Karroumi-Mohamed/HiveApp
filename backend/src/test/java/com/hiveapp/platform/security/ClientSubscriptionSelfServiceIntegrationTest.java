@@ -7,7 +7,7 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
-import com.hiveapp.platform.registry.definition.WorkspaceFeature;
+import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
@@ -60,7 +60,7 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andExpect(jsonPath("$.currentSubscription.currentPriceCurrencyCode").value("USD"))
                 .andExpect(jsonPath("$.plans[*].currencyCode", everyItem(org.hamcrest.Matchers.is("USD"))))
                 .andExpect(jsonPath(
-                        "$.plans[?(@.code == 'PRO')].features[?(@.featureCode == 'platform.workspace')]"
+                        "$.plans[?(@.code == 'PRO')].features[?(@.featureCode == 'platform.staff')]"
                                 + ".quotas[?(@.slot.resource == 'members')].mode",
                         hasItem("FINITE")))
                 .andExpect(jsonPath("$.plans[0].features[*].featureCode").value(not(containsString("platform.plans"))))
@@ -129,14 +129,12 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         String token = registerClientAndGetToken();
         UUID accountId = currentAccountId(token);
         var free = planRepository.findByCode("FREE").orElseThrow();
-        var workspace = planFeatureRepository
-                .findByPlanIdAndFeature_Code(free.getId(), WorkspaceFeature.CODE).orElseThrow();
-        List<QuotaLimitEntry> original = List.copyOf(workspace.getQuotaConfigs());
+        var staff = planFeatureRepository
+                .findByPlanIdAndFeature_Code(free.getId(), StaffFeature.CODE).orElseThrow();
+        List<QuotaLimitEntry> original = List.copyOf(staff.getQuotaConfigs());
         try {
-            workspace.setQuotaConfigs(List.of(
-                    new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 0L),
-                    new QuotaLimitEntry(WorkspaceFeature.COMPANIES, 1L)));
-            planFeatureRepository.saveAndFlush(workspace);
+            staff.setQuotaConfigs(List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 0L)));
+            planFeatureRepository.saveAndFlush(staff);
             var request = new SubscriptionChangeRequest("FREE", Set.of(), List.of());
 
             preview(token, request)
@@ -156,8 +154,8 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                     .extracting(subscription -> subscription.getEntitlementSnapshot().planCode())
                     .isEqualTo("FREE");
         } finally {
-            workspace.setQuotaConfigs(original);
-            planFeatureRepository.saveAndFlush(workspace);
+            staff.setQuotaConfigs(original);
+            planFeatureRepository.saveAndFlush(staff);
         }
     }
 

@@ -9,7 +9,9 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.registry.definition.B2bFeature;
+import com.hiveapp.platform.registry.definition.CompanyFeature;
 import com.hiveapp.platform.registry.definition.OrganizationFeature;
+import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.definition.WorkspaceRolesFeature;
 import com.hiveapp.shared.quota.QuotaLimitMode;
@@ -53,11 +55,23 @@ class CommercialCatalogSeederIntegrationTest {
         var flexWorkspace = planFeatureRepository
                 .findByPlanIdAndFeature_Code(flex.getId(), WorkspaceFeature.CODE)
                 .orElseThrow();
-        assertThat(flexWorkspace.getQuotaConfigs())
+        assertThat(flexWorkspace.getQuotaConfigs()).isEmpty();
+
+        var flexStaff = planFeatureRepository
+                .findByPlanIdAndFeature_Code(flex.getId(), StaffFeature.CODE)
+                .orElseThrow();
+        assertThat(flexStaff.getQuotaConfigs())
                 .extracting(quota -> quota.resource(), quota -> quota.mode(), quota -> quota.limit())
-                .containsExactlyInAnyOrder(
-                        org.assertj.core.groups.Tuple.tuple(WorkspaceFeature.MEMBERS, QuotaLimitMode.FINITE, 5L),
-                        org.assertj.core.groups.Tuple.tuple(WorkspaceFeature.COMPANIES, QuotaLimitMode.FINITE, 2L));
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(StaffFeature.MEMBERS, QuotaLimitMode.FINITE, 5L));
+
+        var flexCompanies = planFeatureRepository
+                .findByPlanIdAndFeature_Code(flex.getId(), CompanyFeature.CODE)
+                .orElseThrow();
+        assertThat(flexCompanies.getQuotaConfigs())
+                .extracting(quota -> quota.resource(), quota -> quota.mode(), quota -> quota.limit())
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(CompanyFeature.COMPANIES, QuotaLimitMode.FINITE, 2L));
 
         assertThat(planFeatureRepository.findByPlanIdAndFeature_Code(flex.getId(), B2bFeature.CODE))
                 .get()
@@ -94,6 +108,8 @@ class CommercialCatalogSeederIntegrationTest {
             assertThat(item.getAllowedPlanCodes()).isEqualTo(specification.allowedPlanCodes());
             assertThat(item.getAllowedAddOnCodes()).isEqualTo(Set.of());
             assertThat(item.getCapacityPerUnit()).isEqualTo(specification.capacityPerUnit());
+            assertThat(item.getFeature().getCode()).isEqualTo(specification.featureCode());
+            assertThat(item.getResource()).isEqualTo(specification.resource());
         }
     }
 }

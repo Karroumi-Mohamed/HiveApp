@@ -117,8 +117,10 @@ public class PlanSeeder {
     private void seedComposition(Plan plan, SeedPlan specification, Map<String, Feature> features) {
         for (String featureCode : BASELINE_FEATURE_CODES) {
             Feature feature = features.get(featureCode);
-            if (WorkspaceFeature.CODE.equals(featureCode)) {
-                seedWorkspace(plan, feature, specification);
+            if (StaffFeature.CODE.equals(featureCode)) {
+                seedStaff(plan, feature, specification);
+            } else if (CompanyFeature.CODE.equals(featureCode)) {
+                seedCompanies(plan, feature, specification);
             } else {
                 PlanFeatureMode mode = modeFor(specification, featureCode);
                 assign(plan, feature, mode, List.of());
@@ -133,10 +135,14 @@ public class PlanSeeder {
         return PlanFeatureMode.INCLUDED;
     }
 
-    private void seedWorkspace(Plan plan, Feature feature, SeedPlan specification) {
-        var memberEntry = new QuotaLimitEntry(WorkspaceFeature.MEMBERS, specification.members());
-        var companyEntry = new QuotaLimitEntry(WorkspaceFeature.COMPANIES, specification.companies());
-        assign(plan, feature, PlanFeatureMode.INCLUDED, List.of(memberEntry, companyEntry));
+    private void seedStaff(Plan plan, Feature feature, SeedPlan specification) {
+        var memberEntry = new QuotaLimitEntry(StaffFeature.MEMBERS, specification.members());
+        assign(plan, feature, PlanFeatureMode.INCLUDED, List.of(memberEntry));
+    }
+
+    private void seedCompanies(Plan plan, Feature feature, SeedPlan specification) {
+        var companyEntry = new QuotaLimitEntry(CompanyFeature.COMPANIES, specification.companies());
+        assign(plan, feature, PlanFeatureMode.INCLUDED, List.of(companyEntry));
     }
 
     private void assign(

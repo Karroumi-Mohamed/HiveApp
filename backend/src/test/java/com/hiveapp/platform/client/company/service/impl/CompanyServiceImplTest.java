@@ -11,7 +11,7 @@ import com.hiveapp.platform.client.company.service.CompanyCountryChangeGuard;
 import com.hiveapp.platform.client.company.service.CompanyReactivationValidator;
 import com.hiveapp.platform.client.company.service.OrganizationInitializer;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
-import com.hiveapp.platform.registry.definition.WorkspaceFeature;
+import com.hiveapp.platform.registry.definition.CompanyFeature;
 import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
@@ -81,7 +81,7 @@ class CompanyServiceImplTest {
         ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
         verify(quotaEnforcer).check(
                 any(FeatureDefinition.class),
-                eq(WorkspaceFeature.COMPANIES),
+                eq(CompanyFeature.COMPANIES),
                 eq(accountId),
                 usageCaptor.capture());
         assertThat(usageCaptor.getValue().getAsLong()).isEqualTo(1L);
@@ -162,7 +162,7 @@ class CompanyServiceImplTest {
         ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
         verify(quotaEnforcer).check(
                 any(FeatureDefinition.class),
-                eq(WorkspaceFeature.COMPANIES),
+                eq(CompanyFeature.COMPANIES),
                 eq(accountId),
                 usageCaptor.capture());
         assertThat(usageCaptor.getValue().getAsLong()).isEqualTo(1L);

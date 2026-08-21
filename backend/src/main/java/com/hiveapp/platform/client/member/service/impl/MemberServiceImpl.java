@@ -26,7 +26,6 @@ import com.hiveapp.platform.client.role.domain.repository.RoleRepository;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.definition.StaffFeature;
-import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureService;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.identity.service.IdentityService;
@@ -125,8 +124,8 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         }
 
         quotaEnforcer.check(
-                WorkspaceFeature.definition(),
-                WorkspaceFeature.MEMBERS,
+                StaffFeature.definition(),
+                StaffFeature.MEMBERS,
                 accountId,
                 () -> memberRepository.countByAccountIdAndIsActiveTrue(accountId)
         );
@@ -221,8 +220,8 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
             throw new InvalidStateException("Member is already active");
         }
         quotaEnforcer.check(
-                WorkspaceFeature.definition(),
-                WorkspaceFeature.MEMBERS,
+                StaffFeature.definition(),
+                StaffFeature.MEMBERS,
                 accountId,
                 () -> memberRepository.countByAccountIdAndIsActiveTrue(accountId)
         );

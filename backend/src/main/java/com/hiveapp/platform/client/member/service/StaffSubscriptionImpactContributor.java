@@ -6,6 +6,7 @@ import com.hiveapp.platform.registry.definition.StaffFeature;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.OptionalLong;
 import java.util.UUID;
 
 @Component
@@ -24,5 +25,13 @@ public class StaffSubscriptionImpactContributor implements SubscriptionImpactCon
         return new FeatureUsage(
                 memberRepository.countByAccountIdAndIsActiveTrueAndIsOwnerFalse(accountId),
                 "Active non-owner members require staff management access.");
+    }
+
+    @Override
+    public OptionalLong quotaUsage(UUID accountId, String resource) {
+        if (StaffFeature.MEMBERS.equals(resource)) {
+            return OptionalLong.of(memberRepository.countByAccountIdAndIsActiveTrue(accountId));
+        }
+        return OptionalLong.empty();
     }
 }

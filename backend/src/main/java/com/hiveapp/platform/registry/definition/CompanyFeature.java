@@ -1,9 +1,12 @@
 package com.hiveapp.platform.registry.definition;
 
+import com.hiveapp.shared.quota.QuotaSlot;
+
 public final class CompanyFeature {
 
     public static final String KEY = "company";
     public static final String CODE = "platform." + KEY;
+    public static final String COMPANIES = "companies";
     public static final String CREATE = "create";
     public static final String READ_ALL = "read_all";
     public static final String READ_SINGLE = "read_single";
@@ -20,6 +23,7 @@ public final class CompanyFeature {
                 .description("Client workspace company profile management")
                 .b2bDelegatableActions(READ_SINGLE)
                 .sortOrder(30)
+                .quota(QuotaSlot.count(COMPANIES, "companies"))
                 .build();
     }
 }

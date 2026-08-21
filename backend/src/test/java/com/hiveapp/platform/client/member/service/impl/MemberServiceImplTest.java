@@ -29,7 +29,7 @@ import com.hiveapp.platform.client.role.domain.entity.RolePermission;
 import com.hiveapp.platform.client.role.domain.constant.RoleStatus;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
-import com.hiveapp.platform.registry.definition.WorkspaceFeature;
+import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.shared.exception.ForbiddenException;
@@ -121,7 +121,7 @@ class MemberServiceImplTest {
         ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
         verify(quotaEnforcer).check(
                 any(FeatureDefinition.class),
-                eq(WorkspaceFeature.MEMBERS),
+                eq(StaffFeature.MEMBERS),
                 eq(accountId),
                 usageCaptor.capture()
         );
@@ -303,7 +303,7 @@ class MemberServiceImplTest {
         ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
         verify(quotaEnforcer).check(
                 any(FeatureDefinition.class),
-                eq(WorkspaceFeature.MEMBERS),
+                eq(StaffFeature.MEMBERS),
                 eq(accountId),
                 usageCaptor.capture());
         assertThat(usageCaptor.getValue().getAsLong()).isEqualTo(2L);

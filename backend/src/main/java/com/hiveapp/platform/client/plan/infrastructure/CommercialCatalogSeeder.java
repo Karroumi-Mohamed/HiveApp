@@ -15,8 +15,9 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.registry.definition.B2bFeature;
+import com.hiveapp.platform.registry.definition.CompanyFeature;
 import com.hiveapp.platform.registry.definition.OrganizationFeature;
-import com.hiveapp.platform.registry.definition.WorkspaceFeature;
+import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.platform.registry.definition.WorkspaceRolesFeature;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.shared.money.Money;
@@ -72,27 +73,27 @@ public class CommercialCatalogSeeder {
 
     static final List<SeedQuotaPackage> BOOTSTRAP_QUOTA_PACKAGES = List.of(
             new SeedQuotaPackage(
-                    "MEMBERS_5", "5 extra members", WorkspaceFeature.MEMBERS,
+                    "MEMBERS_5", "5 extra members", StaffFeature.CODE, StaffFeature.MEMBERS,
                     5L, new BigDecimal("4.99"), true, 10,
                     Set.of("FLEX", "PRO", "BUSINESS", "SCALE")),
             new SeedQuotaPackage(
-                    "MEMBERS_25", "25 extra members", WorkspaceFeature.MEMBERS,
+                    "MEMBERS_25", "25 extra members", StaffFeature.CODE, StaffFeature.MEMBERS,
                     25L, new BigDecimal("14.99"), true, 10,
                     Set.of("PRO", "BUSINESS", "SCALE")),
             new SeedQuotaPackage(
-                    "MEMBERS_100", "100 extra members", WorkspaceFeature.MEMBERS,
+                    "MEMBERS_100", "100 extra members", StaffFeature.CODE, StaffFeature.MEMBERS,
                     100L, new BigDecimal("39.99"), true, 10,
                     Set.of("BUSINESS", "SCALE")),
             new SeedQuotaPackage(
-                    "COMPANY_1", "1 extra company", WorkspaceFeature.COMPANIES,
+                    "COMPANY_1", "1 extra company", CompanyFeature.CODE, CompanyFeature.COMPANIES,
                     1L, new BigDecimal("9.99"), true, 10,
                     Set.of("FLEX", "PRO")),
             new SeedQuotaPackage(
-                    "COMPANIES_5", "5 extra companies", WorkspaceFeature.COMPANIES,
+                    "COMPANIES_5", "5 extra companies", CompanyFeature.CODE, CompanyFeature.COMPANIES,
                     5L, new BigDecimal("29.99"), true, 10,
                     Set.of("PRO", "BUSINESS", "SCALE")),
             new SeedQuotaPackage(
-                    "COMPANIES_20", "20 extra companies", WorkspaceFeature.COMPANIES,
+                    "COMPANIES_20", "20 extra companies", CompanyFeature.CODE, CompanyFeature.COMPANIES,
                     20L, new BigDecimal("79.99"), true, 5,
                     Set.of("BUSINESS", "SCALE"))
     );
@@ -159,22 +160,20 @@ public class CommercialCatalogSeeder {
     }
 
     private int seedQuotaPackages() {
-        Feature workspace = billingConfigurationValidator.validateQuotaPackageDefinition(
-                WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS);
-        billingConfigurationValidator.validateQuotaPackageDefinition(
-                WorkspaceFeature.CODE, WorkspaceFeature.COMPANIES);
-
         int created = 0;
         for (SeedQuotaPackage specification : BOOTSTRAP_QUOTA_PACKAGES) {
             if (quotaPackageRepository.findByCode(specification.code()).isPresent()) {
                 continue;
             }
+            Feature feature = billingConfigurationValidator.validateQuotaPackageDefinition(
+                    specification.featureCode(), specification.resource());
             for (String planCode : specification.allowedPlanCodes()) {
                 Plan plan = requireActiveMonthlyUsdPlan(planCode);
                 var planFeature = planFeatureRepository
-                        .findByPlanIdAndFeature_Code(plan.getId(), WorkspaceFeature.CODE)
+                        .findByPlanIdAndFeature_Code(plan.getId(), specification.featureCode())
                         .orElseThrow(() -> new IllegalStateException(
-                                "Workspace feature is missing from bootstrap Plan " + planCode + "."));
+                                "Quota-package feature is missing from bootstrap Plan " + planCode + ": "
+                                        + specification.featureCode() + "."));
                 boolean finiteBase = planFeature.getMode() == PlanFeatureMode.INCLUDED
                         && planFeature.getQuotaConfigs().stream().anyMatch(quota ->
                         quota.resource().equals(specification.resource())
@@ -189,8 +188,8 @@ public class CommercialCatalogSeeder {
             QuotaPackage quotaPackage = new QuotaPackage();
             quotaPackage.setCode(specification.code());
             quotaPackage.setName(specification.name());
-            quotaPackage.setDescription("Adds capacity to the Plan's included workspace quota.");
-            quotaPackage.setFeature(workspace);
+            quotaPackage.setDescription("Adds capacity to the Plan's included feature quota.");
+            quotaPackage.setFeature(feature);
             quotaPackage.setResource(specification.resource());
             quotaPackage.setCapacityPerUnit(specification.capacityPerUnit());
             quotaPackage.setMoney(Money.of(specification.price(), PlanSeeder.DEFAULT_CURRENCY));
@@ -230,6 +229,7 @@ public class CommercialCatalogSeeder {
     record SeedQuotaPackage(
             String code,
             String name,
+            String featureCode,
             String resource,
             long capacityPerUnit,
             BigDecimal price,

@@ -21,6 +21,7 @@ import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
+import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -111,14 +112,14 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .value("Quota resource projects is not declared for feature platform.workspace."));
 
         assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
-                        "platform.workspace",
+                        StaffFeature.CODE,
                         PlanFeatureMode.INCLUDED,
                         List.of(
-                                new QuotaLimitRequest("members", QuotaLimitMode.FINITE, 3L),
-                                new QuotaLimitRequest("members", QuotaLimitMode.FINITE, 4L))))
+                                new QuotaLimitRequest(StaffFeature.MEMBERS, QuotaLimitMode.FINITE, 3L),
+                                new QuotaLimitRequest(StaffFeature.MEMBERS, QuotaLimitMode.FINITE, 4L))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message")
-                        .value("Duplicate quota configuration for platform.workspace.members."));
+                        .value("Duplicate quota configuration for platform.staff.members."));
 
         assignPlanFeature(adminToken, draftPlanId, new AssignPlanFeatureRequest(
                         "platform.company", PlanFeatureMode.OPTIONAL_ADD_ON,
@@ -134,11 +135,10 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         String code = "EXPLICIT_" + shortSuffix();
         UUID planId = createPlan(adminToken, new CreatePlanRequest(
                 code, "Explicit quotas", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY));
-        // workspace declares two quota resources; configuring only one leaves an undecided
-        // resource, which PLAN-FLOW-007 treats as an unfinished draft — never as "unlimited".
+        // Staff declares the members resource. Omitting it leaves an undecided resource,
+        // which PLAN-FLOW-007 treats as an unfinished draft — never as "unlimited".
         String assigned = assignPlanFeature(adminToken, planId, new AssignPlanFeatureRequest(
-                        "platform.workspace", PlanFeatureMode.INCLUDED,
-                        List.of(new QuotaLimitRequest("members", QuotaLimitMode.FINITE, 3L))))
+                        StaffFeature.CODE, PlanFeatureMode.INCLUDED, List.of()))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID planFeatureId = UUID.fromString(objectMapper.readTree(assigned).get("id").asText());
@@ -148,14 +148,12 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(
-                        "Feature platform.workspace: resource 'companies' has no quota configuration. "
+                        "Feature platform.staff: resource 'members' has no quota configuration. "
                                 + "Declare a limit or an explicit UNLIMITED before activation."));
 
         updatePlanFeature(adminToken, planId, planFeatureId, new AssignPlanFeatureRequest(
-                        "platform.workspace", PlanFeatureMode.INCLUDED,
-                        List.of(
-                                new QuotaLimitRequest("members", QuotaLimitMode.FINITE, 3L),
-                                new QuotaLimitRequest("companies", QuotaLimitMode.UNLIMITED, null))))
+                        StaffFeature.CODE, PlanFeatureMode.INCLUDED,
+                        List.of(new QuotaLimitRequest(StaffFeature.MEMBERS, QuotaLimitMode.FINITE, 3L))))
                 .andExpect(status().isOk());
 
         mockMvc.perform(patch("/api/admin/plans/{planId}/status", planId)
@@ -188,12 +186,12 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         UUID planId = createPlan(adminToken, new CreatePlanRequest(
                 code, "Atomic ok", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
                 List.of(new AssignPlanFeatureRequest(
-                        "platform.workspace", PlanFeatureMode.INCLUDED,
-                        List.of(new QuotaLimitRequest("members", QuotaLimitMode.FINITE, 5L))))));
+                        StaffFeature.CODE, PlanFeatureMode.INCLUDED,
+                        List.of(new QuotaLimitRequest(StaffFeature.MEMBERS, QuotaLimitMode.FINITE, 5L))))));
         mockMvc.perform(get("/api/admin/plans/{planId}/features", planId)
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].featureCode").value("platform.workspace"));
+                .andExpect(jsonPath("$[0].featureCode").value(StaffFeature.CODE));
     }
 
     @Test
@@ -257,20 +255,20 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
     @Test
     void quotaPackageCreationRejectsUnavailableFeatureStatus() throws Exception {
         String adminToken = loginAdminAndGetToken();
-        Feature workspace = featureRepository.findByCode("platform.workspace").orElseThrow();
-        FeatureStatus originalStatus = workspace.getStatus();
+        Feature staff = featureRepository.findByCode(StaffFeature.CODE).orElseThrow();
+        FeatureStatus originalStatus = staff.getStatus();
 
         try {
-            workspace.setStatus(FeatureStatus.INTERNAL);
-            featureRepository.saveAndFlush(workspace);
+            staff.setStatus(FeatureStatus.INTERNAL);
+            featureRepository.saveAndFlush(staff);
 
             createQuotaPackage(adminToken, "REJECTED_" + shortSuffix(), "FREE")
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message")
-                            .value("Feature platform.workspace is not available for billing configuration."));
+                            .value("Feature platform.staff is not available for billing configuration."));
         } finally {
-            workspace.setStatus(originalStatus);
-            featureRepository.saveAndFlush(workspace);
+            staff.setStatus(originalStatus);
+            featureRepository.saveAndFlush(staff);
         }
     }
 
@@ -295,10 +293,10 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plans[?(@.code == 'FREE')].quotaPackages[?(@.code == '"
                         + packageCode + "')].featureCode")
-                        .value("platform.workspace"))
+                        .value(StaffFeature.CODE))
                 .andExpect(jsonPath("$.plans[?(@.code == 'FREE')].quotaPackages[?(@.code == '"
                         + packageCode + "')].resource")
-                        .value("members"));
+                        .value(StaffFeature.MEMBERS));
 
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
                         Set.of(),
@@ -606,7 +604,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
             String planCode
     ) throws Exception {
         var request = new CreateQuotaPackageRequest(
-                code, "Two more members", null, "platform.workspace", "members",
+                code, "Two more members", null, StaffFeature.CODE, StaffFeature.MEMBERS,
                 2, BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
                 false, 1, Set.of(planCode), Set.of());
         return mockMvc.perform(post("/api/admin/quota-packages")

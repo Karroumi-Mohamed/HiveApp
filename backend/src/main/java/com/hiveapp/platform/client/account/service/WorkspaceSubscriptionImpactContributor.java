@@ -7,7 +7,6 @@ import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-import java.util.OptionalLong;
 import java.util.UUID;
 
 @Component
@@ -28,16 +27,5 @@ public class WorkspaceSubscriptionImpactContributor implements SubscriptionImpac
         long companies = companyRepository.countByAccountIdAndIsActiveTrue(accountId);
         return new FeatureUsage(Math.addExact(members, companies),
                 "Active workspace members and companies require workspace access.");
-    }
-
-    @Override
-    public OptionalLong quotaUsage(UUID accountId, String resource) {
-        if (WorkspaceFeature.MEMBERS.equals(resource)) {
-            return OptionalLong.of(memberRepository.countByAccountIdAndIsActiveTrue(accountId));
-        }
-        if (WorkspaceFeature.COMPANIES.equals(resource)) {
-            return OptionalLong.of(companyRepository.countByAccountIdAndIsActiveTrue(accountId));
-        }
-        return OptionalLong.empty();
     }
 }

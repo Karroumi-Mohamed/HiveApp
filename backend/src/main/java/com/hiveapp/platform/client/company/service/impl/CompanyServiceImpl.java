@@ -11,7 +11,6 @@ import com.hiveapp.platform.client.company.service.CompanyReactivationValidator;
 import com.hiveapp.platform.client.company.service.OrganizationInitializer;
 import com.hiveapp.platform.registry.definition.CompanyFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
-import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureService;
 import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
@@ -67,8 +66,8 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
         requireActiveAccount(account);
 
         quotaEnforcer.check(
-                WorkspaceFeature.definition(),
-                WorkspaceFeature.COMPANIES,
+                CompanyFeature.definition(),
+                CompanyFeature.COMPANIES,
                 accountId,
                 () -> companyRepository.countByAccountIdAndIsActiveTrue(accountId)
         );
@@ -166,8 +165,8 @@ public class CompanyServiceImpl extends ClientWorkspaceFeatureService implements
         }
 
         quotaEnforcer.check(
-                WorkspaceFeature.definition(),
-                WorkspaceFeature.COMPANIES,
+                CompanyFeature.definition(),
+                CompanyFeature.COMPANIES,
                 accountId,
                 () -> companyRepository.countByAccountIdAndIsActiveTrue(accountId));
         reactivationValidator.validate(company);

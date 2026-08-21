@@ -63,10 +63,10 @@ class BillingCalculatorTest {
                 BigDecimal.valueOf(10),
                 "USD",
                 BillingCycle.MONTHLY,
-                List.of(new SubscriptionFeatureSnapshot("platform.workspace", List.of())),
+                List.of(new SubscriptionFeatureSnapshot("platform.staff", List.of())),
                 List.of(),
                 List.of(new SubscriptionQuotaPackageSnapshot(
-                        "MEMBERS_10", "10 members", 3, "platform.workspace", "members",
+                        "MEMBERS_10", "10 members", 3, "platform.staff", "members",
                         10, 2, BigDecimal.valueOf(2), "USD", BillingCycle.MONTHLY)));
 
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))

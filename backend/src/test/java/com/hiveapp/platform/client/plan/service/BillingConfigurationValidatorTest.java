@@ -4,6 +4,7 @@ import com.hiveapp.platform.registry.definition.CompanyFeature;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.PlansFeature;
+import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
@@ -35,7 +36,9 @@ class BillingConfigurationValidatorTest {
     @BeforeEach
     void setUp() {
         validator = new BillingConfigurationValidator(featureRepository, provider(new FeatureDefinitionCollector(List.of(
-                () -> List.of(WorkspaceFeature.definition(), CompanyFeature.definition(), PlansFeature.definition())
+                () -> List.of(
+                        WorkspaceFeature.definition(), StaffFeature.definition(),
+                        CompanyFeature.definition(), PlansFeature.definition())
         ))));
     }
 
@@ -49,10 +52,10 @@ class BillingConfigurationValidatorTest {
 
     @Test
     void rejectsUnknownQuotaResourceForPlanAssignment() {
-        when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
+        when(featureRepository.findByCode(StaffFeature.CODE)).thenReturn(Optional.of(feature(StaffFeature.CODE)));
 
         assertThatThrownBy(() -> validator.validatePlanFeature(
-                WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
+                StaffFeature.CODE, PlanFeatureMode.INCLUDED,
                 List.of(new QuotaLimitEntry("projects", 5L)), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
@@ -60,10 +63,10 @@ class BillingConfigurationValidatorTest {
 
     @Test
     void rejectsQuotaConfigurationForFeatureWithoutQuotaSlots() {
-        when(featureRepository.findByCode(CompanyFeature.CODE)).thenReturn(Optional.of(feature(CompanyFeature.CODE)));
+        when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
 
         assertThatThrownBy(() -> validator.validatePlanFeature(
-                CompanyFeature.CODE, PlanFeatureMode.INCLUDED,
+                WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
                 List.of(new QuotaLimitEntry("companies", 1L)), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
@@ -71,19 +74,19 @@ class BillingConfigurationValidatorTest {
 
     @Test
     void rejectsUnknownQuotaResourceForPackageDefinition() {
-        when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
+        when(featureRepository.findByCode(StaffFeature.CODE)).thenReturn(Optional.of(feature(StaffFeature.CODE)));
 
         assertThatThrownBy(() -> validator.validateQuotaPackageDefinition(
-                WorkspaceFeature.CODE, "projects"))
+                StaffFeature.CODE, "projects"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
     }
 
     @Test
     void acceptsDeclaredQuotaPackageDefinition() {
-        when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
+        when(featureRepository.findByCode(StaffFeature.CODE)).thenReturn(Optional.of(feature(StaffFeature.CODE)));
 
-        validator.validateQuotaPackageDefinition(WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS);
+        validator.validateQuotaPackageDefinition(StaffFeature.CODE, StaffFeature.MEMBERS);
     }
 
     private static Feature feature(String code) {

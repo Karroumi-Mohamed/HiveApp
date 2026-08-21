@@ -6,6 +6,7 @@ import com.hiveapp.platform.registry.definition.CompanyFeature;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.OptionalLong;
 import java.util.UUID;
 
 @Component
@@ -24,5 +25,13 @@ public class CompanySubscriptionImpactContributor implements SubscriptionImpactC
         return new FeatureUsage(
                 companyRepository.countByAccountIdAndIsActiveTrue(accountId),
                 "Active company profiles remain preserved but become unavailable.");
+    }
+
+    @Override
+    public OptionalLong quotaUsage(UUID accountId, String resource) {
+        if (CompanyFeature.COMPANIES.equals(resource)) {
+            return OptionalLong.of(companyRepository.countByAccountIdAndIsActiveTrue(accountId));
+        }
+        return OptionalLong.empty();
     }
 }

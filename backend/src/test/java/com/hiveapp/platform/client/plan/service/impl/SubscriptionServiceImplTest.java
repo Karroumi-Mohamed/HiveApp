@@ -38,7 +38,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
-import com.hiveapp.platform.registry.definition.WorkspaceFeature;
+import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.shared.exception.InvalidRequestException;
@@ -122,18 +122,18 @@ class SubscriptionServiceImplTest {
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
         Subscription subscription = subscription(plan, SubscriptionStatus.ACTIVE);
         List<QuotaPackageSelection> quotaPackages = List.of(new QuotaPackageSelection("MEMBERS_10", 1));
-        QuotaPackage quotaPackage = quotaPackage("MEMBERS_10", WorkspaceFeature.MEMBERS, plan);
-        PlanFeature workspace = planFeature(plan, WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
-                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)));
+        QuotaPackage quotaPackage = quotaPackage("MEMBERS_10", StaffFeature.MEMBERS, plan);
+        PlanFeature workspace = planFeature(plan, StaffFeature.CODE, PlanFeatureMode.INCLUDED,
+                List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 3L)));
         var snapshot = new SubscriptionEntitlementSnapshot(
                 "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(
-                        WorkspaceFeature.CODE, List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)))),
+                        StaffFeature.CODE, List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 3L)))),
                 List.of());
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
         when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
         when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
         when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of(workspace));
         when(subscriptionSnapshotFactory.fromPlan(plan, Set.of())).thenReturn(snapshot);
         when(quotaPackageRepository.findAllByCodeIn(Set.of("MEMBERS_10")))
@@ -156,14 +156,14 @@ class SubscriptionServiceImplTest {
         UUID accountId = UUID.randomUUID();
         Plan plan = plan("PRO", true);
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
-        PlanFeature workspace = planFeature(plan, WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
-                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)));
+        PlanFeature workspace = planFeature(plan, StaffFeature.CODE, PlanFeatureMode.INCLUDED,
+                List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 3L)));
         var baseSnapshot = new SubscriptionEntitlementSnapshot(
                 "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(
-                        WorkspaceFeature.CODE, List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 3L)))),
+                        StaffFeature.CODE, List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 3L)))),
                 List.of());
-        QuotaPackage item = quotaPackage("MEMBERS_10", WorkspaceFeature.MEMBERS, plan);
+        QuotaPackage item = quotaPackage("MEMBERS_10", StaffFeature.MEMBERS, plan);
         var selection = new QuotaPackageSelection("MEMBERS_10", 2);
 
         when(subscriptionRepository.findActiveByAccountId(accountId))
@@ -171,7 +171,7 @@ class SubscriptionServiceImplTest {
         when(planRepository.findByCode("PRO")).thenReturn(Optional.of(plan));
         when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
         when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
         when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of(workspace));
         when(subscriptionSnapshotFactory.fromPlan(plan, Set.of())).thenReturn(baseSnapshot);
         when(quotaPackageRepository.findAllByCodeIn(Set.of("MEMBERS_10"))).thenReturn(List.of(item));
@@ -272,15 +272,15 @@ class SubscriptionServiceImplTest {
         UUID accountId = UUID.randomUUID();
         Plan pro = plan("PRO", true);
         ReflectionTestUtils.setField(pro, "id", UUID.randomUUID());
-        PlanFeature includedWorkspace = planFeature(pro, WorkspaceFeature.CODE, null,
-                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)));
+        PlanFeature includedWorkspace = planFeature(pro, StaffFeature.CODE, null,
+                List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 10L)));
 
         when(subscriptionRepository.findActiveByAccountId(accountId))
                 .thenReturn(Optional.of(subscription(plan("FREE", true), SubscriptionStatus.ACTIVE)));
         when(planRepository.findByCode("PRO")).thenReturn(Optional.of(pro));
         when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
         when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
         when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(includedWorkspace));
 
         assertThatThrownBy(() -> subscriptionService.previewChange(
@@ -300,34 +300,34 @@ class SubscriptionServiceImplTest {
         SubscriptionEntitlementSnapshot currentSnapshot = new SubscriptionEntitlementSnapshot(
                 "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(
-                        WorkspaceFeature.CODE,
-                        List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)))),
+                        StaffFeature.CODE,
+                        List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 10L)))),
                 List.of());
         current.setEntitlementSnapshot(currentSnapshot);
         current.setCurrentMoney(Money.zero("USD"));
-        PlanFeature workspace = planFeature(pro, WorkspaceFeature.CODE, null,
-                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 2L)));
+        PlanFeature workspace = planFeature(pro, StaffFeature.CODE, null,
+                List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 2L)));
         SubscriptionEntitlementSnapshot targetSnapshot = new SubscriptionEntitlementSnapshot(
                 "PRO",
                 BigDecimal.ZERO,
                 "USD",
                 BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(
-                        WorkspaceFeature.CODE,
-                        List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 2L)))),
+                        StaffFeature.CODE,
+                        List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 2L)))),
                 List.of());
 
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
         when(planRepository.findByCode("PRO")).thenReturn(Optional.of(pro));
         when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
         when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
         when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(workspace));
         when(subscriptionSnapshotFactory.fromPlan(pro, Set.of())).thenReturn(targetSnapshot);
         when(subscriptionSnapshotFactory.fromPlan(pro, Set.of(), List.of())).thenReturn(targetSnapshot);
         when(subscriptionImpactAnalyzer.analyze(accountId, current, targetSnapshot))
                 .thenReturn(List.of(new com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict(
-                        "QUOTA_BELOW_USAGE", WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS,
+                        "QUOTA_BELOW_USAGE", StaffFeature.CODE, StaffFeature.MEMBERS,
                         3L, 2L, "Current usage is above the requested limit.")));
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.zero("USD"));
 
@@ -349,25 +349,25 @@ class SubscriptionServiceImplTest {
         current.setCurrentMoney(Money.zero("USD"));
         current.setCustomOverrides(SubscriptionOverrides.empty());
         PlanFeature optional = planFeature(
-                free, WorkspaceFeature.CODE, PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
+                free, StaffFeature.CODE, PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
         AddOn addOn = addOn("EXTRA_MEMBERS");
         AddOnFeature addOnFeature = new AddOnFeature();
         addOnFeature.setAddOn(addOn);
         addOnFeature.setFeature(optional.getFeature());
         SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
                 "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
-                List.of(new SubscriptionFeatureSnapshot(WorkspaceFeature.CODE, List.of())),
+                List.of(new SubscriptionFeatureSnapshot(StaffFeature.CODE, List.of())),
                 List.of(new SubscriptionAddOnSnapshot(
                         "EXTRA_MEMBERS", "Extra members", 1, BigDecimal.TEN, "USD",
-                        BillingCycle.MONTHLY, List.of(WorkspaceFeature.CODE))));
+                        BillingCycle.MONTHLY, List.of(StaffFeature.CODE))));
 
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
         when(planRepository.findByCode("FREE")).thenReturn(Optional.of(free));
         when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
         when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
         when(planFeatureRepository.findAllByPlanId(free.getId())).thenReturn(List.of(optional));
-        when(planFeatureRepository.findByPlanIdAndFeature_Code(free.getId(), WorkspaceFeature.CODE))
+        when(planFeatureRepository.findByPlanIdAndFeature_Code(free.getId(), StaffFeature.CODE))
                 .thenReturn(Optional.of(optional));
         when(addOnRepository.findAllByCodeIn(Set.of("EXTRA_MEMBERS"))).thenReturn(List.of(addOn));
         when(addOnFeatureRepository.findAllByAddOnId(addOn.getId())).thenReturn(List.of(addOnFeature));
@@ -380,7 +380,7 @@ class SubscriptionServiceImplTest {
 
         assertThat(preview.immediateAllowed()).isTrue();
         assertThat(preview.addOnCodes()).containsExactly("EXTRA_MEMBERS");
-        assertThat(preview.effectiveFeatureCodes()).containsExactly(WorkspaceFeature.CODE);
+        assertThat(preview.effectiveFeatureCodes()).containsExactly(StaffFeature.CODE);
         assertThat(preview.previewPrice()).isEqualByComparingTo("10");
     }
 
@@ -392,7 +392,7 @@ class SubscriptionServiceImplTest {
         Subscription current = subscription(plan, SubscriptionStatus.ACTIVE);
         current.setCurrentMoney(Money.zero("USD"));
         PlanFeature optional = planFeature(
-                plan, WorkspaceFeature.CODE, PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
+                plan, StaffFeature.CODE, PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
         optional.getFeature().setStatus(FeatureStatus.INTERNAL);
         AddOn addOn = addOn("EXTRA_MEMBERS");
         AddOnFeature addOnFeature = new AddOnFeature();
@@ -404,7 +404,7 @@ class SubscriptionServiceImplTest {
                 .thenReturn(SubscriptionOverrides.empty());
         when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
         when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
         when(planRepository.findAll()).thenReturn(List.of(plan));
         when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of(optional));
         when(addOnRepository.findAll()).thenReturn(List.of(addOn));
@@ -433,16 +433,16 @@ class SubscriptionServiceImplTest {
                 "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY));
         current.setCustomOverrides(SubscriptionOverrides.empty());
         current.setCurrentMoney(Money.zero("USD"));
-        PlanFeature workspace = planFeature(pro, WorkspaceFeature.CODE, null,
-                List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)));
+        PlanFeature workspace = planFeature(pro, StaffFeature.CODE, null,
+                List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 10L)));
         SubscriptionEntitlementSnapshot targetSnapshot = new SubscriptionEntitlementSnapshot(
                 "PRO",
                 BigDecimal.valueOf(29),
                 "USD",
                 BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(
-                        WorkspaceFeature.CODE,
-                        List.of(new QuotaLimitEntry(WorkspaceFeature.MEMBERS, 10L)))),
+                        StaffFeature.CODE,
+                        List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 10L)))),
                 List.of());
 
         when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
@@ -450,7 +450,7 @@ class SubscriptionServiceImplTest {
         when(planRepository.findByCode("PRO")).thenReturn(Optional.of(pro));
         when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
         when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(WorkspaceFeature.CODE, WorkspaceFeature.definition()));
+                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
         when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(workspace));
         when(subscriptionSnapshotFactory.fromPlan(pro, Set.of())).thenReturn(targetSnapshot);
         when(subscriptionSnapshotFactory.fromPlan(pro, Set.of(), List.of())).thenReturn(targetSnapshot);
@@ -537,7 +537,7 @@ class SubscriptionServiceImplTest {
         ReflectionTestUtils.setField(item, "id", UUID.randomUUID());
         item.setCode(code);
         item.setName(code);
-        item.setFeature(planFeature(plan, WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED, List.of()).getFeature());
+        item.setFeature(planFeature(plan, StaffFeature.CODE, PlanFeatureMode.INCLUDED, List.of()).getFeature());
         item.setResource(resource);
         item.setCapacityPerUnit(10);
         item.setMoney(Money.of(BigDecimal.TEN, "USD"));
