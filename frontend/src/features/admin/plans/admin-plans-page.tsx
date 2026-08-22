@@ -94,13 +94,6 @@ function PlanFormDialog({
     if (trigger) setUncontrolledOpen(next);
     else onOpenChange?.(next);
   };
-  const [code, setCode] = useState(
-    mode === "edit"
-      ? (source?.code ?? "")
-      : source
-        ? `${source.code}_${mode === "revise" ? `R${source.revisionNumber + 1}` : "COPY"}`
-        : "",
-  );
   const [name, setName] = useState(source?.name ?? "");
   const [description, setDescription] = useState(source?.description ?? "");
   const [price, setPrice] = useState(String(source?.price ?? 0));
@@ -109,7 +102,6 @@ function PlanFormDialog({
   const save = useMutation({
     mutationFn: () => {
       const input = {
-        ...(mode === "edit" ? {} : { code }),
         name,
         description,
         price: Number(price),
@@ -168,20 +160,6 @@ function PlanFormDialog({
             save.mutate();
           }}
         >
-          {mode !== "edit" ? (
-            <div className="space-y-2">
-              <Label htmlFor="plan-code">Code</Label>
-              <Input
-                id="plan-code"
-                onChange={(event) => setCode(event.target.value.toUpperCase())}
-                required
-                value={code}
-              />
-              <p className="text-xs leading-4 text-muted-foreground">
-                Identifiant technique unique, stable après création.
-              </p>
-            </div>
-          ) : null}
           <div className="space-y-2">
             <Label htmlFor="plan-name">Nom</Label>
             <Input id="plan-name" onChange={(event) => setName(event.target.value)} required value={name} />
@@ -924,7 +902,7 @@ function DeletePlanDialog({ plan }: { plan: Plan }) {
   const remove = useMutation({
     mutationFn: () =>
       adminApi.deletePlan(plan.id, {
-        confirmationCode: confirmation,
+        confirmationName: confirmation,
         expectedVersion: preview.data?.expectedVersion ?? 0,
         previewToken: preview.data?.previewToken ?? "",
       }),
@@ -976,7 +954,7 @@ function DeletePlanDialog({ plan }: { plan: Plan }) {
             </div>
             {preview.data.deletable ? (
               <div className="space-y-2">
-                <Label htmlFor="confirm-plan">Saisissez {preview.data.planCode}</Label>
+                <Label htmlFor="confirm-plan">Saisissez {preview.data.planName}</Label>
                 <Input
                   id="confirm-plan"
                   onChange={(event) => setConfirmation(event.target.value)}
@@ -986,7 +964,7 @@ function DeletePlanDialog({ plan }: { plan: Plan }) {
             ) : null}
             <div className="flex justify-end">
               <Button
-                disabled={!preview.data.deletable || confirmation !== preview.data.planCode || remove.isPending}
+                disabled={!preview.data.deletable || confirmation !== preview.data.planName || remove.isPending}
                 onClick={() => remove.mutate()}
                 variant="destructive"
               >
@@ -1014,7 +992,6 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
   if (plan.isLoading) return <LoadingState />;
   if (plan.isError || !plan.data) return <ErrorState retry={() => void plan.refetch()} />;
   const data = plan.data;
-  const codeRepeatsName = data.code.trim().toLocaleLowerCase() === data.name.trim().toLocaleLowerCase();
   const canRevise = data.status !== "DRAFT" && data.status !== "ARCHIVED";
   return (
     <div className="space-y-5">
@@ -1062,8 +1039,6 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
           }
           description={
             <span className="flex items-center gap-2 text-xs">
-              {!codeRepeatsName ? <code>{data.code}</code> : null}
-              {!codeRepeatsName ? <span aria-hidden="true">·</span> : null}
               <span>Révision {data.revisionNumber}</span>
             </span>
           }
@@ -1222,8 +1197,7 @@ export function AdminPlansPage() {
     () =>
       (plans.data ?? []).filter(
         (plan) =>
-          (status === "all" || plan.status === status) &&
-          `${plan.code} ${plan.name}`.toLowerCase().includes(search.toLowerCase()),
+          (status === "all" || plan.status === status) && plan.name.toLowerCase().includes(search.toLowerCase()),
       ),
     [plans.data, search, status],
   );
@@ -1250,7 +1224,7 @@ export function AdminPlansPage() {
             <Input
               className="ps-9"
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Code ou nom…"
+              placeholder="Rechercher par nom…"
               value={search}
             />
           </div>
@@ -1314,11 +1288,6 @@ function PlanCard({ plan }: { plan: Plan }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate font-semibold">{plan.name}</h3>
-          {plan.code.toUpperCase() !== plan.name.toUpperCase() ? (
-            <code className="mt-0.5 block truncate text-xs text-muted-foreground" dir="ltr">
-              {plan.code}
-            </code>
-          ) : null}
         </div>
         <StatusBadge tone={planTone[plan.status]}>{statusText[plan.status]}</StatusBadge>
       </div>

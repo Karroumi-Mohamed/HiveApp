@@ -33,9 +33,8 @@ describe("creation permission", () => {
 });
 
 describe("source prefill", () => {
-  test("copies the commercial fields and proposes a new code", () => {
+  test("copies only operator-facing commercial fields", () => {
     expect(prefillFromSource(plan())).toEqual({
-      code: "FREE_COPY",
       name: "Free Plan",
       description: "Base",
       price: "0",

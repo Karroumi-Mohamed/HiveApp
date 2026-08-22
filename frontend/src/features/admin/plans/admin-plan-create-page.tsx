@@ -40,7 +40,6 @@ export function AdminPlanCreatePage() {
   const source = (plans.data ?? []).find((plan) => plan.id === sourceId);
 
   const [fields, setFields] = useState({
-    code: "",
     name: "",
     description: "",
     price: "0",
@@ -52,9 +51,9 @@ export function AdminPlanCreatePage() {
   // A deep link (?from=…) resolves only once the plans have loaded; prefill then, and only while
   // the form is still untouched so a slow response cannot overwrite what the operator typed.
   useEffect(() => {
-    if (!source || fields.code || fields.name) return;
+    if (!source || fields.name) return;
     setFields(prefillFromSource(source));
-  }, [source, fields.code, fields.name]);
+  }, [source, fields.name]);
 
   const canReadCatalog = session.can(adminPermissions.registryRead);
   const catalog = useQuery({
@@ -82,7 +81,6 @@ export function AdminPlanCreatePage() {
   const save = useMutation({
     mutationFn: () => {
       const input = {
-        code: fields.code,
         name: fields.name,
         description: fields.description,
         price: Number(fields.price),
@@ -105,7 +103,7 @@ export function AdminPlanCreatePage() {
   // in-app or by closing the tab — asks first while anything has been entered.
   const dirty =
     !completedRef.current &&
-    (Boolean(sourceId) || staged.length > 0 || fields.code !== "" || fields.name !== "" || fields.description !== "");
+    (Boolean(sourceId) || staged.length > 0 || fields.name !== "" || fields.description !== "");
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const blocker = useBlocker(useCallback(() => dirtyRef.current && !completedRef.current, []));
@@ -131,7 +129,7 @@ export function AdminPlanCreatePage() {
     );
   }
 
-  const identityReady = fields.code.trim().length > 0 && fields.name.trim().length > 0;
+  const identityReady = fields.name.trim().length > 0;
   const pricingReady =
     fields.price.trim() !== "" &&
     Number.isFinite(Number(fields.price)) &&
@@ -212,8 +210,8 @@ export function AdminPlanCreatePage() {
                 type="button"
               >
                 <span className="block truncate text-sm font-medium">{plan.name}</span>
-                <span className="mt-0.5 block text-xs text-muted-foreground" dir="ltr">
-                  {plan.code} · {money(plan.price, plan.currencyCode)} / {cycleText[plan.billingCycle]}
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {money(plan.price, plan.currencyCode)} / {cycleText[plan.billingCycle]}
                 </span>
               </button>
             ))}
@@ -223,19 +221,6 @@ export function AdminPlanCreatePage() {
 
       {step === 1 ? (
         <section className="grid max-w-4xl gap-5 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="new-plan-code">Code</Label>
-            <Input
-              dir="ltr"
-              id="new-plan-code"
-              onChange={(event) => setField({ code: event.target.value.toUpperCase() })}
-              required
-              value={fields.code}
-            />
-            <p className="text-xs leading-4 text-muted-foreground">
-              Identifiant technique unique, définitif après création.
-            </p>
-          </div>
           <div className="space-y-2">
             <Label htmlFor="new-plan-name">Nom</Label>
             <Input
@@ -445,12 +430,7 @@ export function AdminPlanCreatePage() {
             <dl className="divide-y border-y text-sm">
               <div className="grid gap-1 py-3 sm:grid-cols-[10rem_1fr]">
                 <dt className="text-muted-foreground">Identité</dt>
-                <dd>
-                  <span className="font-medium">{fields.name}</span>{" "}
-                  <code className="text-xs text-muted-foreground" dir="ltr">
-                    {fields.code}
-                  </code>
-                </dd>
+                <dd className="font-medium">{fields.name}</dd>
               </div>
               <div className="grid gap-1 py-3 sm:grid-cols-[10rem_1fr]">
                 <dt className="text-muted-foreground">Ce que le client paie</dt>
@@ -498,9 +478,6 @@ export function AdminPlanCreatePage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="truncate font-semibold">{fields.name || "Nom du forfait"}</h3>
-                  <code className="mt-0.5 block truncate text-xs text-muted-foreground" dir="ltr">
-                    {fields.code || "CODE"}
-                  </code>
                 </div>
                 <StatusBadge tone="info">Brouillon</StatusBadge>
               </div>

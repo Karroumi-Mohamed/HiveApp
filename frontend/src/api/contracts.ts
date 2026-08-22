@@ -245,7 +245,7 @@ export type PlanSubscriber = {
 
 export type PlanDeletionPreview = {
   planId: UUID;
-  planCode: string;
+  planName: string;
   expectedVersion: number;
   previewToken: string;
   deletable: boolean;

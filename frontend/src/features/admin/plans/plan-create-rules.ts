@@ -12,7 +12,6 @@ export function requiredCreationPermission(hasSource: boolean) {
 }
 
 export type PlanDraftFields = {
-  code: string;
   name: string;
   description: string;
   price: string;
@@ -22,7 +21,6 @@ export type PlanDraftFields = {
 
 export function prefillFromSource(source: Plan): PlanDraftFields {
   return {
-    code: `${source.code}_COPY`,
     name: source.name,
     description: source.description ?? "",
     price: String(source.price),

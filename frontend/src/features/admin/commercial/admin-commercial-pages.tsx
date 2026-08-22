@@ -12,6 +12,7 @@ import { QuotaEditor } from "@/components/patterns/quota-editor";
 import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -26,12 +27,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 
-const splitCodes = (value: string) =>
-  value
-    .split(",")
-    .map((item) => item.trim().toUpperCase())
-    .filter(Boolean);
-const joinCodes = (value: string[]) => value.join(", ");
 const price = (value: number, currency: string) =>
   new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(value);
 
@@ -64,12 +59,12 @@ function Lifecycle({
 }
 
 function DeleteDraftDialog({
-  code,
+  name,
   label,
   onDelete,
   pending,
 }: {
-  code: string;
+  name: string;
   label: string;
   onDelete: () => void;
   pending: boolean;
@@ -87,17 +82,17 @@ function DeleteDraftDialog({
         <DialogHeader>
           <DialogTitle>Supprimer {label}</DialogTitle>
           <DialogDescription>
-            Seuls les brouillons inutilisés peuvent être supprimés. Saisissez le code pour confirmer.
+            Seuls les brouillons inutilisés peuvent être supprimés. Saisissez le nom exact pour confirmer.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <Input
-            aria-label="Code de confirmation"
+            aria-label={`Saisissez ${name} pour confirmer`}
             onChange={(event) => setConfirmation(event.target.value)}
             value={confirmation}
           />
           <div className="flex justify-end">
-            <Button disabled={confirmation !== code || pending} onClick={onDelete} variant="destructive">
+            <Button disabled={confirmation !== name || pending} onClick={onDelete} variant="destructive">
               Supprimer définitivement
             </Button>
           </div>
@@ -112,27 +107,27 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [code, setCode] = useState(item?.code ?? "");
+  const planOptions = useQuery({ queryKey: ["admin", "plans"], queryFn: adminApi.plans, enabled: open });
+  const addOnOptions = useQuery({ queryKey: ["admin", "add-ons"], queryFn: adminApi.addOns, enabled: open });
   const [name, setName] = useState(item?.name ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
   const [amount, setAmount] = useState(String(item?.price ?? 0));
   const [currency, setCurrency] = useState(item?.currencyCode ?? "MAD");
   const [cycle, setCycle] = useState<BillingCycle>(item?.billingCycle ?? "MONTHLY");
-  const [allowed, setAllowed] = useState(joinCodes(item?.allowedPlanCodes ?? []));
-  const [blocked, setBlocked] = useState(joinCodes(item?.blockedPlanCodes ?? []));
-  const [dependencies, setDependencies] = useState(joinCodes(item?.dependencyCodes ?? []));
-  const [exclusions, setExclusions] = useState(joinCodes(item?.exclusionCodes ?? []));
+  const [allowed, setAllowed] = useState<string[]>(item?.allowedPlanCodes ?? []);
+  const [blocked, setBlocked] = useState<string[]>(item?.blockedPlanCodes ?? []);
+  const [dependencies, setDependencies] = useState<string[]>(item?.dependencyCodes ?? []);
+  const [exclusions, setExclusions] = useState<string[]>(item?.exclusionCodes ?? []);
   const input = {
-    ...(item ? {} : { code }),
     name,
     description,
     price: Number(amount),
     currencyCode: currency,
     billingCycle: cycle,
-    allowedPlanCodes: splitCodes(allowed),
-    blockedPlanCodes: splitCodes(blocked),
-    dependencyCodes: splitCodes(dependencies),
-    exclusionCodes: splitCodes(exclusions),
+    allowedPlanCodes: allowed,
+    blockedPlanCodes: blocked,
+    dependencyCodes: dependencies,
+    exclusionCodes: exclusions,
   };
   const save = useMutation({
     mutationFn: () => (item ? adminApi.updateAddOn(item.id, input) : adminApi.createAddOn(input)),
@@ -151,7 +146,7 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
         <DialogHeader>
           <DialogTitle>{item ? "Modifier l’add-on" : "Créer un add-on"}</DialogTitle>
           <DialogDescription>
-            La compatibilité commerciale est définie par codes de forfait, dépendances et exclusions.
+            Définissez le prix, les forfaits compatibles et les relations avec les autres add-ons.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -161,11 +156,6 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
             save.mutate();
           }}
         >
-          {!item ? (
-            <Field label="Code">
-              <Input onChange={(event) => setCode(event.target.value.toUpperCase())} required value={code} />
-            </Field>
-          ) : null}
           <Field label="Nom">
             <Input onChange={(event) => setName(event.target.value)} required value={name} />
           </Field>
@@ -198,18 +188,34 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Forfaits autorisés">
-            <Input onChange={(event) => setAllowed(event.target.value)} placeholder="PRO, BUSINESS" value={allowed} />
-          </Field>
-          <Field label="Forfaits bloqués">
-            <Input onChange={(event) => setBlocked(event.target.value)} value={blocked} />
-          </Field>
-          <Field label="Dépendances">
-            <Input onChange={(event) => setDependencies(event.target.value)} value={dependencies} />
-          </Field>
-          <Field label="Exclusions">
-            <Input onChange={(event) => setExclusions(event.target.value)} value={exclusions} />
-          </Field>
+          <ChoiceList
+            label="Forfaits autorisés"
+            onChange={setAllowed}
+            options={(planOptions.data ?? []).map((plan) => ({ label: plan.name, value: plan.code }))}
+            selected={allowed}
+          />
+          <ChoiceList
+            label="Forfaits bloqués"
+            onChange={setBlocked}
+            options={(planOptions.data ?? []).map((plan) => ({ label: plan.name, value: plan.code }))}
+            selected={blocked}
+          />
+          <ChoiceList
+            label="Dépendances"
+            onChange={setDependencies}
+            options={(addOnOptions.data ?? [])
+              .filter((candidate) => candidate.id !== item?.id)
+              .map((candidate) => ({ label: candidate.name, value: candidate.code }))}
+            selected={dependencies}
+          />
+          <ChoiceList
+            label="Incompatible avec"
+            onChange={setExclusions}
+            options={(addOnOptions.data ?? [])
+              .filter((candidate) => candidate.id !== item?.id)
+              .map((candidate) => ({ label: candidate.name, value: candidate.code }))}
+            selected={exclusions}
+          />
           <div className="flex justify-end gap-2 sm:col-span-2">
             <Button onClick={() => setOpen(false)} type="button" variant="outline">
               Annuler
@@ -316,6 +322,53 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function ChoiceList({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: Array<{ label: string; value: string }>;
+  selected: string[];
+  onChange: (values: string[]) => void;
+}) {
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-sm font-medium">{label}</legend>
+      <div className="max-h-36 divide-y overflow-y-auto rounded-md border">
+        {options.length ? (
+          options.map((option) => {
+            const id = `${label}-${option.value}`.replaceAll(" ", "-");
+            return (
+              <label
+                className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm"
+                htmlFor={id}
+                key={option.value}
+              >
+                <Checkbox
+                  checked={selected.includes(option.value)}
+                  id={id}
+                  onCheckedChange={(checked) =>
+                    onChange(
+                      checked
+                        ? [...new Set([...selected, option.value])]
+                        : selected.filter((value) => value !== option.value),
+                    )
+                  }
+                />
+                <span>{option.label}</span>
+              </label>
+            );
+          })
+        ) : (
+          <p className="px-3 py-2.5 text-sm text-muted-foreground">Aucun choix disponible</p>
+        )}
+      </div>
+    </fieldset>
+  );
+}
+
 export function AdminAddOnsPage() {
   const { addOnId } = useParams();
   const [search, setSearch] = useState("");
@@ -323,10 +376,21 @@ export function AdminAddOnsPage() {
   const navigate = useNavigate();
   const session = useAdminSession();
   const items = useQuery({ queryKey: ["admin", "add-ons"], queryFn: adminApi.addOns });
+  const plans = useQuery({ queryKey: ["admin", "plans"], queryFn: adminApi.plans });
+  const registry = useQuery({
+    queryKey: ["admin", "registry", "inventory"],
+    queryFn: adminApi.registryInventory,
+    enabled: session.can(adminPermissions.registryRead),
+  });
   const selected = items.data?.find((item) => item.id === addOnId);
   const filtered = useMemo(
-    () => (items.data ?? []).filter((item) => `${item.code} ${item.name}`.toLowerCase().includes(search.toLowerCase())),
+    () => (items.data ?? []).filter((item) => item.name.toLowerCase().includes(search.toLowerCase())),
     [items.data, search],
+  );
+  const planNames = new Map((plans.data ?? []).map((plan) => [plan.code, plan.name]));
+  const addOnNames = new Map((items.data ?? []).map((item) => [item.code, item.name]));
+  const featureNames = new Map(
+    (registry.data ?? []).flatMap((module) => module.features).map((feature) => [feature.code, feature.displayName]),
   );
   const transition = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => adminApi.transitionAddOn(id, status),
@@ -369,8 +433,8 @@ export function AdminAddOnsPage() {
               ) : null}
               {selected.status === "DRAFT" ? (
                 <DeleteDraftDialog
-                  code={selected.code}
                   label="cet add-on"
+                  name={selected.name}
                   onDelete={() => remove.mutate(selected.id)}
                   pending={remove.isPending}
                 />
@@ -378,14 +442,11 @@ export function AdminAddOnsPage() {
             </div>
           }
           description={
-            <span className="flex gap-2">
-              <code>{selected.code}</code>
-              <StatusBadge
-                tone={selected.status === "ACTIVE" ? "success" : selected.status === "DRAFT" ? "info" : "warning"}
-              >
-                {selected.status}
-              </StatusBadge>
-            </span>
+            <StatusBadge
+              tone={selected.status === "ACTIVE" ? "success" : selected.status === "DRAFT" ? "info" : "warning"}
+            >
+              {selected.status}
+            </StatusBadge>
           }
           title={selected.name}
         />
@@ -400,10 +461,22 @@ export function AdminAddOnsPage() {
           </section>
           <section className="rounded-xl border bg-card p-5">
             <h2 className="text-sm font-semibold">Compatibilité</h2>
-            <CodeSet label="Forfaits autorisés" values={selected.allowedPlanCodes} />
-            <CodeSet label="Forfaits bloqués" values={selected.blockedPlanCodes} />
-            <CodeSet label="Dépendances" values={selected.dependencyCodes} />
-            <CodeSet label="Exclusions" values={selected.exclusionCodes} />
+            <ReferenceSet
+              label="Forfaits autorisés"
+              values={selected.allowedPlanCodes.map((code) => planNames.get(code) ?? "Forfait indisponible")}
+            />
+            <ReferenceSet
+              label="Forfaits bloqués"
+              values={selected.blockedPlanCodes.map((code) => planNames.get(code) ?? "Forfait indisponible")}
+            />
+            <ReferenceSet
+              label="Dépendances"
+              values={selected.dependencyCodes.map((code) => addOnNames.get(code) ?? "Add-on indisponible")}
+            />
+            <ReferenceSet
+              label="Exclusions"
+              values={selected.exclusionCodes.map((code) => addOnNames.get(code) ?? "Add-on indisponible")}
+            />
           </section>
         </div>
         <section className="overflow-hidden rounded-xl border bg-card">
@@ -427,7 +500,9 @@ export function AdminAddOnsPage() {
                 {selected.features.map((feature) => (
                   <TableRow key={feature.id}>
                     <TableCell>
-                      <code className="text-xs">{feature.featureCode}</code>
+                      <span className="text-sm">
+                        {featureNames.get(feature.featureCode) ?? "Fonctionnalité indisponible"}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {feature.quotaConfigs.length
@@ -498,7 +573,7 @@ export function AdminAddOnsPage() {
           <Input
             className="ps-9"
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Code ou nom…"
+            placeholder="Rechercher par nom…"
             value={search}
           />
         </div>
@@ -526,7 +601,6 @@ export function AdminAddOnsPage() {
                   <TableCell>
                     <Link className="block" to={`/admin/add-ons/${item.id}`}>
                       <span className="font-medium">{item.name}</span>
-                      <code className="mt-1 block text-xs text-muted-foreground">{item.code}</code>
                     </Link>
                   </TableCell>
                   <TableCell>{price(item.price, item.currencyCode)}</TableCell>
@@ -555,7 +629,13 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [code, setCode] = useState(item?.code ?? "");
+  const planOptions = useQuery({ queryKey: ["admin", "plans"], queryFn: adminApi.plans, enabled: open });
+  const addOnOptions = useQuery({ queryKey: ["admin", "add-ons"], queryFn: adminApi.addOns, enabled: open });
+  const registry = useQuery({
+    queryKey: ["admin", "registry", "inventory"],
+    queryFn: adminApi.registryInventory,
+    enabled: open && session.can(adminPermissions.registryRead),
+  });
   const [name, setName] = useState(item?.name ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
   const [featureCode, setFeatureCode] = useState(item?.featureCode ?? "");
@@ -566,10 +646,13 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
   const [cycle, setCycle] = useState<BillingCycle>(item?.billingCycle ?? "MONTHLY");
   const [repeatable, setRepeatable] = useState(item?.repeatable ?? false);
   const [maximum, setMaximum] = useState(String(item?.maximumQuantity ?? 1));
-  const [plans, setPlans] = useState(joinCodes(item?.allowedPlanCodes ?? []));
-  const [addons, setAddons] = useState(joinCodes(item?.allowedAddOnCodes ?? []));
+  const [plans, setPlans] = useState<string[]>(item?.allowedPlanCodes ?? []);
+  const [addons, setAddons] = useState<string[]>(item?.allowedAddOnCodes ?? []);
+  const featureOptions = (registry.data ?? [])
+    .flatMap((module) => module.features)
+    .filter((feature) => feature.quotaSchema.length > 0);
+  const selectedFeature = featureOptions.find((feature) => feature.code === featureCode);
   const input = {
-    ...(item ? {} : { code }),
     name,
     description,
     featureCode,
@@ -580,8 +663,8 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
     billingCycle: cycle,
     repeatable,
     maximumQuantity: Number(maximum),
-    allowedPlanCodes: splitCodes(plans),
-    allowedAddOnCodes: splitCodes(addons),
+    allowedPlanCodes: plans,
+    allowedAddOnCodes: addons,
   };
   const save = useMutation({
     mutationFn: () => (item ? adminApi.updateQuotaPackage(item.id, input) : adminApi.createQuotaPackage(input)),
@@ -610,11 +693,6 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
             save.mutate();
           }}
         >
-          {!item ? (
-            <Field label="Code">
-              <Input onChange={(event) => setCode(event.target.value.toUpperCase())} required value={code} />
-            </Field>
-          ) : null}
           <Field label="Nom">
             <Input onChange={(event) => setName(event.target.value)} required value={name} />
           </Field>
@@ -623,11 +701,39 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
               <Textarea onChange={(event) => setDescription(event.target.value)} value={description} />
             </Field>
           </div>
-          <Field label="Code fonctionnalité">
-            <Input onChange={(event) => setFeatureCode(event.target.value)} required value={featureCode} />
+          <Field label="Fonctionnalité">
+            <Select
+              onValueChange={(value) => {
+                setFeatureCode(value);
+                setResource("");
+              }}
+              value={featureCode}
+            >
+              <SelectTrigger aria-label="Fonctionnalité">
+                <SelectValue placeholder="Sélectionner" />
+              </SelectTrigger>
+              <SelectContent>
+                {featureOptions.map((feature) => (
+                  <SelectItem key={feature.id} value={feature.code}>
+                    {feature.displayName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           <Field label="Ressource">
-            <Input onChange={(event) => setResource(event.target.value)} required value={resource} />
+            <Select disabled={!selectedFeature} onValueChange={setResource} value={resource}>
+              <SelectTrigger aria-label="Ressource mesurée">
+                <SelectValue placeholder="Sélectionner" />
+              </SelectTrigger>
+              <SelectContent>
+                {(selectedFeature?.quotaSchema ?? []).map((slot) => (
+                  <SelectItem key={slot.resource} value={slot.resource}>
+                    {slot.unit}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           <Field label="Capacité par unité">
             <Input min="1" onChange={(event) => setCapacity(event.target.value)} type="number" value={capacity} />
@@ -670,12 +776,18 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Forfaits autorisés">
-            <Input onChange={(event) => setPlans(event.target.value)} value={plans} />
-          </Field>
-          <Field label="Add-ons autorisés">
-            <Input onChange={(event) => setAddons(event.target.value)} value={addons} />
-          </Field>
+          <ChoiceList
+            label="Forfaits autorisés"
+            onChange={setPlans}
+            options={(planOptions.data ?? []).map((plan) => ({ label: plan.name, value: plan.code }))}
+            selected={plans}
+          />
+          <ChoiceList
+            label="Add-ons autorisés"
+            onChange={setAddons}
+            options={(addOnOptions.data ?? []).map((addOn) => ({ label: addOn.name, value: addOn.code }))}
+            selected={addons}
+          />
           <div className="flex justify-end gap-2 sm:col-span-2">
             <Button onClick={() => setOpen(false)} type="button" variant="outline">
               Annuler
@@ -697,12 +809,21 @@ export function AdminQuotaPackagesPage() {
   const session = useAdminSession();
   const [search, setSearch] = useState("");
   const items = useQuery({ queryKey: ["admin", "quota-packages"], queryFn: adminApi.quotaPackages });
+  const registry = useQuery({
+    queryKey: ["admin", "registry", "inventory"],
+    queryFn: adminApi.registryInventory,
+    enabled: session.can(adminPermissions.registryRead),
+  });
   const selected = items.data?.find((item) => item.id === packageId);
+  const registryFeatures = (registry.data ?? []).flatMap((module) => module.features);
+  const featureNames = new Map(registryFeatures.map((feature) => [feature.code, feature.displayName]));
+  const resourceUnits = new Map(
+    registryFeatures.flatMap((feature) =>
+      feature.quotaSchema.map((slot) => [`${feature.code}:${slot.resource}`, slot.unit] as const),
+    ),
+  );
   const filtered = useMemo(
-    () =>
-      (items.data ?? []).filter((item) =>
-        `${item.code} ${item.name} ${item.featureCode}`.toLowerCase().includes(search.toLowerCase()),
-      ),
+    () => (items.data ?? []).filter((item) => item.name.toLowerCase().includes(search.toLowerCase())),
     [items.data, search],
   );
   const transition = useMutation({
@@ -739,8 +860,8 @@ export function AdminQuotaPackagesPage() {
               ) : null}
               {selected.status === "DRAFT" ? (
                 <DeleteDraftDialog
-                  code={selected.code}
                   label="ce package"
+                  name={selected.name}
                   onDelete={() => remove.mutate(selected.id)}
                   pending={remove.isPending}
                 />
@@ -748,14 +869,11 @@ export function AdminQuotaPackagesPage() {
             </div>
           }
           description={
-            <span className="flex gap-2">
-              <code>{selected.code}</code>
-              <StatusBadge
-                tone={selected.status === "ACTIVE" ? "success" : selected.status === "DRAFT" ? "info" : "warning"}
-              >
-                {selected.status}
-              </StatusBadge>
-            </span>
+            <StatusBadge
+              tone={selected.status === "ACTIVE" ? "success" : selected.status === "DRAFT" ? "info" : "warning"}
+            >
+              {selected.status}
+            </StatusBadge>
           }
           title={selected.name}
         />
@@ -763,8 +881,11 @@ export function AdminQuotaPackagesPage() {
           <section className="rounded-xl border bg-card p-5">
             <h2 className="text-sm font-semibold">Capacité</h2>
             <dl className="mt-5 space-y-4 text-sm">
-              <Pair label="Fonctionnalité" value={selected.featureCode} />
-              <Pair label="Ressource" value={selected.resource} />
+              <Pair label="Fonctionnalité" value={featureNames.get(selected.featureCode) ?? "Indisponible"} />
+              <Pair
+                label="Ressource"
+                value={resourceUnits.get(`${selected.featureCode}:${selected.resource}`) ?? "Indisponible"}
+              />
               <Pair label="Par unité" value={selected.capacityPerUnit} />
               <Pair label="Maximum" value={selected.maximumQuantity} />
             </dl>
@@ -816,7 +937,7 @@ export function AdminQuotaPackagesPage() {
           <Input
             className="ps-9"
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Code, nom ou fonctionnalité…"
+            placeholder="Rechercher par nom…"
             value={search}
           />
         </div>
@@ -845,12 +966,9 @@ export function AdminQuotaPackagesPage() {
                   <TableCell>
                     <Link className="block" to={`/admin/quota-packages/${item.id}`}>
                       <span className="font-medium">{item.name}</span>
-                      <code className="mt-1 block text-xs text-muted-foreground">{item.code}</code>
                     </Link>
                   </TableCell>
-                  <TableCell>
-                    <code className="text-xs">{item.resource}</code>
-                  </TableCell>
+                  <TableCell>{resourceUnits.get(`${item.featureCode}:${item.resource}`) ?? "Indisponible"}</TableCell>
                   <TableCell className="tabular-nums">{item.capacityPerUnit}</TableCell>
                   <TableCell>{price(item.price, item.currencyCode)}</TableCell>
                   <TableCell>
@@ -878,16 +996,16 @@ function Pair({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   );
 }
-function CodeSet({ label, values }: { label: string; values: string[] }) {
+function ReferenceSet({ label, values }: { label: string; values: string[] }) {
   return (
     <div className="mt-4">
       <p className="text-xs text-muted-foreground">{label}</p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {values.length ? (
           values.map((value) => (
-            <code className="rounded bg-muted px-2 py-1 text-xs" key={value}>
+            <span className="rounded bg-muted px-2 py-1 text-xs" key={value}>
               {value}
-            </code>
+            </span>
           ))
         ) : (
           <span className="text-sm">Aucune restriction</span>

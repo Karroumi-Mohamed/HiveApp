@@ -172,7 +172,7 @@ export const adminApi = {
   transitionPlan: (id: UUID, status: string) =>
     admin<Plan>(`/plans/${id}/status`, { method: "PATCH", query: { status } }),
   previewPlanDeletion: (id: UUID) => admin<PlanDeletionPreview>(`/plans/${id}/deletion-preview`),
-  deletePlan: (id: UUID, input: { confirmationCode: string; expectedVersion: number; previewToken: string }) =>
+  deletePlan: (id: UUID, input: { confirmationName: string; expectedVersion: number; previewToken: string }) =>
     admin<void>(`/plans/${id}`, { method: "DELETE", body: jsonBody(input) }),
   assignPlanFeature: (id: UUID, input: unknown) =>
     admin<PlanFeature>(`/plans/${id}/features`, { method: "POST", body: jsonBody(input) }),

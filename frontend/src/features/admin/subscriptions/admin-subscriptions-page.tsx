@@ -185,7 +185,7 @@ function OverridesEditor({ subscription }: { subscription: AdminSubscription }) 
                     <Label className="font-normal" htmlFor={`addon-${item.id}`}>
                       <span className="block text-sm font-medium">{item.name}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {money(item.price, item.currencyCode)} · {item.code}
+                        {money(item.price, item.currencyCode)}
                       </span>
                     </Label>
                   </div>
@@ -322,7 +322,6 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-lg font-semibold">{data.planName}</h2>
-              <code className="text-xs text-muted-foreground">{data.planCode}</code>
             </div>
             <StatusBadge
               tone={

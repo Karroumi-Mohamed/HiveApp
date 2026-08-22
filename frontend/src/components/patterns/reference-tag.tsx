@@ -18,13 +18,19 @@ export function ReferenceTag({ className, children, ...props }: ComponentProps<"
 
 /** Interactive counterpart used when a reference reveals related detail in place. */
 export function ReferenceTagButton({ className, children, type = "button", ...props }: ComponentProps<"button">) {
+  const expanded = props["aria-expanded"] === true || props["aria-expanded"] === "true";
+
   return (
     <button
       className={cn(
-        referenceTagClasses,
-        "cursor-pointer hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded-sm border border-border bg-muted/45 px-2 py-1 text-sm font-medium text-foreground shadow-xs transition-colors",
+        "hover:border-primary/35 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "data-[state=open]:border-primary/30 data-[state=open]:bg-primary/5 data-[state=open]:text-primary",
+        "dark:border-muted-foreground/45 dark:bg-muted/75 dark:shadow-none dark:hover:border-primary/55 dark:hover:bg-primary/10",
+        "dark:data-[state=open]:border-primary/55 dark:data-[state=open]:bg-primary/15",
         className,
       )}
+      data-state={expanded ? "open" : "closed"}
       type={type}
       {...props}
     >
