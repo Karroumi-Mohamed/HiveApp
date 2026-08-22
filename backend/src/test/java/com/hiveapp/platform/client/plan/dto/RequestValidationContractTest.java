@@ -28,9 +28,9 @@ class RequestValidationContractTest {
     @Test
     void commercialPricesRejectNegativeValuesAndUnsupportedDatabaseScale() {
         var negative = new CreatePlanRequest(
-                "TEAM", "Team", null, new BigDecimal("-0.01"), "USD", BillingCycle.MONTHLY);
+                "Team", null, new BigDecimal("-0.01"), "USD", BillingCycle.MONTHLY);
         var excessiveScale = new CreatePlanRequest(
-                "TEAM", "Team", null, new BigDecimal("1.00001"), "USD", BillingCycle.MONTHLY);
+                "Team", null, new BigDecimal("1.00001"), "USD", BillingCycle.MONTHLY);
 
         assertThat(violationPaths(negative)).contains("price");
         assertThat(violationPaths(excessiveScale)).contains("price");

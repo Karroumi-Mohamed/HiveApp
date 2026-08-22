@@ -13,7 +13,6 @@ import java.math.BigDecimal;
 import java.util.List;
 
 public record CreatePlanRequest(
-        @NotBlank @Size(max = 100) String code,
         @NotBlank @Size(max = 160) String name,
         @Size(max = 1000) String description,
         @NotNull @DecimalMin("0.0") @Digits(integer = 15, fraction = 4) BigDecimal price,
@@ -28,12 +27,11 @@ public record CreatePlanRequest(
 ) {
     /** Convenience for callers that create a bare plan without composition. */
     public CreatePlanRequest(
-            String code,
             String name,
             String description,
             BigDecimal price,
             String currencyCode,
             BillingCycle billingCycle) {
-        this(code, name, description, price, currencyCode, billingCycle, List.of());
+        this(name, description, price, currencyCode, billingCycle, List.of());
     }
 }

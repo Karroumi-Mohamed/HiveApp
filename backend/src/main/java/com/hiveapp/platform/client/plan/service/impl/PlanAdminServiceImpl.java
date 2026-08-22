@@ -41,6 +41,7 @@ import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
+import com.hiveapp.platform.client.plan.service.CommercialCodeGenerator;
 import com.hiveapp.platform.client.plan.dto.PlanDto;
 import com.hiveapp.platform.client.plan.dto.PlanFeatureDto;
 import com.hiveapp.platform.client.plan.dto.AddOnDto;
@@ -184,9 +185,10 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "create", description = "Create a new plan")
     public PlanDto createPlan(CreatePlanRequest request) {
-        String code = normalizeCommercialCode(request.code(), "Plan code");
+        String code = CommercialCodeGenerator.generate(
+                request.name(), "PLAN", candidate -> planRepository.findByCode(candidate).isPresent());
         Money price = validatePlanBasics(
-                code, request.name(), request.price(), request.currencyCode(), request.billingCycle());
+                request.name(), request.price(), request.currencyCode(), request.billingCycle());
         List<AssignPlanFeatureRequest> features =
                 request.features() == null ? List.of() : request.features();
         // Composing at creation is the assign-feature operation in bulk; holding plans.create
@@ -239,7 +241,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         Plan plan = requirePlan(planId);
         requireMutable(plan);
         Money price = validatePlanBasics(
-                plan.getCode(), request.name(), request.price(), request.currencyCode(), request.billingCycle());
+                request.name(), request.price(), request.currencyCode(), request.billingCycle());
         if (!plan.getCurrencyCode().equals(price.currencyCode())
                 && subscriptionRepository.countByPlan_Id(planId) > 0) {
             throw new InvalidRequestException(
@@ -295,13 +297,13 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     public void deletePlan(UUID planId, DeletePlanRequest request) {
         Plan plan = planRepository.findByIdForUpdate(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
-        if (!plan.getCode().equals(request.confirmationCode())) {
-            throw new InvalidRequestException("Plan code confirmation does not match.");
-        }
         PlanDeletionPreview preview = buildDeletionPreview(plan);
         if (request.expectedVersion() != preview.expectedVersion()
                 || !request.previewToken().equals(preview.previewToken())) {
             throw new InvalidStateException("Plan deletion preview is stale; request a fresh preview.");
+        }
+        if (!plan.getName().equals(request.confirmationName())) {
+            throw new InvalidRequestException("Plan name confirmation does not match.");
         }
         if (!preview.deletable()) {
             throw new BusinessException(
@@ -450,10 +452,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "create_add_on", description = "Create a commercial AddOn draft")
     public AddOnDto createAddOn(CreateAddOnRequest request) {
-        String code = normalizeCommercialCode(request.code(), "AddOn code");
-        if (addOnRepository.findByCode(code).isPresent()) {
-            throw new DuplicateResourceException("AddOn", "code", code);
-        }
+        String code = CommercialCodeGenerator.generate(
+                request.name(), "ADD_ON", candidate -> addOnRepository.findByCode(candidate).isPresent());
         AddOn addOn = new AddOn();
         addOn.setCode(code);
         applyAddOnBasics(addOn, request.name(), request.description(), request.price(),
@@ -600,10 +600,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Transactional
     @PermissionNode(key = "create_quota_package", description = "Create a commercial quota package draft")
     public QuotaPackageDto createQuotaPackage(CreateQuotaPackageRequest request) {
-        String code = normalizeCommercialCode(request.code(), "Quota package code");
-        if (quotaPackageRepository.findByCode(code).isPresent()) {
-            throw new DuplicateResourceException("QuotaPackage", "code", code);
-        }
+        String code = CommercialCodeGenerator.generate(
+                request.name(), "QUOTA_PACKAGE", candidate -> quotaPackageRepository.findByCode(candidate).isPresent());
         QuotaPackage item = new QuotaPackage();
         item.setCode(code);
         applyQuotaPackageBasics(
@@ -677,9 +675,10 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             int revisionNumber,
             PlanCreationReason creationReason
     ) {
-        String code = normalizeCommercialCode(request.code(), "Plan code");
+        String code = CommercialCodeGenerator.generate(
+                request.name(), "PLAN", candidate -> planRepository.findByCode(candidate).isPresent());
         Money price = validatePlanBasics(
-                code, request.name(), request.price(), request.currencyCode(), request.billingCycle());
+                request.name(), request.price(), request.currencyCode(), request.billingCycle());
         return saveNewPlan(code, request.name(), request.description(), price, request.billingCycle(),
                 source, lineageId, revisionNumber, creationReason);
     }
@@ -1096,7 +1095,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     }
 
     private Money validatePlanBasics(
-            String code,
             String name,
             BigDecimal price,
             String currencyCode,
@@ -1172,7 +1170,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 Long.toString(lineageReferences));
         return new PlanDeletionPreview(
                 planId,
-                plan.getCode(),
+                plan.getName(),
                 plan.getVersion(),
                 sha256(state),
                 blockers.isEmpty(),

@@ -12,7 +12,6 @@ import java.math.BigDecimal;
 import java.util.Set;
 
 public record CreateAddOnRequest(
-        @NotBlank @Size(max = 100) String code,
         @NotBlank @Size(max = 160) String name,
         @Size(max = 1000) String description,
         @NotNull @DecimalMin("0.0") @Digits(integer = 15, fraction = 4) BigDecimal price,

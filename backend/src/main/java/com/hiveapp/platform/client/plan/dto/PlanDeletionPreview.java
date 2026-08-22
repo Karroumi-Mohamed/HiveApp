@@ -5,7 +5,7 @@ import java.util.UUID;
 
 public record PlanDeletionPreview(
         UUID planId,
-        String planCode,
+        String planName,
         long expectedVersion,
         String previewToken,
         boolean deletable,

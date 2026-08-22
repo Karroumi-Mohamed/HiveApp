@@ -105,7 +105,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                         .header("Authorization", bearer(creator.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreatePlanRequest(
-                                "COMPOSED_" + suffix, "Composed", null, BigDecimal.ZERO, "USD",
+                                "Composed " + suffix, null, BigDecimal.ZERO, "USD",
                                 BillingCycle.MONTHLY,
                                 java.util.List.of(new AssignPlanFeatureRequest(
                                         "platform.workspace", PlanFeatureMode.INCLUDED, java.util.List.of()))))))
@@ -118,7 +118,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                         .header("Authorization", bearer(creator.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreatePlanRequest(
-                                "BARE_" + suffix, "Bare", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY))))
+                                "Bare " + suffix, null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY))))
                 .andExpect(status().isCreated());
     }
 
@@ -126,7 +126,6 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     void invalidCommercialPayloadReturnsStructuredValidationDetails() throws Exception {
         String token = loginAdminAndGetToken();
         CreatePlanRequest request = new CreatePlanRequest(
-                "INVALID_NEGATIVE",
                 "Invalid",
                 null,
                 new BigDecimal("-0.01"),

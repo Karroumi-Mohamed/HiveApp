@@ -118,10 +118,7 @@ class PlanAdminServiceImplTest {
 
     @Test
     void createPlanIsAnExplicitEmptyNormalizedDraft() {
-        when(planRepository.findByCode("STARTER")).thenReturn(Optional.empty());
-
         PlanDto created = planAdminService.createPlan(new CreatePlanRequest(
-                " starter ",
                 "Starter",
                 null,
                 BigDecimal.TEN,
@@ -130,7 +127,7 @@ class PlanAdminServiceImplTest {
         ));
 
         assertThat(created.status()).isEqualTo(PlanStatus.DRAFT);
-        assertThat(created.code()).isEqualTo("STARTER");
+        assertThat(created.code()).startsWith("STARTER_");
         assertThat(created.revisionNumber()).isEqualTo(1);
         assertThat(created.sourcePlanId()).isNull();
         verify(planFeatureRepository, never()).saveAll(any());
@@ -144,12 +141,10 @@ class PlanAdminServiceImplTest {
         PlanFeature sourceFeature = planFeature(sourcePlan, workspace,
                 List.of(new QuotaLimitEntry("members", 3L)));
 
-        when(planRepository.findByCode("TEAM")).thenReturn(Optional.empty());
         when(planRepository.findById(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
         when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of(sourceFeature));
 
         PlanDto duplicate = planAdminService.duplicatePlan(sourcePlanId, new PlanBranchRequest(
-                "TEAM",
                 "Team",
                 null,
                 new BigDecimal("49.00"),
@@ -175,13 +170,12 @@ class PlanAdminServiceImplTest {
         sourcePlan.setRevisionNumber(3);
         PlanFeature includedFeature = planFeature(sourcePlan, feature("platform.workspace"), List.of());
 
-        when(planRepository.findByCode("EUROPE")).thenReturn(Optional.empty());
         when(planRepository.findByIdForUpdate(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
         when(planRepository.findMaximumRevisionNumber(sourcePlan.getLineageId())).thenReturn(3);
         when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of(includedFeature));
 
         PlanDto created = planAdminService.revisePlan(sourcePlanId, new PlanBranchRequest(
-                "EUROPE", "Europe", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY));
+                "Europe", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY));
 
         assertThat(created.currencyCode()).isEqualTo("EUR");
         assertThat(created.lineageId()).isEqualTo(sourcePlan.getLineageId());
@@ -368,7 +362,6 @@ class PlanAdminServiceImplTest {
 
     @Test
     void addOnDraftNormalizesIdentityAndCannotActivateWithoutFeatures() {
-        when(addOnRepository.findByCode("REPORTING_MODULE")).thenReturn(Optional.empty());
         when(planRepository.findByCode("FREE")).thenReturn(Optional.of(plan(UUID.randomUUID(), "FREE")));
         java.util.concurrent.atomic.AtomicReference<AddOn> savedEntity =
                 new java.util.concurrent.atomic.AtomicReference<>();
@@ -378,10 +371,10 @@ class PlanAdminServiceImplTest {
         });
 
         AddOnDto addOn = planAdminService.createAddOn(new CreateAddOnRequest(
-                " reporting_module ", "Reporting", null, BigDecimal.TEN, "usd",
+                "Reporting", null, BigDecimal.TEN, "usd",
                 BillingCycle.MONTHLY, Set.of("FREE"), Set.of(), Set.of(), Set.of()));
 
-        assertThat(addOn.code()).isEqualTo("REPORTING_MODULE");
+        assertThat(addOn.code()).startsWith("REPORTING_");
         assertThat(addOn.currencyCode()).isEqualTo("USD");
         assertThat(addOn.status()).isEqualTo(AddOnStatus.DRAFT);
 

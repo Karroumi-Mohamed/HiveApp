@@ -235,7 +235,6 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
 
     private UUID createDraftPlan(String adminToken) throws Exception {
         CreatePlanRequest request = new CreatePlanRequest(
-                "QC_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(),
                 "Query Count Plan",
                 "Fixture for statement-count assertions",
                 new BigDecimal("10.00"),

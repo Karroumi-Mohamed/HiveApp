@@ -11,7 +11,6 @@ import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 
 public record PlanBranchRequest(
-        @NotBlank @Size(max = 100) String code,
         @NotBlank @Size(max = 160) String name,
         @Size(max = 1000) String description,
         @NotNull @DecimalMin("0.0") @Digits(integer = 15, fraction = 4) BigDecimal price,

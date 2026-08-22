@@ -267,9 +267,8 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
     }
 
     private String createCompanyQuotaPackage(String adminToken) throws Exception {
-        String code = "PRO_COMPANY_1_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
         var request = new CreateQuotaPackageRequest(
-                code, "One additional company", null, CompanyFeature.CODE, CompanyFeature.COMPANIES,
+                "One additional company", null, CompanyFeature.CODE, CompanyFeature.COMPANIES,
                 1, new java.math.BigDecimal("5.00"), "USD", BillingCycle.MONTHLY,
                 false, 1, java.util.Set.of("PRO"), java.util.Set.of());
         String response = mockMvc.perform(post("/api/admin/quota-packages")
@@ -278,12 +277,13 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        UUID id = UUID.fromString(objectMapper.readTree(response).get("id").asText());
+        var created = objectMapper.readTree(response);
+        UUID id = UUID.fromString(created.get("id").asText());
         mockMvc.perform(patch("/api/admin/quota-packages/{id}/status", id)
                         .param("status", "ACTIVE")
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk());
-        return code;
+        return created.get("code").asText();
     }
 
     private org.springframework.test.web.servlet.ResultActions applyCompanyQuotaPackage(

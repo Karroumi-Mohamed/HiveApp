@@ -13,7 +13,6 @@ import java.math.BigDecimal;
 import java.util.Set;
 
 public record CreateQuotaPackageRequest(
-        @NotBlank @Size(max = 100) String code,
         @NotBlank @Size(max = 160) String name,
         @Size(max = 1000) String description,
         @NotBlank @Size(max = 160) String featureCode,
