@@ -1192,6 +1192,7 @@ Changing either policy on a published product requires a new commercial revision
 - Price entries use `DRAFT`, `ACTIVE`, `INACTIVE`, and terminal `ARCHIVED`. Amount, currency, cycle, owner revision, and effective-from time are immutable after activation.
 - An active entry may be paused for new selection without changing existing subscriber snapshots. A changed amount creates a new entry/version.
 - At most one entry is applicable for one product revision, currency, cycle, and instant. Activation validates overlap transactionally.
+- Every API Money amount is an exact plain-decimal JSON string with a separate ISO currency code; frontend display/input must preserve it without `number`, `parseFloat`, or implicit IEEE-754 arithmetic.
 - Subscription preview and checkout select exact compatible entries and snapshot every item. No implicit currency conversion or mixed-cycle total exists.
 - Existing subscribers change prices only through an immediate/renewal/scheduled subscription operation. A template edit never reprices them.
 
@@ -1463,6 +1464,7 @@ Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
+| 2026-08-26 | Carry API monetary amounts as exact plain-decimal strings rather than JSON numbers | Java `BigDecimal` values can exceed JavaScript's exact integer/fraction range; converting immutable prices through IEEE-754 can silently alter accepted commercial terms | Money DTOs and snapshots, Price-book and subscription APIs, frontend contracts, formatting and tests |
 | 2026-08-26 | Build the commercial control plane as separate technical capabilities, products, prices, policies, offers, subscription operations, and financial records | Combining these meanings created unclear UI, unsafe implicit effects, and totals that could be mistaken for settlement; separation keeps each operation explainable and auditable | Registry, Plans/AddOns/packages, price books, subscriptions, policies, marketing, billing, analytics, admin/client UI |
 | 2026-08-26 | Give every Plan revision an explicit CLOSED, ALLOW_LIST, or OPEN_COMPATIBLE extension policy plus independent PUBLIC/DIRECT_ONLY product visibility | Operators need strict and extensible commercial strategies without marketing being able to override mandatory compatibility or expose private products | Plan/AddOn/package catalogue, compatibility previews, targeted offers, client self-service |
 | 2026-08-26 | Replace the single-price product assumption with immutable independently entered monthly/yearly price-book entries | A product commonly supports monthly, yearly, or both; annual price is a commercial decision, while existing subscribers must retain accepted prices | Plan/AddOn/package pricing, checkout, snapshots, renewals, admin price-book UI |

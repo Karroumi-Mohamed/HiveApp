@@ -2972,6 +2972,7 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 - Existing subscription overrides, scheduled activation, and renewal preserve snapshot terms even after a selected price expires or is paused; future selections use the authoritative resolver.
 - Disposable-H2 compatibility backfill preserves the current legacy product columns while seeding one authoritative entry per published tuple. Durable production migration and database-native exclusion constraints remain deferred with the standing persistence decision.
 - An independent adversarial backend audit added exact admin price selection, same-Plan cycle changes, an atomic scheduled-replacement flow, a least-privilege assignable-price catalogue, immutable published product terms, and exact current-price identity. The full JDK 21 backend suite passes 524 tests. The complete admin/client Price-book UI and frontend audit remain in progress before this finding is closed.
+- Commercial API `BigDecimal` components now carry an `@ExactDecimal` contract and serialize as plain-decimal strings; contract tests cover maximum 15+4 precision, string requests, numeric-request migration compatibility, and prevent unannotated commercial decimal components. The frontend exact-string migration remains part of the active audit.
 
 ---
 

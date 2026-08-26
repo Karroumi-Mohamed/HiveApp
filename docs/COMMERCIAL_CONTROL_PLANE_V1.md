@@ -78,6 +78,7 @@ Price is not a mutable field on a published product definition.
 - A zero-price recurring entry is valid and still creates normal periods.
 - Each price-book entry has `DRAFT`, `ACTIVE`, `INACTIVE`, or `ARCHIVED` lifecycle, an effective-from instant, optional effective-until instant, immutable amount/currency/cycle once activated, and actor-aware history.
 - At most one active applicable entry exists for one product revision, currency, cycle, and instant.
+- API monetary amounts use exact plain-decimal JSON strings with a separate ISO currency code. Browser code never converts authoritative amounts through IEEE-754 `number` arithmetic.
 - New subscriptions select an active entry. Existing snapshots retain the selected entry forever unless an explicit subscription-change operation selects another.
 - Disabling a price stops new selection; it never rewrites an existing snapshot.
 - `FOREVER`, implicit foreign exchange, automatic tax, automatic proration, metered charging, and customer-selectable unlimited pricing remain unsupported until separately decided and implemented.
