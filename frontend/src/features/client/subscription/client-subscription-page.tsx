@@ -405,16 +405,25 @@ function ChangeHistory() {
 
 export function ClientSubscriptionPage() {
   const session = useClientSession();
-  const [tab, setTab] = useState("current");
-  const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
+  const canReadSubscription = session.can(clientPermissions.subscriptionRead);
   const canReadCatalog = session.can(clientPermissions.subscriptionCatalog);
   const canReadChanges = session.can(clientPermissions.subscriptionReadChanges);
+  const availableTabs = [
+    ...(canReadSubscription ? [{ label: "Abonnement actuel", value: "current" as const }] : []),
+    ...(canReadCatalog ? [{ label: "Changer de forfait", value: "catalog" as const }] : []),
+    ...(canReadChanges ? [{ label: "Changements", value: "changes" as const }] : []),
+  ];
+  const [requestedTab, setRequestedTab] = useState<"current" | "catalog" | "changes">("current");
+  const tab = availableTabs.some((item) => item.value === requestedTab)
+    ? requestedTab
+    : (availableTabs[0]?.value ?? "current");
+  const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
   const [subscription, catalog] = useQueries({
     queries: [
       {
         queryKey: clientCommercialKeys.subscription(commercialContext),
         queryFn: clientApi.subscription,
-        enabled: commercialQueryEnabled(session.can, clientPermissions.subscriptionRead),
+        enabled: commercialQueryEnabled(session.can, clientPermissions.subscriptionRead, tab === "current"),
         retry: false,
       },
       {
@@ -428,17 +437,13 @@ export function ClientSubscriptionPage() {
     <div className="space-y-7">
       <PageHeader title="Abonnement" />
       <SectionTabs
-        items={[
-          { label: "Abonnement actuel", value: "current" },
-          ...(canReadCatalog ? [{ label: "Changer de forfait", value: "catalog" }] : []),
-          ...(canReadChanges ? [{ label: "Changements", value: "changes" }] : []),
-        ]}
-        onValueChange={setTab}
+        items={availableTabs}
+        onValueChange={(value) => setRequestedTab(value as "current" | "catalog" | "changes")}
         value={tab}
       />
-      {subscription.isLoading || (tab === "catalog" && catalog.isLoading) ? (
+      {(tab === "current" && subscription.isLoading) || (tab === "catalog" && catalog.isLoading) ? (
         <LoadingState />
-      ) : subscription.isError ? (
+      ) : tab === "current" && subscription.isError ? (
         <ErrorState retry={() => void subscription.refetch()} title="Impossible de charger l’abonnement" />
       ) : tab === "catalog" && catalog.isError ? (
         <ErrorState retry={() => void catalog.refetch()} />
@@ -446,7 +451,7 @@ export function ClientSubscriptionPage() {
         <Configurator catalog={catalog.data} />
       ) : tab === "changes" && canReadChanges ? (
         <ChangeHistory />
-      ) : subscription.data ? (
+      ) : tab === "current" && canReadSubscription && subscription.data ? (
         <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
           <section className="rounded-xl border bg-card p-5">
             <div className="flex items-start justify-between gap-4">
@@ -480,9 +485,9 @@ export function ClientSubscriptionPage() {
             </dl>
           </section>
         </div>
-      ) : (
+      ) : tab === "current" && canReadSubscription ? (
         <EmptyState title="Aucun abonnement" />
-      )}
+      ) : null}
     </div>
   );
 }

@@ -81,10 +81,43 @@ export function adminCommercialInvalidationKeys(affected: readonly QueryKey[]) {
 
 export async function invalidateAdminCommercial(queryClient: QueryClient, ...affected: QueryKey[]) {
   await Promise.all(
-    adminCommercialInvalidationKeys(affected).map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+    [
+      ...adminCommercialInvalidationKeys(affected),
+      // Both authenticated portals share one QueryClient. Admin catalog/subscription writes can
+      // change the contextual client catalog or current subscription in the same browser session.
+      clientCommercialKeys.all(),
+    ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  );
+}
+
+/**
+ * Creating/replacing an account subscription (including checkout confirmation) changes both the
+ * subscription inspector/history and the subscriber counts/lists held by plan read models.
+ */
+export async function invalidateAdminSubscriptionEntitlement(queryClient: QueryClient) {
+  await invalidateAdminCommercial(
+    queryClient,
+    adminCommercialKeys.subscriptions.all(),
+    adminCommercialKeys.plans.all(),
   );
 }
 
 export async function invalidateClientCommercial(queryClient: QueryClient) {
-  await queryClient.invalidateQueries({ queryKey: clientCommercialKeys.all() });
+  // Client apply/cancel operations also change admin overview, account history and plan counts.
+  await Promise.all(
+    [
+      clientCommercialKeys.all(),
+      adminCommercialKeys.overview(),
+      adminCommercialKeys.subscriptions.all(),
+      adminCommercialKeys.plans.all(),
+    ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  );
+}
+
+/** Registry controls can change both admin picker catalogs and every contextual client catalog. */
+export async function invalidateCommercialCatalogs(queryClient: QueryClient) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: adminCommercialKeys.registry.all() }),
+    queryClient.invalidateQueries({ queryKey: clientCommercialKeys.all() }),
+  ]);
 }

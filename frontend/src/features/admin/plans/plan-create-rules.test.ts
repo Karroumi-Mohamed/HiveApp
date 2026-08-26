@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Plan } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
-import { prefillFromSource, requiredCreationPermission } from "./plan-create-rules";
+import { createdPlanDestination, prefillFromSource, requiredCreationPermission } from "./plan-create-rules";
 import { selectableCycles } from "./plan-presentation";
 
 const plan = (overrides: Partial<Plan> = {}): Plan => ({
@@ -29,6 +29,48 @@ describe("creation permission", () => {
     // The regression: the page asked for plansCreate while the duplicate endpoint checks
     // plansDuplicate, so an operator could fill the whole form and be refused at submit.
     expect(requiredCreationPermission(true)).toBe(adminPermissions.plansDuplicate);
+  });
+
+  test("a deep-linked source remains a duplication even when its list record is not readable", () => {
+    const sourceId = "source-only-visible-in-the-url";
+
+    expect(requiredCreationPermission(Boolean(sourceId))).toBe(adminPermissions.plansDuplicate);
+  });
+});
+
+describe("post-create destination", () => {
+  test("does not send a create-only operator to a read-gated plan route", () => {
+    expect(
+      createdPlanDestination("plan-1", {
+        readDetail: false,
+        listFeatures: false,
+        listPlans: false,
+      }),
+    ).toBe("/admin");
+  });
+
+  test("chooses the most specific readable route", () => {
+    expect(
+      createdPlanDestination("plan-1", {
+        readDetail: true,
+        listFeatures: true,
+        listPlans: true,
+      }),
+    ).toBe("/admin/plans/plan-1/features");
+    expect(
+      createdPlanDestination("plan-1", {
+        readDetail: true,
+        listFeatures: false,
+        listPlans: true,
+      }),
+    ).toBe("/admin/plans/plan-1");
+    expect(
+      createdPlanDestination("plan-1", {
+        readDetail: false,
+        listFeatures: false,
+        listPlans: true,
+      }),
+    ).toBe("/admin/plans");
   });
 });
 

@@ -402,7 +402,9 @@ function PlanFeatures({ plan }: { plan: Plan }) {
   });
   if (features.isLoading) return <LoadingState />;
   if (features.isError) return <ErrorState retry={() => void features.refetch()} />;
-  const catalogFeatures = (catalog.data ?? []).flatMap((module) => module.features);
+  const catalogFeatures = (session.can(adminPermissions.registryFeatureCatalog) ? (catalog.data ?? []) : []).flatMap(
+    (module) => module.features,
+  );
   // The display join uses the whole catalogue: an already-assigned feature must keep its name
   // even if it is no longer offered for new assignment.
   const byCode = new Map(catalogFeatures.map((feature) => [feature.code, feature]));
@@ -413,7 +415,7 @@ function PlanFeatures({ plan }: { plan: Plan }) {
   const frozen = plan.status !== "DRAFT";
   const allPlanFeatures = features.data ?? [];
   const rows: PlanFeatureCommercialRow[] = allPlanFeatures.map((feature) => {
-    const featureAddOns = (addOns.data ?? []).filter(
+    const featureAddOns = (canSeeAddOns ? (addOns.data ?? []) : []).filter(
       (addOn) =>
         addOn.features.some((item) => item.featureCode === feature.featureCode) &&
         !addOn.blockedPlanCodes.includes(plan.code) &&
@@ -422,7 +424,7 @@ function PlanFeatures({ plan }: { plan: Plan }) {
         addOn.billingCycle === plan.billingCycle,
     );
     const addOnCodes = new Set(featureAddOns.map((addOn) => addOn.code));
-    const capacityPacks = (quotaPackages.data ?? []).filter(
+    const capacityPacks = (canSeeCapacityPacks ? (quotaPackages.data ?? []) : []).filter(
       (pkg) =>
         pkg.featureCode === feature.featureCode &&
         (pkg.allowedPlanCodes.includes(plan.code) || pkg.allowedAddOnCodes.some((code) => addOnCodes.has(code))),
@@ -803,8 +805,12 @@ function PlanSubscribers({ plan }: { plan: Plan }) {
     <section className="overflow-hidden rounded-xl border bg-card">
       <div className="flex flex-col gap-3 border-b p-4 sm:flex-row">
         <div className="relative flex-1 sm:max-w-sm">
-          <MagnifyingGlassIcon className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <MagnifyingGlassIcon
+            aria-hidden="true"
+            className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          />
           <Input
+            aria-label="Rechercher des abonnés"
             className="ps-9"
             onChange={(event) => {
               setSearch(event.target.value);
@@ -1237,8 +1243,12 @@ export function AdminPlansPage() {
       <section className="overflow-hidden rounded-xl border bg-card">
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row">
           <div className="relative flex-1 sm:max-w-sm">
-            <MagnifyingGlassIcon className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <MagnifyingGlassIcon
+              aria-hidden="true"
+              className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
             <Input
+              aria-label="Rechercher des forfaits"
               className="ps-9"
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Rechercher par nom…"

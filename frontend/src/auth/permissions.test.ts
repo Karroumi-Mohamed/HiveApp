@@ -1,0 +1,49 @@
+import { describe, expect, test } from "bun:test";
+import {
+  adminOverviewSurfacePermissions,
+  adminPermissions,
+  adminProfileCan,
+  clientPermissions,
+  clientProfileCan,
+  clientSubscriptionSurfacePermissions,
+} from "./permissions";
+
+describe("session permission bypasses", () => {
+  test("a regular admin has only explicitly granted permissions", () => {
+    const profile = { isSuperAdmin: false, permissions: [adminPermissions.plansList] };
+
+    expect(adminProfileCan(profile, adminPermissions.plansList)).toBeTrue();
+    expect(adminProfileCan(profile, adminPermissions.plansReadDetail)).toBeFalse();
+  });
+
+  test("a super admin bypasses individual permission nodes", () => {
+    expect(adminProfileCan({ isSuperAdmin: true, permissions: [] }, adminPermissions.registryRuntime)).toBeTrue();
+  });
+
+  test("a regular member has only explicitly granted permissions", () => {
+    const profile = { isOwner: false, permissions: [clientPermissions.subscriptionCatalog] };
+
+    expect(clientProfileCan(profile, clientPermissions.subscriptionCatalog)).toBeTrue();
+    expect(clientProfileCan(profile, clientPermissions.subscriptionRead)).toBeFalse();
+  });
+
+  test("an account owner bypasses individual permission nodes", () => {
+    expect(clientProfileCan({ isOwner: true, permissions: [] }, clientPermissions.subscriptionRead)).toBeTrue();
+  });
+
+  test("the subscription route includes every independently readable surface", () => {
+    expect(clientSubscriptionSurfacePermissions).toEqual([
+      clientPermissions.subscriptionRead,
+      clientPermissions.subscriptionCatalog,
+      clientPermissions.subscriptionReadChanges,
+    ]);
+  });
+
+  test("the admin overview remains available to registry-sync-only operators", () => {
+    expect(adminOverviewSurfacePermissions).toEqual([
+      adminPermissions.accessOverview,
+      adminPermissions.plansOverview,
+      adminPermissions.registrySync,
+    ]);
+  });
+});

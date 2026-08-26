@@ -10,13 +10,18 @@ import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
 import { QuotaEditor } from "@/components/patterns/quota-editor";
+import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { prefillFromSource, requiredCreationPermission } from "@/features/admin/plans/plan-create-rules";
+import {
+  createdPlanDestination,
+  prefillFromSource,
+  requiredCreationPermission,
+} from "@/features/admin/plans/plan-create-rules";
 import { cycleText, featureModePresentation, money, selectableCycles } from "@/features/admin/plans/plan-presentation";
 import {
   adminCommercialKeys,
@@ -41,13 +46,21 @@ export function AdminPlanCreatePage() {
   const [params] = useSearchParams();
   const [step, setStep] = useState(0);
 
+  const canListPlans = session.can(adminPermissions.plansList);
   const plans = useQuery({
     queryKey: adminCommercialKeys.plans.list(),
     queryFn: adminApi.plans,
     enabled: commercialQueryEnabled(session.can, adminPermissions.plansList),
   });
   const [sourceId, setSourceId] = useState(params.get("from") ?? "");
-  const source = (plans.data ?? []).find((plan) => plan.id === sourceId);
+  const visiblePlans = canListPlans ? (plans.data ?? []) : [];
+  const source = visiblePlans.find((plan) => plan.id === sourceId);
+  // The URL selection is authoritative. Resolving source metadata is optional and must never
+  // turn a duplicate endpoint into create merely because plans.list is unavailable.
+  const duplicatesExisting = Boolean(sourceId);
+  const canCreate = session.can(adminPermissions.plansCreate);
+  const canDuplicate = session.can(adminPermissions.plansDuplicate);
+  const canUseSelectedMode = session.can(requiredCreationPermission(duplicatesExisting));
 
   const [fields, setFields] = useState({
     name: "",
@@ -78,11 +91,14 @@ export function AdminPlanCreatePage() {
     enabled: commercialQueryEnabled(session.can, adminPermissions.plansListFeatures, Boolean(sourceId)),
   });
 
-  const canStageComposition = !source && canReadCatalog && session.can(adminPermissions.plansAssignFeature);
+  const canStageComposition = !duplicatesExisting && canReadCatalog && session.can(adminPermissions.plansAssignFeature);
   const [staged, setStaged] = useState<StagedFeature[]>([]);
   const catalogFeatures = useMemo(
-    () => (catalog.data ?? []).flatMap((module) => module.features).filter((feature) => feature.planAssignable),
-    [catalog.data],
+    () =>
+      (canReadCatalog ? (catalog.data ?? []) : [])
+        .flatMap((module) => module.features)
+        .filter((feature) => feature.planAssignable),
+    [canReadCatalog, catalog.data],
   );
   const addable = catalogFeatures.filter((feature) => !staged.some((entry) => entry.featureCode === feature.code));
   const definitionOf = (featureCode: string) => catalogFeatures.find((feature) => feature.code === featureCode);
@@ -99,13 +115,21 @@ export function AdminPlanCreatePage() {
       };
       // One transactional command: the backend creates the plan and its whole staged
       // composition together, so no partial draft can differ from what was reviewed.
-      return source ? adminApi.duplicatePlan(source.id, input) : adminApi.createPlan({ ...input, features: staged });
+      return duplicatesExisting
+        ? adminApi.duplicatePlan(sourceId, input)
+        : adminApi.createPlan({ ...input, features: staged });
     },
     onSuccess: (plan) => {
       void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
       completedRef.current = true;
       toast.success("Brouillon créé", { description: "Activez-le depuis le cycle de vie une fois vérifié." });
-      navigate(`/admin/plans/${plan.id}/features`);
+      navigate(
+        createdPlanDestination(plan.id, {
+          readDetail: session.can(adminPermissions.plansReadDetail),
+          listFeatures: session.can(adminPermissions.plansListFeatures),
+          listPlans: canListPlans,
+        }),
+      );
     },
     onError: (error) => toast.error(error instanceof ApiError ? error.message : "Création impossible"),
   });
@@ -132,11 +156,9 @@ export function AdminPlanCreatePage() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  if (!session.can(requiredCreationPermission(Boolean(source)))) {
+  if (!canCreate && !canDuplicate) {
     return (
-      <p className="py-8 text-sm text-muted-foreground">
-        {source ? "Vous n’êtes pas autorisé à dupliquer un forfait." : "Vous n’êtes pas autorisé à créer un forfait."}
-      </p>
+      <p className="py-8 text-sm text-muted-foreground">Vous n’êtes pas autorisé à créer ou dupliquer un forfait.</p>
     );
   }
 
@@ -152,9 +174,9 @@ export function AdminPlanCreatePage() {
     <div className="space-y-7">
       <div>
         <Button asChild variant="ghost">
-          <Link to="/admin/plans">
+          <Link to={canListPlans ? "/admin/plans" : "/admin"}>
             <ArrowLeftIcon />
-            Forfaits
+            {canListPlans ? "Forfaits" : "Administration"}
           </Link>
         </Button>
       </div>
@@ -195,13 +217,23 @@ export function AdminPlanCreatePage() {
               className={`rounded-lg border p-4 text-start transition-colors hover:border-ring/50 ${
                 sourceId === "" ? "border-primary ring-1 ring-primary" : ""
               }`}
+              disabled={!canCreate}
               onClick={() => setSourceId("")}
+              title={canCreate ? undefined : "Vous n’êtes pas autorisé à créer un forfait"}
               type="button"
             >
               <span className="block text-sm font-medium">Vierge</span>
               <span className="mt-0.5 block text-xs text-muted-foreground">Composition vide, à construire.</span>
             </button>
-            {(plans.data ?? []).map((plan) => (
+            {sourceId && !source ? (
+              <div className="rounded-lg border border-primary p-4 ring-1 ring-primary">
+                <span className="block truncate text-sm font-medium">Forfait source {sourceId}</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Ses détails ne sont pas lisibles ; la duplication utilisera directement cette référence.
+                </span>
+              </div>
+            ) : null}
+            {visiblePlans.map((plan) => (
               <button
                 aria-pressed={sourceId === plan.id}
                 className={`rounded-lg border p-4 text-start transition-colors hover:border-ring/50 disabled:cursor-not-allowed disabled:opacity-45 ${
@@ -227,6 +259,15 @@ export function AdminPlanCreatePage() {
               </button>
             ))}
           </div>
+          {canListPlans && plans.isLoading ? <LoadingState rows={2} /> : null}
+          {canListPlans && plans.isError ? <ErrorState retry={() => void plans.refetch()} /> : null}
+          {!canUseSelectedMode ? (
+            <p className="text-sm text-destructive">
+              {duplicatesExisting
+                ? "Vous n’êtes pas autorisé à dupliquer ce forfait."
+                : "Vous n’êtes pas autorisé à créer un forfait vierge."}
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -309,30 +350,44 @@ export function AdminPlanCreatePage() {
 
       {step === 3 ? (
         <section className="max-w-4xl space-y-4">
-          {source ? (
+          {duplicatesExisting ? (
             <>
               <p className="text-sm text-muted-foreground">
                 La composition ci-dessous sera copiée de{" "}
-                <span className="font-medium text-foreground">{source.name}</span>. Elle restera modifiable sur le
-                brouillon.
+                <span className="font-medium text-foreground">{source?.name ?? sourceId}</span>. Elle restera modifiable
+                sur le brouillon.
               </p>
               {canPreviewSource ? (
-                <ul className="divide-y border-y text-sm">
-                  {(sourceFeatures.data ?? []).map((feature) => (
-                    <li className="flex items-center justify-between gap-3 py-2.5" key={feature.id}>
-                      <span>{definitionOf(feature.featureCode)?.displayName ?? feature.featureCode}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {featureModePresentation[feature.mode]?.label ?? feature.mode}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                sourceFeatures.isLoading ? (
+                  <LoadingState rows={2} />
+                ) : sourceFeatures.isError ? (
+                  <ErrorState retry={() => void sourceFeatures.refetch()} />
+                ) : sourceFeatures.data?.length ? (
+                  <ul className="divide-y border-y text-sm">
+                    {sourceFeatures.data.map((feature) => (
+                      <li className="flex items-center justify-between gap-3 py-2.5" key={feature.id}>
+                        <span>{definitionOf(feature.featureCode)?.displayName ?? feature.featureCode}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {featureModePresentation[feature.mode]?.label ?? feature.mode}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="border-y py-6 text-center text-sm text-muted-foreground">
+                    Ce forfait source ne contient aucune fonctionnalité.
+                  </p>
+                )
               ) : (
                 <p className="text-xs text-muted-foreground">
                   Aperçu indisponible avec vos permissions ; la copie s’effectue quand même.
                 </p>
               )}
             </>
+          ) : canStageComposition && catalog.isLoading ? (
+            <LoadingState rows={3} />
+          ) : canStageComposition && catalog.isError ? (
+            <ErrorState retry={() => void catalog.refetch()} />
           ) : canStageComposition ? (
             <>
               <div className="flex items-center justify-between gap-3">
@@ -460,8 +515,8 @@ export function AdminPlanCreatePage() {
               <div className="grid gap-1 py-3 sm:grid-cols-[10rem_1fr]">
                 <dt className="text-muted-foreground">Ce que le client reçoit</dt>
                 <dd>
-                  {source ? (
-                    `La composition et les quotas de base de ${source.name} — sans ses attaches d'add-ons ni de paquets de quotas.`
+                  {duplicatesExisting ? (
+                    `La composition et les quotas de base de ${source?.name ?? sourceId} — sans ses attaches d'add-ons ni de paquets de quotas.`
                   ) : staged.length ? (
                     <ul className="space-y-1">
                       {staged.map((entry) => (
@@ -520,12 +575,16 @@ export function AdminPlanCreatePage() {
           Retour
         </Button>
         {step < STEPS.length - 1 ? (
-          <Button disabled={!stepReady} onClick={() => setStep((current) => current + 1)} type="button">
+          <Button
+            disabled={!stepReady || !canUseSelectedMode}
+            onClick={() => setStep((current) => current + 1)}
+            type="button"
+          >
             Continuer
           </Button>
         ) : (
           <Button
-            disabled={save.isPending || !identityReady || !pricingReady}
+            disabled={save.isPending || !canUseSelectedMode || !identityReady || !pricingReady}
             onClick={() => save.mutate()}
             type="button"
           >

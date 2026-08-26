@@ -1,3 +1,5 @@
+import type { AdminMe, MemberPermissions } from "@/api/contracts";
+
 const permission = (feature: string, action: string) => `platform.${feature}.${action}` as const;
 
 export const adminPermissions = {
@@ -163,3 +165,35 @@ export const clientPermissions = {
   subscriptionReadChanges: permission("subscription", "read_changes"),
   subscriptionCancel: permission("subscription", "cancel_change"),
 } as const;
+
+/**
+ * The subscription screen contains three independently guarded read surfaces. Keeping this list
+ * shared prevents the route and navigation from silently making `subscription.read` a prerequisite
+ * for the separately authorized catalog and change-history endpoints.
+ */
+export const clientSubscriptionSurfacePermissions = [
+  clientPermissions.subscriptionRead,
+  clientPermissions.subscriptionCatalog,
+  clientPermissions.subscriptionReadChanges,
+] as const;
+
+/** Each overview card family is independently readable, including registry sync on its own. */
+export const adminOverviewSurfacePermissions = [
+  adminPermissions.accessOverview,
+  adminPermissions.plansOverview,
+  adminPermissions.registrySync,
+] as const;
+
+export function adminProfileCan(
+  profile: Pick<AdminMe, "isSuperAdmin" | "permissions"> | null | undefined,
+  required: string,
+) {
+  return Boolean(profile?.isSuperAdmin || profile?.permissions.includes(required));
+}
+
+export function clientProfileCan(
+  profile: Pick<MemberPermissions, "isOwner" | "permissions"> | null | undefined,
+  required: string,
+) {
+  return Boolean(profile?.isOwner || profile?.permissions.includes(required));
+}
