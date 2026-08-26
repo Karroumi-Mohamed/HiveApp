@@ -3024,7 +3024,7 @@ Fixing published immutability without a revision path leaves normal commercial m
 
 ### COMMERCIAL-001 — Extension targeting and Account commercial policy are encoded as scattered special cases
 
-**Status:** `CONFIRMED — DESIGN DECIDED 2026-08-26`
+**Status:** `PARTIAL — EXTENSION BACKEND IMPLEMENTED AND AUDITED 2026-08-26; POLICIES AND UI PENDING`
 
 **Evidence**
 
@@ -3038,7 +3038,8 @@ Operators must request new code for each commercial exception or encode business
 
 **Required fix direction**
 
-- Add explicit Plan extension policy and product sales visibility while retaining backend-computed mandatory compatibility.
+- **Implemented:** explicit Plan extension policy and product sales visibility with one backend-computed mandatory-compatibility resolver, client/operator audience privacy, locked final revalidation, immutable snapshot identity, reasoned previewed mutations, and typed history. The independent audit removed the legacy unguarded Plan catalogue and a cross-feature Permissionizer-policy bypass. The full backend baseline is 549 tests.
+- Complete the database-bounded operational product catalogues and shared UI in Phase 9.3; the current compatibility inspection intentionally resolves the full catalogue before bounding its response and is not presented as database paging.
 - Add typed, versioned commercial policies with bounded targets/effects, priority/precedence, effective window, reason/source/actor, preview, affected-set snapshot, execution results, expiry, and audit.
 - Reuse the subscription-operation engine for immediate/renewal/scheduled application; never mutate historical snapshots or delete data.
 - Provide paginated/searchable admin APIs for policy list/detail/draft/preview/activate/pause/revise/archive, target simulation, execution/cancel/retry, and history plus minimum client read models for effective terms.
