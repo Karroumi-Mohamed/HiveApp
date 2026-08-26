@@ -2943,7 +2943,7 @@ Immutable price-book revisions, itemized invoices, payment/refund/credit ledgers
 
 ### PRICEBOOK-001 — Commercial products support only one price and billing cycle
 
-**Status:** `IMPLEMENTING — BACKEND COMPLETE 2026-08-26; FRONTEND/AUDIT IN PROGRESS`
+**Status:** `IMPLEMENTED — 2026-08-26`
 
 **Evidence**
 
@@ -2971,8 +2971,10 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 - Client catalogue and subscription-change contracts expose/select exact applicable entries. Snapshot schema V2 stores the Plan/AddOn/package price identities and immutable amounts while schema V1 remains readable.
 - Existing subscription overrides, scheduled activation, and renewal preserve snapshot terms even after a selected price expires or is paused; future selections use the authoritative resolver.
 - Disposable-H2 compatibility backfill preserves the current legacy product columns while seeding one authoritative entry per published tuple. Durable production migration and database-native exclusion constraints remain deferred with the standing persistence decision.
-- An independent adversarial backend audit added exact admin price selection, same-Plan cycle changes, an atomic scheduled-replacement flow, a least-privilege assignable-price catalogue, immutable published product terms, and exact current-price identity. The full JDK 21 backend suite passes 524 tests. The complete admin/client Price-book UI and frontend audit remain in progress before this finding is closed.
-- Commercial API `BigDecimal` components now carry an `@ExactDecimal` contract and serialize as plain-decimal strings; contract tests cover maximum 15+4 precision, string requests, numeric-request migration compatibility, and prevent unannotated commercial decimal components. The frontend exact-string migration remains part of the active audit.
+- An independent adversarial backend audit added exact admin price selection, same-Plan cycle changes, an atomic scheduled-replacement flow, a least-privilege assignable-price catalogue, immutable published product terms, and exact current-price identity. The final integrated JDK 21 baseline passes 529 tests.
+- Commercial API `BigDecimal` components carry an `@ExactDecimal` contract and serialize as non-exponential plain-decimal strings. Contract tests cover maximum 15+4 precision, string requests, numeric-request migration compatibility, and prevent unannotated commercial decimal components.
+- The admin Price-book list, guided create, detail, terms/lifecycle, replacement and history flows are implemented and linked from Plan/Add-on/capacity-package details. Admin subscription operations and client self-service select exact applicable entries rather than inferring a cycle or amount.
+- An independent frontend audit removed all commercial-money `number` coercion, pinned exact comparison/formatting beyond JavaScript's safe integer range, corrected functional table sorting, separated history-only access, permission-gated product links, and made stale client changes recoverable. Biome, TypeScript, the production build and 136 frontend tests pass.
 
 ---
 
