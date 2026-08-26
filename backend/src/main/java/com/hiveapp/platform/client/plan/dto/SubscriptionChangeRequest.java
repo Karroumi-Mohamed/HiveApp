@@ -11,14 +11,24 @@ public record SubscriptionChangeRequest(
         @NotBlank String targetPlanCode,
         Set<String> addOnCodes,
         @Valid List<QuotaPackageSelection> quotaPackages,
-        SubscriptionChangeTiming timing
+        SubscriptionChangeTiming timing,
+        @Valid ProductPriceSelectionRequest planPriceSelection
 ) {
     public SubscriptionChangeRequest(
             String targetPlanCode,
             Set<String> addOnCodes,
             List<QuotaPackageSelection> quotaPackages
     ) {
-        this(targetPlanCode, addOnCodes, quotaPackages, SubscriptionChangeTiming.IMMEDIATE);
+        this(targetPlanCode, addOnCodes, quotaPackages, SubscriptionChangeTiming.IMMEDIATE, null);
+    }
+
+    public SubscriptionChangeRequest(
+            String targetPlanCode,
+            Set<String> addOnCodes,
+            List<QuotaPackageSelection> quotaPackages,
+            SubscriptionChangeTiming timing
+    ) {
+        this(targetPlanCode, addOnCodes, quotaPackages, timing, null);
     }
 
     public SubscriptionChangeTiming effectiveTiming() {

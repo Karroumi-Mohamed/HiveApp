@@ -100,6 +100,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final AddOnRepository addOnRepository;
     private final AddOnFeatureRepository addOnFeatureRepository;
     private final QuotaPackageRepository quotaPackageRepository;
+    private final com.hiveapp.platform.client.plan.service.ProductPriceCompatibilityService
+            productPriceCompatibilityService;
 
     @Override
     @PermissionNode(key = "overview", description = "View commercial operations overview")
@@ -282,7 +284,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             validateActivation(plan);
         }
         plan.setStatus(targetStatus);
-        return readModels.toDto(planRepository.save(plan));
+        Plan saved = planRepository.saveAndFlush(plan);
+        if (targetStatus == PlanStatus.ACTIVE) {
+            productPriceCompatibilityService.ensurePublishedDefault(saved);
+        }
+        return readModels.toDto(saved);
     }
 
     @Override
@@ -574,6 +580,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         }
         addOn.setStatus(targetStatus);
         addOnRepository.saveAndFlush(addOn);
+        if (targetStatus == AddOnStatus.ACTIVE) {
+            productPriceCompatibilityService.ensurePublishedDefault(addOn);
+        }
         return readModels.toDto(addOnRepository.findDetailedById(addOnId).orElseThrow());
     }
 
@@ -726,6 +735,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         }
         item.setStatus(targetStatus);
         quotaPackageRepository.saveAndFlush(item);
+        if (targetStatus == QuotaPackageStatus.ACTIVE) {
+            productPriceCompatibilityService.ensurePublishedDefault(item);
+        }
         return readModels.toDto(quotaPackageRepository.findDetailedById(quotaPackageId).orElseThrow());
     }
 

@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 public record SubscriptionEntitlementSnapshot(
         int schemaVersion,
@@ -17,13 +18,15 @@ public record SubscriptionEntitlementSnapshot(
         Instant effectiveUntil,
         List<SubscriptionFeatureSnapshot> features,
         List<SubscriptionAddOnSnapshot> addOns,
-        List<SubscriptionQuotaPackageSnapshot> quotaPackages
+        List<SubscriptionQuotaPackageSnapshot> quotaPackages,
+        UUID planPriceEntryId
 ) {
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION_V1 = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
 
     public SubscriptionEntitlementSnapshot {
         schemaVersion = schemaVersion == 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
-        if (schemaVersion != CURRENT_SCHEMA_VERSION) {
+        if (schemaVersion != SCHEMA_VERSION_V1 && schemaVersion != CURRENT_SCHEMA_VERSION) {
             throw new IllegalArgumentException("Unsupported subscription snapshot schema version: " + schemaVersion);
         }
         if (effectiveFrom != null && effectiveUntil != null && !effectiveUntil.isAfter(effectiveFrom)) {
@@ -32,6 +35,25 @@ public record SubscriptionEntitlementSnapshot(
         features = features == null ? List.of() : List.copyOf(features);
         addOns = addOns == null ? List.of() : List.copyOf(addOns);
         quotaPackages = quotaPackages == null ? List.of() : List.copyOf(quotaPackages);
+    }
+
+    /** Source-compatible constructor for persisted and test-owned schema-V1 snapshots. */
+    public SubscriptionEntitlementSnapshot(
+            int schemaVersion,
+            String planCode,
+            String planName,
+            long planDefinitionVersion,
+            BigDecimal basePrice,
+            String currencyCode,
+            BillingCycle billingCycle,
+            Instant effectiveFrom,
+            Instant effectiveUntil,
+            List<SubscriptionFeatureSnapshot> features,
+            List<SubscriptionAddOnSnapshot> addOns,
+            List<SubscriptionQuotaPackageSnapshot> quotaPackages
+    ) {
+        this(schemaVersion, planCode, planName, planDefinitionVersion, basePrice, currencyCode,
+                billingCycle, effectiveFrom, effectiveUntil, features, addOns, quotaPackages, null);
     }
 
     public SubscriptionEntitlementSnapshot(
@@ -43,8 +65,8 @@ public record SubscriptionEntitlementSnapshot(
             List<SubscriptionAddOnSnapshot> addOns,
             List<SubscriptionQuotaPackageSnapshot> quotaPackages
     ) {
-        this(CURRENT_SCHEMA_VERSION, planCode, null, 0L, basePrice, currencyCode, billingCycle,
-                null, null, features, addOns, quotaPackages);
+        this(SCHEMA_VERSION_V1, planCode, null, 0L, basePrice, currencyCode, billingCycle,
+                null, null, features, addOns, quotaPackages, null);
     }
 
     public SubscriptionEntitlementSnapshot(
@@ -67,6 +89,6 @@ public record SubscriptionEntitlementSnapshot(
     public SubscriptionEntitlementSnapshot withEffectivePeriod(Instant from, Instant until) {
         return new SubscriptionEntitlementSnapshot(
                 schemaVersion, planCode, planName, planDefinitionVersion, basePrice, currencyCode, billingCycle,
-                from, until, features, addOns, quotaPackages);
+                from, until, features, addOns, quotaPackages, planPriceEntryId);
     }
 }

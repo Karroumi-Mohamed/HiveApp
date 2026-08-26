@@ -56,6 +56,26 @@ class SubscriptionSnapshotReaderTest {
     }
 
     @Test
+    void readsPersistedSchemaV1WithoutPriceEntryIdentities() {
+        var snapshot = reader.read("""
+                {"schemaVersion":1,"planCode":"PRO","planName":"Pro","planDefinitionVersion":1,
+                 "basePrice":29.99,"currencyCode":"USD","billingCycle":"MONTHLY",
+                 "features":[],
+                 "addOns":[{"code":"TOOLS","name":"Tools","definitionVersion":1,
+                    "price":3.00,"currencyCode":"USD","billingCycle":"MONTHLY","featureCodes":[]}],
+                 "quotaPackages":[{"code":"MEMBERS","name":"Members","definitionVersion":1,
+                    "featureCode":"platform.staff","resource":"members","capacityPerUnit":5,
+                    "quantity":1,"unitPrice":2.00,"currencyCode":"USD","billingCycle":"MONTHLY"}]}
+                """);
+
+        assertThat(snapshot).isPresent();
+        assertThat(snapshot.get().schemaVersion()).isEqualTo(1);
+        assertThat(snapshot.get().planPriceEntryId()).isNull();
+        assertThat(snapshot.get().addOns().getFirst().priceEntryId()).isNull();
+        assertThat(snapshot.get().quotaPackages().getFirst().priceEntryId()).isNull();
+    }
+
+    @Test
     void rejectsInvalidSnapshotJsonAsInvalidRequest() {
         assertThatThrownBy(() -> reader.read("{"))
                 .isInstanceOf(InvalidRequestException.class)

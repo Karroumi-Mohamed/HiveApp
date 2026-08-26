@@ -76,6 +76,8 @@ class PlanAdminServiceImplTest {
     @Mock private AddOnRepository addOnRepository;
     @Mock private AddOnFeatureRepository addOnFeatureRepository;
     @Mock private QuotaPackageRepository quotaPackageRepository;
+    @Mock private com.hiveapp.platform.client.plan.service.ProductPriceCompatibilityService
+            productPriceCompatibilityService;
     // Real projection so these assertions also cover the read model the service now owns.
     @Spy private PlanAdminReadModels readModels = new PlanAdminReadModels();
 

@@ -9,10 +9,12 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -39,6 +41,28 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(ApiError.of(409, ErrorCode.RESOURCE_ALREADY_EXISTS, "Conflict", ex.getMessage()));
+    }
+
+    @ExceptionHandler(PriceEntryOverlapException.class)
+    public ResponseEntity<ApiError> handlePriceEntryOverlap(PriceEntryOverlapException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.PRICE_ENTRY_OVERLAP, "Conflict", ex.getMessage()));
+    }
+
+    @ExceptionHandler(StaleResourceVersionException.class)
+    public ResponseEntity<ApiError> handleStaleResourceVersion(StaleResourceVersionException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.STALE_RESOURCE_VERSION, "Conflict", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.STALE_RESOURCE_VERSION, "Conflict",
+                        "The resource changed since it was read. Reload it and retry."));
     }
 
     @ExceptionHandler(com.hiveapp.platform.admin.service.AdminRoleNameConflictException.class)
@@ -208,6 +232,14 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiError.of(400, ErrorCode.INVALID_REQUEST, "Bad Request",
                         "Required header '" + ex.getHeaderName() + "' is missing"));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiError> handleMissingParameter(MissingServletRequestParameterException ex) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiError.of(400, ErrorCode.INVALID_REQUEST, "Bad Request",
+                        "Required parameter '" + ex.getParameterName() + "' is missing"));
     }
 
     @ExceptionHandler(Exception.class)

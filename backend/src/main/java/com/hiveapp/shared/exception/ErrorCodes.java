@@ -2,6 +2,7 @@ package com.hiveapp.shared.exception;
 
 import dev.karroumi.permissionizer.PermissionDeniedException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 /**
  * Maps an exception to its stable {@link ErrorCode}.
@@ -19,6 +20,9 @@ public final class ErrorCodes {
         return switch (failure) {
             case ResourceNotFoundException ignored -> ErrorCode.RESOURCE_NOT_FOUND;
             case DuplicateResourceException ignored -> ErrorCode.RESOURCE_ALREADY_EXISTS;
+            case PriceEntryOverlapException ignored -> ErrorCode.PRICE_ENTRY_OVERLAP;
+            case StaleResourceVersionException ignored -> ErrorCode.STALE_RESOURCE_VERSION;
+            case ObjectOptimisticLockingFailureException ignored -> ErrorCode.STALE_RESOURCE_VERSION;
             case DataIntegrityViolationException ignored -> ErrorCode.DATA_CONFLICT;
             case InvalidPermissionGrantException ignored -> ErrorCode.INVALID_PERMISSION_GRANT;
             case PermissionDeniedException ignored -> ErrorCode.PERMISSION_DENIED;
