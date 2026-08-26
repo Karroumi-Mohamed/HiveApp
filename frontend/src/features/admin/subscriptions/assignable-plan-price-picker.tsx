@@ -10,11 +10,12 @@ import { EmptyState, ErrorState, LoadingState, PermissionState } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
+import { formatExactMoney } from "@/lib/exact-decimal";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 
 function money(price: AssignablePlanPrice) {
-  return new Intl.NumberFormat("fr-MA", { style: "currency", currency: price.currencyCode }).format(price.amount);
+  return formatExactMoney(price.amount, price.currencyCode);
 }
 
 function cycle(value: ProductPriceBillingCycle) {

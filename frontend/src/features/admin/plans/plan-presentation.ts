@@ -1,5 +1,6 @@
-import type { BillingCycle, PlanStatus } from "@/api/contracts";
+import type { BillingCycle, ExactDecimal, PlanStatus } from "@/api/contracts";
 import type { StatusTone } from "@/components/patterns/status-badge";
+import { formatExactMoney } from "@/lib/exact-decimal";
 
 /** Shared plan presentation vocabulary, so every plan surface renders the same words. */
 
@@ -38,5 +39,4 @@ export const addOnAvailabilityLabel = (names: string[]) => {
   return names.length === 1 ? `Via ${first}` : `Via ${first} +${names.length - 1}`;
 };
 
-export const money = (value: number, currency: string) =>
-  new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(value);
+export const money = (value: ExactDecimal, currency: string) => formatExactMoney(value, currency);

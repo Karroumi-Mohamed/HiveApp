@@ -23,8 +23,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
+import { formatExactMoney } from "@/lib/exact-decimal";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { productPriceCycle, productPriceOwner, productPriceStatus } from "./product-price-rules";
+import { productPriceCycle, productPriceOwner, productPriceStatus, resolveSortingUpdate } from "./product-price-rules";
 
 const PAGE_SIZE = 20;
 const column = createDataColumns<ProductPrice>();
@@ -39,9 +40,7 @@ const sortableFields = new Set([
   "revisionNumber",
 ]);
 
-function money(amount: number, currency: string) {
-  return new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(amount);
-}
+const money = formatExactMoney;
 
 function date(value: string | null) {
   return value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium" }).format(new Date(value)) : "Sans fin";
@@ -325,7 +324,7 @@ export function AdminProductPricesPage() {
                 emptyState={<EmptyState description="Modifiez les filtres ou créez un tarif." title="Aucun tarif" />}
                 getRowId={(price) => price.id}
                 onSortingChange={(next) => {
-                  const value = next[0];
+                  const value = resolveSortingUpdate(next, sorting)[0];
                   update(
                     value
                       ? { sort: value.id, direction: value.desc ? "desc" : "asc" }

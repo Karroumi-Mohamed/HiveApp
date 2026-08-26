@@ -1,5 +1,7 @@
 export type UUID = string;
 export type Instant = string;
+/** Exact JSON decimal serialized as text; never coerce commercial money through IEEE-754. */
+export type ExactDecimal = string;
 
 export type ApiErrorBody = {
   status: number;
@@ -235,7 +237,7 @@ export type ProductPrice = {
   productId: UUID;
   productCode: string;
   productName: string;
-  amount: number;
+  amount: ExactDecimal;
   currencyCode: string;
   billingCycle: ProductPriceBillingCycle;
   status: ProductPriceStatus;
@@ -253,7 +255,7 @@ export type ProductPrice = {
 };
 
 export type ProductPriceInput = {
-  amount: number;
+  amount: ExactDecimal;
   currencyCode: string;
   billingCycle: ProductPriceBillingCycle;
   effectiveFrom: Instant;
@@ -296,7 +298,7 @@ export type ProductPriceHistoryEntry = {
 
 export type CatalogPrice = {
   priceEntryId: UUID;
-  amount: number;
+  amount: ExactDecimal;
   currencyCode: string;
   billingCycle: ProductPriceBillingCycle;
   effectiveFrom: Instant;
@@ -315,7 +317,7 @@ export type AssignablePlanPrice = {
   planName: string;
   planRevisionNumber: number;
   priceEntryId: UUID;
-  amount: number;
+  amount: ExactDecimal;
   currencyCode: string;
   billingCycle: ProductPriceBillingCycle;
   effectiveFrom: Instant;
@@ -341,7 +343,7 @@ export type AssignPlanFeatureInput = {
 export type CreatePlanInput = {
   name: string;
   description: string | null;
-  price: number;
+  price: ExactDecimal;
   currencyCode: string;
   billingCycle: BillingCycle;
   features: AssignPlanFeatureInput[];
@@ -355,7 +357,7 @@ export type Plan = {
   code: string;
   name: string;
   description: string | null;
-  price: number;
+  price: ExactDecimal;
   currencyCode: string;
   billingCycle: BillingCycle;
   status: PlanStatus;
@@ -372,7 +374,7 @@ export type PlanDetail = Plan & {
   trialingSubscriberCount: number;
   currentSubscriberCount: number;
   historicalSubscriberCount: number;
-  configuredRecurringPriceTotal: number;
+  configuredRecurringPriceTotal: ExactDecimal;
   configuredRecurringPriceCurrencyCode: string;
   warnings: string[];
 };
@@ -386,7 +388,7 @@ export type PlanSubscriber = {
   accountName: string;
   planCode: string;
   status: SubscriptionStatus;
-  configuredRecurringPrice: number;
+  configuredRecurringPrice: ExactDecimal;
   configuredRecurringPriceCurrencyCode: string;
   currentPeriodEnd: Instant | null;
 };
@@ -416,7 +418,7 @@ export type AddOn = {
   code: string;
   name: string;
   description: string | null;
-  price: number;
+  price: ExactDecimal;
   currencyCode: string;
   billingCycle: BillingCycle;
   status: "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
@@ -435,7 +437,7 @@ export type AddOn = {
 export type AddOnInput = {
   name: string;
   description: string | null;
-  price: number;
+  price: ExactDecimal;
   currencyCode: string;
   billingCycle: BillingCycle;
   allowedPlanCodes: string[];
@@ -457,7 +459,7 @@ export type QuotaPackage = {
   featureCode: string;
   resource: string;
   capacityPerUnit: number;
-  price: number;
+  price: ExactDecimal;
   currencyCode: string;
   billingCycle: BillingCycle;
   repeatable: boolean;
@@ -474,7 +476,7 @@ export type QuotaPackageInput = {
   featureCode: string;
   resource: string;
   capacityPerUnit: number;
-  price: number;
+  price: ExactDecimal;
   currencyCode: string;
   billingCycle: BillingCycle;
   repeatable: boolean;
@@ -806,7 +808,7 @@ export type ClientPlanCatalog = {
     id: UUID;
     planCode: string;
     status: SubscriptionStatus;
-    currentPrice: number;
+    currentPrice: ExactDecimal;
     currentPriceCurrencyCode: string;
     planPriceEntryId: UUID | null;
     billingCycle: ProductPriceBillingCycle | null;
@@ -820,7 +822,7 @@ export type ClientPlanCatalog = {
     code: string;
     name: string;
     description: string | null;
-    basePrice: number;
+    basePrice: ExactDecimal;
     currencyCode: string;
     billingCycle: BillingCycle;
     current: boolean;
@@ -842,7 +844,7 @@ export type ClientPlanCatalog = {
       code: string;
       name: string;
       description: string | null;
-      price: number;
+      price: ExactDecimal;
       currencyCode: string;
       billingCycle: BillingCycle;
       definitionVersion: number;
@@ -859,7 +861,7 @@ export type ClientPlanCatalog = {
       featureCode: string;
       resource: string;
       capacityPerUnit: number;
-      price: number;
+      price: ExactDecimal;
       currencyCode: string;
       billingCycle: BillingCycle;
       repeatable: boolean;
@@ -875,8 +877,8 @@ export type ClientPlanCatalog = {
 export type SubscriptionChangePreview = {
   currentPlanCode: string;
   targetPlanCode: string;
-  currentPrice: number;
-  previewPrice: number;
+  currentPrice: ExactDecimal;
+  previewPrice: ExactDecimal;
   currencyCode: string;
   immediateAllowed: boolean;
   effectiveFeatureCodes: string[];
@@ -912,13 +914,50 @@ export type SubscriptionChangeInput = {
 
 export type Subscription = {
   id: UUID;
-  plan: { code: string; name: string; basePrice: number; currencyCode: string };
+  plan: { code: string; name: string; basePrice: ExactDecimal; currencyCode: string };
   status: SubscriptionStatus;
-  currentPrice: number;
+  currentPrice: ExactDecimal;
   currentPriceCurrencyCode: string;
   currentPeriodStart: Instant;
   currentPeriodEnd: Instant;
   cancelAtPeriodEnd: boolean;
+};
+
+export type SubscriptionEntitlementSnapshot = {
+  schemaVersion: number;
+  planCode: string;
+  planName: string | null;
+  planDefinitionVersion: number;
+  basePrice: ExactDecimal;
+  currencyCode: string;
+  billingCycle: BillingCycle;
+  effectiveFrom: Instant | null;
+  effectiveUntil: Instant | null;
+  features: unknown[];
+  addOns: Array<{
+    code: string;
+    name: string;
+    definitionVersion: number;
+    price: ExactDecimal;
+    currencyCode: string;
+    billingCycle: BillingCycle;
+    featureCodes: string[];
+    priceEntryId: UUID | null;
+  }>;
+  quotaPackages: Array<{
+    code: string;
+    name: string;
+    definitionVersion: number;
+    featureCode: string;
+    resource: string;
+    capacityPerUnit: number;
+    quantity: number;
+    unitPrice: ExactDecimal;
+    currencyCode: string;
+    billingCycle: BillingCycle;
+    priceEntryId: UUID | null;
+  }>;
+  planPriceEntryId: UUID | null;
 };
 
 export type AdminSubscription = {
@@ -928,7 +967,7 @@ export type AdminSubscription = {
   planCode: string;
   planName: string;
   status: SubscriptionStatus;
-  currentPrice: number;
+  currentPrice: ExactDecimal;
   currentPriceCurrencyCode: string;
   currentPeriodStart: Instant;
   currentPeriodEnd: Instant;
@@ -938,14 +977,7 @@ export type AdminSubscription = {
     addOnCodes: string[];
     quotaPackages: Array<{ packageCode: string; quantity: number }>;
   };
-  entitlementSnapshot: {
-    planCode: string;
-    planName: string;
-    planDefinitionVersion: number;
-    features: unknown[];
-    addOns: unknown[];
-    quotaPackages: unknown[];
-  } | null;
+  entitlementSnapshot: SubscriptionEntitlementSnapshot | null;
 };
 
 export type AccountDirectoryEntry = { id: UUID; name: string; slug: string; ownerEmail: string; active: boolean };
@@ -958,7 +990,7 @@ export type SubscriptionChangeOperation = {
   sourcePlanCode: string;
   targetPlanCode: string;
   attentionReason: string | null;
-  checkout: { id: UUID; status: string; amount: number; currencyCode: string } | null;
+  checkout: { id: UUID; status: string; amount: ExactDecimal; currencyCode: string } | null;
 };
 
 export type SubscriptionChangeApplyResponse = {
@@ -980,7 +1012,7 @@ export type ManualCheckoutConfirmationInput = {
 export type SubscriptionCheckout = {
   id: UUID;
   status: "PENDING_CONFIRMATION" | "CONFIRMED" | "FAILED" | "CANCELLED";
-  amount: number;
+  amount: ExactDecimal;
   currencyCode: string;
   gatewayAttemptStatus: "SUCCESS" | "FAILED" | "PENDING" | null;
   gatewayReference: string | null;

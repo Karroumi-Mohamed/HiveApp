@@ -33,10 +33,10 @@ import {
   invalidateAdminCommercial,
   invalidateAdminSubscriptionEntitlement,
 } from "@/features/commercial/commercial-query";
+import { formatExactMoney } from "@/lib/exact-decimal";
 import { AssignablePlanPricePicker } from "./assignable-plan-price-picker";
 
-const money = (value: number, currency: string) =>
-  new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(value);
+const money = formatExactMoney;
 const date = (value: string | null) =>
   value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium" }).format(new Date(value)) : "—";
 

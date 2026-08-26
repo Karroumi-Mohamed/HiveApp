@@ -29,9 +29,10 @@ import {
   commercialQueryEnabled,
   invalidateClientCommercial,
 } from "@/features/commercial/commercial-query";
+import { formatExactMoney } from "@/lib/exact-decimal";
+import { subscriptionChangeFailureMessage } from "./subscription-change-rules";
 
-const money = (amount: number, currency: string) =>
-  new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(amount);
+const money = formatExactMoney;
 const date = (value: string | null) =>
   value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium" }).format(new Date(value)) : "—";
 
@@ -176,6 +177,12 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
   const [timing, setTiming] = useState<"IMMEDIATE" | "AT_RENEWAL">("IMMEDIATE");
   const [preview, setPreview] = useState<SubscriptionChangePreview | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const changeError = (error: unknown) => {
+    setPreview(null);
+    setPreviewOpen(false);
+    void invalidateClientCommercial(queryClient);
+    toast.error(subscriptionChangeFailureMessage(error));
+  };
   useEffect(() => {
     setAddOns(current?.addOnCodes ?? []);
     setQuantities(Object.fromEntries((current?.quotaPackages ?? []).map((item) => [item.packageCode, item.quantity])));
@@ -245,6 +252,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
       setPreview(data);
       setPreviewOpen(true);
     },
+    onError: changeError,
   });
   const apply = useMutation({
     mutationFn: () => {
@@ -256,6 +264,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
       setPreviewOpen(false);
       toast.success(timing === "IMMEDIATE" ? "Changement appliqué" : "Changement planifié");
     },
+    onError: changeError,
   });
   if (!plan) return <EmptyState title="Aucun forfait disponible" />;
   return (

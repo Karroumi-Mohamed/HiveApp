@@ -192,6 +192,11 @@ export const clientSubscriptionSurfacePermissions = [
   clientPermissions.subscriptionReadChanges,
 ] as const;
 
+export const adminPriceBookDetailSurfacePermissions = [
+  adminPermissions.priceBooksRead,
+  adminPermissions.priceBooksReadHistory,
+] as const;
+
 /** Each overview card family is independently readable, including registry sync on its own. */
 export const adminOverviewSurfacePermissions = [
   adminPermissions.accessOverview,

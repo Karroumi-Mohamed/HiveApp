@@ -9,11 +9,10 @@ import { EmptyState, ErrorState, LoadingState, PermissionState } from "@/compone
 import { StatusText } from "@/components/patterns/status-text";
 import { Button } from "@/components/ui/button";
 import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
+import { formatExactMoney } from "@/lib/exact-decimal";
 import { productPriceCycle, productPriceStatus } from "./product-price-rules";
 
-function money(amount: number, currency: string) {
-  return new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(amount);
-}
+const money = formatExactMoney;
 
 export function ProductPricePanel({ ownerType, ownerId }: { ownerType: ProductPriceOwnerType; ownerId: string }) {
   const session = useAdminSession();

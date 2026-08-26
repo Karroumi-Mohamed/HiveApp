@@ -12,10 +12,13 @@ import {
   canUseProductPriceAction,
   isProductPriceReplacementDraft,
   productPriceActionReason,
+  productPriceHistoryLabel,
+  productPriceOwnerReadPermission,
+  resolveSortingUpdate,
   validateProductPriceDraft,
 } from "./product-price-rules";
 
-const price = (id: string, billingCycle: "MONTHLY" | "YEARLY", amount: number): CatalogPrice => ({
+const price = (id: string, billingCycle: "MONTHLY" | "YEARLY", amount: string): CatalogPrice => ({
   priceEntryId: id,
   amount,
   currencyCode: "MAD",
@@ -78,11 +81,44 @@ describe("product price draft validation", () => {
       }),
     ).toEqual({});
   });
+
+  test("accepts the exact maximum precision without converting it to a number", () => {
+    expect(
+      validateProductPriceDraft({
+        amount: "999999999999999.9999",
+        currencyCode: "MAD",
+        billingCycle: "MONTHLY",
+        effectiveFrom: "2026-08-20T12:00",
+        effectiveUntil: "",
+      }),
+    ).toEqual({});
+  });
+});
+
+describe("price-book URL and history presentation", () => {
+  test("resolves TanStack functional sorting updaters", () => {
+    const current = [{ id: "createdAt", desc: true }];
+    expect(resolveSortingUpdate(() => [{ id: "amount", desc: false }], current)).toEqual([
+      { id: "amount", desc: false },
+    ]);
+  });
+
+  test("normalizes the backend permission-style audit action", () => {
+    expect(productPriceHistoryLabel("platform.price_books.activate")).toBe("Tarif mis en vente");
+    expect(productPriceHistoryLabel("platform.price_books.schedule_replacement")).toBe("Remplacement programmé");
+    expect(productPriceHistoryLabel("platform.price_books.create")).toBe("Brouillon créé");
+  });
+
+  test("requires the linked product's own detail permission", () => {
+    expect(productPriceOwnerReadPermission("PLAN")).toBe(adminPermissions.plansReadDetail);
+    expect(productPriceOwnerReadPermission("ADD_ON")).toBe(adminPermissions.addOnsReadDetail);
+    expect(productPriceOwnerReadPermission("QUOTA_PACKAGE")).toBe(adminPermissions.quotaPackagesReadDetail);
+  });
 });
 
 describe("client catalogue price selection", () => {
-  const monthly = price("monthly", "MONTHLY", 12);
-  const yearly = price("yearly", "YEARLY", 100);
+  const monthly = price("monthly", "MONTHLY", "12");
+  const yearly = price("yearly", "YEARLY", "100");
 
   test("defaults predictably and matches extensions by selected terms", () => {
     expect(defaultCatalogPrice([yearly, monthly])?.priceEntryId).toBe("monthly");
@@ -111,7 +147,7 @@ describe("client catalogue price selection", () => {
   });
 
   test("restores the exact current price before considering its commercial tuple", () => {
-    const sameAmountYearly = price("yearly", "YEARLY", 12);
+    const sameAmountYearly = price("yearly", "YEARLY", "12");
     expect(
       currentCatalogPrice([monthly, sameAmountYearly], {
         planPriceEntryId: "yearly",

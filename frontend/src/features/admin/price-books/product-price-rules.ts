@@ -1,3 +1,4 @@
+import type { SortingState } from "@tanstack/react-table";
 import type {
   ProductPrice,
   ProductPriceAction,
@@ -8,6 +9,7 @@ import type {
   ProductPriceStatus,
 } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
+import { isCommercialAmount } from "@/lib/exact-decimal";
 
 export const productPriceStatus: Record<
   ProductPriceStatus,
@@ -24,6 +26,12 @@ export const productPriceOwner: Record<ProductPriceOwnerType, string> = {
   ADD_ON: "Add-on",
   QUOTA_PACKAGE: "Pack de capacité",
 };
+
+export function productPriceOwnerReadPermission(ownerType: ProductPriceOwnerType): string {
+  if (ownerType === "PLAN") return adminPermissions.plansReadDetail;
+  if (ownerType === "ADD_ON") return adminPermissions.addOnsReadDetail;
+  return adminPermissions.quotaPackagesReadDetail;
+}
 
 export const productPriceCycle: Record<ProductPriceBillingCycle, string> = {
   MONTHLY: "Mensuel",
@@ -100,10 +108,7 @@ export type ProductPriceDraftErrors = Partial<Record<keyof ProductPriceDraftFiel
 
 export function validateProductPriceDraft(fields: ProductPriceDraftFields): ProductPriceDraftErrors {
   const errors: ProductPriceDraftErrors = {};
-  const amount = Number(fields.amount);
-  if (fields.amount.trim() === "" || !Number.isFinite(amount) || amount < 0) {
-    errors.amount = "Saisissez un montant positif ou nul.";
-  } else if (!/^\d{1,15}(?:\.\d{1,4})?$/.test(fields.amount.trim())) {
+  if (!isCommercialAmount(fields.amount)) {
     errors.amount = "Utilisez au maximum 15 chiffres et 4 décimales.";
   }
   if (!/^[A-Za-z]{3}$/.test(fields.currencyCode.trim())) {
@@ -117,6 +122,33 @@ export function validateProductPriceDraft(fields: ProductPriceDraftFields): Prod
     else if (!Number.isNaN(from) && until <= from) errors.effectiveUntil = "La fin doit être postérieure au début.";
   }
   return errors;
+}
+
+export function resolveSortingUpdate(
+  update: SortingState | ((current: SortingState) => SortingState),
+  current: SortingState,
+): SortingState {
+  return typeof update === "function" ? update(current) : update;
+}
+
+const historyAction: Record<string, string> = {
+  CREATE: "Brouillon créé",
+  CREATE_DRAFT: "Brouillon créé",
+  UPDATE: "Conditions modifiées",
+  UPDATE_DRAFT: "Conditions modifiées",
+  ACTIVATE: "Tarif mis en vente",
+  PAUSE: "Vente suspendue",
+  REACTIVATE: "Tarif remis en vente",
+  REVISE: "Révision créée",
+  SCHEDULE_REPLACEMENT: "Remplacement programmé",
+  ARCHIVE: "Tarif archivé",
+  DELETE: "Brouillon supprimé",
+  DELETE_DRAFT: "Brouillon supprimé",
+};
+
+export function productPriceHistoryLabel(action: string): string {
+  const key = (action.split(".").at(-1) ?? action).replaceAll("-", "_").toUpperCase();
+  return historyAction[key] ?? key.replaceAll("_", " ").toLocaleLowerCase("fr");
 }
 
 export function localDateTimeValue(value?: string | null) {

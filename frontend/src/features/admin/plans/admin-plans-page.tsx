@@ -67,6 +67,7 @@ import {
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
+import { commercialAmount, isCommercialAmount } from "@/lib/exact-decimal";
 
 type PlanFeatureCommercialRow = {
   feature: PlanFeature;
@@ -110,7 +111,7 @@ function PlanFormDialog({
       const input = {
         name,
         description,
-        price: Number(price),
+        price: commercialAmount(price),
         currencyCode: currencyCode.toUpperCase(),
         billingCycle,
       };
@@ -163,6 +164,7 @@ function PlanFormDialog({
           className="grid gap-5 sm:grid-cols-2"
           onSubmit={(event: FormEvent) => {
             event.preventDefault();
+            if (!isCommercialAmount(price)) return;
             save.mutate();
           }}
         >
@@ -186,10 +188,8 @@ function PlanFormDialog({
             <Label htmlFor="plan-price">Prix</Label>
             <Input
               id="plan-price"
-              min="0"
+              inputMode="decimal"
               onChange={(event) => setPrice(event.target.value)}
-              step="0.01"
-              type="number"
               value={price}
             />
             <p className="text-xs leading-4 text-muted-foreground">Montant facturé à chaque cycle.</p>
@@ -226,7 +226,7 @@ function PlanFormDialog({
             <Button onClick={() => setOpen(false)} type="button" variant="outline">
               Annuler
             </Button>
-            <Button disabled={save.isPending} type="submit">
+            <Button disabled={save.isPending || !isCommercialAmount(price)} type="submit">
               {save.isPending ? "Enregistrement…" : "Enregistrer"}
             </Button>
           </div>
