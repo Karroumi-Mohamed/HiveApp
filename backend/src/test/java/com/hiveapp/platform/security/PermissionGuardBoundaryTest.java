@@ -12,6 +12,7 @@ import com.hiveapp.platform.client.company.service.impl.CompanyServiceImpl;
 import com.hiveapp.platform.client.company.service.impl.OrganizationServiceImpl;
 import com.hiveapp.platform.client.member.service.impl.MemberServiceImpl;
 import com.hiveapp.platform.client.plan.service.impl.PlanAdminServiceImpl;
+import com.hiveapp.platform.client.plan.service.impl.CommercialAvailabilityServiceImpl;
 import com.hiveapp.platform.client.plan.service.impl.ProductPriceAdminServiceImpl;
 import com.hiveapp.platform.client.plan.service.impl.SubscriptionServiceImpl;
 import com.hiveapp.platform.client.role.service.impl.RoleServiceImpl;
@@ -36,6 +37,7 @@ class PermissionGuardBoundaryTest {
             CompanyServiceImpl.class,
             OrganizationServiceImpl.class,
             MemberServiceImpl.class,
+            CommercialAvailabilityServiceImpl.class,
             PlanAdminServiceImpl.class,
             ProductPriceAdminServiceImpl.class,
             SubscriptionServiceImpl.class,
@@ -66,7 +68,7 @@ class PermissionGuardBoundaryTest {
     @Test
     void everyCurrentPermissionBearingServiceExplicitlyEnablesGuarding() {
         assertThat(PERMISSION_BEARING_SERVICES)
-                .hasSize(13)
+                .hasSize(14)
                 .allSatisfy(type -> {
                     assertThat(Arrays.stream(type.getDeclaredMethods()))
                             .as("%s must declare permission-bearing methods", type.getName())

@@ -116,6 +116,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
 
         JsonNode annual = activate(adminToken, annualId, annualDraft.get("version").asLong());
         assertThat(annual.get("status").asText()).isEqualTo("ACTIVE");
+        assertThat(annual.get("amount").isTextual()).isTrue();
         assertThat(new BigDecimal(annual.get("amount").asText())).isEqualByComparingTo("120.00");
 
         mockMvc.perform(get("/api/admin/product-prices/{id}/history", annualId)
@@ -322,7 +323,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
 
         SubscriptionChangeRequest request = new SubscriptionChangeRequest(
                 free.getCode(), Set.of(addOn.getCode()),
-                List.of(new QuotaPackageSelection(quotaPackage.getCode(), 1)),
+                List.of(new QuotaPackageSelection(quotaPackage.getCode(), 2)),
                 SubscriptionChangeTiming.IMMEDIATE,
                 new ProductPriceSelectionRequest(
                         annualPrice.getId(), "USD", BillingCycle.YEARLY));
@@ -348,6 +349,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 });
         assertThat(changed.getEntitlementSnapshot().quotaPackages()).singleElement()
                 .satisfies(item -> {
+                    assertThat(item.quantity()).isEqualTo(2);
                     assertThat(item.billingCycle()).isEqualTo(BillingCycle.YEARLY);
                     assertThat(item.priceEntryId()).isEqualTo(annualPackagePrice.getId());
                     assertThat(item.priceEntryId()).isNotEqualTo(

@@ -1,7 +1,9 @@
 package com.hiveapp.platform.client.plan.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
+import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialAvailabilityAction;
@@ -16,6 +18,7 @@ import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
+import com.hiveapp.platform.client.plan.domain.repository.CommercialAvailabilityAuditRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
@@ -32,13 +35,16 @@ import com.hiveapp.platform.client.plan.dto.ProductVisibilityPreviewDto;
 import com.hiveapp.platform.client.plan.dto.ProductVisibilityPreviewRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 import com.hiveapp.platform.client.plan.service.CommercialAvailabilityService;
+import com.hiveapp.platform.client.plan.service.CommercialAvailabilityAuditContract;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.platform.client.plan.service.PlanAdminReadModels;
 import com.hiveapp.platform.registry.definition.CommercialAvailabilityFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
 import com.hiveapp.shared.audit.domain.AuditLog;
-import com.hiveapp.shared.audit.domain.AuditLogRepository;
+import com.hiveapp.shared.audit.AuditTrail;
+import com.hiveapp.shared.audit.domain.AuditActorSurface;
+import com.hiveapp.shared.audit.domain.AuditOutcome;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.OperationBlockedException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
@@ -77,8 +83,13 @@ import java.util.stream.Collectors;
 public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureService
         implements CommercialAvailabilityService {
 
-    private static final String AUDIT_RESOURCE_TYPE = "COMMERCIAL_AVAILABILITY";
     private static final int MAX_PREVIEW_CHANGES = 100;
+    private static final Set<String> DETAILED_SUCCESS_ACTIONS = Set.of(
+            CommercialAvailabilityAuditContract.PLAN_CHANGE_ACTION,
+            CommercialAvailabilityAuditContract.ADD_ON_CHANGE_ACTION,
+            CommercialAvailabilityAuditContract.QUOTA_CHANGE_ACTION);
+    private static final Set<String> COMPATIBILITY_SORTS = Set.of(
+            "code", "name", "productType", "available");
 
     private final CommercialCatalogResolver catalogResolver;
     private final PlanRepository planRepository;
@@ -86,9 +97,11 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     private final QuotaPackageRepository quotaPackageRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final PlanAdminReadModels readModels;
-    private final AuditLogRepository auditLogRepository;
+    private final CommercialAvailabilityAuditRepository availabilityAuditRepository;
     private final AdminUserRepository adminUserRepository;
     private final ObjectMapper objectMapper;
+    private final AuditTrail auditTrail;
+    private final AdminMutationAuthorizer adminMutationAuthorizer;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -110,14 +123,13 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
         CommercialCatalogResolver.PriceTuple tuple = priceTuple(currencyCode, billingCycle);
         CommercialCatalogResolver.PlanResolution resolution = catalogResolver.resolvePlan(
                 planId, CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR, tuple);
+        Pageable bounded = compatibilityPage(pageable);
         List<ExtensionCompatibilityDto> items = extensionDtos(resolution).stream()
                 .filter(item -> type == null || item.productType() == type)
                 .filter(item -> available == null || item.operatorSelectable() == available)
                 .filter(item -> matches(item, search))
-                .sorted(Comparator.comparing(ExtensionCompatibilityDto::productType)
-                        .thenComparing(ExtensionCompatibilityDto::code))
+                .sorted(compatibilityComparator(bounded.getSort()))
                 .toList();
-        Pageable bounded = bounded(pageable);
         int from = bounded.getOffset() >= items.size()
                 ? items.size() : (int) bounded.getOffset();
         int to = Math.min(from + bounded.getPageSize(), items.size());
@@ -139,6 +151,8 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     public PlanDto updatePlan(UUID planId, PlanAvailabilityMutationRequest request) {
         Plan plan = planRepository.findByIdForUpdate(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
+        var previousPolicy = plan.getExtensionPolicy();
+        var previousVisibility = plan.getSalesVisibility();
         requireVersion(plan.getVersion(), request.expectedVersion(), "Plan availability");
         requireReason(request.reason());
         PlanAvailabilityPreviewDto preview = buildPlanPreview(
@@ -150,7 +164,13 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
         requireApplicable(preview.applicable(), preview.blockers());
         plan.setExtensionPolicy(request.extensionPolicy());
         plan.setSalesVisibility(request.salesVisibility());
-        return readModels.toDto(planRepository.saveAndFlush(plan));
+        PlanDto result = readModels.toDto(planRepository.saveAndFlush(plan));
+        recordAvailabilityChange(
+                CommercialAvailabilityAuditContract.PLAN_CHANGE_ACTION,
+                planId, CommercialProductType.PLAN, result.code(),
+                previousPolicy, result.extensionPolicy(), previousVisibility,
+                result.salesVisibility(), request.reason());
+        return result;
     }
 
     @Override
@@ -167,6 +187,7 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     public AddOnDto updateAddOn(UUID addOnId, ProductVisibilityMutationRequest request) {
         AddOn addOn = addOnRepository.findByIdForUpdate(addOnId)
                 .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", addOnId));
+        var previousVisibility = addOn.getSalesVisibility();
         requireVersion(addOn.getRowVersion(), request.expectedVersion(), "AddOn visibility");
         requireReason(request.reason());
         ProductVisibilityPreviewDto preview = buildAddOnVisibilityPreview(
@@ -178,7 +199,12 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
         requireApplicable(preview.applicable(), preview.blockers());
         addOn.setSalesVisibility(request.salesVisibility());
         addOnRepository.saveAndFlush(addOn);
-        return readModels.toDto(addOnRepository.findDetailedById(addOnId).orElseThrow());
+        AddOnDto result = readModels.toDto(addOnRepository.findDetailedById(addOnId).orElseThrow());
+        recordAvailabilityChange(
+                CommercialAvailabilityAuditContract.ADD_ON_CHANGE_ACTION,
+                addOnId, CommercialProductType.ADD_ON, result.code(),
+                null, null, previousVisibility, result.salesVisibility(), request.reason());
+        return result;
     }
 
     @Override
@@ -196,6 +222,7 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
             UUID quotaPackageId, ProductVisibilityMutationRequest request) {
         QuotaPackage item = quotaPackageRepository.findByIdForUpdate(quotaPackageId)
                 .orElseThrow(() -> new ResourceNotFoundException("QuotaPackage", "id", quotaPackageId));
+        var previousVisibility = item.getSalesVisibility();
         requireVersion(item.getRowVersion(), request.expectedVersion(), "Quota-package visibility");
         requireReason(request.reason());
         ProductVisibilityPreviewDto preview = buildQuotaVisibilityPreview(
@@ -207,7 +234,13 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
         requireApplicable(preview.applicable(), preview.blockers());
         item.setSalesVisibility(request.salesVisibility());
         quotaPackageRepository.saveAndFlush(item);
-        return readModels.toDto(quotaPackageRepository.findDetailedById(quotaPackageId).orElseThrow());
+        QuotaPackageDto result = readModels.toDto(
+                quotaPackageRepository.findDetailedById(quotaPackageId).orElseThrow());
+        recordAvailabilityChange(
+                CommercialAvailabilityAuditContract.QUOTA_CHANGE_ACTION,
+                quotaPackageId, CommercialProductType.QUOTA_PACKAGE,
+                result.code(), null, null, previousVisibility, result.salesVisibility(), request.reason());
+        return result;
     }
 
     @Override
@@ -215,18 +248,18 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     @PermissionNode(key = "read_history", description = "Read commercial availability history")
     public Page<CommercialAvailabilityHistoryEntryDto> history(UUID productId, Pageable pageable) {
         Pageable bounded = historyPage(pageable);
-        Page<AuditLog> logs = auditLogRepository.findAllByResourceTypeAndResourceId(
-                AUDIT_RESOURCE_TYPE, productId.toString(), bounded);
+        Page<AuditLog> logs = availabilityAuditRepository.findHistory(
+                CommercialAvailabilityAuditContract.RESOURCE_TYPE, productId.toString(),
+                AuditOutcome.SUCCEEDED, DETAILED_SUCCESS_ACTIONS, bounded);
         Set<UUID> actorIds = logs.stream().map(AuditLog::getActorUserId)
                 .filter(Objects::nonNull).collect(Collectors.toSet());
         Map<UUID, String> actorEmails = actorIds.isEmpty() ? Map.of()
                 : adminUserRepository.findAllWithUserByUserIdIn(actorIds).stream()
                         .collect(Collectors.toMap(
                                 admin -> admin.getUser().getId(), admin -> admin.getUser().getEmail()));
-        return logs.map(log -> new CommercialAvailabilityHistoryEntryDto(
-                log.getId(), log.getOccurredAt(), log.getActorUserId(),
-                actorEmails.get(log.getActorUserId()), log.getAction(), log.getOutcome(),
-                log.getFailureType(), historyReason(log)));
+        ProductIdentity productIdentity = historyProductIdentity(productId, logs);
+        return logs.map(log -> historyEntry(
+                log, actorEmails.get(log.getActorUserId()), productIdentity));
     }
 
     private PlanAvailabilityPreviewDto buildPlanPreview(
@@ -444,10 +477,43 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
         }
     }
 
-    private Pageable bounded(Pageable pageable) {
-        int page = pageable == null ? 0 : Math.max(0, pageable.getPageNumber());
-        int size = pageable == null ? 20 : Math.min(100, Math.max(1, pageable.getPageSize()));
-        return PageRequest.of(page, size, Sort.by("productType").and(Sort.by("code")));
+    private Pageable compatibilityPage(Pageable pageable) {
+        if (pageable == null) {
+            return PageRequest.of(0, 20, Sort.by("code"));
+        }
+        if (pageable.getPageNumber() < 0 || pageable.getPageSize() < 1
+                || pageable.getPageSize() > 100) {
+            throw new InvalidRequestException(
+                    "Compatibility page must be non-negative with a size between 1 and 100.");
+        }
+        Sort requested = pageable.getSort().isSorted() ? pageable.getSort() : Sort.by("code");
+        requested.forEach(order -> {
+            if (!COMPATIBILITY_SORTS.contains(order.getProperty())) {
+                throw new InvalidRequestException(
+                        "Unsupported compatibility sort: " + order.getProperty() + ".");
+            }
+        });
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), requested);
+    }
+
+    private Comparator<ExtensionCompatibilityDto> compatibilityComparator(Sort sort) {
+        Comparator<ExtensionCompatibilityDto> result = (left, right) -> 0;
+        for (Sort.Order order : sort) {
+            Comparator<ExtensionCompatibilityDto> next = switch (order.getProperty()) {
+                case "code" -> Comparator.comparing(
+                        ExtensionCompatibilityDto::code, String.CASE_INSENSITIVE_ORDER);
+                case "name" -> Comparator.comparing(
+                        ExtensionCompatibilityDto::name, String.CASE_INSENSITIVE_ORDER);
+                case "productType" -> Comparator.comparing(ExtensionCompatibilityDto::productType);
+                case "available" -> Comparator.comparing(ExtensionCompatibilityDto::operatorSelectable);
+                default -> throw new IllegalStateException(
+                        "Validated compatibility sort was not implemented: " + order.getProperty());
+            };
+            result = result.thenComparing(order.isDescending() ? next.reversed() : next);
+        }
+        return result.thenComparing(ExtensionCompatibilityDto::productType)
+                .thenComparing(ExtensionCompatibilityDto::code, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(ExtensionCompatibilityDto::productId);
     }
 
     private Pageable historyPage(Pageable pageable) {
@@ -561,14 +627,165 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     private String historyReason(AuditLog log) {
         if (log.getRequestData() == null) return null;
         try {
-            var reason = objectMapper.readTree(log.getRequestData()).get("request");
+            var root = objectMapper.readTree(log.getRequestData());
+            var reason = root.get("request");
             if (reason != null) reason = reason.get("reason");
-            if (reason == null) reason = objectMapper.readTree(log.getRequestData()).get("reason");
+            if (reason == null) reason = root.path("before").get("reason");
+            if (reason == null) reason = root.get("reason");
             return reason != null && reason.isTextual() && !reason.textValue().isBlank()
                     ? reason.textValue().trim() : null;
         } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
             return null;
         }
+    }
+
+    private void recordAvailabilityChange(
+            String action,
+            UUID productId,
+            CommercialProductType productType,
+            String productCode,
+            com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy previousPolicy,
+            com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy resultingPolicy,
+            ProductSalesVisibility previousVisibility,
+            ProductSalesVisibility resultingVisibility,
+            String reason
+    ) {
+        Map<String, Object> before = new java.util.LinkedHashMap<>();
+        before.put("productType", productType);
+        before.put("productCode", productCode);
+        if (previousPolicy != null) before.put("extensionPolicy", previousPolicy);
+        before.put("salesVisibility", previousVisibility);
+        before.put("reason", reason.trim());
+
+        Map<String, Object> after = new java.util.LinkedHashMap<>();
+        after.put("productType", productType);
+        after.put("productCode", productCode);
+        if (resultingPolicy != null) after.put("extensionPolicy", resultingPolicy);
+        after.put("salesVisibility", resultingVisibility);
+
+        auditTrail.recordSuccess(
+                action,
+                CommercialAvailabilityAuditContract.RESOURCE_TYPE,
+                productId,
+                AuditActorSurface.PLATFORM_ADMIN,
+                adminMutationAuthorizer.currentActorUserId(),
+                null,
+                before,
+                after);
+    }
+
+    private CommercialAvailabilityHistoryEntryDto historyEntry(
+            AuditLog log,
+            String actorEmail,
+            ProductIdentity fallbackIdentity
+    ) {
+        HistoryDetails details = historyDetails(log);
+        CommercialProductType productType = details.productType() != null
+                ? details.productType() : fallbackIdentity.productType();
+        String productCode = details.productCode() != null
+                ? details.productCode() : fallbackIdentity.productCode();
+        return new CommercialAvailabilityHistoryEntryDto(
+                log.getId(), log.getOccurredAt(), log.getActorUserId(), actorEmail,
+                log.getAction(), log.getOutcome(), log.getFailureType(), historyReason(log),
+                productType, productCode, details.previousPolicy(),
+                details.resultingPolicy(), details.previousVisibility(), details.resultingVisibility());
+    }
+
+    private ProductIdentity historyProductIdentity(UUID productId, Page<AuditLog> logs) {
+        List<HistoryDetails> details = logs.stream().map(this::historyDetails).toList();
+        ProductIdentity recorded = details.stream()
+                .filter(item -> item.productType() != null && item.productCode() != null)
+                .map(item -> new ProductIdentity(item.productType(), item.productCode()))
+                .findFirst().orElse(null);
+        if (recorded != null) return recorded;
+
+        CommercialProductType type = details.stream().map(HistoryDetails::productType)
+                .filter(Objects::nonNull).findFirst().orElse(null);
+        if (type == null) return ProductIdentity.EMPTY;
+        String code = switch (type) {
+            case PLAN -> planRepository.findById(productId).map(Plan::getCode).orElse(null);
+            case ADD_ON -> addOnRepository.findById(productId).map(AddOn::getCode).orElse(null);
+            case QUOTA_PACKAGE -> quotaPackageRepository.findById(productId)
+                    .map(QuotaPackage::getCode).orElse(null);
+        };
+        return new ProductIdentity(type, code);
+    }
+
+    private HistoryDetails historyDetails(AuditLog log) {
+        try {
+            JsonNode before = log.getRequestData() == null
+                    ? objectMapper.createObjectNode()
+                    : objectMapper.readTree(log.getRequestData()).path("before");
+            JsonNode after = log.getResultData() == null
+                    ? objectMapper.createObjectNode()
+                    : objectMapper.readTree(log.getResultData()).path("after");
+            if (after.isObject() && after.hasNonNull("productType")) {
+                return new HistoryDetails(
+                        enumValue(after.get("productType"), CommercialProductType.class),
+                        text(after.get("productCode")),
+                        enumValue(before.get("extensionPolicy"),
+                                com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy.class),
+                        enumValue(after.get("extensionPolicy"),
+                                com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy.class),
+                        enumValue(before.get("salesVisibility"), ProductSalesVisibility.class),
+                        enumValue(after.get("salesVisibility"), ProductSalesVisibility.class));
+            }
+
+            // Failed attempts are written by the transactional runner. They contain the requested
+            // target but no invented "before" state, because the mutation never committed.
+            JsonNode request = log.getRequestData() == null
+                    ? objectMapper.createObjectNode()
+                    : objectMapper.readTree(log.getRequestData()).path("request");
+            CommercialProductType type = switch (log.getAction()) {
+                case CommercialAvailabilityAuditContract.PLAN_CHANGE_ACTION,
+                        CommercialAvailabilityAuditContract.PLAN_MUTATION_ACTION ->
+                        CommercialProductType.PLAN;
+                case CommercialAvailabilityAuditContract.ADD_ON_CHANGE_ACTION,
+                        CommercialAvailabilityAuditContract.ADD_ON_MUTATION_ACTION ->
+                        CommercialProductType.ADD_ON;
+                case CommercialAvailabilityAuditContract.QUOTA_CHANGE_ACTION,
+                        CommercialAvailabilityAuditContract.QUOTA_MUTATION_ACTION ->
+                        CommercialProductType.QUOTA_PACKAGE;
+                default -> null;
+            };
+            return new HistoryDetails(
+                    type, null, null,
+                    enumValue(request.get("extensionPolicy"),
+                            com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy.class),
+                    null, enumValue(request.get("salesVisibility"), ProductSalesVisibility.class));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
+            return HistoryDetails.EMPTY;
+        }
+    }
+
+    private String text(JsonNode node) {
+        return node != null && node.isTextual() && !node.textValue().isBlank()
+                ? node.textValue() : null;
+    }
+
+    private <E extends Enum<E>> E enumValue(JsonNode node, Class<E> type) {
+        if (node == null || !node.isTextual()) return null;
+        try {
+            return Enum.valueOf(type, node.textValue());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private record HistoryDetails(
+            CommercialProductType productType,
+            String productCode,
+            com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy previousPolicy,
+            com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy resultingPolicy,
+            ProductSalesVisibility previousVisibility,
+            ProductSalesVisibility resultingVisibility
+    ) {
+        private static final HistoryDetails EMPTY =
+                new HistoryDetails(null, null, null, null, null, null);
+    }
+
+    private record ProductIdentity(CommercialProductType productType, String productCode) {
+        private static final ProductIdentity EMPTY = new ProductIdentity(null, null);
     }
 
     private String sha256(String value) {

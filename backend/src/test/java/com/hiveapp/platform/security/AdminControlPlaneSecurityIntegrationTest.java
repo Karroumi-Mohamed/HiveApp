@@ -18,7 +18,9 @@ import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +53,12 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
     @Autowired
     private PlanRepository planRepository;
+
+    @Autowired
+    private AddOnRepository addOnRepository;
+
+    @Autowired
+    private QuotaPackageRepository quotaPackageRepository;
 
     @Test
     void adminUsersAndRolesExposeBoundedStablePages() throws Exception {
@@ -165,6 +173,59 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                                 java.util.Set.of(), java.util.Set.of(),
                                 ProductSalesVisibility.DIRECT_ONLY))))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void commercialAvailabilityRuntimeShutdownAlsoBlocksCrossFeatureCreationPaths() throws Exception {
+        String token = loginAdminAndGetToken();
+        var feature = featureRepository.findByCode("platform.commercial_availability").orElseThrow();
+        boolean runtimeEnabled = feature.isRuntimeEnabled();
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+        String planName = "Runtime closed " + suffix;
+        String addOnName = "Runtime direct AddOn " + suffix;
+        String quotaName = "Runtime direct quota " + suffix;
+
+        try {
+            feature.setRuntimeEnabled(false);
+            featureRepository.saveAndFlush(feature);
+
+            mockMvc.perform(post("/api/admin/plans")
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                    planName, null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                                    java.util.List.of(), PlanExtensionPolicy.CLOSED,
+                                    ProductSalesVisibility.PUBLIC))))
+                    .andExpect(status().isForbidden());
+
+            mockMvc.perform(post("/api/admin/add-ons")
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new CreateAddOnRequest(
+                                    addOnName, null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                                    java.util.Set.of(), java.util.Set.of(), java.util.Set.of(),
+                                    java.util.Set.of(), ProductSalesVisibility.DIRECT_ONLY))))
+                    .andExpect(status().isForbidden());
+
+            mockMvc.perform(post("/api/admin/quota-packages")
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new CreateQuotaPackageRequest(
+                                    quotaName, null, "platform.staff", "members", 1,
+                                    BigDecimal.ZERO, "USD", BillingCycle.MONTHLY, true, 10,
+                                    java.util.Set.of(), java.util.Set.of(),
+                                    ProductSalesVisibility.DIRECT_ONLY))))
+                    .andExpect(status().isForbidden());
+
+            assertThat(planRepository.findAll()).noneMatch(plan -> planName.equals(plan.getName()));
+            assertThat(addOnRepository.findAll()).noneMatch(addOn -> addOnName.equals(addOn.getName()));
+            assertThat(quotaPackageRepository.findAll())
+                    .noneMatch(item -> quotaName.equals(item.getName()));
+        } finally {
+            var current = featureRepository.findByCode("platform.commercial_availability").orElseThrow();
+            current.setRuntimeEnabled(runtimeEnabled);
+            featureRepository.saveAndFlush(current);
+        }
     }
 
     @Test
@@ -296,6 +357,19 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                                 "previewToken", body.get("previewToken").asText()))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+
+        String superToken = loginAdminAndGetToken();
+        String history = mockMvc.perform(
+                        get("/api/admin/commercial-products/{id}/availability-history", planId)
+                                .header("Authorization", bearer(superToken)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(history).path("content")).anySatisfy(entry -> {
+            assertThat(entry.path("outcome").asText()).isEqualTo("FAILED");
+            assertThat(entry.path("action").asText())
+                    .isEqualTo("platform.commercial_availability.update_plan_policy");
+            assertThat(entry.path("reason").asText()).isEqualTo("permission boundary test");
+        });
     }
 
     @Test
@@ -312,7 +386,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
 
-        mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
+        String chooserBody = mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
                         .header("Authorization", bearer(chooser.token()))
                         .param("search", "free")
                         .param("currencyCode", "usd")
@@ -329,7 +403,10 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(jsonPath("$.content[0].currencyCode").value("USD"))
                 .andExpect(jsonPath("$.content[0].billingCycle").value("MONTHLY"))
                 .andExpect(jsonPath("$.page").value(0))
-                .andExpect(jsonPath("$.size").value(1));
+                .andExpect(jsonPath("$.size").value(1))
+                .andReturn().getResponse().getContentAsString();
+        JsonNode chooserJson = objectMapper.readTree(chooserBody);
+        assertThat(chooserJson.path("content").get(0).path("amount").isTextual()).isTrue();
 
         var workspace = featureRepository.findByCode("platform.workspace").orElseThrow();
         boolean runtimeEnabled = workspace.isRuntimeEnabled();

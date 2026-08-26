@@ -1,5 +1,6 @@
 package com.hiveapp.platform.security;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
@@ -56,6 +57,22 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
     private FeatureRepository featureRepository;
 
     @Test
+    void removedLegacyPlanCatalogueCannotBypassTheGuardedClientCatalogue() throws Exception {
+        mockMvc.perform(get("/api/v1/plans"))
+                .andExpect(status().isUnauthorized());
+
+        String clientToken = registerClientAndGetToken();
+        mockMvc.perform(get("/api/v1/plans")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isNotFound());
+
+        String adminToken = loginAdminAndGetToken();
+        mockMvc.perform(get("/api/v1/plans")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void catalogShowsSafePlanDataAndCurrentUsageOnly() throws Exception {
         String token = registerClientAndGetToken();
         createCompany(token, "Catalog Usage Company");
@@ -78,6 +95,23 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         assertThat(response).contains("platform.workspace");
         assertThat(response).doesNotContain("platform.plans");
         assertThat(response).contains("\"currentUsage\":1");
+        JsonNode catalog = objectMapper.readTree(response);
+        assertThat(catalog.path("currentSubscription").path("currentPrice").isTextual()).isTrue();
+        catalog.path("plans").forEach(plan -> {
+            assertThat(plan.path("basePrice").isTextual()).isTrue();
+            plan.path("prices").forEach(price ->
+                    assertThat(price.path("amount").isTextual()).isTrue());
+            plan.path("addOns").forEach(addOn -> {
+                assertThat(addOn.path("price").isTextual()).isTrue();
+                addOn.path("prices").forEach(price ->
+                        assertThat(price.path("amount").isTextual()).isTrue());
+            });
+            plan.path("quotaPackages").forEach(item -> {
+                assertThat(item.path("price").isTextual()).isTrue();
+                item.path("prices").forEach(price ->
+                        assertThat(price.path("amount").isTextual()).isTrue());
+            });
+        });
     }
 
     @Test
