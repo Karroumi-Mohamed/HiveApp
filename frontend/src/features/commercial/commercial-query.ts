@@ -16,6 +16,7 @@ const adminRoot = ["admin", "commercial"] as const;
 const plansRoot = [...adminRoot, "plans"] as const;
 const addOnsRoot = [...adminRoot, "add-ons"] as const;
 const quotaPackagesRoot = [...adminRoot, "quota-packages"] as const;
+const priceBooksRoot = [...adminRoot, "price-books"] as const;
 const subscriptionsRoot = [...adminRoot, "subscriptions"] as const;
 const registryRoot = [...adminRoot, "registry"] as const;
 
@@ -43,10 +44,22 @@ export const adminCommercialKeys = {
     list: () => [...quotaPackagesRoot, "list"] as const,
     detail: (packageId: string) => [...quotaPackagesRoot, "detail", packageId] as const,
   },
+  priceBooks: {
+    all: () => priceBooksRoot,
+    list: (filters: Readonly<Record<string, unknown>>) => [...priceBooksRoot, "list", filters] as const,
+    detail: (priceId: string) => [...priceBooksRoot, "detail", priceId] as const,
+    history: (priceId: string, page: number) => [...priceBooksRoot, "detail", priceId, "history", page] as const,
+    activationPreview: (priceId: string) => [...priceBooksRoot, "detail", priceId, "activation-preview"] as const,
+    replacementPreview: (successorId: string, currentVersion: number, successorVersion: number) =>
+      [...priceBooksRoot, "detail", successorId, "replacement-preview", currentVersion, successorVersion] as const,
+    owner: (ownerType: string, ownerId: string) => [...priceBooksRoot, "owner", ownerType, ownerId] as const,
+  },
   subscriptions: {
     all: () => subscriptionsRoot,
     accounts: (filters: Readonly<{ search: string; page: number }>) =>
       [...subscriptionsRoot, "accounts", filters] as const,
+    assignablePrices: (filters: Readonly<Record<string, unknown>>) =>
+      [...subscriptionsRoot, "assignable-prices", filters] as const,
     detail: (accountId: string) => [...subscriptionsRoot, "detail", accountId] as const,
     changes: (accountId: string) => [...subscriptionsRoot, "detail", accountId, "changes"] as const,
   },

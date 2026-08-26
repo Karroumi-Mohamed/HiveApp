@@ -4,13 +4,13 @@ import { type FormEvent, useDeferredValue, useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { AdminSubscription, SubscriptionChangeOperation } from "@/api/contracts";
+import type { AdminSubscription, AssignablePlanPrice, SubscriptionChangeOperation } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
-import { EmptyState, ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
+import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,6 +33,7 @@ import {
   invalidateAdminCommercial,
   invalidateAdminSubscriptionEntitlement,
 } from "@/features/commercial/commercial-query";
+import { AssignablePlanPricePicker } from "./assignable-plan-price-picker";
 
 const money = (value: number, currency: string) =>
   new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(value);
@@ -44,26 +45,30 @@ function CreateSubscription({ accountId }: { accountId: string }) {
   const queryClient = useQueryClient();
   const canCreate = session.can(adminPermissions.subscriptionsCreate);
   const canCreateTrial = session.can(adminPermissions.subscriptionsCreateTrial);
-  const canListPlans = session.can(adminPermissions.plansList);
-  const plans = useQuery({
-    queryKey: adminCommercialKeys.plans.list(),
-    queryFn: adminApi.plans,
-    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, canCreate || canCreateTrial),
-  });
-  const [planCode, setPlanCode] = useState("");
+  const canListPrices = session.can(adminPermissions.subscriptionsListAssignablePrices);
+  const [selectedPrice, setSelectedPrice] = useState<AssignablePlanPrice | null>(null);
   const [trialDays, setTrialDays] = useState("14");
+  const trialDaysNumber = Number(trialDays);
+  const validTrialDays = Number.isInteger(trialDaysNumber) && trialDaysNumber >= 1 && trialDaysNumber <= 365;
   const [mode, setMode] = useState<"subscription" | "trial">(canCreate ? "subscription" : "trial");
   const create = useMutation({
-    mutationFn: () =>
-      mode === "trial"
-        ? adminApi.createTrial(accountId, planCode, Number(trialDays))
-        : adminApi.createSubscription(accountId, planCode),
+    mutationFn: () => {
+      if (!selectedPrice) throw new Error("Aucun tarif sélectionné");
+      const selection = {
+        priceEntryId: selectedPrice.priceEntryId,
+        currencyCode: selectedPrice.currencyCode,
+        billingCycle: selectedPrice.billingCycle,
+      };
+      return mode === "trial"
+        ? adminApi.createTrial(accountId, selectedPrice.planCode, trialDaysNumber, selection)
+        : adminApi.createSubscription(accountId, selectedPrice.planCode, selection);
+    },
     onSuccess: () => {
       void invalidateAdminSubscriptionEntitlement(queryClient);
       toast.success(mode === "trial" ? "Essai démarré" : "Abonnement créé");
     },
+    onError: (error) => toast.error(error instanceof ApiError ? error.message : "Création impossible"),
   });
-  const activePlans = canListPlans ? (plans.data?.filter((plan) => plan.status === "ACTIVE") ?? []) : [];
   if (!canCreate && !canCreateTrial) {
     return (
       <EmptyState
@@ -72,17 +77,8 @@ function CreateSubscription({ accountId }: { accountId: string }) {
       />
     );
   }
-  if (!canListPlans) {
-    return (
-      <PermissionState description="La création est autorisée, mais la liste des forfaits ne l’est pas pour cet accès." />
-    );
-  }
-  if (plans.isLoading) return <LoadingState rows={3} />;
-  if (plans.isError)
-    return <ErrorState retry={() => void plans.refetch()} title="Impossible de charger les forfaits" />;
-  if (!activePlans.length) return <EmptyState title="Aucun forfait actif disponible" />;
   return (
-    <section className="max-w-2xl rounded-xl border bg-card p-5">
+    <section className="max-w-4xl rounded-xl border bg-card p-5">
       <h2 className="text-base font-semibold">Aucun abonnement utilisable</h2>
       <p className="mt-1 text-sm text-muted-foreground">Affectez un forfait ou démarrez une période d’essai.</p>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -98,41 +94,46 @@ function CreateSubscription({ accountId }: { accountId: string }) {
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-2">
-          <Label>Forfait</Label>
-          <Select onValueChange={setPlanCode} value={planCode}>
-            <SelectTrigger aria-label="Forfait">
-              <SelectValue placeholder="Sélectionner" />
-            </SelectTrigger>
-            <SelectContent>
-              {activePlans.map((plan) => (
-                <SelectItem key={plan.id} value={plan.code}>
-                  {plan.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
         {mode === "trial" ? (
           <div className="space-y-2">
             <Label htmlFor="trial-days">Durée en jours</Label>
             <Input
+              aria-describedby={!validTrialDays ? "trial-days-error" : undefined}
+              aria-invalid={!validTrialDays}
               id="trial-days"
+              max="365"
               min="1"
               onChange={(event) => setTrialDays(event.target.value)}
               type="number"
               value={trialDays}
             />
+            {!validTrialDays ? (
+              <p className="text-xs text-destructive" id="trial-days-error" role="alert">
+                Choisissez une durée entre 1 et 365 jours.
+              </p>
+            ) : null}
           </div>
         ) : null}
-        <div className="flex items-end">
-          <Button
-            disabled={!planCode || create.isPending || (mode === "trial" ? !canCreateTrial : !canCreate)}
-            onClick={() => create.mutate()}
-          >
-            {create.isPending ? "Création…" : mode === "trial" ? "Démarrer l’essai" : "Créer l’abonnement"}
-          </Button>
-        </div>
+      </div>
+      <div className="mt-5">
+        <AssignablePlanPricePicker
+          enabled={canCreate || canCreateTrial}
+          onChange={setSelectedPrice}
+          value={selectedPrice}
+        />
+      </div>
+      <div className="mt-5 flex justify-end">
+        <Button
+          disabled={
+            !selectedPrice ||
+            !canListPrices ||
+            create.isPending ||
+            (mode === "trial" ? !canCreateTrial || !validTrialDays : !canCreate)
+          }
+          onClick={() => create.mutate()}
+        >
+          {create.isPending ? "Création…" : mode === "trial" ? "Démarrer l’essai" : "Créer l’abonnement"}
+        </Button>
       </div>
     </section>
   );
