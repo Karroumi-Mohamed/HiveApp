@@ -268,6 +268,10 @@ export type AddOn = {
   billingCycle: BillingCycle;
   status: "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
   definitionVersion: number;
+  lineageId: UUID;
+  revisionNumber: number;
+  sourceAddOnId: UUID | null;
+  creationReason: "CREATED" | "REVISED";
   allowedPlanCodes: string[];
   blockedPlanCodes: string[];
   dependencyCodes: string[];

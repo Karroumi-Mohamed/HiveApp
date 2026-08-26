@@ -182,6 +182,7 @@ export const adminApi = {
     admin<void>(`/plans/${id}/features/${featureId}`, { method: "DELETE" }),
   addOns: () => admin<AddOn[]>("/add-ons"),
   createAddOn: (input: unknown) => admin<AddOn>("/add-ons", { method: "POST", body: jsonBody(input) }),
+  reviseAddOn: (id: UUID) => admin<AddOn>(`/add-ons/${id}/revisions`, { method: "POST" }),
   updateAddOn: (id: UUID, input: unknown) => admin<AddOn>(`/add-ons/${id}`, { method: "PUT", body: jsonBody(input) }),
   deleteAddOn: (id: UUID) => admin<void>(`/add-ons/${id}`, { method: "DELETE" }),
   transitionAddOn: (id: UUID, status: string) =>

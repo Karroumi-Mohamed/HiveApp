@@ -1,10 +1,10 @@
 import { ArrowLeftIcon, MagnifyingGlassIcon, PencilSimpleIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { cloneElement, type FormEvent, isValidElement, useId, useMemo, useState } from "react";
+import { cloneElement, type FormEvent, isValidElement, useEffect, useId, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { AddOn, BillingCycle, QuotaLimit, QuotaPackage } from "@/api/contracts";
+import type { AddOn, BillingCycle, Plan, QuotaLimit, QuotaPackage } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -26,35 +26,217 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  type AddOnPlanCompatibilityIssue,
+  addOnLifecycleActions,
+  addOnPlanCompatibilityIssue,
+  addOnStatusLabel,
+} from "./add-on-lifecycle";
 
 const price = (value: number, currency: string) =>
   new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(value);
 
-function Lifecycle({
+const cycleLabel = (cycle: BillingCycle) =>
+  cycle === "MONTHLY" ? "mensuel" : cycle === "YEARLY" ? "annuel" : "permanent";
+
+function planCompatibilityMessage(issue: AddOnPlanCompatibilityIssue, planName: string): string {
+  if (issue === "PLAN_NOT_ACTIVE") return `${planName} n’est pas en vente.`;
+  if (issue === "CURRENCY_MISMATCH") return `${planName} utilise une autre devise.`;
+  return `${planName} utilise un autre cycle de facturation.`;
+}
+
+function publicationPlanBlocker(addOn: AddOn, plans: Plan[]): string | undefined {
+  const candidates = addOn.allowedPlanCodes.length
+    ? addOn.allowedPlanCodes.map((code) => plans.find((plan) => plan.code === code))
+    : plans.filter((plan) => !addOn.blockedPlanCodes.includes(plan.code));
+  const missingCode = addOn.allowedPlanCodes.find((code) => !plans.some((plan) => plan.code === code));
+  if (missingCode) return `Le forfait ${missingCode} n’existe plus.`;
+  const issue = candidates
+    .filter((plan): plan is Plan => Boolean(plan))
+    .map((plan) => ({ plan, issue: addOnPlanCompatibilityIssue(addOn.currencyCode, addOn.billingCycle, plan) }))
+    .find((entry) => entry.issue);
+  if (addOn.allowedPlanCodes.length && issue?.issue) {
+    if (issue.issue === "CURRENCY_MISMATCH") {
+      return `${issue.plan.name} utilise ${issue.plan.currencyCode}, mais cet add-on utilise ${addOn.currencyCode}.`;
+    }
+    if (issue.issue === "CYCLE_MISMATCH") {
+      return `${issue.plan.name} est facturé en cycle ${cycleLabel(issue.plan.billingCycle)}, mais cet add-on est ${cycleLabel(addOn.billingCycle)}.`;
+    }
+    return `${issue.plan.name} n’est pas en vente.`;
+  }
+  const hasCompatiblePlan = candidates
+    .filter((plan): plan is Plan => Boolean(plan))
+    .some((plan) => !addOnPlanCompatibilityIssue(addOn.currencyCode, addOn.billingCycle, plan));
+  if (!hasCompatiblePlan) {
+    return `Aucun forfait en vente ne correspond à ${addOn.currencyCode} · ${cycleLabel(addOn.billingCycle)}.`;
+  }
+  return undefined;
+}
+
+function ConfirmActionDialog({
+  trigger,
+  title,
+  description,
+  confirmLabel,
+  onConfirm,
+  pending,
+  destructive = false,
+}: {
+  trigger: React.ReactNode;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  onConfirm: () => Promise<unknown>;
+  pending: boolean;
+  destructive?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog onOpenChange={setOpen} open={open}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-end gap-2">
+          <Button onClick={() => setOpen(false)} type="button" variant="outline">
+            Annuler
+          </Button>
+          <Button
+            disabled={pending}
+            onClick={async () => {
+              try {
+                await onConfirm();
+                setOpen(false);
+              } catch {
+                // The shared mutation handler displays the backend's exact blocker.
+              }
+            }}
+            type="button"
+            variant={destructive ? "destructive" : "default"}
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SimpleLifecycleActions({
   status,
-  mutate,
+  transition,
   pending,
 }: {
   status: string;
-  mutate: (status: string) => void;
+  transition: (status: string) => Promise<unknown>;
   pending: boolean;
 }) {
+  if (status === "ARCHIVED") return <p className="text-sm text-muted-foreground">État définitif.</p>;
+  if (status === "DRAFT")
+    return (
+      <ConfirmActionDialog
+        confirmLabel="Publier"
+        description="Après publication, ce package ne pourra plus être modifié directement."
+        onConfirm={() => transition("ACTIVE")}
+        pending={pending}
+        title="Publier ce package ?"
+        trigger={<Button size="sm">Publier</Button>}
+      />
+    );
   return (
     <div className="flex flex-wrap gap-2">
-      {["DRAFT", "ACTIVE", "INACTIVE", "ARCHIVED"]
-        .filter((value) => value !== status)
-        .map((value) => (
-          <Button
-            disabled={pending}
-            key={value}
-            onClick={() => mutate(value)}
-            size="sm"
-            variant={value === "ARCHIVED" ? "destructive" : "outline"}
-          >
-            {value}
+      <Button disabled={pending} onClick={() => void transition(status === "ACTIVE" ? "INACTIVE" : "ACTIVE")} size="sm">
+        {status === "ACTIVE" ? "Suspendre la vente" : "Remettre en vente"}
+      </Button>
+      <ConfirmActionDialog
+        confirmLabel="Archiver définitivement"
+        description="Cette action est irréversible. Le package ne pourra plus être remis en vente."
+        destructive
+        onConfirm={() => transition("ARCHIVED")}
+        pending={pending}
+        title="Archiver ce package ?"
+        trigger={
+          <Button size="sm" variant="outline">
+            Archiver
           </Button>
-        ))}
+        }
+      />
     </div>
+  );
+}
+
+function AddOnLifecycleActions({
+  item,
+  activeRevision,
+  transition,
+  revise,
+  transitionPending,
+  revisionPending,
+  publicationBlocker,
+}: {
+  item: AddOn;
+  activeRevision?: AddOn;
+  transition: (status: AddOn["status"]) => Promise<unknown>;
+  revise: () => Promise<unknown>;
+  transitionPending: boolean;
+  revisionPending: boolean;
+  publicationBlocker?: string;
+}) {
+  const session = useAdminSession();
+  const actions = addOnLifecycleActions(item.status);
+  const replacing = activeRevision
+    ? ` Cette publication suspendra automatiquement la révision R${activeRevision.revisionNumber} pour les nouvelles ventes.`
+    : "";
+  return (
+    <>
+      {actions.includes("REVISE") && session.can(adminPermissions.addOnsRevise) ? (
+        <ConfirmActionDialog
+          confirmLabel={`Créer R${item.revisionNumber + 1}`}
+          description="Le prix, les compatibilités, les dépendances, les fonctionnalités et leurs quotas seront copiés dans un nouveau brouillon. La révision actuellement en vente reste inchangée jusqu’à la publication du brouillon. Les packages de capacité attachés à cette révision restent à vérifier séparément."
+          onConfirm={revise}
+          pending={revisionPending}
+          title="Créer une nouvelle révision ?"
+          trigger={<Button variant="outline">Créer une révision</Button>}
+        />
+      ) : null}
+      {actions.includes("PAUSE") && session.can(adminPermissions.addOnsTransition) ? (
+        <ConfirmActionDialog
+          confirmLabel="Suspendre les ventes"
+          description="L’add-on disparaîtra des nouvelles offres. Les abonnements existants conserveront leur version achetée."
+          onConfirm={() => transition("INACTIVE")}
+          pending={transitionPending}
+          title="Suspendre les nouvelles ventes ?"
+          trigger={<Button variant="outline">Suspendre la vente</Button>}
+        />
+      ) : null}
+      {(actions.includes("PUBLISH") || actions.includes("RESUME")) && session.can(adminPermissions.addOnsTransition) ? (
+        <ConfirmActionDialog
+          confirmLabel={actions.includes("PUBLISH") ? "Publier" : "Remettre en vente"}
+          description={`L’add-on sera proposé aux nouveaux clients compatibles.${replacing} Les abonnements existants ne changent pas.`}
+          onConfirm={() => transition("ACTIVE")}
+          pending={transitionPending}
+          title={actions.includes("PUBLISH") ? "Publier cet add-on ?" : "Remettre cet add-on en vente ?"}
+          trigger={
+            <Button disabled={Boolean(publicationBlocker)} title={publicationBlocker}>
+              {actions.includes("PUBLISH") ? "Publier" : "Remettre en vente"}
+            </Button>
+          }
+        />
+      ) : null}
+      {actions.includes("ARCHIVE") && session.can(adminPermissions.addOnsTransition) ? (
+        <ConfirmActionDialog
+          confirmLabel="Archiver définitivement"
+          description="Cette action est irréversible : cette révision ne pourra plus être modifiée, publiée ou remise en vente. Les abonnements existants conservent leurs conditions enregistrées."
+          destructive
+          onConfirm={() => transition("ARCHIVED")}
+          pending={transitionPending}
+          title="Archiver définitivement cet add-on ?"
+          trigger={<Button variant="outline">Archiver</Button>}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -118,6 +300,32 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
   const [blocked, setBlocked] = useState<string[]>(item?.blockedPlanCodes ?? []);
   const [dependencies, setDependencies] = useState<string[]>(item?.dependencyCodes ?? []);
   const [exclusions, setExclusions] = useState<string[]>(item?.exclusionCodes ?? []);
+  const [termsTouched, setTermsTouched] = useState(Boolean(item));
+  useEffect(() => {
+    if (item || !open || termsTouched) return;
+    const firstActivePlan = planOptions.data?.find((plan) => plan.status === "ACTIVE");
+    if (!firstActivePlan) return;
+    setCurrency(firstActivePlan.currencyCode);
+    setCycle(firstActivePlan.billingCycle);
+  }, [item, open, planOptions.data, termsTouched]);
+  const planCompatibility = new Map(
+    (planOptions.data ?? []).map((plan) => [plan.code, addOnPlanCompatibilityIssue(currency, cycle, plan)]),
+  );
+  const incompatibleAllowedPlan = allowed
+    .map((code) => (planOptions.data ?? []).find((plan) => plan.code === code))
+    .find((plan) => plan && addOnPlanCompatibilityIssue(currency, cycle, plan));
+  const overlappingPlan = allowed.find((code) => blocked.includes(code));
+  const overlappingRelation = dependencies.find((code) => exclusions.includes(code));
+  const formBlocker = incompatibleAllowedPlan
+    ? planCompatibilityMessage(
+        addOnPlanCompatibilityIssue(currency, cycle, incompatibleAllowedPlan) as AddOnPlanCompatibilityIssue,
+        incompatibleAllowedPlan.name,
+      )
+    : overlappingPlan
+      ? "Un forfait ne peut pas être autorisé et bloqué en même temps."
+      : overlappingRelation
+        ? "Un add-on ne peut pas être requis et incompatible en même temps."
+        : null;
   const input = {
     name,
     description,
@@ -153,6 +361,7 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
           className="grid gap-4 sm:grid-cols-2"
           onSubmit={(event: FormEvent) => {
             event.preventDefault();
+            if (formBlocker) return;
             save.mutate();
           }}
         >
@@ -174,30 +383,56 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
             />
           </Field>
           <Field label="Devise">
-            <Input maxLength={3} onChange={(event) => setCurrency(event.target.value.toUpperCase())} value={currency} />
+            <Input
+              maxLength={3}
+              onChange={(event) => {
+                setTermsTouched(true);
+                setCurrency(event.target.value.toUpperCase());
+              }}
+              required
+              value={currency}
+            />
           </Field>
           <Field label="Cycle">
-            <Select onValueChange={(value) => setCycle(value as BillingCycle)} value={cycle}>
+            <Select
+              onValueChange={(value) => {
+                setTermsTouched(true);
+                setCycle(value as BillingCycle);
+              }}
+              value={cycle}
+            >
               <SelectTrigger aria-label="Cycle de facturation">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="MONTHLY">Mensuel</SelectItem>
                 <SelectItem value="YEARLY">Annuel</SelectItem>
-                <SelectItem value="FOREVER">Permanent</SelectItem>
               </SelectContent>
             </Select>
           </Field>
           <ChoiceList
             label="Forfaits autorisés"
             onChange={setAllowed}
-            options={(planOptions.data ?? []).map((plan) => ({ label: plan.name, value: plan.code }))}
+            options={(planOptions.data ?? []).map((plan) => {
+              const issue = planCompatibility.get(plan.code);
+              return {
+                label: plan.name,
+                value: plan.code,
+                description: `${plan.currencyCode} · ${cycleLabel(plan.billingCycle)}${issue ? ` · ${planCompatibilityMessage(issue, plan.name)}` : ""}`,
+                disabled: (Boolean(issue) || blocked.includes(plan.code)) && !allowed.includes(plan.code),
+              };
+            })}
             selected={allowed}
           />
           <ChoiceList
             label="Forfaits bloqués"
             onChange={setBlocked}
-            options={(planOptions.data ?? []).map((plan) => ({ label: plan.name, value: plan.code }))}
+            options={(planOptions.data ?? []).map((plan) => ({
+              label: plan.name,
+              value: plan.code,
+              description: `${plan.currencyCode} · ${cycleLabel(plan.billingCycle)}`,
+              disabled: allowed.includes(plan.code) && !blocked.includes(plan.code),
+            }))}
             selected={blocked}
           />
           <ChoiceList
@@ -205,7 +440,11 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
             onChange={setDependencies}
             options={(addOnOptions.data ?? [])
               .filter((candidate) => candidate.id !== item?.id)
-              .map((candidate) => ({ label: candidate.name, value: candidate.code }))}
+              .map((candidate) => ({
+                label: candidate.name,
+                value: candidate.code,
+                disabled: exclusions.includes(candidate.code) && !dependencies.includes(candidate.code),
+              }))}
             selected={dependencies}
           />
           <ChoiceList
@@ -213,14 +452,23 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
             onChange={setExclusions}
             options={(addOnOptions.data ?? [])
               .filter((candidate) => candidate.id !== item?.id)
-              .map((candidate) => ({ label: candidate.name, value: candidate.code }))}
+              .map((candidate) => ({
+                label: candidate.name,
+                value: candidate.code,
+                disabled: dependencies.includes(candidate.code) && !exclusions.includes(candidate.code),
+              }))}
             selected={exclusions}
           />
+          {formBlocker ? (
+            <p aria-live="polite" className="text-sm text-destructive sm:col-span-2" role="alert">
+              {formBlocker}
+            </p>
+          ) : null}
           <div className="flex justify-end gap-2 sm:col-span-2">
             <Button onClick={() => setOpen(false)} type="button" variant="outline">
               Annuler
             </Button>
-            <Button disabled={save.isPending} type="submit">
+            <Button disabled={save.isPending || Boolean(formBlocker)} type="submit">
               Enregistrer
             </Button>
           </div>
@@ -329,7 +577,7 @@ function ChoiceList({
   onChange,
 }: {
   label: string;
-  options: Array<{ label: string; value: string }>;
+  options: Array<{ label: string; value: string; description?: string; disabled?: boolean }>;
   selected: string[];
   onChange: (values: string[]) => void;
 }) {
@@ -342,12 +590,13 @@ function ChoiceList({
             const id = `${label}-${option.value}`.replaceAll(" ", "-");
             return (
               <label
-                className="flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm"
+                className={`flex items-center gap-3 px-3 py-2.5 text-sm ${option.disabled ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer"}`}
                 htmlFor={id}
                 key={option.value}
               >
                 <Checkbox
                   checked={selected.includes(option.value)}
+                  disabled={option.disabled}
                   id={id}
                   onCheckedChange={(checked) =>
                     onChange(
@@ -357,7 +606,12 @@ function ChoiceList({
                     )
                   }
                 />
-                <span>{option.label}</span>
+                <span className="min-w-0">
+                  <span className="block">{option.label}</span>
+                  {option.description ? (
+                    <span className="block text-xs text-muted-foreground">{option.description}</span>
+                  ) : null}
+                </span>
               </label>
             );
           })
@@ -383,6 +637,15 @@ export function AdminAddOnsPage() {
     enabled: session.can(adminPermissions.registryRead),
   });
   const selected = items.data?.find((item) => item.id === addOnId);
+  const planBlocker =
+    selected && plans.data && (selected.status === "DRAFT" || selected.status === "INACTIVE")
+      ? publicationPlanBlocker(selected, plans.data)
+      : undefined;
+  const activeRevision = selected
+    ? items.data?.find(
+        (item) => item.lineageId === selected.lineageId && item.id !== selected.id && item.status === "ACTIVE",
+      )
+    : undefined;
   const filtered = useMemo(
     () => (items.data ?? []).filter((item) => item.name.toLowerCase().includes(search.toLowerCase())),
     [items.data, search],
@@ -394,9 +657,28 @@ export function AdminAddOnsPage() {
   );
   const transition = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => adminApi.transitionAddOn(id, status),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["admin", "add-ons"] });
-      toast.success("Statut mis à jour");
+      toast.success(
+        variables.status === "ACTIVE"
+          ? selected?.status === "DRAFT"
+            ? "Add-on publié"
+            : "Add-on remis en vente"
+          : variables.status === "INACTIVE"
+            ? "Vente suspendue"
+            : "Add-on archivé",
+      );
+    },
+  });
+  const revise = useMutation({
+    mutationFn: (id: string) => adminApi.reviseAddOn(id),
+    onSuccess: (revision) => {
+      queryClient.setQueryData<AddOn[]>(["admin", "add-ons"], (current) =>
+        current ? [...current, revision] : [revision],
+      );
+      void queryClient.invalidateQueries({ queryKey: ["admin", "add-ons"] });
+      toast.success(`Révision R${revision.revisionNumber} créée`);
+      navigate(`/admin/add-ons/${revision.id}`);
     },
   });
   const removeFeature = useMutation({
@@ -427,11 +709,11 @@ export function AdminAddOnsPage() {
         </Button>
         <PageHeader
           actions={
-            <div className="flex gap-2">
-              {selected.status === "DRAFT" && session.can(adminPermissions.addOnsDelete) ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              {selected.status === "DRAFT" && session.can(adminPermissions.addOnsUpdate) ? (
                 <AddOnForm item={selected} trigger={<Button variant="outline">Modifier</Button>} />
               ) : null}
-              {selected.status === "DRAFT" ? (
+              {selected.status === "DRAFT" && session.can(adminPermissions.addOnsDelete) ? (
                 <DeleteDraftDialog
                   label="cet add-on"
                   name={selected.name}
@@ -439,14 +721,30 @@ export function AdminAddOnsPage() {
                   pending={remove.isPending}
                 />
               ) : null}
+              <AddOnLifecycleActions
+                activeRevision={activeRevision}
+                item={selected}
+                revise={() => revise.mutateAsync(selected.id)}
+                revisionPending={revise.isPending}
+                publicationBlocker={planBlocker}
+                transition={(status) => transition.mutateAsync({ id: selected.id, status })}
+                transitionPending={transition.isPending}
+              />
             </div>
           }
           description={
-            <StatusBadge
-              tone={selected.status === "ACTIVE" ? "success" : selected.status === "DRAFT" ? "info" : "warning"}
-            >
-              {selected.status}
-            </StatusBadge>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <StatusBadge
+                tone={selected.status === "ACTIVE" ? "success" : selected.status === "DRAFT" ? "info" : "warning"}
+              >
+                {addOnStatusLabel(selected.status)}
+              </StatusBadge>
+              {planBlocker ? (
+                <span aria-live="polite" className="text-sm text-destructive" role="alert">
+                  {planBlocker} Modifiez la compatibilité avant de publier.
+                </span>
+              ) : null}
+            </div>
           }
           title={selected.name}
         />
@@ -455,7 +753,7 @@ export function AdminAddOnsPage() {
             <h2 className="text-sm font-semibold">Configuration</h2>
             <dl className="mt-5 space-y-4 text-sm">
               <Pair label="Prix" value={`${price(selected.price, selected.currencyCode)} / ${selected.billingCycle}`} />
-              <Pair label="Version" value={selected.definitionVersion} />
+              <Pair label="Révision" value={`R${selected.revisionNumber}`} />
               <Pair label="Fonctionnalités" value={selected.features.length} />
             </dl>
           </section>
@@ -536,18 +834,6 @@ export function AdminAddOnsPage() {
             <EmptyState title="Aucune fonctionnalité" />
           )}
         </section>
-        {session.can(adminPermissions.addOnsTransition) ? (
-          <section className="rounded-xl border bg-card p-5">
-            <h2 className="text-sm font-semibold">Cycle de vie</h2>
-            <div className="mt-4">
-              <Lifecycle
-                mutate={(status) => transition.mutate({ id: selected.id, status })}
-                pending={transition.isPending}
-                status={selected.status}
-              />
-            </div>
-          </section>
-        ) : null}
       </div>
     );
   return (
@@ -601,6 +887,7 @@ export function AdminAddOnsPage() {
                   <TableCell>
                     <Link className="block" to={`/admin/add-ons/${item.id}`}>
                       <span className="font-medium">{item.name}</span>
+                      <span className="ms-2 text-xs tabular-nums text-muted-foreground">R{item.revisionNumber}</span>
                     </Link>
                   </TableCell>
                   <TableCell>{price(item.price, item.currencyCode)}</TableCell>
@@ -611,7 +898,7 @@ export function AdminAddOnsPage() {
                     <StatusBadge
                       tone={item.status === "ACTIVE" ? "success" : item.status === "DRAFT" ? "info" : "warning"}
                     >
-                      {item.status}
+                      {addOnStatusLabel(item.status)}
                     </StatusBadge>
                   </TableCell>
                 </TableRow>
@@ -854,11 +1141,11 @@ export function AdminQuotaPackagesPage() {
         </Button>
         <PageHeader
           actions={
-            <div className="flex gap-2">
-              {selected.status === "DRAFT" && session.can(adminPermissions.quotaPackagesDelete) ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              {selected.status === "DRAFT" && session.can(adminPermissions.quotaPackagesUpdate) ? (
                 <QuotaForm item={selected} trigger={<Button variant="outline">Modifier</Button>} />
               ) : null}
-              {selected.status === "DRAFT" ? (
+              {selected.status === "DRAFT" && session.can(adminPermissions.quotaPackagesDelete) ? (
                 <DeleteDraftDialog
                   label="ce package"
                   name={selected.name}
@@ -872,7 +1159,7 @@ export function AdminQuotaPackagesPage() {
             <StatusBadge
               tone={selected.status === "ACTIVE" ? "success" : selected.status === "DRAFT" ? "info" : "warning"}
             >
-              {selected.status}
+              {addOnStatusLabel(selected.status)}
             </StatusBadge>
           }
           title={selected.name}
@@ -904,10 +1191,10 @@ export function AdminQuotaPackagesPage() {
           <section className="rounded-xl border bg-card p-5">
             <h2 className="text-sm font-semibold">Cycle de vie</h2>
             <div className="mt-4">
-              <Lifecycle
-                mutate={(status) => transition.mutate({ id: selected.id, status })}
+              <SimpleLifecycleActions
                 pending={transition.isPending}
                 status={selected.status}
+                transition={(status) => transition.mutateAsync({ id: selected.id, status })}
               />
             </div>
           </section>
@@ -975,7 +1262,7 @@ export function AdminQuotaPackagesPage() {
                     <StatusBadge
                       tone={item.status === "ACTIVE" ? "success" : item.status === "DRAFT" ? "info" : "warning"}
                     >
-                      {item.status}
+                      {addOnStatusLabel(item.status)}
                     </StatusBadge>
                   </TableCell>
                 </TableRow>

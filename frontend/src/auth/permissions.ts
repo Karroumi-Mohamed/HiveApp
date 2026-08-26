@@ -52,6 +52,7 @@ export const adminPermissions = {
   addOnsList: permission("plans", "list_add_ons"),
   addOnsCreate: permission("plans", "create_add_on"),
   addOnsUpdate: permission("plans", "update_add_on"),
+  addOnsRevise: permission("plans", "revise_add_on"),
   addOnsTransition: permission("plans", "transition_add_on"),
   addOnsDelete: permission("plans", "delete_add_on"),
   addOnsAssignFeature: permission("plans", "assign_add_on_feature"),
