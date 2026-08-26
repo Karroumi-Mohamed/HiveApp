@@ -194,6 +194,14 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
         }
     }
 
+    @Test
+    void commercialProductOperationalPagesUseConstantStatementCounts() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        assertConstantOperationalPage(adminToken, "/api/admin/plans");
+        assertConstantOperationalPage(adminToken, "/api/admin/add-ons");
+        assertConstantOperationalPage(adminToken, "/api/admin/quota-packages");
+    }
+
     /**
      * Role DETAIL, not just the list. This surface is what a role screen opens, and it was
      * left relying on open-in-view when the list paths were fixed.
@@ -348,6 +356,26 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
         return objectMapper.readTree(response).get("content");
     }
 
+    private void assertConstantOperationalPage(String token, String path) throws Exception {
+        long oneRow = statementsFor(() -> operationalPage(token, path, 1));
+        long fullPage = statementsFor(() -> operationalPage(token, path, 100));
+        assertThat(operationalPage(token, path, 100).size()).isGreaterThan(1);
+        // Spring Data may omit the count query when the content proves this is the last page.
+        assertThat(Math.abs(fullPage - oneRow))
+                .as("%s must aggregate page facts without per-row statements", path)
+                .isLessThanOrEqualTo(1L);
+    }
+
+    private JsonNode operationalPage(String token, String path, int size) throws Exception {
+        String response = mockMvc.perform(get(path)
+                        .header("Authorization", bearer(token))
+                        .param("page", "0")
+                        .param("size", Integer.toString(size)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).get("content");
+    }
+
     private void createDraftPrice(String adminToken, UUID planId, BigDecimal amount) throws Exception {
         mockMvc.perform(post("/api/admin/product-prices")
                         .header("Authorization", bearer(adminToken))
@@ -379,6 +407,8 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
         AssignPlanFeatureRequest request =
                 new AssignPlanFeatureRequest(featureCode, PlanFeatureMode.INCLUDED, List.of());
         mockMvc.perform(post("/api/admin/plans/{planId}/features", planId)
+                        .param("expectedVersion", String.valueOf(
+                                planRepository.findById(planId).orElseThrow().getVersion()))
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))

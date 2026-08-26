@@ -22,6 +22,7 @@ import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionCheckoutRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
+import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
@@ -31,10 +32,13 @@ import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
+import com.hiveapp.platform.client.plan.service.CrossFeatureCommercialAuthorizer;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
+import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.DuplicateResourceException;
+import com.hiveapp.shared.exception.DraftSuccessorExistsException;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.money.Money;
@@ -54,6 +58,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -80,8 +86,10 @@ class PlanAdminServiceImplTest {
     @Mock private AddOnRepository addOnRepository;
     @Mock private AddOnFeatureRepository addOnFeatureRepository;
     @Mock private QuotaPackageRepository quotaPackageRepository;
-    @Mock private com.hiveapp.platform.client.plan.service.ProductPriceCompatibilityService
-            productPriceCompatibilityService;
+    @Mock private ProductPriceRepository productPriceRepository;
+    @Mock private CrossFeatureCommercialAuthorizer crossFeatureCommercialAuthorizer;
+    @Mock private Clock clock;
+    @Mock private FeatureRepository featureRepository;
     @Mock private com.hiveapp.platform.client.plan.service.ProductPriceResolver productPriceResolver;
     // Real projection so these assertions also cover the read model the service now owns.
     @Spy private PlanAdminReadModels readModels = new PlanAdminReadModels();
@@ -92,6 +100,11 @@ class PlanAdminServiceImplTest {
     @BeforeEach
     void setUp() {
         lenientSavedPlan();
+        org.mockito.Mockito.lenient().when(clock.instant())
+                .thenReturn(Instant.parse("2026-08-26T00:00:00Z"));
+        org.mockito.Mockito.lenient().when(planRepository.advanceCompositionVersion(
+                        any(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(1);
     }
 
     @Test
@@ -149,10 +162,12 @@ class PlanAdminServiceImplTest {
         PlanFeature sourceFeature = planFeature(sourcePlan, workspace,
                 List.of(new QuotaLimitEntry("members", 3L)));
 
-        when(planRepository.findById(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
+        when(planRepository.findByIdForUpdate(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
         when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of(sourceFeature));
+        when(productPriceRepository.findAllByPlanIdForUpdate(sourcePlanId))
+                .thenReturn(List.of(activePrice(sourcePlan)));
 
-        PlanDto duplicate = planAdminService.duplicatePlan(sourcePlanId, new PlanBranchRequest(
+        PlanDto duplicate = planAdminService.duplicatePlan(sourcePlanId, 0L, new PlanBranchRequest(
                 "Team",
                 null,
                 new BigDecimal("49.00"),
@@ -179,10 +194,12 @@ class PlanAdminServiceImplTest {
         PlanFeature includedFeature = planFeature(sourcePlan, feature("platform.workspace"), List.of());
 
         when(planRepository.findByIdForUpdate(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
-        when(planRepository.findMaximumRevisionNumber(sourcePlan.getLineageId())).thenReturn(3);
+        when(planRepository.findLineageForUpdate(sourcePlan.getLineageId())).thenReturn(List.of(sourcePlan));
         when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of(includedFeature));
+        when(productPriceRepository.findAllByPlanIdForUpdate(sourcePlanId))
+                .thenReturn(List.of(activePrice(sourcePlan)));
 
-        PlanDto created = planAdminService.revisePlan(sourcePlanId, new PlanBranchRequest(
+        PlanDto created = planAdminService.revisePlan(sourcePlanId, 0L, new PlanBranchRequest(
                 "Europe", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY));
 
         assertThat(created.currencyCode()).isEqualTo("EUR");
@@ -200,13 +217,13 @@ class PlanAdminServiceImplTest {
 
         Plan draft = plan(planId);
         draft.setStatus(PlanStatus.DRAFT);
-        when(planRepository.findById(planId)).thenReturn(Optional.of(draft));
+        when(planRepository.findByIdForCompositionUpdate(planId)).thenReturn(Optional.of(draft));
         doThrow(new InvalidRequestException("Feature cannot be assigned to billing configuration."))
                 .when(billingConfigurationValidator).validatePlanFeature(
                         featureCode, PlanFeatureMode.INCLUDED, List.of(), "USD");
 
         assertThatThrownBy(() -> planAdminService.assignFeature(
-                planId,
+                planId, 0L,
                 new AssignPlanFeatureRequest(featureCode, PlanFeatureMode.INCLUDED, List.of())
         ))
                 .isInstanceOf(InvalidRequestException.class)
@@ -223,7 +240,7 @@ class PlanAdminServiceImplTest {
         Feature workspace = feature("platform.workspace");
         var request = new AssignPlanFeatureRequest("platform.workspace", PlanFeatureMode.INCLUDED, List.of());
 
-        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(planRepository.findByIdForCompositionUpdate(planId)).thenReturn(Optional.of(plan));
         when(billingConfigurationValidator.validatePlanFeature(
                 "platform.workspace", PlanFeatureMode.INCLUDED, List.of(), "USD")).thenReturn(workspace);
         when(planFeatureRepository.findByPlanIdAndFeature_Code(planId, "platform.workspace"))
@@ -231,7 +248,7 @@ class PlanAdminServiceImplTest {
         when(planFeatureRepository.saveAndFlush(any(PlanFeature.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate mapping"));
 
-        assertThatThrownBy(() -> planAdminService.assignFeature(planId, request))
+        assertThatThrownBy(() -> planAdminService.assignFeature(planId, 0L, request))
                 .isInstanceOf(DuplicateResourceException.class)
                 .hasMessage("PlanFeature already exists with featureCode = platform.workspace");
     }
@@ -248,14 +265,15 @@ class PlanAdminServiceImplTest {
         planFeature.setFeature(feature);
         var request = new AssignPlanFeatureRequest("platform.workspace", PlanFeatureMode.INCLUDED, List.of());
 
+        when(planRepository.findByIdForCompositionUpdate(planId)).thenReturn(Optional.of(draft));
         when(planFeatureRepository.findById(planFeatureId)).thenReturn(Optional.of(planFeature));
-        when(planFeatureRepository.save(planFeature)).thenReturn(planFeature);
+        when(planFeatureRepository.saveAndFlush(planFeature)).thenReturn(planFeature);
 
-        planAdminService.updateFeature(planId, planFeatureId, request);
+        planAdminService.updateFeature(planId, planFeatureId, 0L, request);
 
         verify(billingConfigurationValidator).validatePlanFeature(
                 "platform.workspace", PlanFeatureMode.INCLUDED, List.of(), "USD");
-        verify(planFeatureRepository).save(planFeature);
+        verify(planFeatureRepository).saveAndFlush(planFeature);
     }
 
     @Test
@@ -263,11 +281,11 @@ class PlanAdminServiceImplTest {
         UUID planId = UUID.randomUUID();
         Plan draft = plan(planId, "PRO");
         draft.setStatus(PlanStatus.DRAFT);
-        when(planRepository.findById(planId)).thenReturn(Optional.of(draft));
+        when(planRepository.findByIdForUpdate(planId)).thenReturn(Optional.of(draft));
 
         assertThatThrownBy(() -> planAdminService.updatePlan(
                 planId,
-                new UpdatePlanRequest("Pro", null, BigDecimal.TEN, "USD", BillingCycle.FOREVER)
+                new UpdatePlanRequest("Pro", null, BigDecimal.TEN, "USD", BillingCycle.FOREVER, 0L)
         ))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessage("Perpetual commercial plans are deferred; use MONTHLY or YEARLY.");
@@ -280,12 +298,12 @@ class PlanAdminServiceImplTest {
         UUID planId = UUID.randomUUID();
         Plan plan = plan(planId, "PRO");
         plan.setStatus(PlanStatus.DRAFT);
-        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(planRepository.findByIdForUpdate(planId)).thenReturn(Optional.of(plan));
         when(subscriptionRepository.countByPlan_Id(planId)).thenReturn(1L);
 
         assertThatThrownBy(() -> planAdminService.updatePlan(
                 planId,
-                new UpdatePlanRequest("Pro", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY)
+                new UpdatePlanRequest("Pro", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY, 0L)
         ))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessage("Plan currency cannot change after subscription history exists.");
@@ -298,10 +316,10 @@ class PlanAdminServiceImplTest {
         UUID planId = UUID.randomUUID();
         Plan plan = plan(planId, "DRAFT");
         plan.setStatus(PlanStatus.DRAFT);
-        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(planRepository.findByIdForUpdate(planId)).thenReturn(Optional.of(plan));
         PlanDto updated = planAdminService.updatePlan(
                 planId,
-                new UpdatePlanRequest("Draft", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY));
+                new UpdatePlanRequest("Draft", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY, 0L));
 
         assertThat(updated.currencyCode()).isEqualTo("EUR");
         assertThat(updated.price()).isEqualByComparingTo("10.00");
@@ -323,9 +341,10 @@ class PlanAdminServiceImplTest {
     @Test
     void defaultPlanCannotBeDeactivated() {
         UUID planId = UUID.randomUUID();
-        when(planRepository.findById(planId)).thenReturn(Optional.of(plan(planId, "FREE")));
+        when(planRepository.findByIdForUpdate(planId)).thenReturn(Optional.of(plan(planId, "FREE")));
 
-        assertThatThrownBy(() -> planAdminService.transitionStatus(planId, PlanStatus.INACTIVE))
+        assertThatThrownBy(() -> planAdminService.transitionStatus(
+                planId, PlanStatus.INACTIVE, 0L, null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("default FREE plan must remain ACTIVE");
 
@@ -348,10 +367,11 @@ class PlanAdminServiceImplTest {
         UUID planId = UUID.randomUUID();
         Plan draft = plan(planId, "STARTER");
         draft.setStatus(PlanStatus.DRAFT);
-        when(planRepository.findById(planId)).thenReturn(Optional.of(draft));
+        when(planRepository.findByIdForUpdate(planId)).thenReturn(Optional.of(draft));
         when(planFeatureRepository.findAllByPlanId(planId)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> planAdminService.transitionStatus(planId, PlanStatus.ACTIVE))
+        assertThatThrownBy(() -> planAdminService.transitionStatus(
+                planId, PlanStatus.ACTIVE, 0L, null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("A Plan requires at least one included feature before activation.");
     }
@@ -361,9 +381,10 @@ class PlanAdminServiceImplTest {
         UUID planId = UUID.randomUUID();
         Plan plan = plan(planId, "STARTER");
         plan.setStatus(PlanStatus.ARCHIVED);
-        when(planRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(planRepository.findByIdForUpdate(planId)).thenReturn(Optional.of(plan));
 
-        assertThatThrownBy(() -> planAdminService.transitionStatus(planId, PlanStatus.ACTIVE))
+        assertThatThrownBy(() -> planAdminService.transitionStatus(
+                planId, PlanStatus.ACTIVE, 0L, null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Archived plans are terminal and cannot transition.");
     }
@@ -373,7 +394,7 @@ class PlanAdminServiceImplTest {
         when(planRepository.findByCode("FREE")).thenReturn(Optional.of(plan(UUID.randomUUID(), "FREE")));
         java.util.concurrent.atomic.AtomicReference<AddOn> savedEntity =
                 new java.util.concurrent.atomic.AtomicReference<>();
-        when(addOnRepository.save(any(AddOn.class))).thenAnswer(invocation -> {
+        when(addOnRepository.saveAndFlush(any(AddOn.class))).thenAnswer(invocation -> {
             savedEntity.set(invocation.getArgument(0));
             return invocation.getArgument(0);
         });
@@ -388,10 +409,15 @@ class PlanAdminServiceImplTest {
 
         UUID addOnId = UUID.randomUUID();
         ReflectionTestUtils.setField(savedEntity.get(), "id", addOnId);
-        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(savedEntity.get()));
+        when(addOnRepository.findByIdForUpdate(addOnId)).thenReturn(Optional.of(savedEntity.get()));
+        when(productPriceRepository.findAllApplicable(
+                com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON,
+                addOnId, Instant.parse("2026-08-26T00:00:00Z")))
+                .thenReturn(List.of(activePrice(savedEntity.get())));
         when(addOnFeatureRepository.findAllByAddOnId(addOnId)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> planAdminService.transitionAddOnStatus(addOnId, AddOnStatus.ACTIVE))
+        assertThatThrownBy(() -> planAdminService.transitionAddOnStatus(
+                addOnId, AddOnStatus.ACTIVE, 0L, null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("An AddOn requires at least one feature before activation.");
     }
@@ -420,7 +446,6 @@ class PlanAdminServiceImplTest {
 
         when(addOnRepository.findByIdForUpdate(sourceId)).thenReturn(Optional.of(source));
         when(addOnRepository.findLineageForUpdate(lineageId)).thenReturn(List.of(source));
-        when(addOnRepository.findMaximumRevisionNumber(lineageId)).thenReturn(1);
         when(planRepository.findByCode("PRO")).thenReturn(Optional.of(plan(UUID.randomUUID(), "PRO")));
         when(addOnRepository.saveAndFlush(any(AddOn.class))).thenAnswer(invocation -> {
             AddOn saved = invocation.getArgument(0);
@@ -428,8 +453,10 @@ class PlanAdminServiceImplTest {
             return saved;
         });
         when(addOnFeatureRepository.findAllByAddOnId(sourceId)).thenReturn(List.of(sourceFeature));
+        when(productPriceRepository.findAllByAddOnIdForUpdate(sourceId))
+                .thenReturn(List.of(activePrice(source)));
 
-        AddOnDto revision = planAdminService.reviseAddOn(sourceId);
+        AddOnDto revision = planAdminService.reviseAddOn(sourceId, 0L);
 
         assertThat(revision.status()).isEqualTo(AddOnStatus.DRAFT);
         assertThat(revision.lineageId()).isEqualTo(lineageId);
@@ -442,16 +469,23 @@ class PlanAdminServiceImplTest {
     }
 
     @Test
-    void draftAddOnCannotBeArchivedInsteadOfPublishedOrDeleted() {
+    void abandonedDraftAddOnCanBeReasonedAndArchived() {
         UUID addOnId = UUID.randomUUID();
         AddOn draft = new AddOn();
         ReflectionTestUtils.setField(draft, "id", addOnId);
+        draft.setCode("ABANDONED_DRAFT");
+        draft.setName("Abandoned draft");
+        draft.setMoney(Money.of(BigDecimal.ONE, "USD"));
+        draft.setBillingCycle(BillingCycle.MONTHLY);
         draft.setStatus(AddOnStatus.DRAFT);
-        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(draft));
+        when(addOnRepository.findByIdForUpdate(addOnId)).thenReturn(Optional.of(draft));
+        when(addOnRepository.saveAndFlush(draft)).thenReturn(draft);
+        when(addOnRepository.findDetailedById(addOnId)).thenReturn(Optional.of(draft));
 
-        assertThatThrownBy(() -> planAdminService.transitionAddOnStatus(addOnId, AddOnStatus.ARCHIVED))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("An AddOn draft must be published or deleted.");
+        AddOnDto archived = planAdminService.transitionAddOnStatus(
+                addOnId, AddOnStatus.ARCHIVED, 0L, "Abandon reviewed draft");
+
+        assertThat(archived.status()).isEqualTo(AddOnStatus.ARCHIVED);
     }
 
     @Test
@@ -462,7 +496,7 @@ class PlanAdminServiceImplTest {
         archived.setStatus(AddOnStatus.ARCHIVED);
         when(addOnRepository.findByIdForUpdate(addOnId)).thenReturn(Optional.of(archived));
 
-        assertThatThrownBy(() -> planAdminService.reviseAddOn(addOnId))
+        assertThatThrownBy(() -> planAdminService.reviseAddOn(addOnId, 0L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Archived AddOns are terminal and cannot be revised.");
         verify(addOnRepository, never()).saveAndFlush(any(AddOn.class));
@@ -474,11 +508,11 @@ class PlanAdminServiceImplTest {
         AddOn published = new AddOn();
         ReflectionTestUtils.setField(published, "id", addOnId);
         published.setStatus(AddOnStatus.INACTIVE);
-        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(published));
+        when(addOnRepository.findByIdForUpdate(addOnId)).thenReturn(Optional.of(published));
 
         assertThatThrownBy(() -> planAdminService.updateAddOn(addOnId, new UpdateAddOnRequest(
                 "Changed", null, BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
-                Set.of(), Set.of(), Set.of(), Set.of())))
+                Set.of(), Set.of(), Set.of(), Set.of(), 0L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Published AddOns are immutable; create and publish a draft revision instead.");
         verify(addOnRepository, never()).saveAndFlush(any(AddOn.class));
@@ -496,7 +530,7 @@ class PlanAdminServiceImplTest {
                 new UpdateQuotaPackageRequest(
                         "Changed", null, "platform.staff", "members", 5,
                         BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
-                        false, 1, Set.of("FREE"), Set.of())))
+                        false, 1, Set.of("FREE"), Set.of(), 0L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Published quota packages are immutable; create a new draft product instead.");
         verify(quotaPackageRepository, never()).saveAndFlush(any(QuotaPackage.class));
@@ -517,8 +551,8 @@ class PlanAdminServiceImplTest {
         when(addOnRepository.findByIdForUpdate(sourceId)).thenReturn(Optional.of(source));
         when(addOnRepository.findLineageForUpdate(lineageId)).thenReturn(List.of(source, draft));
 
-        assertThatThrownBy(() -> planAdminService.reviseAddOn(sourceId))
-                .isInstanceOf(BusinessException.class)
+        assertThatThrownBy(() -> planAdminService.reviseAddOn(sourceId, 0L))
+                .isInstanceOf(DraftSuccessorExistsException.class)
                 .hasMessage("AddOn revision R2 is already an editable draft.");
         verify(addOnRepository, never()).saveAndFlush(any(AddOn.class));
     }
@@ -550,17 +584,22 @@ class PlanAdminServiceImplTest {
         PlanFeature optional = planFeature(plan, feature, List.of());
         optional.setMode(PlanFeatureMode.OPTIONAL_ADD_ON);
 
-        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(addOn));
+        when(addOnRepository.findByIdForUpdate(addOnId)).thenReturn(Optional.of(addOn));
         when(addOnFeatureRepository.findAllByAddOnId(addOnId)).thenReturn(List.of(addOnFeature));
         when(planRepository.findByCode("PRO")).thenReturn(Optional.of(plan));
         when(planFeatureRepository.findAllByPlanId(planId)).thenReturn(List.of(optional));
         when(addOnRepository.findLineageForUpdate(lineageId)).thenReturn(List.of(previousRevision, addOn));
         when(addOnRepository.saveAndFlush(addOn)).thenReturn(addOn);
         when(addOnRepository.findDetailedById(addOnId)).thenReturn(Optional.of(addOn));
+        when(productPriceRepository.findAllApplicable(
+                com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON,
+                addOnId, Instant.parse("2026-08-26T00:00:00Z")))
+                .thenReturn(List.of(activePrice(addOn)));
         when(productPriceResolver.availableCatalogPrices()).thenReturn(List.of(
                 activePrice(plan), activePrice(addOn)));
 
-        AddOnDto activated = planAdminService.transitionAddOnStatus(addOnId, AddOnStatus.ACTIVE);
+        AddOnDto activated = planAdminService.transitionAddOnStatus(
+                addOnId, AddOnStatus.ACTIVE, 0L, null);
 
         assertThat(activated.status()).isEqualTo(AddOnStatus.ACTIVE);
         assertThat(previousRevision.getStatus()).isEqualTo(AddOnStatus.INACTIVE);
@@ -613,6 +652,7 @@ class PlanAdminServiceImplTest {
         plan.setCode(code);
         plan.setName(code);
         plan.setMoney(Money.zero("USD"));
+        plan.setBillingCycle(BillingCycle.MONTHLY);
         plan.setStatus(PlanStatus.ACTIVE);
         return plan;
     }

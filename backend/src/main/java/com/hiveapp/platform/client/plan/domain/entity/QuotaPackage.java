@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.domain.entity;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.shared.domain.BaseEntity;
@@ -29,13 +30,15 @@ import java.util.Set;
 
 @Entity
 @Table(name = "quota_packages", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_quota_packages_code", columnNames = "code")
+        @UniqueConstraint(name = "uk_quota_packages_code", columnNames = "code"),
+        @UniqueConstraint(name = "uk_quota_package_lineage_revision",
+                columnNames = {"lineage_id", "revision_number"})
 })
 @Getter
 @Setter
 public class QuotaPackage extends BaseEntity {
 
-    @Column(nullable = false)
+    @Column(nullable = false, updatable = false)
     private String code;
 
     @Column(nullable = false)
@@ -79,6 +82,20 @@ public class QuotaPackage extends BaseEntity {
 
     @Column(name = "definition_version", nullable = false)
     private long definitionVersion = 1;
+
+    @Column(name = "lineage_id", nullable = false, updatable = false)
+    private java.util.UUID lineageId = java.util.UUID.randomUUID();
+
+    @Column(name = "revision_number", nullable = false, updatable = false)
+    private int revisionNumber = 1;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_quota_package_id", updatable = false)
+    private QuotaPackage sourceQuotaPackage;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "creation_reason", nullable = false, updatable = false, length = 20)
+    private QuotaPackageCreationReason creationReason = QuotaPackageCreationReason.CREATED;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "allowed_plan_codes")
@@ -127,6 +144,9 @@ public class QuotaPackage extends BaseEntity {
         allowedAddOnCodes = new LinkedHashSet<>(allowedAddOnCodes == null ? Set.of() : allowedAddOnCodes);
         if (salesVisibility == null) {
             throw new IllegalStateException("Quota package sales visibility is required");
+        }
+        if (lineageId == null || revisionNumber < 1 || creationReason == null) {
+            throw new IllegalStateException("Quota package lineage identity is required");
         }
     }
 }

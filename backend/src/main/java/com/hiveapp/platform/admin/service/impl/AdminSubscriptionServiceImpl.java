@@ -3,6 +3,7 @@ package com.hiveapp.platform.admin.service.impl;
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
 import com.hiveapp.platform.admin.service.AdminSubscriptionService;
 import com.hiveapp.platform.client.account.service.AccountDirectoryService;
+import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
@@ -12,6 +13,8 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
@@ -19,7 +22,12 @@ import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
+import com.hiveapp.platform.client.plan.service.SubscriptionOverrideChoiceService;
+import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
+import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 import com.hiveapp.shared.exception.InvalidRequestException;
+import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.SubscriptionsFeature;
@@ -41,14 +49,23 @@ import org.springframework.data.domain.Pageable;
 @PermissionNode(key = SubscriptionsFeature.KEY, description = "Client Subscription Management", guard = PermissionNode.Guard.ON)
 public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService implements AdminSubscriptionService {
 
+    private static final Set<SubscriptionStatus> OPERATIONAL_SUBSCRIPTION_STATUSES = Set.of(
+            SubscriptionStatus.ACTIVE,
+            SubscriptionStatus.TRIALING,
+            SubscriptionStatus.PAST_DUE,
+            SubscriptionStatus.SUSPENDED);
+
     private final SubscriptionService subscriptionService;
     private final SubscriptionCheckoutService subscriptionCheckoutService;
     private final AccountDirectoryService accountDirectoryService;
+    private final AccountRepository accountRepository;
+    private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionMapper subscriptionMapper;
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
     private final ProductPriceRepository productPriceRepository;
     private final CommercialCatalogResolver commercialCatalogResolver;
+    private final SubscriptionOverrideChoiceService subscriptionOverrideChoiceService;
     private final Clock clock;
 
     @Override
@@ -90,6 +107,49 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
                         price.getPlan().getRevisionNumber(), price.getId(), price.getAmount(),
                         price.getCurrencyCode(), price.getBillingCycle(),
                         price.getEffectiveFrom(), price.getEffectiveUntil()));
+    }
+
+    @Override
+    @PermissionNode(key = "choose_add_on_overrides",
+            description = "Choose bounded AddOn overrides compatible with one account subscription")
+    @Transactional(readOnly = true)
+    public SubscriptionOverrideChoicePage<SubscriptionAddOnOverrideChoiceDto> chooseAddOnOverrides(
+            UUID accountId,
+            String search,
+            java.util.Collection<String> selectedAddOnCodes,
+            Pageable pageable
+    ) {
+        return subscriptionOverrideChoiceService.chooseAddOns(
+                requireOperationalSubscription(accountId), search, selectedAddOnCodes, pageable);
+    }
+
+    @Override
+    @PermissionNode(key = "choose_quota_package_overrides",
+            description = "Choose bounded capacity overrides compatible with one account subscription")
+    @Transactional(readOnly = true)
+    public SubscriptionOverrideChoicePage<SubscriptionQuotaPackageOverrideChoiceDto>
+            chooseQuotaPackageOverrides(
+                    UUID accountId,
+                    String search,
+                    String featureCode,
+                    String resource,
+                    java.util.Collection<String> selectedAddOnCodes,
+                    Pageable pageable
+            ) {
+        return subscriptionOverrideChoiceService.chooseQuotaPackages(
+                requireOperationalSubscription(accountId), search, featureCode, resource,
+                selectedAddOnCodes, pageable);
+    }
+
+    private Subscription requireOperationalSubscription(UUID accountId) {
+        if (!accountRepository.existsById(accountId)) {
+            throw new ResourceNotFoundException("Account", "id", accountId);
+        }
+        return subscriptionRepository
+                .findTopByAccountIdAndStatusInOrderByCreatedAtDesc(
+                        accountId, OPERATIONAL_SUBSCRIPTION_STATUSES)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Subscription", "accountId", accountId));
     }
 
     private String normalizeOptionalCurrency(String currencyCode) {

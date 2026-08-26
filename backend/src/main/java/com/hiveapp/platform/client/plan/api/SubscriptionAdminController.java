@@ -12,6 +12,9 @@ import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
+import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
+import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 import com.hiveapp.shared.security.HiveAppUserDetails;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -83,6 +86,47 @@ public class SubscriptionAdminController {
         return adminSubscriptionService.getSubscription(accountId);
     }
 
+    @GetMapping("/account/{accountId}/override-choices/add-ons")
+    public SubscriptionOverrideChoicePage<SubscriptionAddOnOverrideChoiceDto> addOnOverrideChoices(
+            @PathVariable UUID accountId,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) List<String> selectedAddOnCodes,
+            @RequestParam(defaultValue = "true") boolean useCurrentAddOnSelections,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "name") String sort,
+            @RequestParam(defaultValue = "asc") String direction
+    ) {
+        return adminSubscriptionService.chooseAddOnOverrides(
+                accountId, search,
+                selectedAddOnCodes != null
+                        ? selectedAddOnCodes
+                        : useCurrentAddOnSelections ? null : List.of(),
+                overrideChoicePage(page, size, sort, direction, false));
+    }
+
+    @GetMapping("/account/{accountId}/override-choices/quota-packages")
+    public SubscriptionOverrideChoicePage<SubscriptionQuotaPackageOverrideChoiceDto>
+            quotaPackageOverrideChoices(
+                    @PathVariable UUID accountId,
+                    @RequestParam(required = false) String search,
+                    @RequestParam(required = false) String featureCode,
+                    @RequestParam(required = false) String resource,
+                    @RequestParam(required = false) List<String> selectedAddOnCodes,
+                    @RequestParam(defaultValue = "true") boolean useCurrentAddOnSelections,
+                    @RequestParam(defaultValue = "0") int page,
+                    @RequestParam(defaultValue = "20") int size,
+                    @RequestParam(defaultValue = "name") String sort,
+                    @RequestParam(defaultValue = "asc") String direction
+            ) {
+        return adminSubscriptionService.chooseQuotaPackageOverrides(
+                accountId, search, featureCode, resource,
+                selectedAddOnCodes != null
+                        ? selectedAddOnCodes
+                        : useCurrentAddOnSelections ? null : List.of(),
+                overrideChoicePage(page, size, sort, direction, true));
+    }
+
     @PostMapping("/account/{accountId}")
     @ResponseStatus(HttpStatus.CREATED)
     public SubscriptionDto create(
@@ -126,5 +170,37 @@ public class SubscriptionAdminController {
                 accountId,
                 request.addOnCodes(),
                 request.quotaPackages());
+    }
+
+    private org.springframework.data.domain.Pageable overrideChoicePage(
+            int page, int size, String sort, String direction, boolean quotaPackage) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "Override-choice page must be non-negative and size must be between 1 and 100.");
+        }
+        String property = switch (sort) {
+            case "code", "name" -> sort;
+            case "featureCode" -> {
+                if (!quotaPackage) throw new com.hiveapp.shared.exception.InvalidRequestException(
+                        "Unsupported override-choice sort field: " + sort);
+                yield "feature.code";
+            }
+            case "resource" -> {
+                if (!quotaPackage) throw new com.hiveapp.shared.exception.InvalidRequestException(
+                        "Unsupported override-choice sort field: " + sort);
+                yield "resource";
+            }
+            default -> throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "Unsupported override-choice sort field: " + sort);
+        };
+        Sort.Direction sortDirection;
+        try {
+            sortDirection = Sort.Direction.fromString(direction);
+        } catch (IllegalArgumentException exception) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "Sort direction must be asc or desc.");
+        }
+        return PageRequest.of(page, size,
+                Sort.by(sortDirection, property).and(Sort.by(Sort.Direction.ASC, "id")));
     }
 }

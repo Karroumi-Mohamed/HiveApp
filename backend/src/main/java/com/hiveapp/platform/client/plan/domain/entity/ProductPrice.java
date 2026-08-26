@@ -140,6 +140,41 @@ public class ProductPrice extends BaseEntity {
         return successor;
     }
 
+    public ProductPrice copyDraftTo(Plan targetOwner) {
+        requireStatus(ProductPriceStatus.ACTIVE,
+                "Only an active price schedule can seed a successor Plan.");
+        ProductPrice copy = owner(ProductPriceOwnerType.PLAN,
+                Objects.requireNonNull(targetOwner, "Target Plan is required"), null, null);
+        copy.initializeTerms(money(), billingCycle, effectiveFrom, effectiveUntil);
+        copy.compatibilityDefault = compatibilityDefault;
+        return copy;
+    }
+
+    public ProductPrice copyDraftTo(AddOn targetOwner) {
+        requireStatus(ProductPriceStatus.ACTIVE,
+                "Only an active price schedule can seed a successor AddOn.");
+        ProductPrice copy = owner(ProductPriceOwnerType.ADD_ON, null,
+                Objects.requireNonNull(targetOwner, "Target AddOn is required"), null);
+        copy.initializeTerms(money(), billingCycle, effectiveFrom, effectiveUntil);
+        copy.compatibilityDefault = compatibilityDefault;
+        return copy;
+    }
+
+    /**
+     * Creates a reviewable price starting point for a different product revision. The copy
+     * intentionally starts a new price lineage: {@code sourcePrice} is reserved for same-owner
+     * price revisions and scheduled replacements.
+     */
+    public ProductPrice copyDraftTo(QuotaPackage targetOwner) {
+        requireStatus(ProductPriceStatus.ACTIVE,
+                "Only an active price schedule can seed a successor package.");
+        ProductPrice copy = owner(ProductPriceOwnerType.QUOTA_PACKAGE, null, null,
+                Objects.requireNonNull(targetOwner, "Target quota package is required"));
+        copy.initializeTerms(money(), billingCycle, effectiveFrom, effectiveUntil);
+        copy.compatibilityDefault = compatibilityDefault;
+        return copy;
+    }
+
     public void editDraft(Money money, BillingCycle cycle, Instant from, Instant until) {
         requireStatus(ProductPriceStatus.DRAFT, "Only draft price entries can be edited.");
         initializeTerms(money, cycle, from, until);

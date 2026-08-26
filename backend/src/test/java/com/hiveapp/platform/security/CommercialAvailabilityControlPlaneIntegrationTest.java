@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
@@ -83,7 +84,7 @@ class CommercialAvailabilityControlPlaneIntegrationTest
             assertThat(preview.get("changedCount").asInt()).isPositive();
             assertThat(preview.get("availableActions").toString())
                     .contains("APPLY_PLAN_AVAILABILITY");
-            assertThat(preview.get("currentSubscriberCount").asLong()).isNotNegative();
+            assertThat(preview.get("affectedSubscriptionCount").asLong()).isNotNegative();
 
             String request = objectMapper.writeValueAsString(java.util.Map.of(
                     "expectedVersion", preview.get("expectedVersion").asLong(),
@@ -207,7 +208,12 @@ class CommercialAvailabilityControlPlaneIntegrationTest
         var initialSnapshot = initialSubscription.getEntitlementSnapshot();
         var flex = planRepository.findByCode("FLEX").orElseThrow();
         var customRoles = addOnRepository.findByCode("CUSTOM_ROLES").orElseThrow();
+        var organizationTools = addOnRepository.findByCode("ORGANIZATION_TOOLS").orElseThrow();
         var members = quotaPackageRepository.findByCode("MEMBERS_5").orElseThrow();
+        var originalCustomRolesStatus = customRoles.getStatus();
+        var originalMembersStatus = members.getStatus();
+        Set<String> originalOrganizationDependencies = Set.copyOf(
+                organizationTools.getDependencyCodes());
         Set<UUID> pausedPriceIds = new java.util.LinkedHashSet<>();
 
         try {
@@ -327,6 +333,96 @@ class CommercialAvailabilityControlPlaneIntegrationTest
             JsonNode currentDirect = clientCatalog(clientToken);
             assertThat(currentDirect.get("currentSubscription").get("planCode").asText())
                     .isEqualTo("FLEX");
+            assertThat(currentDirect.at("/currentSubscription/retainedAddOns/0/code").asText())
+                    .isEqualTo("CUSTOM_ROLES");
+            assertThat(currentDirect.at("/currentSubscription/retainedAddOns/0/name").asText())
+                    .isEqualTo(heldBeforePause.addOns().getFirst().name());
+            assertThat(currentDirect.at("/currentSubscription/retainedAddOns/0/state").asText())
+                    .isEqualTo("RETAINED_ONLY");
+            assertThat(currentDirect.at("/currentSubscription/retainedAddOns/0/removable").asBoolean())
+                    .isTrue();
+            assertThat(currentDirect.at("/currentSubscription/retainedQuotaPackages/1/code").asText())
+                    .isEqualTo("MEMBERS_5");
+            assertThat(currentDirect.at("/currentSubscription/retainedQuotaPackages/1/state").asText())
+                    .isEqualTo("RETAINED_ONLY");
+            assertThat(currentDirect.at("/currentSubscription/retainedQuotaPackages/1/unitPrice")
+                    .isTextual()).isTrue();
+            mockMvc.perform(get("/api/admin/subscriptions/account/{id}/override-choices/add-ons", accountId)
+                            .header("Authorization", bearer(adminToken))
+                            .param("search", "custom")
+                            .param("size", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.size").value(1))
+                    .andExpect(jsonPath("$.retainedSelections[0].code").value("CUSTOM_ROLES"))
+                    .andExpect(jsonPath("$.retainedSelections[0].state").value("RETAINED_ONLY"))
+                    .andExpect(jsonPath("$.retainedSelections[0].removable").value(true))
+                    .andExpect(jsonPath("$.retainedSelections[0].unavailabilityReasons").isArray());
+            mockMvc.perform(get(
+                                    "/api/admin/subscriptions/account/{id}/override-choices/quota-packages",
+                                    accountId)
+                            .header("Authorization", bearer(adminToken))
+                            .param("featureCode", "platform.staff")
+                            .param("resource", "members")
+                            .param("size", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.size").value(1))
+                    .andExpect(jsonPath("$.retainedSelections[?(@.code == 'MEMBERS_5')].retainedQuantity")
+                            .value(org.hamcrest.Matchers.hasItem(1)))
+                    .andExpect(jsonPath("$.retainedSelections[?(@.code == 'MEMBERS_5')].state")
+                            .value(org.hamcrest.Matchers.hasItem("RETAINED_ONLY")));
+
+            UUID managedSubscriptionId = subscriptionRepository
+                    .findActiveByAccountId(accountId).orElseThrow().getId();
+            for (SubscriptionStatus managedStatus : List.of(
+                    SubscriptionStatus.TRIALING,
+                    SubscriptionStatus.PAST_DUE,
+                    SubscriptionStatus.SUSPENDED)) {
+                transactionTemplate.executeWithoutResult(ignored -> {
+                    var managed = subscriptionRepository.findById(managedSubscriptionId).orElseThrow();
+                    managed.setStatus(managedStatus);
+                    subscriptionRepository.saveAndFlush(managed);
+                });
+                mockMvc.perform(get(
+                                        "/api/admin/subscriptions/account/{id}/override-choices/add-ons",
+                                        accountId)
+                                .header("Authorization", bearer(adminToken))
+                                .param("size", "1"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.retainedSelections[0].code")
+                                .value("CUSTOM_ROLES"));
+                mockMvc.perform(get(
+                                        "/api/admin/subscriptions/account/{id}/override-choices/quota-packages",
+                                        accountId)
+                                .header("Authorization", bearer(adminToken))
+                                .param("size", "1"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath(
+                                "$.retainedSelections[?(@.code == 'MEMBERS_5')].retainedQuantity")
+                                .value(org.hamcrest.Matchers.hasItem(1)));
+            }
+            transactionTemplate.executeWithoutResult(ignored -> {
+                var managed = subscriptionRepository.findById(managedSubscriptionId).orElseThrow();
+                managed.setStatus(SubscriptionStatus.ACTIVE);
+                subscriptionRepository.saveAndFlush(managed);
+                var dependencyCandidate = addOnRepository
+                        .findByCode("ORGANIZATION_TOOLS").orElseThrow();
+                dependencyCandidate.setDependencyCodes(Set.of("CUSTOM_ROLES"));
+                addOnRepository.saveAndFlush(dependencyCandidate);
+            });
+            mockMvc.perform(get(
+                                    "/api/admin/subscriptions/account/{id}/override-choices/add-ons",
+                                    accountId)
+                            .header("Authorization", bearer(adminToken))
+                            .param("search", "Organization Tools")
+                            .param("useCurrentAddOnSelections", "false"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content.length()").value(0));
+            mockMvc.perform(get(
+                                    "/api/admin/subscriptions/account/{id}/override-choices/add-ons",
+                                    UUID.randomUUID())
+                            .header("Authorization", bearer(adminToken)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
             JsonNode heldPlan = findByCode(currentDirect.get("plans"), "FLEX");
             assertThat(heldPlan).isNotNull();
             assertThat(heldPlan.get("current").asBoolean()).isTrue();
@@ -340,14 +436,36 @@ class CommercialAvailabilityControlPlaneIntegrationTest
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.plan.code").value("FLEX"));
         } finally {
-            transactionTemplate.executeWithoutResult(ignored -> pausedPriceIds.forEach(id -> {
-                var price = productPriceRepository.findById(id).orElseThrow();
-                if (price.getStatus()
-                        == com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.INACTIVE) {
-                    price.activate();
-                    productPriceRepository.save(price);
-                }
-            }));
+            transactionTemplate.executeWithoutResult(ignored -> {
+                pausedPriceIds.forEach(id -> {
+                    var price = productPriceRepository.findById(id).orElseThrow();
+                    if (price.getStatus()
+                            == com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.INACTIVE) {
+                        price.activate();
+                        productPriceRepository.save(price);
+                    }
+                });
+                var restoredAddOn = addOnRepository.findByCode("CUSTOM_ROLES").orElseThrow();
+                restoredAddOn.setStatus(originalCustomRolesStatus);
+                addOnRepository.save(restoredAddOn);
+                var restoredPackage = quotaPackageRepository.findByCode("MEMBERS_5").orElseThrow();
+                restoredPackage.setStatus(originalMembersStatus);
+                quotaPackageRepository.save(restoredPackage);
+                var restoredCandidate = addOnRepository
+                        .findByCode("ORGANIZATION_TOOLS").orElseThrow();
+                restoredCandidate.setDependencyCodes(originalOrganizationDependencies);
+                addOnRepository.save(restoredCandidate);
+                subscriptionRepository.findTopByAccountIdAndStatusInOrderByCreatedAtDesc(
+                                accountId, List.of(
+                                        SubscriptionStatus.ACTIVE,
+                                        SubscriptionStatus.TRIALING,
+                                        SubscriptionStatus.PAST_DUE,
+                                        SubscriptionStatus.SUSPENDED))
+                        .ifPresent(subscription -> {
+                            subscription.setStatus(SubscriptionStatus.ACTIVE);
+                            subscriptionRepository.save(subscription);
+                        });
+            });
             resetVisibility();
         }
     }
@@ -455,6 +573,24 @@ class CommercialAvailabilityControlPlaneIntegrationTest
         objectMapper.readTree(body).get("content").forEach(item -> names.add(item.get("name").asText()));
         assertThat(names).hasSizeGreaterThan(1);
         assertThat(names).isSortedAccordingTo(String.CASE_INSENSITIVE_ORDER.reversed());
+
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", flex.getId())
+                        .param("search", "CUSTOM_ROLES")
+                        .param("type", "ADD_ON")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].featureCodes").isNotEmpty())
+                .andExpect(jsonPath("$.content[0].quotaFeatureCode").doesNotExist());
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", flex.getId())
+                        .param("search", "MEMBERS_5")
+                        .param("type", "QUOTA_PACKAGE")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].featureCodes[0]").value("platform.staff"))
+                .andExpect(jsonPath("$.content[0].quotaFeatureCode").value("platform.staff"))
+                .andExpect(jsonPath("$.content[0].quotaResource").value("members"))
+                .andExpect(jsonPath("$.content[0].capacityPerUnit").isNumber())
+                .andExpect(jsonPath("$.content[0].maximumQuantity").isNumber());
 
         mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", flex.getId())
                         .param("size", "101")

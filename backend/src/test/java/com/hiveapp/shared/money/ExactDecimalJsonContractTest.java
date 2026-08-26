@@ -16,12 +16,15 @@ import com.hiveapp.platform.client.plan.dto.PlanDetailDto;
 import com.hiveapp.platform.client.plan.dto.PlanDto;
 import com.hiveapp.platform.client.plan.dto.PlanSubscriberDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
+import com.hiveapp.platform.client.plan.dto.QuotaPackagePriceDraftDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot;
+import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateProductPriceRequest;
@@ -113,7 +116,10 @@ class ExactDecimalJsonContractTest {
                         PlanDetailDto.class,
                         AddOnDto.class,
                         QuotaPackageDto.class,
+                        QuotaPackagePriceDraftDto.class,
                         ClientPlanCatalogResponse.CurrentSubscription.class,
+                        ClientPlanCatalogResponse.RetainedAddOn.class,
+                        ClientPlanCatalogResponse.RetainedQuotaPackage.class,
                         ClientPlanCatalogResponse.CatalogPlan.class,
                         ClientPlanCatalogResponse.CatalogAddOn.class,
                         ClientPlanCatalogResponse.CatalogQuotaPackage.class,
@@ -126,6 +132,8 @@ class ExactDecimalJsonContractTest {
                         SubscriptionEntitlementSnapshot.class,
                         SubscriptionAddOnSnapshot.class,
                         SubscriptionQuotaPackageSnapshot.class,
+                        SubscriptionAddOnOverrideChoiceDto.class,
+                        SubscriptionQuotaPackageOverrideChoiceDto.class,
                         CreateProductPriceRequest.class,
                         UpdateProductPriceRequest.class,
                         CreatePlanRequest.class,

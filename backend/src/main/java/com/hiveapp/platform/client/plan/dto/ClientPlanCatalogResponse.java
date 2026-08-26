@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.dto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.RetainedEntitlementState;
 import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.shared.quota.QuotaSlot;
 import com.hiveapp.shared.money.ExactDecimal;
@@ -29,7 +30,43 @@ public record ClientPlanCatalogResponse(
             Instant currentPeriodEnd,
             boolean cancelAtPeriodEnd,
             Set<String> addOnCodes,
-            List<QuotaPackageSelection> quotaPackages
+            List<QuotaPackageSelection> quotaPackages,
+            List<RetainedAddOn> retainedAddOns,
+            List<RetainedQuotaPackage> retainedQuotaPackages
+    ) {}
+
+    /** Exact held terms for a selected AddOn; never sourced from another Account's catalogue. */
+    public record RetainedAddOn(
+            String code,
+            String name,
+            long definitionVersion,
+            @ExactDecimal BigDecimal unitPrice,
+            String currencyCode,
+            BillingCycle billingCycle,
+            List<String> featureCodes,
+            UUID priceEntryId,
+            RetainedEntitlementState state,
+            boolean removable,
+            boolean selectableForNewSale
+    ) {}
+
+    /** Exact held package terms plus safe quantity-management metadata. */
+    public record RetainedQuotaPackage(
+            String code,
+            String name,
+            long definitionVersion,
+            String featureCode,
+            String resource,
+            long capacityPerUnit,
+            int quantity,
+            @ExactDecimal BigDecimal unitPrice,
+            String currencyCode,
+            BillingCycle billingCycle,
+            UUID priceEntryId,
+            RetainedEntitlementState state,
+            boolean removable,
+            boolean quantityEditable,
+            Integer maximumSelectableQuantity
     ) {}
 
     public record CatalogPlan(

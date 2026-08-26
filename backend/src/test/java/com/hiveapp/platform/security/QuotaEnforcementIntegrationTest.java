@@ -279,8 +279,16 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
                 .andReturn().getResponse().getContentAsString();
         var created = objectMapper.readTree(response);
         UUID id = UUID.fromString(created.get("id").asText());
+        var preview = objectMapper.readTree(mockMvc.perform(
+                        get("/api/admin/quota-packages/{id}/activation-preview", id)
+                                .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
         mockMvc.perform(patch("/api/admin/quota-packages/{id}/status", id)
                         .param("status", "ACTIVE")
+                        .param("expectedVersion", preview.get("expectedVersion").asText())
+                        .param("reason", "Publish test capacity package")
+                        .param("activationPreviewToken", preview.get("previewToken").asText())
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk());
         return created.get("code").asText();

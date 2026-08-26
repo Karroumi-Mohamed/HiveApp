@@ -3,6 +3,10 @@ package com.hiveapp.platform.security;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
@@ -10,6 +14,9 @@ import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.infrastructure.ProductPriceBackfill;
 import com.hiveapp.platform.client.plan.dto.CreateProductPriceRequest;
+import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
+import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementRequest;
@@ -70,6 +77,71 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 ProductPriceOwnerType.ADD_ON, addOn.getId(), "USD", BillingCycle.MONTHLY)).isEqualTo(1);
         assertThat(productPriceRepository.countCompatibilityPrice(
                 ProductPriceOwnerType.QUOTA_PACKAGE, quotaPackage.getId(), "USD", BillingCycle.MONTHLY)).isEqualTo(1);
+    }
+
+    @Test
+    void compatibilityBackfillNeverPublishesPricesForArchivedOwners() throws Exception {
+        String token = loginAdminAndGetToken();
+        UUID planId = null;
+        UUID addOnId = null;
+        UUID packageId = null;
+        try {
+            JsonNode plan = responseJson(mockMvc.perform(post("/api/admin/plans")
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                    "Archived backfill Plan " + UUID.randomUUID(), null,
+                                    BigDecimal.ONE, "USD", BillingCycle.MONTHLY))))
+                    .andExpect(status().isCreated()));
+            planId = UUID.fromString(plan.get("id").asText());
+            JsonNode addOn = responseJson(mockMvc.perform(post("/api/admin/add-ons")
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new CreateAddOnRequest(
+                                    "Archived backfill AddOn " + UUID.randomUUID(), null,
+                                    BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                                    Set.of("FLEX"), Set.of(), Set.of(), Set.of(),
+                                    ProductSalesVisibility.PUBLIC))))
+                    .andExpect(status().isCreated()));
+            addOnId = UUID.fromString(addOn.get("id").asText());
+            JsonNode quota = responseJson(mockMvc.perform(post("/api/admin/quota-packages")
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new CreateQuotaPackageRequest(
+                                    "Archived backfill package " + UUID.randomUUID(), null,
+                                    "platform.staff", "members", 1, BigDecimal.ONE,
+                                    "USD", BillingCycle.MONTHLY, true, 5, Set.of("FLEX"),
+                                    Set.of(), ProductSalesVisibility.PUBLIC))))
+                    .andExpect(status().isCreated()));
+            packageId = UUID.fromString(quota.get("id").asText());
+
+            productPriceRepository.deleteAllInBatch(productPriceRepository.findAllByPlanId(planId));
+            productPriceRepository.deleteAllInBatch(productPriceRepository.findAllByAddOnId(addOnId));
+            productPriceRepository.deleteAllInBatch(
+                    productPriceRepository.findAllByQuotaPackageId(packageId));
+            productPriceRepository.flush();
+            var archivedPlan = planRepository.findById(planId).orElseThrow();
+            archivedPlan.setStatus(PlanStatus.ARCHIVED);
+            planRepository.saveAndFlush(archivedPlan);
+            var archivedAddOn = addOnRepository.findById(addOnId).orElseThrow();
+            archivedAddOn.setStatus(AddOnStatus.ARCHIVED);
+            addOnRepository.saveAndFlush(archivedAddOn);
+            var archivedPackage = quotaPackageRepository.findById(packageId).orElseThrow();
+            archivedPackage.setStatus(QuotaPackageStatus.ARCHIVED);
+            quotaPackageRepository.saveAndFlush(archivedPackage);
+
+            productPriceBackfill.backfill();
+            assertThat(productPriceRepository.findAllByPlanId(planId)).isEmpty();
+            assertThat(productPriceRepository.findAllByAddOnId(addOnId)).isEmpty();
+            assertThat(productPriceRepository.findAllByQuotaPackageId(packageId)).isEmpty();
+        } finally {
+            if (packageId != null) quotaPackageRepository.deleteById(packageId);
+            if (addOnId != null) addOnRepository.deleteById(addOnId);
+            if (planId != null) planRepository.deleteById(planId);
+            quotaPackageRepository.flush();
+            addOnRepository.flush();
+            planRepository.flush();
+        }
     }
 
     @Test
@@ -610,6 +682,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         PlanBranchRequest branch = new PlanBranchRequest(
                 "Exact revision " + UUID.randomUUID(), null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
         String revisionResponse = mockMvc.perform(post("/api/admin/plans/{id}/revisions", sourceId)
+                        .param("expectedVersion", String.valueOf(source.getVersion()))
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(branch)))
@@ -617,8 +690,10 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 .andReturn().getResponse().getContentAsString();
         JsonNode revisionJson = objectMapper.readTree(revisionResponse);
         UUID revisionId = UUID.fromString(revisionJson.get("id").asText());
+        publishPlanPriceDrafts(adminToken, revisionId);
         mockMvc.perform(patch("/api/admin/plans/{id}/status", revisionId)
                         .param("status", "ACTIVE")
+                        .param("expectedVersion", revisionJson.get("version").asText())
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk());
         var revision = planRepository.findById(revisionId).orElseThrow();
@@ -680,17 +755,30 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         PlanBranchRequest request = new PlanBranchRequest(
                 "Price fixture " + UUID.randomUUID(), null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
         String response = mockMvc.perform(post("/api/admin/plans/{id}/duplicate", source.getId())
+                        .param("expectedVersion", String.valueOf(source.getVersion()))
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        UUID id = UUID.fromString(objectMapper.readTree(response).get("id").asText());
+        JsonNode created = objectMapper.readTree(response);
+        UUID id = UUID.fromString(created.get("id").asText());
+        publishPlanPriceDrafts(token, id);
         mockMvc.perform(patch("/api/admin/plans/{id}/status", id)
                         .param("status", "ACTIVE")
+                        .param("expectedVersion", created.get("version").asText())
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk());
         return id;
+    }
+
+    private void publishPlanPriceDrafts(String token, UUID planId) throws Exception {
+        for (var price : productPriceRepository.findAllByPlanId(planId)) {
+            if (price.getStatus()
+                    == com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.DRAFT) {
+                activate(token, price.getId(), price.getVersion());
+            }
+        }
     }
 
     private JsonNode activateNewPrice(String token, ProductPriceOwnerType type, UUID ownerId,
@@ -792,6 +880,11 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return UUID.fromString(objectMapper.readTree(response).get("id").asText());
+    }
+
+    private JsonNode responseJson(org.springframework.test.web.servlet.ResultActions result)
+            throws Exception {
+        return objectMapper.readTree(result.andReturn().getResponse().getContentAsString());
     }
 
     private record HttpResult(int status, String body) {}

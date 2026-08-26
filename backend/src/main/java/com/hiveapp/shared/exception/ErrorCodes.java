@@ -21,6 +21,7 @@ public final class ErrorCodes {
             case ResourceNotFoundException ignored -> ErrorCode.RESOURCE_NOT_FOUND;
             case DuplicateResourceException ignored -> ErrorCode.RESOURCE_ALREADY_EXISTS;
             case PriceEntryOverlapException ignored -> ErrorCode.PRICE_ENTRY_OVERLAP;
+            case DraftSuccessorExistsException ignored -> ErrorCode.DRAFT_SUCCESSOR_EXISTS;
             case StaleResourceVersionException ignored -> ErrorCode.STALE_RESOURCE_VERSION;
             case ObjectOptimisticLockingFailureException ignored -> ErrorCode.STALE_RESOURCE_VERSION;
             case DataIntegrityViolationException ignored -> ErrorCode.DATA_CONFLICT;

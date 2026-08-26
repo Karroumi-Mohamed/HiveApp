@@ -401,7 +401,11 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
                     result.addOn().getName(), result.addOn().getSalesVisibility(), operatorSelectable,
                     clientVisible, issues, result.prices().size(),
                     operatorSelectable && result.addOn().getDependencyCodes().isEmpty(),
-                    operatorSelectable ? result.addOn().getDependencyCodes() : Set.of()));
+                    operatorSelectable ? result.addOn().getDependencyCodes() : Set.of(),
+                    result.addOn().getFeatures().stream()
+                            .map(feature -> feature.getFeature().getCode())
+                            .collect(Collectors.toCollection(java.util.TreeSet::new)),
+                    null, null, null, null, null));
         });
         resolution.quotaPackages().forEach(result -> {
             boolean operatorSelectable = resolution.selectable() && result.selectable();
@@ -415,7 +419,13 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
                     result.quotaPackage().getSalesVisibility(), operatorSelectable, clientVisible,
                     issues, result.prices().size(),
                     operatorSelectable && result.directlySelectable(),
-                    operatorSelectable ? result.requiredAddOnCodes() : Set.of()));
+                    operatorSelectable ? result.requiredAddOnCodes() : Set.of(),
+                    Set.of(result.quotaPackage().getFeature().getCode()),
+                    result.quotaPackage().getFeature().getCode(),
+                    result.quotaPackage().getResource(),
+                    result.quotaPackage().getCapacityPerUnit(),
+                    result.quotaPackage().isRepeatable(),
+                    result.quotaPackage().getMaximumQuantity()));
         });
         return List.copyOf(items);
     }

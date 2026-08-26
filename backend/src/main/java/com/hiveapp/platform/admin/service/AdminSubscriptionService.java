@@ -8,6 +8,9 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
+import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 
 import java.util.List;
 import java.util.Set;
@@ -25,6 +28,13 @@ public interface AdminSubscriptionService {
     Page<AccountDirectoryEntryDto> searchAccounts(String query, Pageable pageable);
     Page<AssignablePlanPriceDto> listAssignablePlanPrices(
             String search, String currencyCode, BillingCycle billingCycle, Pageable pageable);
+    SubscriptionOverrideChoicePage<SubscriptionAddOnOverrideChoiceDto> chooseAddOnOverrides(
+            UUID accountId, String search, java.util.Collection<String> selectedAddOnCodes,
+            Pageable pageable);
+    SubscriptionOverrideChoicePage<SubscriptionQuotaPackageOverrideChoiceDto>
+            chooseQuotaPackageOverrides(
+                    UUID accountId, String search, String featureCode, String resource,
+                    java.util.Collection<String> selectedAddOnCodes, Pageable pageable);
     AdminSubscriptionDto getSubscription(UUID accountId);
     SubscriptionDto createSubscription(
             UUID accountId, String planCode, ProductPriceSelectionRequest priceSelection);

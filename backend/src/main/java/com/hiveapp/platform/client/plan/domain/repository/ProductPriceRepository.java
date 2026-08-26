@@ -58,6 +58,15 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
                     and price.addOn.id = :ownerId)
                 or (:ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE
                     and price.quotaPackage.id = :ownerId))
+              and not exists (select plan.id from Plan plan
+                    where plan = price.plan
+                      and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ARCHIVED)
+              and not exists (select addOn.id from AddOn addOn
+                    where addOn = price.addOn
+                      and addOn.status = com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.ARCHIVED)
+              and not exists (select item.id from QuotaPackage item
+                    where item = price.quotaPackage
+                      and item.status = com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus.ARCHIVED)
               and price.currencyCode = :currencyCode
               and price.billingCycle = :billingCycle
               and (:effectiveUntil is null or price.effectiveFrom < :effectiveUntil)
@@ -107,6 +116,15 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
                     and price.addOn.id = :ownerId)
                 or (:ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE
                     and price.quotaPackage.id = :ownerId))
+              and not exists (select plan.id from Plan plan
+                    where plan = price.plan
+                      and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ARCHIVED)
+              and not exists (select addOn.id from AddOn addOn
+                    where addOn = price.addOn
+                      and addOn.status = com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.ARCHIVED)
+              and not exists (select item.id from QuotaPackage item
+                    where item = price.quotaPackage
+                      and item.status = com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus.ARCHIVED)
               and price.currencyCode = :currencyCode
               and price.billingCycle = :billingCycle
               and price.effectiveFrom <= :at
@@ -130,6 +148,15 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
                     and price.addOn.id = :ownerId)
                 or (:ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE
                     and price.quotaPackage.id = :ownerId))
+              and not exists (select plan.id from Plan plan
+                    where plan = price.plan
+                      and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ARCHIVED)
+              and not exists (select addOn.id from AddOn addOn
+                    where addOn = price.addOn
+                      and addOn.status = com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.ARCHIVED)
+              and not exists (select item.id from QuotaPackage item
+                    where item = price.quotaPackage
+                      and item.status = com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus.ARCHIVED)
               and price.effectiveFrom <= :at
               and (price.effectiveUntil is null or price.effectiveUntil > :at)
             order by price.currencyCode, price.billingCycle, price.revisionNumber desc, price.id asc
@@ -142,6 +169,15 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
     @Query("""
             select price from ProductPrice price
             where price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
+              and not exists (select plan.id from Plan plan
+                    where plan = price.plan
+                      and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ARCHIVED)
+              and not exists (select addOn.id from AddOn addOn
+                    where addOn = price.addOn
+                      and addOn.status = com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.ARCHIVED)
+              and not exists (select item.id from QuotaPackage item
+                    where item = price.quotaPackage
+                      and item.status = com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus.ARCHIVED)
               and price.effectiveFrom <= :at
               and (price.effectiveUntil is null or price.effectiveUntil > :at)
             order by price.ownerType, price.currencyCode, price.billingCycle, price.revisionNumber desc, price.id asc
@@ -226,4 +262,207 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
     @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
     Page<ProductPrice> findAll(org.springframework.data.jpa.domain.Specification<ProductPrice> specification,
                                Pageable pageable);
+
+    @Query("""
+            select price.plan.id, count(price)
+            from ProductPrice price
+            where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
+              and price.plan.id in :ownerIds
+              and price.plan.status <> com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ARCHIVED
+              and price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
+              and price.effectiveFrom <= :at
+              and (price.effectiveUntil is null or price.effectiveUntil > :at)
+            group by price.plan.id
+            """)
+    List<Object[]> countApplicablePlanPrices(
+            @Param("ownerIds") Collection<UUID> ownerIds, @Param("at") Instant at);
+
+    @Query("select price.plan.id, count(price) from ProductPrice price "
+            + "where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN "
+            + "and price.plan.id in :ownerIds and price.status = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.DRAFT "
+            + "group by price.plan.id")
+    List<Object[]> countDraftPlanPrices(@Param("ownerIds") Collection<UUID> ownerIds);
+
+    @Query("select price.plan.id, count(price) from ProductPrice price "
+            + "where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN "
+            + "and price.plan.id in :ownerIds and price.status <> "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.DRAFT "
+            + "group by price.plan.id")
+    List<Object[]> countPublishedPlanPrices(@Param("ownerIds") Collection<UUID> ownerIds);
+
+    @Query("""
+            select price.addOn.id, count(price)
+            from ProductPrice price
+            where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON
+              and price.addOn.id in :ownerIds
+              and price.addOn.status <> com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.ARCHIVED
+              and price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
+              and price.effectiveFrom <= :at
+              and (price.effectiveUntil is null or price.effectiveUntil > :at)
+            group by price.addOn.id
+            """)
+    List<Object[]> countApplicableAddOnPrices(
+            @Param("ownerIds") Collection<UUID> ownerIds, @Param("at") Instant at);
+
+    @Query("select price.addOn.id, count(price) from ProductPrice price "
+            + "where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON "
+            + "and price.addOn.id in :ownerIds and price.status = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.DRAFT "
+            + "group by price.addOn.id")
+    List<Object[]> countDraftAddOnPrices(@Param("ownerIds") Collection<UUID> ownerIds);
+
+    @Query("select price.addOn.id, count(price) from ProductPrice price "
+            + "where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON "
+            + "and price.addOn.id in :ownerIds and price.status <> "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.DRAFT "
+            + "group by price.addOn.id")
+    List<Object[]> countPublishedAddOnPrices(@Param("ownerIds") Collection<UUID> ownerIds);
+
+    @Query("""
+            select price.quotaPackage.id, count(price)
+            from ProductPrice price
+            where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE
+              and price.quotaPackage.id in :ownerIds
+              and price.quotaPackage.status <> com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus.ARCHIVED
+              and price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
+              and price.effectiveFrom <= :at
+              and (price.effectiveUntil is null or price.effectiveUntil > :at)
+            group by price.quotaPackage.id
+            """)
+    List<Object[]> countApplicableQuotaPackagePrices(
+            @Param("ownerIds") Collection<UUID> ownerIds, @Param("at") Instant at);
+
+    @Query("select price.quotaPackage.id, count(price) from ProductPrice price "
+            + "where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE "
+            + "and price.quotaPackage.id in :ownerIds and price.status = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.DRAFT "
+            + "group by price.quotaPackage.id")
+    List<Object[]> countDraftQuotaPackagePrices(@Param("ownerIds") Collection<UUID> ownerIds);
+
+    @Query("select price.quotaPackage.id, count(price) from ProductPrice price "
+            + "where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE "
+            + "and price.quotaPackage.id in :ownerIds and price.status = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.DRAFT "
+            + "and price.effectiveFrom <= :at "
+            + "and (price.effectiveUntil is null or price.effectiveUntil > :at) "
+            + "group by price.quotaPackage.id")
+    List<Object[]> countCurrentlyApplicableDraftQuotaPackagePrices(
+            @Param("ownerIds") Collection<UUID> ownerIds, @Param("at") Instant at);
+
+    @Query("select price.quotaPackage.id, count(price) from ProductPrice price "
+            + "where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE "
+            + "and price.quotaPackage.id in :ownerIds and price.status <> "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.DRAFT "
+            + "group by price.quotaPackage.id")
+    List<Object[]> countPublishedQuotaPackagePrices(@Param("ownerIds") Collection<UUID> ownerIds);
+
+    @EntityGraph(attributePaths = {"quotaPackage", "sourcePrice"})
+    @Query("""
+            select price from ProductPrice price
+            where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE
+              and price.quotaPackage.id = :quotaPackageId
+            order by price.currencyCode, price.billingCycle, price.effectiveFrom desc,
+                     price.revisionNumber desc, price.id
+            """)
+    List<ProductPrice> findAllByQuotaPackageId(@Param("quotaPackageId") UUID quotaPackageId);
+
+    @EntityGraph(attributePaths = {"plan", "sourcePrice"})
+    @Query("select price from ProductPrice price where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN "
+            + "and price.plan.id = :planId order by price.id")
+    List<ProductPrice> findAllByPlanId(@Param("planId") UUID planId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"plan", "sourcePrice"})
+    @Query("select price from ProductPrice price where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN "
+            + "and price.plan.id = :planId order by price.id")
+    List<ProductPrice> findAllByPlanIdForUpdate(@Param("planId") UUID planId);
+
+    @EntityGraph(attributePaths = {"addOn", "sourcePrice"})
+    @Query("select price from ProductPrice price where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON "
+            + "and price.addOn.id = :addOnId order by price.id")
+    List<ProductPrice> findAllByAddOnId(@Param("addOnId") UUID addOnId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"addOn", "sourcePrice"})
+    @Query("select price from ProductPrice price where price.ownerType = "
+            + "com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON "
+            + "and price.addOn.id = :addOnId order by price.id")
+    List<ProductPrice> findAllByAddOnIdForUpdate(@Param("addOnId") UUID addOnId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"quotaPackage", "sourcePrice"})
+    @Query("""
+            select price from ProductPrice price
+            where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE
+              and price.quotaPackage.id = :quotaPackageId
+            order by price.id
+            """)
+    List<ProductPrice> findAllByQuotaPackageIdForUpdate(@Param("quotaPackageId") UUID quotaPackageId);
+
+    @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
+    @Query("""
+            select price from ProductPrice price
+            where (price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
+                    and price.plan.id in :planIds)
+               or (price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON
+                    and price.addOn.id in :addOnIds)
+            order by price.id
+            """)
+    List<ProductPrice> findAllCompatibilityDependencyPrices(
+            @Param("planIds") Collection<UUID> planIds,
+            @Param("addOnIds") Collection<UUID> addOnIds);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
+    @Query("""
+            select price from ProductPrice price
+            where (price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
+                    and price.plan.id in :planIds)
+               or (price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON
+                    and price.addOn.id in :addOnIds)
+            order by price.id
+            """)
+    List<ProductPrice> findAllCompatibilityDependencyPricesForUpdate(
+            @Param("planIds") Collection<UUID> planIds,
+            @Param("addOnIds") Collection<UUID> addOnIds);
+
+    @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
+    @Query("""
+            select price from ProductPrice price
+            where price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
+              and price.effectiveFrom <= :at
+              and (price.effectiveUntil is null or price.effectiveUntil > :at)
+              and ((price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
+                    and price.plan.id in :planIds)
+                or (price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON
+                    and price.addOn.id in :addOnIds)
+                or (price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE
+                    and price.quotaPackage.id in :quotaPackageIds))
+              and not exists (select plan.id from Plan plan
+                    where plan = price.plan
+                      and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ARCHIVED)
+              and not exists (select addOn.id from AddOn addOn
+                    where addOn = price.addOn
+                      and addOn.status = com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.ARCHIVED)
+              and not exists (select item.id from QuotaPackage item
+                    where item = price.quotaPackage
+                      and item.status = com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus.ARCHIVED)
+            order by price.id
+            """)
+    List<ProductPrice> findAllApplicableForOwners(
+            @Param("planIds") Collection<UUID> planIds,
+            @Param("addOnIds") Collection<UUID> addOnIds,
+            @Param("quotaPackageIds") Collection<UUID> quotaPackageIds,
+            @Param("at") Instant at);
 }

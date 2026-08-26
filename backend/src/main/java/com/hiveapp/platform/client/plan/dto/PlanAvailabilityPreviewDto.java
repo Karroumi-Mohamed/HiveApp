@@ -17,7 +17,7 @@ public record PlanAvailabilityPreviewDto(
         PlanExtensionPolicy targetExtensionPolicy,
         ProductSalesVisibility currentSalesVisibility,
         ProductSalesVisibility targetSalesVisibility,
-        long currentSubscriberCount,
+        long affectedSubscriptionCount,
         int totalExtensions,
         int operatorSelectableBefore,
         int operatorSelectableAfter,
