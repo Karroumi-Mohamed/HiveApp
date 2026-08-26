@@ -561,6 +561,37 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .value(addOnCode))
                 .andExpect(jsonPath("$.plans[?(@.code == '" + planCode
                         + "')].addOns[0].features[0].featureCode").value("platform.company"));
+
+        String revisionResponse = mockMvc.perform(post("/api/admin/add-ons/{addOnId}/revisions", addOnId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.revisionNumber").value(2))
+                .andExpect(jsonPath("$.sourceAddOnId").value(addOnId.toString()))
+                .andExpect(jsonPath("$.creationReason").value("REVISED"))
+                .andExpect(jsonPath("$.features[0].featureCode").value("platform.company"))
+                .andReturn().getResponse().getContentAsString();
+        var revision = objectMapper.readTree(revisionResponse);
+        UUID revisionId = UUID.fromString(revision.get("id").asText());
+        String revisionCode = revision.get("code").asText();
+
+        mockMvc.perform(patch("/api/admin/add-ons/{addOnId}/status", revisionId)
+                        .param("status", "ACTIVE")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+        mockMvc.perform(get("/api/admin/add-ons/{addOnId}", addOnId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("INACTIVE"));
+
+        mockMvc.perform(get("/api/v1/subscriptions/catalog")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plans[?(@.code == '" + planCode + "')].addOns[*].code")
+                        .value(hasItem(revisionCode)))
+                .andExpect(jsonPath("$.plans[?(@.code == '" + planCode + "')].addOns[*].code")
+                        .value(not(hasItem(addOnCode))));
     }
 
     private org.springframework.test.web.servlet.ResultActions assignPlanFeature(

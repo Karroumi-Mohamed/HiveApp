@@ -79,6 +79,8 @@ public interface PlanAdminService {
 
     AddOnDto createAddOn(CreateAddOnRequest request);
 
+    AddOnDto reviseAddOn(UUID sourceAddOnId);
+
     AddOnDto updateAddOn(UUID addOnId, UpdateAddOnRequest request);
 
     AddOnDto transitionAddOnStatus(UUID addOnId, AddOnStatus targetStatus);

@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 
@@ -19,6 +20,10 @@ public record AddOnDto(
         BillingCycle billingCycle,
         AddOnStatus status,
         long definitionVersion,
+        UUID lineageId,
+        int revisionNumber,
+        UUID sourceAddOnId,
+        AddOnCreationReason creationReason,
         Set<String> allowedPlanCodes,
         Set<String> blockedPlanCodes,
         Set<String> dependencyCodes,

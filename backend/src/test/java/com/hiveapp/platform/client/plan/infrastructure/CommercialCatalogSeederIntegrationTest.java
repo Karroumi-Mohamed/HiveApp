@@ -81,7 +81,7 @@ class CommercialCatalogSeederIntegrationTest {
 
     @Test
     void seedsActiveAddOnsOnPlansThatDeclareTheirFeaturesOptional() {
-        assertThat(addOnRepository.findAllByOrderByCodeAsc())
+        assertThat(addOnRepository.findAllByOrderByNameAscRevisionNumberDesc())
                 .extracting(addOn -> addOn.getCode())
                 .contains("ORGANIZATION_TOOLS", "CUSTOM_ROLES", "B2B_COLLABORATION");
 

@@ -98,6 +98,7 @@ public class AdminRolePresetCatalog {
                             "platform.plans.read_add_on",
                             "platform.plans.create_add_on",
                             "platform.plans.update_add_on",
+                            "platform.plans.revise_add_on",
                             "platform.plans.transition_add_on",
                             "platform.plans.delete_add_on",
                             "platform.plans.assign_add_on_feature",

@@ -47,6 +47,12 @@ public class AddOnAdminController {
         return planAdminService.createAddOn(request);
     }
 
+    @PostMapping("/{sourceAddOnId}/revisions")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AddOnDto revise(@PathVariable UUID sourceAddOnId) {
+        return planAdminService.reviseAddOn(sourceAddOnId);
+    }
+
     @PutMapping("/{addOnId}")
     public AddOnDto update(@PathVariable UUID addOnId, @Valid @RequestBody UpdateAddOnRequest request) {
         return planAdminService.updateAddOn(addOnId, request);

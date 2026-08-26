@@ -46,7 +46,9 @@ public class PlanAdminReadModels {
         return new AddOnDto(
                 addOn.getId(), addOn.getCode(), addOn.getName(), addOn.getDescription(),
                 addOn.getPrice(), addOn.getCurrencyCode(), addOn.getBillingCycle(), addOn.getStatus(),
-                addOn.getDefinitionVersion(), addOn.getAllowedPlanCodes(), addOn.getBlockedPlanCodes(),
+                addOn.getDefinitionVersion(), addOn.getLineageId(), addOn.getRevisionNumber(),
+                addOn.getSourceAddOn() != null ? addOn.getSourceAddOn().getId() : null,
+                addOn.getCreationReason(), addOn.getAllowedPlanCodes(), addOn.getBlockedPlanCodes(),
                 addOn.getDependencyCodes(), addOn.getExclusionCodes(),
                 addOn.getFeatures().stream().map(this::toDto).toList());
     }

@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.service.impl;
 
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCodes;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCreationReason;
@@ -437,7 +438,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Transactional(readOnly = true)
     @PermissionNode(key = "list_add_ons", description = "List commercial AddOns")
     public List<AddOnDto> listAddOns() {
-        return addOnRepository.findAllByOrderByCodeAsc().stream().map(readModels::toDto).toList();
+        return addOnRepository.findAllByOrderByNameAscRevisionNumberDesc().stream().map(readModels::toDto).toList();
     }
 
     @Override
@@ -461,6 +462,69 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 request.blockedPlanCodes(), request.dependencyCodes(), request.exclusionCodes());
         addOn.setStatus(AddOnStatus.DRAFT);
         return readModels.toDto(addOnRepository.save(addOn));
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "revise_add_on", description = "Create the next draft revision of a published AddOn")
+    public AddOnDto reviseAddOn(UUID sourceAddOnId) {
+        AddOn source = addOnRepository.findByIdForUpdate(sourceAddOnId)
+                .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", sourceAddOnId));
+        if (source.getStatus() == AddOnStatus.DRAFT) {
+            throw new BusinessException("An AddOn draft can be edited directly and cannot be revised.");
+        }
+        if (source.getStatus() == AddOnStatus.ARCHIVED) {
+            throw new BusinessException("Archived AddOns are terminal and cannot be revised.");
+        }
+
+        addOnRepository.findLineageForUpdate(source.getLineageId()).stream()
+                .filter(candidate -> candidate.getStatus() == AddOnStatus.DRAFT)
+                .findFirst()
+                .ifPresent(draft -> {
+                    throw new BusinessException(
+                            "AddOn revision R" + draft.getRevisionNumber() + " is already an editable draft.");
+                });
+
+        int nextRevision = addOnRepository.findMaximumRevisionNumber(source.getLineageId()) + 1;
+        String code = CommercialCodeGenerator.generate(
+                source.getName(), "ADD_ON", candidate -> addOnRepository.findByCode(candidate).isPresent());
+        AddOn revision = new AddOn();
+        revision.setCode(code);
+        applyAddOnBasics(revision, source.getName(), source.getDescription(), source.getPrice(),
+                source.getCurrencyCode(), source.getBillingCycle(), source.getAllowedPlanCodes(),
+                source.getBlockedPlanCodes(), source.getDependencyCodes(), source.getExclusionCodes());
+        revision.setStatus(AddOnStatus.DRAFT);
+        revision.setLineageId(source.getLineageId());
+        revision.setRevisionNumber(nextRevision);
+        revision.setSourceAddOn(source);
+        revision.setCreationReason(AddOnCreationReason.REVISED);
+
+        AddOn savedRevision;
+        try {
+            savedRevision = addOnRepository.saveAndFlush(revision);
+        } catch (DataIntegrityViolationException exception) {
+            throw new DuplicateResourceException("AddOn", "code or lineage revision", code);
+        }
+
+        List<AddOnFeature> copiedFeatures = addOnFeatureRepository.findAllByAddOnId(source.getId()).stream()
+                .map(sourceFeature -> {
+                    billingConfigurationValidator.validateAddOnFeature(
+                            sourceFeature.getFeature().getCode(), sourceFeature.getQuotaConfigs(),
+                            savedRevision.getCurrencyCode());
+                    AddOnFeature copy = new AddOnFeature();
+                    copy.setAddOn(savedRevision);
+                    copy.setFeature(sourceFeature.getFeature());
+                    copy.setQuotaConfigs(sourceFeature.getQuotaConfigs() == null
+                            ? new ArrayList<>()
+                            : new ArrayList<>(sourceFeature.getQuotaConfigs()));
+                    return copy;
+                })
+                .toList();
+        if (!copiedFeatures.isEmpty()) {
+            addOnFeatureRepository.saveAll(copiedFeatures);
+        }
+        savedRevision.getFeatures().addAll(copiedFeatures);
+        return readModels.toDto(savedRevision);
     }
 
     @Override
@@ -493,11 +557,20 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (targetStatus == AddOnStatus.DRAFT) {
             throw new BusinessException("An AddOn cannot transition back to DRAFT.");
         }
-        if (addOn.getStatus() == AddOnStatus.DRAFT && targetStatus == AddOnStatus.INACTIVE) {
-            throw new BusinessException("A draft AddOn must be activated or archived.");
+        if (addOn.getStatus() == AddOnStatus.DRAFT && targetStatus != AddOnStatus.ACTIVE) {
+            throw new BusinessException("An AddOn draft must be published or deleted.");
         }
         if (targetStatus == AddOnStatus.ACTIVE) {
             validateAddOnActivation(addOn);
+            List<AddOn> lineage = addOnRepository.findLineageForUpdate(addOn.getLineageId());
+            List<AddOn> previouslyActive = lineage.stream()
+                    .filter(candidate -> !candidate.getId().equals(addOn.getId()))
+                    .filter(candidate -> candidate.getStatus() == AddOnStatus.ACTIVE)
+                    .toList();
+            previouslyActive.forEach(candidate -> candidate.setStatus(AddOnStatus.INACTIVE));
+            if (!previouslyActive.isEmpty()) {
+                addOnRepository.saveAllAndFlush(previouslyActive);
+            }
         }
         addOn.setStatus(targetStatus);
         addOnRepository.saveAndFlush(addOn);

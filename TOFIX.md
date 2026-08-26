@@ -1115,7 +1115,7 @@ The backend and replacement UI would force administrators to price technical fea
 **Implementation evidence — 2026-08-10**
 
 - Added a versioned `AddOn` aggregate and `AddOnFeature` composition with fixed Money price/currency/cycle, DRAFT/ACTIVE/INACTIVE/ARCHIVED lifecycle, allowed/blocked Plans, dependencies, exclusions, included quota definitions, optimistic locking, and database uniqueness.
-- Added Permissionizer-guarded administration at `/api/admin/add-ons` for catalogue, detail, lifecycle, feature composition, safe draft deletion, and immutable ACTIVE/ARCHIVED boundaries.
+- Added Permissionizer-guarded administration at `/api/admin/add-ons` for catalogue, detail, lifecycle, feature composition, safe draft deletion, and immutable published boundaries. Published AddOns now branch into lineage-aware draft revisions; publishing a revision pauses the older active revision for new sales without changing existing subscription snapshots.
 - Subscription requests and overrides now select AddOn identities rather than technical feature codes. Validation enforces active state, Plan/currency/cycle availability, dependency/exclusion rules, OPTIONAL_ADD_ON modes, and non-overlapping capabilities.
 - Immutable entitlement snapshots retain selected AddOn identity, definition version, price/currency/cycle, effective bundled features and quotas. Billing prices the snapshotted AddOn, and the client catalog exposes compatible AddOn composition and quota details.
 - Versioned quota packages now add Plan/AddOn-owned finite capacity with identity/quantity selection, itemized snapshot pricing, catalog visibility, and runtime enforcement.

@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.domain.entity;
 
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.money.Money;
@@ -29,13 +30,14 @@ import java.util.Set;
 
 @Entity
 @Table(name = "add_ons", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_add_ons_code", columnNames = "code")
+        @UniqueConstraint(name = "uk_add_ons_code", columnNames = "code"),
+        @UniqueConstraint(name = "uk_add_on_lineage_revision", columnNames = {"lineage_id", "revision_number"})
 })
 @Getter
 @Setter
 public class AddOn extends BaseEntity {
 
-    @Column(nullable = false)
+    @Column(nullable = false, updatable = false)
     private String code;
 
     @Column(nullable = false)
@@ -59,6 +61,20 @@ public class AddOn extends BaseEntity {
 
     @Column(name = "definition_version", nullable = false)
     private long definitionVersion = 1;
+
+    @Column(name = "lineage_id", nullable = false, updatable = false)
+    private java.util.UUID lineageId = java.util.UUID.randomUUID();
+
+    @Column(name = "revision_number", nullable = false, updatable = false)
+    private int revisionNumber = 1;
+
+    @jakarta.persistence.ManyToOne(fetch = FetchType.LAZY)
+    @jakarta.persistence.JoinColumn(name = "source_add_on_id", updatable = false)
+    private AddOn sourceAddOn;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "creation_reason", nullable = false, updatable = false, length = 20)
+    private AddOnCreationReason creationReason = AddOnCreationReason.CREATED;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "allowed_plan_codes")
@@ -120,6 +136,9 @@ public class AddOn extends BaseEntity {
         }
         if (dependencyCodes.contains(code) || exclusionCodes.contains(code)) {
             throw new IllegalStateException("An AddOn cannot depend on or exclude itself");
+        }
+        if (lineageId == null || revisionNumber < 1 || creationReason == null) {
+            throw new IllegalStateException("AddOn lineage identity is required");
         }
     }
 

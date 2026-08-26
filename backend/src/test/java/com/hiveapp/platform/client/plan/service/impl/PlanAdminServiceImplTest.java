@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionCheckoutStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
@@ -389,9 +390,103 @@ class PlanAdminServiceImplTest {
     }
 
     @Test
+    void publishedAddOnRevisionCopiesCommercialDefinitionIntoANewDraft() {
+        UUID sourceId = UUID.randomUUID();
+        UUID lineageId = UUID.randomUUID();
+        AddOn source = new AddOn();
+        ReflectionTestUtils.setField(source, "id", sourceId);
+        source.setCode("REPORTING_R1");
+        source.setName("Reporting");
+        source.setDescription("Operational reports");
+        source.setMoney(Money.of(BigDecimal.TEN, "USD"));
+        source.setBillingCycle(BillingCycle.MONTHLY);
+        source.setStatus(AddOnStatus.ACTIVE);
+        source.setLineageId(lineageId);
+        source.setRevisionNumber(1);
+        source.setAllowedPlanCodes(Set.of("PRO"));
+
+        Feature feature = feature("platform.company");
+        AddOnFeature sourceFeature = new AddOnFeature();
+        sourceFeature.setAddOn(source);
+        sourceFeature.setFeature(feature);
+        sourceFeature.setQuotaConfigs(List.of());
+
+        when(addOnRepository.findByIdForUpdate(sourceId)).thenReturn(Optional.of(source));
+        when(addOnRepository.findLineageForUpdate(lineageId)).thenReturn(List.of(source));
+        when(addOnRepository.findMaximumRevisionNumber(lineageId)).thenReturn(1);
+        when(planRepository.findByCode("PRO")).thenReturn(Optional.of(plan(UUID.randomUUID(), "PRO")));
+        when(addOnRepository.saveAndFlush(any(AddOn.class))).thenAnswer(invocation -> {
+            AddOn saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", UUID.randomUUID());
+            return saved;
+        });
+        when(addOnFeatureRepository.findAllByAddOnId(sourceId)).thenReturn(List.of(sourceFeature));
+
+        AddOnDto revision = planAdminService.reviseAddOn(sourceId);
+
+        assertThat(revision.status()).isEqualTo(AddOnStatus.DRAFT);
+        assertThat(revision.lineageId()).isEqualTo(lineageId);
+        assertThat(revision.revisionNumber()).isEqualTo(2);
+        assertThat(revision.sourceAddOnId()).isEqualTo(sourceId);
+        assertThat(revision.creationReason()).isEqualTo(AddOnCreationReason.REVISED);
+        assertThat(revision.features()).extracting(AddOnDto.FeatureItem::featureCode)
+                .containsExactly("platform.company");
+        assertThat(source.getStatus()).isEqualTo(AddOnStatus.ACTIVE);
+    }
+
+    @Test
+    void draftAddOnCannotBeArchivedInsteadOfPublishedOrDeleted() {
+        UUID addOnId = UUID.randomUUID();
+        AddOn draft = new AddOn();
+        ReflectionTestUtils.setField(draft, "id", addOnId);
+        draft.setStatus(AddOnStatus.DRAFT);
+        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(draft));
+
+        assertThatThrownBy(() -> planAdminService.transitionAddOnStatus(addOnId, AddOnStatus.ARCHIVED))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("An AddOn draft must be published or deleted.");
+    }
+
+    @Test
+    void archivedAddOnCannotBeUsedAsARevisionSource() {
+        UUID addOnId = UUID.randomUUID();
+        AddOn archived = new AddOn();
+        ReflectionTestUtils.setField(archived, "id", addOnId);
+        archived.setStatus(AddOnStatus.ARCHIVED);
+        when(addOnRepository.findByIdForUpdate(addOnId)).thenReturn(Optional.of(archived));
+
+        assertThatThrownBy(() -> planAdminService.reviseAddOn(addOnId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Archived AddOns are terminal and cannot be revised.");
+        verify(addOnRepository, never()).saveAndFlush(any(AddOn.class));
+    }
+
+    @Test
+    void addOnLineageCannotAccumulateCompetingDraftRevisions() {
+        UUID sourceId = UUID.randomUUID();
+        UUID lineageId = UUID.randomUUID();
+        AddOn source = new AddOn();
+        ReflectionTestUtils.setField(source, "id", sourceId);
+        source.setStatus(AddOnStatus.ACTIVE);
+        source.setLineageId(lineageId);
+        AddOn draft = new AddOn();
+        draft.setStatus(AddOnStatus.DRAFT);
+        draft.setLineageId(lineageId);
+        draft.setRevisionNumber(2);
+        when(addOnRepository.findByIdForUpdate(sourceId)).thenReturn(Optional.of(source));
+        when(addOnRepository.findLineageForUpdate(lineageId)).thenReturn(List.of(source, draft));
+
+        assertThatThrownBy(() -> planAdminService.reviseAddOn(sourceId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("AddOn revision R2 is already an editable draft.");
+        verify(addOnRepository, never()).saveAndFlush(any(AddOn.class));
+    }
+
+    @Test
     void addOnActivationRequiresOptionalFeatureModeOnAllowedPlan() {
         UUID addOnId = UUID.randomUUID();
         UUID planId = UUID.randomUUID();
+        UUID lineageId = UUID.randomUUID();
         AddOn addOn = new AddOn();
         ReflectionTestUtils.setField(addOn, "id", addOnId);
         addOn.setCode("REPORTING_MODULE");
@@ -399,6 +494,12 @@ class PlanAdminServiceImplTest {
         addOn.setMoney(Money.of(BigDecimal.TEN, "USD"));
         addOn.setBillingCycle(BillingCycle.MONTHLY);
         addOn.setAllowedPlanCodes(Set.of("PRO"));
+        addOn.setLineageId(lineageId);
+        addOn.setRevisionNumber(2);
+        AddOn previousRevision = new AddOn();
+        ReflectionTestUtils.setField(previousRevision, "id", UUID.randomUUID());
+        previousRevision.setLineageId(lineageId);
+        previousRevision.setStatus(AddOnStatus.ACTIVE);
         Plan plan = plan(planId, "PRO");
         plan.setBillingCycle(BillingCycle.MONTHLY);
         Feature feature = feature("platform.company");
@@ -412,12 +513,14 @@ class PlanAdminServiceImplTest {
         when(addOnFeatureRepository.findAllByAddOnId(addOnId)).thenReturn(List.of(addOnFeature));
         when(planRepository.findByCode("PRO")).thenReturn(Optional.of(plan));
         when(planFeatureRepository.findAllByPlanId(planId)).thenReturn(List.of(optional));
+        when(addOnRepository.findLineageForUpdate(lineageId)).thenReturn(List.of(previousRevision, addOn));
         when(addOnRepository.saveAndFlush(addOn)).thenReturn(addOn);
         when(addOnRepository.findDetailedById(addOnId)).thenReturn(Optional.of(addOn));
 
         AddOnDto activated = planAdminService.transitionAddOnStatus(addOnId, AddOnStatus.ACTIVE);
 
         assertThat(activated.status()).isEqualTo(AddOnStatus.ACTIVE);
+        assertThat(previousRevision.getStatus()).isEqualTo(AddOnStatus.INACTIVE);
         verify(billingConfigurationValidator).validateAddOnFeature(
                 "platform.company", List.of(), "USD");
     }
