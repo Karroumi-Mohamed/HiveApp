@@ -97,7 +97,7 @@ V1 target kinds:
 V1 effects:
 
 - allow or block selection of a Plan/Add-on/package;
-- fixed Money adjustment or percentage discount with an explicit maximum amount;
+- fixed Money discount or percentage discount with an explicit maximum amount;
 - included free period;
 - additive finite quota bonus;
 - grant a selected Add-on/package for a bounded period;
@@ -106,6 +106,15 @@ V1 effects:
 Every policy has a reason, owner, start/end, status, priority, source, optional approval/contract reference, preview, affected-set snapshot, and audit. Conflicting effects resolve deterministically; direct Account policy wins over Segment policy, restrictions win over grants at equal priority, and platform hard limits always win.
 
 Policy activation requires a fresh backend preview. Editing an active policy creates a revision; it does not rewrite the evidence used for earlier subscriptions or invoices.
+
+V1 deliberately keeps policy execution narrow and explainable:
+
+- discounts reduce the subscription subtotal in one explicit currency; surcharges and arbitrary line-level adjustments are deferred;
+- discounts do not stack: one winning compatible discount is selected by target specificity, priority, then stable policy identity;
+- activation snapshots the exact Account audience, so later Segment membership changes do not rewrite an approved execution;
+- an approved scheduled execution runs as `SYSTEM` from immutable activation evidence even if the initiating operator later loses access; changing or cancelling it still requires current permission;
+- a policy start or end never silently rewrites an active subscription snapshot. It controls whether a new preview or scheduled operation may use the policy; already accepted terms change only through an explicit now/renewal/scheduled subscription operation;
+- an expiring temporary product or quota grant therefore resolves through the declared subscription operation and remediation rules, never by deleting entitlement or customer data mid-request.
 
 ## 6. Segments, campaigns, and offers
 

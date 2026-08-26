@@ -1757,7 +1757,7 @@ flowchart TD
 
 - **Prerequisites**: Phase 9.
 - **Action**: IMPLEMENT.
-- **Description**: Implement typed versioned policy targets/effects, deterministic precedence, lifecycle, preview, immutable affected-set snapshots, immediate/renewal/scheduled execution, cancel/retry, history, and client effective-term explanations. Do not accept arbitrary scripts or client-provided discounts.
+- **Description**: Implement typed versioned policy targets/effects, deterministic precedence, lifecycle, preview, immutable affected-set snapshots, immediate/renewal/scheduled execution, cancel/retry, history, and client effective-term explanations. V1 discounts are fixed-Money or percentage-with-cap reductions of the subscription subtotal, never surcharges or client-provided values, and do not stack. Activated audiences are static snapshots; approved scheduled work executes as `SYSTEM` from immutable evidence, while edits/cancellation require current authority. Policy windows govern new operations and never silently mutate an accepted subscription snapshot.
 - **Tests**: Target isolation, effect validation, priority/restriction precedence, expiry, revision immutability, stale preview, concurrent subscription change, partial result/retry, audit, and client privacy.
 - **Future UI Flow**: Paginated policy table, guided policy builder, target simulator, impact/execution views, Account policy history.
 
