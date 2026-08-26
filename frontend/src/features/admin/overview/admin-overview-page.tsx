@@ -7,6 +7,7 @@ import { OperationalCard } from "@/components/patterns/operational-card";
 import { PageHeader } from "@/components/patterns/page-header";
 import { ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
+import { Button } from "@/components/ui/button";
 import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
 
 export function AdminOverviewPage() {
@@ -30,21 +31,42 @@ export function AdminOverviewPage() {
     enabled: syncEnabled,
     retry: false,
   });
-  if (!accessEnabled && !commercialEnabled) return <PermissionState />;
-  if ((accessEnabled && access.isLoading) || (commercialEnabled && commercial.isLoading)) return <LoadingState />;
-  if ((accessEnabled && access.isError) || (commercialEnabled && commercial.isError))
-    return <ErrorState retry={() => void Promise.all([access.refetch(), commercial.refetch()])} />;
-  const attention = commercial.data
-    ? commercial.data.pastDueSubscriptions +
-      commercial.data.suspendedSubscriptions +
-      commercial.data.pendingCheckouts +
-      commercial.data.changesNeedingAttention
-    : 0;
+  const syncIsOnlySurface = !accessEnabled && !commercialEnabled && syncEnabled;
+  if (!accessEnabled && !commercialEnabled && !syncEnabled) return <PermissionState />;
+  if (
+    (accessEnabled && access.isLoading) ||
+    (commercialEnabled && commercial.isLoading) ||
+    (syncIsOnlySurface && sync.isLoading)
+  )
+    return <LoadingState />;
+  if (
+    (accessEnabled && access.isError) ||
+    (commercialEnabled && commercial.isError) ||
+    (syncIsOnlySurface && sync.isError)
+  )
+    return (
+      <ErrorState
+        retry={() => {
+          const retries: Promise<unknown>[] = [];
+          if (accessEnabled && access.isError) retries.push(access.refetch());
+          if (commercialEnabled && commercial.isError) retries.push(commercial.refetch());
+          if (syncIsOnlySurface && sync.isError) retries.push(sync.refetch());
+          void Promise.all(retries);
+        }}
+      />
+    );
+  const attention =
+    commercialEnabled && commercial.data
+      ? commercial.data.pastDueSubscriptions +
+        commercial.data.suspendedSubscriptions +
+        commercial.data.pendingCheckouts +
+        commercial.data.changesNeedingAttention
+      : 0;
   return (
     <div className="space-y-7">
       <PageHeader title="Vue d’ensemble" />
       <section aria-label="Situation opérationnelle" className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-        {access.data ? (
+        {accessEnabled && access.data ? (
           <OperationalCard
             breakdown={[
               { label: "Total", value: access.data.totalOperators },
@@ -63,7 +85,7 @@ export function AdminOverviewPage() {
             value={access.data.activeOperators}
           />
         ) : null}
-        {commercial.data ? (
+        {commercialEnabled && commercial.data ? (
           <OperationalCard
             breakdown={[
               { label: "Essais", value: commercial.data.trialingSubscriptions },
@@ -82,11 +104,11 @@ export function AdminOverviewPage() {
             icon={CreditCardIcon}
             label="abonnements actifs"
             title="Abonnements"
-            to="/admin/subscriptions"
+            to={session.can(adminPermissions.subscriptionsSearch) ? "/admin/subscriptions" : undefined}
             value={commercial.data.activeSubscriptions}
           />
         ) : null}
-        {commercial.data ? (
+        {commercialEnabled && commercial.data ? (
           <OperationalCard
             breakdown={[
               { label: "Brouillons", value: commercial.data.draftPlans },
@@ -97,11 +119,11 @@ export function AdminOverviewPage() {
             icon={CubeIcon}
             label="forfaits actifs"
             title="Catalogue commercial"
-            to="/admin/plans"
+            to={session.can(adminPermissions.plansList) ? "/admin/plans" : undefined}
             value={commercial.data.activePlans}
           />
         ) : null}
-        {commercial.data ? (
+        {commercialEnabled && commercial.data ? (
           <OperationalCard
             breakdown={[
               {
@@ -124,7 +146,7 @@ export function AdminOverviewPage() {
             label="actions à traiter"
             title="File d’attention"
             tone={attention ? "warning" : "default"}
-            to="/admin/subscriptions"
+            to={session.can(adminPermissions.subscriptionsSearch) ? "/admin/subscriptions" : undefined}
             value={attention}
           />
         ) : null}
@@ -134,7 +156,18 @@ export function AdminOverviewPage() {
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
               <h2 className="text-sm font-semibold">Synchronisation du registre</h2>
-              {sync.data ? (
+              {sync.isError ? (
+                <div className="mt-2 flex items-center gap-2 text-xs text-destructive">
+                  <span>Synchronisation indisponible.</span>
+                  <Button onClick={() => void sync.refetch()} size="sm" variant="outline">
+                    Réessayer
+                  </Button>
+                </div>
+              ) : sync.isLoading ? (
+                <p className="mt-1 text-xs text-muted-foreground" role="status">
+                  Chargement de la synchronisation…
+                </p>
+              ) : sync.data ? (
                 <p className="mt-1 text-xs text-muted-foreground">
                   Build {sync.data.buildVersion} · {sync.data.discoveredFeatures} fonctionnalités ·{" "}
                   {sync.data.discoveredPermissions} permissions

@@ -73,10 +73,10 @@ export function PlanSchema({ plan }: { plan: Plan }) {
       buildPlanSchemaModel({
         plan: { code: plan.code, currencyCode: plan.currencyCode, billingCycle: plan.billingCycle },
         features: features.data ?? [],
-        catalogFeatures: (catalog.data ?? []).flatMap((module) => module.features),
+        catalogFeatures: (canReadCatalog ? (catalog.data ?? []) : []).flatMap((module) => module.features),
         catalogComplete: canReadCatalog && catalog.isSuccess,
-        packages: packages.data ?? [],
-        addOns: addOns.data ?? [],
+        packages: canSeePackages ? (packages.data ?? []) : [],
+        addOns: canSeeAddOns ? (addOns.data ?? []) : [],
       }),
     [
       plan.code,
@@ -85,6 +85,8 @@ export function PlanSchema({ plan }: { plan: Plan }) {
       features.data,
       catalog.data,
       canReadCatalog,
+      canSeePackages,
+      canSeeAddOns,
       catalog.isSuccess,
       packages.data,
       addOns.data,
@@ -116,9 +118,9 @@ export function PlanSchema({ plan }: { plan: Plan }) {
   ].filter((part): part is string => part !== null);
   // A failed extension query must read as a failure, never as "this plan has no extensions".
   const failedParts = [
-    packages.isError ? "paquets de quotas" : null,
-    addOns.isError ? "add-ons" : null,
-    catalog.isError ? "catalogue des fonctionnalités" : null,
+    canSeePackages && packages.isError ? "paquets de quotas" : null,
+    canSeeAddOns && addOns.isError ? "add-ons" : null,
+    canReadCatalog && catalog.isError ? "catalogue des fonctionnalités" : null,
   ].filter((part): part is string => part !== null);
 
   return (

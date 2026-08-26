@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { invalidateCommercialCatalogs } from "@/features/commercial/commercial-query";
 
 type Control = "public-visibility" | "new-sales" | "new-grants" | "emergency-runtime";
 
@@ -64,7 +65,10 @@ function ControlDialog({
         ? adminApi.updateEmergencyRuntime(feature.id, !enabled, reason, impact, communication)
         : adminApi.updateFeatureControl(feature.id, control, !enabled, reason),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "registry"] });
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin", "registry"] }),
+        invalidateCommercialCatalogs(queryClient),
+      ]);
       toast.success("Contrôle opérationnel mis à jour");
       setOpen(false);
     },
@@ -309,12 +313,18 @@ function FeatureDetail({ feature }: { feature: RegistryFeature }) {
 
 export function AdminFeaturesPage() {
   const { featureId } = useParams();
+  const session = useAdminSession();
   const [search, setSearch] = useState("");
   const [module, setModule] = useState("all");
-  const inventory = useQuery({ queryKey: ["admin", "registry", "inventory"], queryFn: adminApi.registryInventory });
+  const inventory = useQuery({
+    queryKey: ["admin", "registry", "inventory"],
+    queryFn: adminApi.registryInventory,
+    enabled: session.can(adminPermissions.registryRead),
+  });
   const sync = useQuery({
     queryKey: ["admin", "registry", "sync"],
     queryFn: adminApi.latestRegistrySync,
+    enabled: session.can(adminPermissions.registrySync),
     retry: false,
   });
   const features = useMemo(() => adminApi.flattenFeatures(inventory.data ?? []), [inventory.data]);
@@ -325,6 +335,7 @@ export function AdminFeaturesPage() {
       `${feature.code} ${feature.displayName}`.toLowerCase().includes(search.toLowerCase()),
   );
   if (featureId && inventory.isLoading) return <LoadingState />;
+  if (featureId && inventory.isError) return <ErrorState retry={() => void inventory.refetch()} />;
   if (featureId && selected) return <FeatureDetail feature={selected} />;
   if (featureId && !selected) return <ErrorState title="Fonctionnalité introuvable" />;
   return (
@@ -337,6 +348,10 @@ export function AdminFeaturesPage() {
                 ? `${sync.data.discoveredFeatures} synchronisées`
                 : "Synchronisation en échec"}
             </StatusBadge>
+          ) : sync.isError ? (
+            <Button onClick={() => void sync.refetch()} size="sm" variant="outline">
+              Synchronisation indisponible · Réessayer
+            </Button>
           ) : undefined
         }
         title="Fonctionnalités plateforme"
@@ -344,8 +359,12 @@ export function AdminFeaturesPage() {
       <section className="overflow-hidden rounded-xl border bg-card">
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row">
           <div className="relative flex-1 sm:max-w-sm">
-            <MagnifyingGlassIcon className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <MagnifyingGlassIcon
+              aria-hidden="true"
+              className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
             <Input
+              aria-label="Rechercher des fonctionnalités"
               className="ps-9"
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Code ou nom…"

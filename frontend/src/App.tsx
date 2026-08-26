@@ -1,6 +1,10 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { AppProviders } from "@/app/providers";
-import { adminPermissions, clientPermissions } from "@/auth/permissions";
+import {
+  adminOverviewSurfacePermissions,
+  adminPermissions,
+  clientSubscriptionSurfacePermissions,
+} from "@/auth/permissions";
 import { AdminReadPermissionGate, ClientReadPermissionGate } from "@/components/patterns/permission-gate";
 import { AdminLayout } from "@/features/admin/admin-layout";
 import {
@@ -65,7 +69,7 @@ const router = createBrowserRouter([
       {
         index: true,
         element: (
-          <AdminReadPermissionGate anyOf={[adminPermissions.accessOverview, adminPermissions.plansOverview]}>
+          <AdminReadPermissionGate anyOf={adminOverviewSurfacePermissions}>
             <AdminOverviewPage />
           </AdminReadPermissionGate>
         ),
@@ -133,7 +137,7 @@ const router = createBrowserRouter([
       {
         path: "subscriptions",
         element: (
-          <AdminReadPermissionGate allOf={[adminPermissions.subscriptionsRead, adminPermissions.subscriptionsSearch]}>
+          <AdminReadPermissionGate allOf={[adminPermissions.subscriptionsSearch]}>
             <AdminSubscriptionsPage />
           </AdminReadPermissionGate>
         ),
@@ -178,8 +182,22 @@ const router = createBrowserRouter([
           </AdminReadPermissionGate>
         ),
       },
-      { path: "features", element: <AdminFeaturesPage /> },
-      { path: "features/:featureId", element: <AdminFeaturesPage /> },
+      {
+        path: "features",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.registryRead]}>
+            <AdminFeaturesPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "features/:featureId",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.registryRead]}>
+            <AdminFeaturesPage />
+          </AdminReadPermissionGate>
+        ),
+      },
       { path: "role-templates", element: <AdminRoleTemplatesPlaceholderPage /> },
       { path: "accounts", element: <AdminAccountsPlaceholderPage /> },
       { path: "collaborations", element: <AdminCollaborationsPlaceholderPage /> },
@@ -213,7 +231,7 @@ const router = createBrowserRouter([
       {
         path: "subscription",
         element: (
-          <ClientReadPermissionGate allOf={[clientPermissions.subscriptionRead]}>
+          <ClientReadPermissionGate anyOf={clientSubscriptionSurfacePermissions}>
             <ClientSubscriptionPage />
           </ClientReadPermissionGate>
         ),

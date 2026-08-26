@@ -10,7 +10,7 @@ import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
-import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
+import { EmptyState, ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -31,6 +31,7 @@ import {
   adminCommercialKeys,
   commercialQueryEnabled,
   invalidateAdminCommercial,
+  invalidateAdminSubscriptionEntitlement,
 } from "@/features/commercial/commercial-query";
 
 const money = (value: number, currency: string) =>
@@ -41,25 +42,45 @@ const date = (value: string | null) =>
 function CreateSubscription({ accountId }: { accountId: string }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
+  const canCreate = session.can(adminPermissions.subscriptionsCreate);
+  const canCreateTrial = session.can(adminPermissions.subscriptionsCreateTrial);
+  const canListPlans = session.can(adminPermissions.plansList);
   const plans = useQuery({
     queryKey: adminCommercialKeys.plans.list(),
     queryFn: adminApi.plans,
-    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, canCreate || canCreateTrial),
   });
   const [planCode, setPlanCode] = useState("");
   const [trialDays, setTrialDays] = useState("14");
-  const [mode, setMode] = useState("subscription");
+  const [mode, setMode] = useState<"subscription" | "trial">(canCreate ? "subscription" : "trial");
   const create = useMutation({
     mutationFn: () =>
       mode === "trial"
         ? adminApi.createTrial(accountId, planCode, Number(trialDays))
         : adminApi.createSubscription(accountId, planCode),
     onSuccess: () => {
-      void invalidateAdminCommercial(queryClient, adminCommercialKeys.subscriptions.all());
+      void invalidateAdminSubscriptionEntitlement(queryClient);
       toast.success(mode === "trial" ? "Essai démarré" : "Abonnement créé");
     },
   });
-  const activePlans = plans.data?.filter((plan) => plan.status === "ACTIVE") ?? [];
+  const activePlans = canListPlans ? (plans.data?.filter((plan) => plan.status === "ACTIVE") ?? []) : [];
+  if (!canCreate && !canCreateTrial) {
+    return (
+      <EmptyState
+        description="Aucun abonnement utilisable n’est actuellement rattaché à ce compte."
+        title="Aucun abonnement"
+      />
+    );
+  }
+  if (!canListPlans) {
+    return (
+      <PermissionState description="La création est autorisée, mais la liste des forfaits ne l’est pas pour cet accès." />
+    );
+  }
+  if (plans.isLoading) return <LoadingState rows={3} />;
+  if (plans.isError)
+    return <ErrorState retry={() => void plans.refetch()} title="Impossible de charger les forfaits" />;
+  if (!activePlans.length) return <EmptyState title="Aucun forfait actif disponible" />;
   return (
     <section className="max-w-2xl rounded-xl border bg-card p-5">
       <h2 className="text-base font-semibold">Aucun abonnement utilisable</h2>
@@ -67,13 +88,13 @@ function CreateSubscription({ accountId }: { accountId: string }) {
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>Type</Label>
-          <Select onValueChange={setMode} value={mode}>
+          <Select onValueChange={(value) => setMode(value as "subscription" | "trial")} value={mode}>
             <SelectTrigger aria-label="Type d’abonnement">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="subscription">Abonnement</SelectItem>
-              <SelectItem value="trial">Essai</SelectItem>
+              {canCreate ? <SelectItem value="subscription">Abonnement</SelectItem> : null}
+              {canCreateTrial ? <SelectItem value="trial">Essai</SelectItem> : null}
             </SelectContent>
           </Select>
         </div>
@@ -106,13 +127,7 @@ function CreateSubscription({ accountId }: { accountId: string }) {
         ) : null}
         <div className="flex items-end">
           <Button
-            disabled={
-              !planCode ||
-              create.isPending ||
-              !session.can(
-                mode === "trial" ? adminPermissions.subscriptionsCreateTrial : adminPermissions.subscriptionsCreate,
-              )
-            }
+            disabled={!planCode || create.isPending || (mode === "trial" ? !canCreateTrial : !canCreate)}
             onClick={() => create.mutate()}
           >
             {create.isPending ? "Création…" : mode === "trial" ? "Démarrer l’essai" : "Créer l’abonnement"}
@@ -128,6 +143,8 @@ function OverridesEditor({ subscription }: { subscription: AdminSubscription }) 
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>(subscription.customOverrides.addOnCodes);
+  const canListAddOns = session.can(adminPermissions.addOnsList);
+  const canListQuotaPackages = session.can(adminPermissions.quotaPackagesList);
   const [quantities, setQuantities] = useState<Record<string, number>>(
     Object.fromEntries(subscription.customOverrides.quotaPackages.map((item) => [item.packageCode, item.quantity])),
   );
@@ -192,56 +209,83 @@ function OverridesEditor({ subscription }: { subscription: AdminSubscription }) 
           <section>
             <h3 className="text-sm font-semibold">Add-ons</h3>
             <div className="mt-3 divide-y rounded-lg border">
-              {addOns.data
-                ?.filter((item) => item.status === "ACTIVE")
-                .map((item) => (
-                  <div className="flex items-start gap-3 p-3" key={item.id}>
-                    <Checkbox
-                      checked={selectedAddOns.includes(item.code)}
-                      id={`addon-${item.id}`}
-                      onCheckedChange={(checked) =>
-                        setSelectedAddOns((current) =>
-                          checked
-                            ? [...new Set([...current, item.code])]
-                            : current.filter((code) => code !== item.code),
-                        )
-                      }
-                    />
-                    <Label className="font-normal" htmlFor={`addon-${item.id}`}>
-                      <span className="block text-sm font-medium">{item.name}</span>
-                      <span className="block text-xs text-muted-foreground">
-                        {money(item.price, item.currencyCode)}
-                      </span>
-                    </Label>
-                  </div>
-                ))}
+              {!canListAddOns ? (
+                <p className="p-3 text-sm text-muted-foreground">Catalogue non accessible pour cet accès.</p>
+              ) : addOns.isLoading ? (
+                <div className="p-3">
+                  <LoadingState rows={2} />
+                </div>
+              ) : addOns.isError ? (
+                <ErrorState retry={() => void addOns.refetch()} title="Impossible de charger les add-ons" />
+              ) : addOns.data?.some((item) => item.status === "ACTIVE") ? (
+                addOns.data
+                  .filter((item) => item.status === "ACTIVE")
+                  .map((item) => (
+                    <div className="flex items-start gap-3 p-3" key={item.id}>
+                      <Checkbox
+                        checked={selectedAddOns.includes(item.code)}
+                        id={`addon-${item.id}`}
+                        onCheckedChange={(checked) =>
+                          setSelectedAddOns((current) =>
+                            checked
+                              ? [...new Set([...current, item.code])]
+                              : current.filter((code) => code !== item.code),
+                          )
+                        }
+                      />
+                      <Label className="font-normal" htmlFor={`addon-${item.id}`}>
+                        <span className="block text-sm font-medium">{item.name}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {money(item.price, item.currencyCode)}
+                        </span>
+                      </Label>
+                    </div>
+                  ))
+              ) : (
+                <p className="p-3 text-sm text-muted-foreground">Aucun add-on actif.</p>
+              )}
             </div>
           </section>
           <section>
             <h3 className="text-sm font-semibold">Packages de quota</h3>
             <div className="mt-3 divide-y rounded-lg border">
-              {quotaPackages.data
-                ?.filter((item) => item.status === "ACTIVE")
-                .map((item) => (
-                  <div className="grid grid-cols-[1fr_6rem] items-center gap-3 p-3" key={item.id}>
-                    <div>
-                      <p className="text-sm font-medium">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        +{item.capacityPerUnit} {item.resource} par unité
-                      </p>
+              {!canListQuotaPackages ? (
+                <p className="p-3 text-sm text-muted-foreground">Catalogue non accessible pour cet accès.</p>
+              ) : quotaPackages.isLoading ? (
+                <div className="p-3">
+                  <LoadingState rows={2} />
+                </div>
+              ) : quotaPackages.isError ? (
+                <ErrorState
+                  retry={() => void quotaPackages.refetch()}
+                  title="Impossible de charger les packages de quota"
+                />
+              ) : quotaPackages.data?.some((item) => item.status === "ACTIVE") ? (
+                quotaPackages.data
+                  .filter((item) => item.status === "ACTIVE")
+                  .map((item) => (
+                    <div className="grid grid-cols-[1fr_6rem] items-center gap-3 p-3" key={item.id}>
+                      <div>
+                        <p className="text-sm font-medium">{item.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          +{item.capacityPerUnit} {item.resource} par unité
+                        </p>
+                      </div>
+                      <Input
+                        aria-label={`Quantité ${item.name}`}
+                        max={item.maximumQuantity}
+                        min="0"
+                        onChange={(event) =>
+                          setQuantities((current) => ({ ...current, [item.code]: Number(event.target.value) }))
+                        }
+                        type="number"
+                        value={quantities[item.code] ?? 0}
+                      />
                     </div>
-                    <Input
-                      aria-label={`Quantité ${item.name}`}
-                      max={item.maximumQuantity}
-                      min="0"
-                      onChange={(event) =>
-                        setQuantities((current) => ({ ...current, [item.code]: Number(event.target.value) }))
-                      }
-                      type="number"
-                      value={quantities[item.code] ?? 0}
-                    />
-                  </div>
-                ))}
+                  ))
+              ) : (
+                <p className="p-3 text-sm text-muted-foreground">Aucun package actif.</p>
+              )}
             </div>
           </section>
           <div className="flex justify-end">
@@ -264,7 +308,7 @@ function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
   const confirm = useMutation({
     mutationFn: () => adminApi.confirmCheckout(checkoutId, { reference, reason }),
     onSuccess: () => {
-      void invalidateAdminCommercial(queryClient, adminCommercialKeys.subscriptions.all());
+      void invalidateAdminSubscriptionEntitlement(queryClient);
       toast.success("Paiement confirmé manuellement");
       setOpen(false);
     },
@@ -479,9 +523,12 @@ export function AdminSubscriptionsPage() {
       <PageHeader title="Abonnements" />
       <section className="overflow-hidden rounded-xl border bg-card">
         <div className="relative border-b p-4">
-          <MagnifyingGlassIcon className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <MagnifyingGlassIcon
+            aria-hidden="true"
+            className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          />
           <Input
-            autoFocus
+            aria-label="Rechercher des comptes"
             className="max-w-md ps-9"
             onChange={(event) => {
               setSearch(event.target.value);
@@ -514,9 +561,13 @@ export function AdminSubscriptionsPage() {
                 {accounts.data.content.map((account) => (
                   <TableRow key={account.id}>
                     <TableCell>
-                      <Link className="font-medium" to={`/admin/subscriptions/${account.id}`}>
-                        {account.name}
-                      </Link>
+                      {session.can(adminPermissions.subscriptionsRead) ? (
+                        <Link className="font-medium" to={`/admin/subscriptions/${account.id}`}>
+                          {account.name}
+                        </Link>
+                      ) : (
+                        <span className="font-medium">{account.name}</span>
+                      )}
                     </TableCell>
                     <TableCell>{account.ownerEmail}</TableCell>
                     <TableCell>

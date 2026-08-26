@@ -9,7 +9,7 @@ import {
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
-import { clientPermissions } from "@/auth/permissions";
+import { clientPermissions, clientSubscriptionSurfacePermissions } from "@/auth/permissions";
 import { useClientSession } from "@/auth/session-provider";
 import { type ProductNavigationGroup, ProductShell } from "@/components/patterns/product-shell";
 import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
@@ -74,7 +74,7 @@ export function ClientLayout() {
           label: "Abonnement",
           to: "/app/subscription",
           icon: CreditCardIcon,
-          visible: session.can(clientPermissions.subscriptionRead),
+          visible: clientSubscriptionSurfacePermissions.some(session.can),
         },
         { label: "Mon accès", to: "/app/me", icon: UserCircleIcon },
       ],

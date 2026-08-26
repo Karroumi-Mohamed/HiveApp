@@ -646,6 +646,9 @@ export function AdminAddOnsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const session = useAdminSession();
+  const canListAddOns = session.can(adminPermissions.addOnsList);
+  const canListPlans = session.can(adminPermissions.plansList);
+  const canReadRegistryCatalog = session.can(adminPermissions.registryFeatureCatalog);
   const items = useQuery({
     queryKey: adminCommercialKeys.addOns.list(),
     queryFn: adminApi.addOns,
@@ -667,23 +670,26 @@ export function AdminAddOnsPage() {
     enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog, Boolean(addOnId)),
   });
   const selected = detail.data;
+  const readableItems = canListAddOns ? (items.data ?? []) : [];
+  const readablePlans = canListPlans ? (plans.data ?? []) : [];
+  const readableRegistry = canReadRegistryCatalog ? (registry.data ?? []) : [];
   const planBlocker =
-    selected && plans.data && (selected.status === "DRAFT" || selected.status === "INACTIVE")
-      ? publicationPlanBlocker(selected, plans.data)
+    selected && canListPlans && plans.isSuccess && (selected.status === "DRAFT" || selected.status === "INACTIVE")
+      ? publicationPlanBlocker(selected, readablePlans)
       : undefined;
   const activeRevision = selected
-    ? items.data?.find(
+    ? readableItems.find(
         (item) => item.lineageId === selected.lineageId && item.id !== selected.id && item.status === "ACTIVE",
       )
     : undefined;
   const filtered = useMemo(
-    () => (items.data ?? []).filter((item) => item.name.toLowerCase().includes(search.toLowerCase())),
-    [items.data, search],
+    () => readableItems.filter((item) => item.name.toLowerCase().includes(search.toLowerCase())),
+    [readableItems, search],
   );
-  const planNames = new Map((plans.data ?? []).map((plan) => [plan.code, plan.name]));
-  const addOnNames = new Map((items.data ?? []).map((item) => [item.code, item.name]));
+  const planNames = new Map(readablePlans.map((plan) => [plan.code, plan.name]));
+  const addOnNames = new Map(readableItems.map((item) => [item.code, item.name]));
   const featureNames = new Map(
-    (registry.data ?? []).flatMap((module) => module.features).map((feature) => [feature.code, feature.displayName]),
+    readableRegistry.flatMap((module) => module.features).map((feature) => [feature.code, feature.displayName]),
   );
   const transition = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => adminApi.transitionAddOn(id, status),
@@ -731,9 +737,9 @@ export function AdminAddOnsPage() {
     return (
       <div className="space-y-7">
         <Button asChild size="sm" variant="ghost">
-          <Link to="/admin/add-ons">
+          <Link to={canListAddOns ? "/admin/add-ons" : "/admin"}>
             <ArrowLeftIcon className="rtl:rotate-180" />
-            Add-ons
+            {canListAddOns ? "Add-ons" : "Administration"}
           </Link>
         </Button>
         <PageHeader
@@ -884,8 +890,12 @@ export function AdminAddOnsPage() {
       />
       <section className="overflow-hidden rounded-xl border bg-card">
         <div className="relative border-b p-4 sm:max-w-md">
-          <MagnifyingGlassIcon className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <MagnifyingGlassIcon
+            aria-hidden="true"
+            className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          />
           <Input
+            aria-label="Rechercher des add-ons"
             className="ps-9"
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Rechercher par nom…"
@@ -1131,6 +1141,8 @@ export function AdminQuotaPackagesPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const session = useAdminSession();
+  const canListQuotaPackages = session.can(adminPermissions.quotaPackagesList);
+  const canReadRegistryCatalog = session.can(adminPermissions.registryFeatureCatalog);
   const [search, setSearch] = useState("");
   const items = useQuery({
     queryKey: adminCommercialKeys.quotaPackages.list(),
@@ -1148,7 +1160,7 @@ export function AdminQuotaPackagesPage() {
     enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog),
   });
   const selected = detail.data;
-  const registryFeatures = (registry.data ?? []).flatMap((module) => module.features);
+  const registryFeatures = (canReadRegistryCatalog ? (registry.data ?? []) : []).flatMap((module) => module.features);
   const featureNames = new Map(registryFeatures.map((feature) => [feature.code, feature.displayName]));
   const resourceUnits = new Map(
     registryFeatures.flatMap((feature) =>
@@ -1156,8 +1168,11 @@ export function AdminQuotaPackagesPage() {
     ),
   );
   const filtered = useMemo(
-    () => (items.data ?? []).filter((item) => item.name.toLowerCase().includes(search.toLowerCase())),
-    [items.data, search],
+    () =>
+      (canListQuotaPackages ? (items.data ?? []) : []).filter((item) =>
+        item.name.toLowerCase().includes(search.toLowerCase()),
+      ),
+    [canListQuotaPackages, items.data, search],
   );
   const transition = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => adminApi.transitionQuotaPackage(id, status),
@@ -1182,9 +1197,9 @@ export function AdminQuotaPackagesPage() {
     return (
       <div className="space-y-7">
         <Button asChild size="sm" variant="ghost">
-          <Link to="/admin/quota-packages">
+          <Link to={canListQuotaPackages ? "/admin/quota-packages" : "/admin"}>
             <ArrowLeftIcon className="rtl:rotate-180" />
-            Packages de quota
+            {canListQuotaPackages ? "Packages de quota" : "Administration"}
           </Link>
         </Button>
         <PageHeader
@@ -1268,8 +1283,12 @@ export function AdminQuotaPackagesPage() {
       />
       <section className="overflow-hidden rounded-xl border bg-card">
         <div className="relative border-b p-4 sm:max-w-md">
-          <MagnifyingGlassIcon className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <MagnifyingGlassIcon
+            aria-hidden="true"
+            className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          />
           <Input
+            aria-label="Rechercher des packages de quota"
             className="ps-9"
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Rechercher par nom…"

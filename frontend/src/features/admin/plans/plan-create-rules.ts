@@ -11,6 +11,17 @@ export function requiredCreationPermission(hasSource: boolean) {
   return hasSource ? adminPermissions.plansDuplicate : adminPermissions.plansCreate;
 }
 
+/** Send operators only to a route that their read permissions can actually mount. */
+export function createdPlanDestination(
+  planId: string,
+  access: { readDetail: boolean; listFeatures: boolean; listPlans: boolean },
+) {
+  if (access.readDetail && access.listFeatures) return `/admin/plans/${planId}/features`;
+  if (access.readDetail) return `/admin/plans/${planId}`;
+  if (access.listPlans) return "/admin/plans";
+  return "/admin";
+}
+
 export type PlanDraftFields = {
   name: string;
   description: string;

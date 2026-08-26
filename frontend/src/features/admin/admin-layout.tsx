@@ -17,7 +17,7 @@ import {
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
-import { adminPermissions } from "@/auth/permissions";
+import { adminOverviewSurfacePermissions, adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { type ProductNavigationGroup, ProductShell } from "@/components/patterns/product-shell";
 import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
@@ -50,7 +50,7 @@ export function AdminLayout() {
           to: "/admin",
           icon: GaugeIcon,
           end: true,
-          visible: session.can(adminPermissions.accessOverview) || session.can(adminPermissions.plansOverview),
+          visible: adminOverviewSurfacePermissions.some(session.can),
         },
       ],
     },
@@ -80,7 +80,7 @@ export function AdminLayout() {
           label: "Abonnements",
           to: "/admin/subscriptions",
           icon: CreditCardIcon,
-          visible: session.can(adminPermissions.subscriptionsRead) && session.can(adminPermissions.subscriptionsSearch),
+          visible: session.can(adminPermissions.subscriptionsSearch),
         },
         {
           label: "Collaborations",

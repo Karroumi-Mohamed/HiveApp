@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { Account, AdminMe, AuthResponse, Company, MemberPermissions } from "@/api/contracts";
 import { apiRequest, jsonBody } from "@/api/http";
+import { adminProfileCan, clientProfileCan } from "@/auth/permissions";
 import { shouldLoadAdminProfile } from "@/auth/session-rules";
 import {
   clearSession,
@@ -139,7 +140,7 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
           }).catch(() => undefined);
         }
       },
-      can: (permission) => Boolean(meQuery.data?.isSuperAdmin || meQuery.data?.permissions.includes(permission)),
+      can: (permission) => adminProfileCan(meQuery.data, permission),
     }),
     [meQuery.data, meQuery.isError, meQuery.isLoading, meQuery.refetch, queryClient, session],
   );
@@ -260,8 +261,7 @@ export function ClientSessionProvider({ children }: { children: ReactNode }) {
         window.localStorage.setItem(b2bKey, String(value));
         notifyContext();
       },
-      can: (permission) =>
-        Boolean(permissionsQuery.data?.isOwner || permissionsQuery.data?.permissions.includes(permission)),
+      can: (permission) => clientProfileCan(permissionsQuery.data, permission),
     }),
     [
       accountQuery.data,

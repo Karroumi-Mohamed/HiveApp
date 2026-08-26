@@ -17,6 +17,7 @@ export function ClientOverviewPage() {
   const canRoles = session.can(clientPermissions.rolesRead);
   const canCollaborations =
     session.can(clientPermissions.collaborationsRead) || session.can(clientPermissions.incomingCollaborationsRead);
+  const canSubscription = session.can(clientPermissions.subscriptionRead);
   const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
   const [members, roles, collaborations, subscription] = useQueries({
     queries: [
@@ -30,7 +31,12 @@ export function ClientOverviewPage() {
       },
     ],
   });
-  const visibleQueries = [members, roles, collaborations, subscription].filter((query) => query.fetchStatus !== "idle");
+  const visibleQueries = [
+    canMembers ? members : null,
+    canRoles ? roles : null,
+    canCollaborations ? collaborations : null,
+    canSubscription ? subscription : null,
+  ].filter((query) => query !== null);
   if (visibleQueries.some((query) => query.isLoading)) return <LoadingState />;
   if (visibleQueries.some((query) => query.isError)) return <ErrorState />;
   const pendingCollaborations = collaborations.data?.filter((item) => item.status === "PENDING").length ?? 0;
@@ -49,7 +55,7 @@ export function ClientOverviewPage() {
           to="/app/companies"
           value={session.companies.length}
         />
-        {members.data ? (
+        {canMembers && members.data ? (
           <OperationalCard
             breakdown={[
               { label: "Actifs", value: members.data.filter((member) => member.isActive).length },
@@ -66,7 +72,7 @@ export function ClientOverviewPage() {
             value={members.data.length}
           />
         ) : null}
-        {roles.data ? (
+        {canRoles && roles.data ? (
           <OperationalCard
             breakdown={[
               { label: "Actifs", value: roles.data.filter((role) => role.status === "ACTIVE").length },
@@ -79,7 +85,7 @@ export function ClientOverviewPage() {
             value={roles.data.length}
           />
         ) : null}
-        {collaborations.data ? (
+        {canCollaborations && collaborations.data ? (
           <OperationalCard
             breakdown={[
               {
@@ -120,7 +126,7 @@ export function ClientOverviewPage() {
             </div>
           </dl>
         </section>
-        {subscription.data ? (
+        {canSubscription && subscription.data ? (
           <section className="rounded-xl border bg-card p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
