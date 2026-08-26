@@ -2971,7 +2971,51 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 - Client catalogue and subscription-change contracts expose/select exact applicable entries. Snapshot schema V2 stores the Plan/AddOn/package price identities and immutable amounts while schema V1 remains readable.
 - Existing subscription overrides, scheduled activation, and renewal preserve snapshot terms even after a selected price expires or is paused; future selections use the authoritative resolver.
 - Disposable-H2 compatibility backfill preserves the current legacy product columns while seeding one authoritative entry per published tuple. Durable production migration and database-native exclusion constraints remain deferred with the standing persistence decision.
-- The full JDK 21 backend suite passes 514 tests. An independent backend audit and the complete admin/client Price-book UI remain in progress before this finding is closed.
+- An independent adversarial backend audit added exact admin price selection, same-Plan cycle changes, an atomic scheduled-replacement flow, a least-privilege assignable-price catalogue, immutable published product terms, and exact current-price identity. The full JDK 21 backend suite passes 524 tests. The complete admin/client Price-book UI and frontend audit remain in progress before this finding is closed.
+
+---
+
+### COMMERCIAL-002 — Product administration lists are unbounded and operationally inconsistent
+
+**Status:** `CONFIRMED — IMPLEMENT AFTER COMMERCIAL-001`
+
+**Evidence**
+
+- The Plan, Add-on, and quota-package list endpoints return unbounded `List` payloads, unlike the stable `PageResponse` contract already used by Price books, subscribers, roles, and operators.
+- These product lists lack a common search/filter/sort contract and are reused as selectors, causing UI code to fetch complete catalogues merely to choose one product.
+- Product lifecycle and history capabilities are inconsistent: Plans and Add-ons have revision flows, while quota packages do not.
+
+**Risk**
+
+Catalogue growth makes list screens and selectors increasingly slow, forces duplicated frontend filtering, and makes page boundaries unstable. Inconsistent operational contracts also encourage broad read permissions where a narrow product chooser is sufficient.
+
+**Required fix direction**
+
+- Replace admin Plan/Add-on/quota-package lists with bounded `PageResponse` APIs supporting validated search, lifecycle/visibility filters, safe sorting, deterministic tie-breakers, and constant-query read models.
+- Add narrow chooser endpoints/read permissions for workflows that need selectable products without granting access to full commercial administration.
+- Return backend-derived `availableActions`, blockers, subscriber/attachment counts, and revision identity needed by operational tables; do not reconstruct lifecycle rules in the UI.
+- Migrate the admin pages to the shared URL-backed table/filter/action patterns and retain explicit mobile alternatives, access-denied, loading, empty, and failure states.
+
+---
+
+### QUOTA-005 — Published capacity packages have no successor-revision workflow
+
+**Status:** `CONFIRMED — IMPLEMENT AFTER COMMERCIAL-001`
+
+**Evidence**
+
+- Published quota packages are now correctly immutable outside `DRAFT`, but `QuotaPackage` has no lineage/source/revision fields and the admin API has no revise operation.
+- An operator can pause or archive a published package, but cannot create a traceable successor that copies its definition and attachments for a safe change.
+
+**Risk**
+
+Fixing published immutability without a revision path leaves normal commercial maintenance stranded or encourages unrelated duplicate products that lose lineage and comparison history.
+
+**Required fix direction**
+
+- Add immutable quota-package lineage, source revision, revision number, and creation reason using the established Plan/Add-on revision model.
+- Provide a draft-successor command that copies capacity definition, compatibility targeting, sales visibility, and current price-book starting point without changing existing subscription snapshots.
+- Add comparison, activation blockers, history, safe archive/delete rules, optimistic concurrency, and admin UI actions consistent with Plan/Add-on revisions.
 
 ---
 

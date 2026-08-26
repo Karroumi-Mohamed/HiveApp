@@ -1711,7 +1711,7 @@ flowchart TD
 - **Tests**: Product-owner isolation, monthly/yearly, annual independence, zero-price, currency/cycle compatibility, overlapping activation race, immutable active entry, pause/new-version snapshot isolation, permissions, pagination, query-count, and client catalogue/checkout contract.
 - **Future UI Flow**: Shared Price-book panel on Plan/AddOn/package detail plus guided product creation/revision.
 
-**Backend execution status — 2026-08-26:** The authoritative Price-book aggregate, bounded operational API, fine-grained Permissionizer nodes, lifecycle reasons/history, owner-lock overlap protection, exact client selection, V2 immutable snapshot provenance, V1 compatibility, snapshot-safe overrides/renewals, and disposable-H2 compatibility bridge are implemented. The full backend suite passes 514 tests. Independent adversarial backend review and the admin/client Price-book UI are running; `PRICEBOOK-001` remains open until those complete.
+**Backend execution status — 2026-08-26:** The authoritative Price-book aggregate, bounded operational API, fine-grained Permissionizer nodes, lifecycle reasons/history, owner-lock overlap protection, exact client/admin selection, V2 immutable snapshot provenance, V1 compatibility, snapshot-safe overrides/renewals, atomic scheduled replacement, and disposable-H2 compatibility bridge are implemented. Independent adversarial backend review is complete and the full backend suite passes 524 tests. The admin/client Price-book UI and independent frontend audit remain in progress; `PRICEBOOK-001` remains open until those complete.
 
 ### Batch 9.2: Extension policy and sales visibility
 
@@ -1724,6 +1724,30 @@ flowchart TD
 - **Acceptance Criteria**: CLOSED/ALLOW_LIST/OPEN_COMPATIBLE Plan extension policy, PUBLIC/DIRECT_ONLY product visibility, source-owned availability reasons, and snapshot-safe published changes.
 - **Tests**: Policy matrix, direct-only privacy, dependency/exclusion/duplicate/quota ownership, price compatibility, stale registry, snapshot isolation, Permissionizer coverage, and constant-query catalogue resolution.
 - **Future UI Flow**: Plan extension-policy editor, product sales-visibility actions, explainable compatibility preview.
+
+### Batch 9.3: Operational product catalogues and capacity-package revisions
+
+#### [IMPLEMENT] COMMERCIAL-002 — Product administration lists are unbounded and operationally inconsistent
+
+- **Prerequisites**: COMMERCIAL-001.
+- **Unlocks**: Reliable product selectors and the final commercial UI consistency pass.
+- **Order Rationale**: Complete extension-policy fields first, then establish one bounded operational contract instead of refactoring the product tables twice.
+- **Affected Backend Areas**: Plan/AddOn/quota-package repositories, admin services/controllers/read models, Permissionizer catalogue, and shared pagination/error contracts.
+- **Database Migration**: No durable migration while the generated H2 schema remains disposable.
+- **Acceptance Criteria**: Stable paginated search/filter/sort APIs, deterministic ordering, backend-derived actions/blockers/counts, narrow chooser contracts, constant-query behavior, and no complete-catalogue fetch in operational UI paths.
+- **Tests**: Pagination bounds, validated sorting, search/filter combinations, permission separation, query count, concurrent lifecycle changes, stable error codes, and frontend URL-state/invalidation regressions.
+- **Future UI Flow**: Consistent Plan/Add-on/capacity-package tables and reusable product choosers.
+
+#### [IMPLEMENT] QUOTA-005 — Published capacity packages have no successor-revision workflow
+
+- **Prerequisites**: COMMERCIAL-001, PRICEBOOK-001.
+- **Unlocks**: Safe published capacity-package maintenance.
+- **Order Rationale**: Published definitions are correctly immutable; a lineage-preserving successor is the missing normal edit path.
+- **Affected Backend Areas**: QuotaPackage entity/repository/service/controller/read models, Price-book ownership, availability policy, snapshots, audit, and admin UI.
+- **Database Migration**: Generated H2 schema only under the pre-production policy.
+- **Acceptance Criteria**: Source/lineage/revision identity, draft successor creation, copied policy/visibility/attachments, comparison and blockers, immutable existing snapshots, safe archive/delete, history, and optimistic concurrency.
+- **Tests**: Concurrent revision creation, latest-only revision, copied definition/policy/prices, published immutability, snapshot isolation, permissions, history, and realistic admin revise flow.
+- **Future UI Flow**: Revise action, source/successor comparison, guided draft editing, activation preview, and history.
 
 # Phase 10: Typed commercial policies and targeting
 
@@ -1867,8 +1891,10 @@ flowchart TD
 | **PLAN-007** | Branching revisions | PARTIAL — REVISION FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Published immutability plus explicit lineage-aware draft revision/duplication |
 | **BILLING-001** | Checkouts activation | IMPLEMENTED FOR CLIENT ACTIVATION | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Durable non-entitling checkout plus guarded, idempotent confirmation and final recheck |
 | **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED; LEDGER PHASE 13 | IMPLEMENT | Phase 4/13 | Batch 4.1/13.1 | None | Explicit ISO Money foundation, then immutable invoice/payment/credit/refund evidence and lifecycle tests |
-| **PRICEBOOK-001** | Multi-cycle immutable prices | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 9 | Batch 9.1 | BILLING-003 foundation, PLAN-012, QUOTA-004 | Independent monthly/yearly entries, overlap race protection, exact snapshot identity and client checkout tests |
+| **PRICEBOOK-001** | Multi-cycle immutable prices | IMPLEMENTING — BACKEND AND BACKEND AUDIT COMPLETE; FRONTEND/AUDIT IN PROGRESS | IMPLEMENT | Phase 9 | Batch 9.1 | BILLING-003 foundation, PLAN-012, QUOTA-004 | Independent monthly/yearly entries, overlap race protection, exact snapshot identity and client checkout tests |
 | **COMMERCIAL-001** | Extension and policy control | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 9/10 | Batch 9.2/10.1 | PRICEBOOK-001 | Extension/visibility matrix plus typed target/effect precedence, preview, execution and history tests |
+| **COMMERCIAL-002** | Operational product catalogues | CONFIRMED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001 | Bounded search/filter/sort, permissions, query count, backend actions/blockers and shared table contracts |
+| **QUOTA-005** | Capacity-package revisions | CONFIRMED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001, PRICEBOOK-001 | Revision concurrency, copied policy/prices, immutable snapshots, lifecycle/history and admin revise flow |
 | **MARKETING-001** | Segments, campaigns and offers | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 11 | Batch 11.1/11.2 | COMMERCIAL-001 | Safe audience snapshots, lifecycle, eligibility privacy, bounded/idempotent redemption and client flow tests |
 | **ANALYTICS-001** | Durable commercial analytics | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 14 | Batch 14.1 | MARKETING-001, BILLING-003 | Time/currency-aware facts, truthful dimensions, stable history and operational drill-down tests |
 | **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
