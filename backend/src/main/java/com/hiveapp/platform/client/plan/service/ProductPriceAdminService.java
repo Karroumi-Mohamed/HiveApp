@@ -7,6 +7,10 @@ import com.hiveapp.platform.client.plan.dto.CreateProductPriceRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceActivationPreview;
 import com.hiveapp.platform.client.plan.dto.ProductPriceDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceHistoryEntryDto;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreview;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreviewRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementResult;
 import com.hiveapp.platform.client.plan.dto.UpdateProductPriceRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +31,10 @@ public interface ProductPriceAdminService {
     ProductPriceDto pause(UUID priceId, long version, String reason);
     ProductPriceDto reactivate(UUID priceId, long version, String reason);
     ProductPriceDto revise(UUID priceId, long version, String reason);
+    ProductPriceReplacementPreview previewReplacement(
+            UUID successorPriceId, ProductPriceReplacementPreviewRequest request);
+    ProductPriceReplacementResult scheduleReplacement(
+            UUID successorPriceId, ProductPriceReplacementRequest request);
     ProductPriceDto archive(UUID priceId, long version, String reason);
     void deleteDraft(UUID priceId, long version);
 }

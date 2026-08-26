@@ -22,6 +22,8 @@ public record ClientPlanCatalogResponse(
             SubscriptionStatus status,
             BigDecimal currentPrice,
             String currentPriceCurrencyCode,
+            UUID planPriceEntryId,
+            BillingCycle billingCycle,
             Instant currentPeriodStart,
             Instant currentPeriodEnd,
             boolean cancelAtPeriodEnd,

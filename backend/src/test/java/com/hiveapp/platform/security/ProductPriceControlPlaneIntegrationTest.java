@@ -12,12 +12,16 @@ import com.hiveapp.platform.client.plan.infrastructure.ProductPriceBackfill;
 import com.hiveapp.platform.client.plan.dto.CreateProductPriceRequest;
 import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreviewRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
+import com.hiveapp.platform.client.plan.dto.UpdateProductPriceRequest;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
+import com.hiveapp.shared.audit.domain.AuditLogRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -49,6 +53,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     @Autowired private ProductPriceRepository productPriceRepository;
     @Autowired private SubscriptionRepository subscriptionRepository;
     @Autowired private ProductPriceBackfill productPriceBackfill;
+    @Autowired private AuditLogRepository auditLogRepository;
 
     @Test
     void compatibilityBackfillIsIdempotentForEverySeededProductTuple() {
@@ -262,9 +267,124 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(clientToken)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        assertThat(catalog).doesNotContain(planPrice.get("id").asText());
-        assertThat(catalog).doesNotContain(addOnPrice.get("id").asText());
-        assertThat(catalog).doesNotContain(packagePrice.get("id").asText());
+        JsonNode catalogJson = objectMapper.readTree(catalog);
+        assertThat(catalogJson.path("currentSubscription").path("planPriceEntryId").asText())
+                .isEqualTo(planPrice.get("id").asText());
+        String selectableProducts = catalogJson.path("plans").toString();
+        assertThat(selectableProducts).doesNotContain(planPrice.get("id").asText());
+        assertThat(selectableProducts).doesNotContain(addOnPrice.get("id").asText());
+        assertThat(selectableProducts).doesNotContain(packagePrice.get("id").asText());
+    }
+
+    @Test
+    void samePlanMayChangeToAnotherExactBillingCyclePrice() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        var free = planRepository.findByCode("FREE").orElseThrow();
+        JsonNode annualPrice = activateNewPrice(
+                adminToken,
+                ProductPriceOwnerType.PLAN,
+                free.getId(),
+                BigDecimal.ZERO,
+                BillingCycle.YEARLY,
+                Instant.now().minusSeconds(30));
+
+        String clientToken = registerClientAndGetToken();
+        UUID accountId = currentAccountId(clientToken);
+        var before = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow();
+        assertThat(before.getEntitlementSnapshot().billingCycle()).isEqualTo(BillingCycle.MONTHLY);
+
+        SubscriptionChangeRequest request = new SubscriptionChangeRequest(
+                free.getCode(), Set.of(), List.of(), SubscriptionChangeTiming.IMMEDIATE,
+                new ProductPriceSelectionRequest(
+                        UUID.fromString(annualPrice.get("id").asText()), "USD", BillingCycle.YEARLY));
+
+        mockMvc.perform(post("/api/v1/subscriptions/apply")
+                        .header("Authorization", bearer(clientToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.operation.status").value("APPLIED"));
+
+        var changed = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow();
+        assertThat(changed.getId()).isNotEqualTo(before.getId());
+        assertThat(changed.getEntitlementSnapshot().billingCycle()).isEqualTo(BillingCycle.YEARLY);
+        assertThat(changed.getEntitlementSnapshot().planPriceEntryId())
+                .isEqualTo(UUID.fromString(annualPrice.get("id").asText()));
+
+        mockMvc.perform(get("/api/v1/subscriptions/catalog")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentSubscription.planPriceEntryId")
+                        .value(annualPrice.get("id").asText()))
+                .andExpect(jsonPath("$.currentSubscription.billingCycle").value("YEARLY"));
+    }
+
+    @Test
+    void adminCreateAndTrialSnapshotExactAnnualPricesAndRejectWrongOwnerIds() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        var pro = planRepository.findByCode("PRO").orElseThrow();
+        var enterprise = planRepository.findByCode("ENTERPRISE").orElseThrow();
+        Instant starts = Instant.now().minusSeconds(30);
+        JsonNode proAnnual = activateNewPrice(adminToken, ProductPriceOwnerType.PLAN, pro.getId(),
+                new BigDecimal("240.00"), "EUR", BillingCycle.YEARLY, starts);
+        JsonNode enterpriseAnnual = activateNewPrice(
+                adminToken, ProductPriceOwnerType.PLAN, enterprise.getId(),
+                new BigDecimal("480.00"), BillingCycle.YEARLY, starts);
+        ProductPriceSelectionRequest proSelection = new ProductPriceSelectionRequest(
+                UUID.fromString(proAnnual.get("id").asText()), "EUR", BillingCycle.YEARLY);
+
+        String subscriberToken = registerClientAndGetToken();
+        UUID subscriberAccountId = currentAccountId(subscriberToken);
+        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", subscriberAccountId)
+                        .param("planCode", pro.getCode())
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(proSelection)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.currentPrice").value(240.00));
+        var annualSubscription = subscriptionRepository.findActiveByAccountId(subscriberAccountId).orElseThrow();
+        assertThat(annualSubscription.getEntitlementSnapshot().planPriceEntryId())
+                .isEqualTo(proSelection.priceEntryId());
+        assertThat(annualSubscription.getEntitlementSnapshot().billingCycle())
+                .isEqualTo(BillingCycle.YEARLY);
+        assertThat(annualSubscription.getCurrentPriceCurrencyCode()).isEqualTo("EUR");
+
+        String trialToken = registerClientAndGetToken();
+        UUID trialAccountId = currentAccountId(trialToken);
+        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}/trial", trialAccountId)
+                        .param("planCode", pro.getCode())
+                        .param("trialDays", "14")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(proSelection)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("TRIALING"))
+                .andExpect(jsonPath("$.currentPrice").value(0));
+        var annualTrial = subscriptionRepository.findByAccountIdAndStatus(
+                trialAccountId,
+                com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus.TRIALING).orElseThrow();
+        assertThat(annualTrial.getEntitlementSnapshot().planPriceEntryId())
+                .isEqualTo(proSelection.priceEntryId());
+        assertThat(annualTrial.getEntitlementSnapshot().billingCycle())
+                .isEqualTo(BillingCycle.YEARLY);
+        assertThat(annualTrial.getCurrentPriceCurrencyCode()).isEqualTo("EUR");
+
+        String protectedToken = registerClientAndGetToken();
+        UUID protectedAccountId = currentAccountId(protectedToken);
+        var protectedBefore = subscriptionRepository.findActiveByAccountId(protectedAccountId).orElseThrow();
+        ProductPriceSelectionRequest wrongOwner = new ProductPriceSelectionRequest(
+                UUID.fromString(enterpriseAnnual.get("id").asText()), "USD", BillingCycle.YEARLY);
+        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", protectedAccountId)
+                        .param("planCode", pro.getCode())
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(wrongOwner)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+        var protectedAfter = subscriptionRepository.findActiveByAccountId(protectedAccountId).orElseThrow();
+        assertThat(protectedAfter.getId()).isEqualTo(protectedBefore.getId());
+        assertThat(protectedAfter.getEntitlementSnapshot()).isEqualTo(protectedBefore.getEntitlementSnapshot());
     }
 
     @Test
@@ -327,6 +447,113 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
+    void atomicallySchedulesIndefinitePriceReplacementAndRetriesIdempotently() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        var free = planRepository.findByCode("FREE").orElseThrow();
+        var current = productPriceRepository.findApplicable(
+                ProductPriceOwnerType.PLAN, free.getId(), "USD", BillingCycle.MONTHLY, Instant.now())
+                .getFirst();
+        String clientToken = registerClientAndGetToken();
+        UUID accountId = currentAccountId(clientToken);
+        var subscriptionBefore = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow();
+        var snapshotBefore = subscriptionBefore.getEntitlementSnapshot();
+        assertThat(snapshotBefore.planPriceEntryId()).isEqualTo(current.getId());
+
+        JsonNode successorDraft = revise(adminToken, current.getId(), current.getVersion());
+        UUID successorId = UUID.fromString(successorDraft.get("id").asText());
+        Instant cutoff = Instant.now().plusSeconds(7200);
+        String updatedBody = mockMvc.perform(put("/api/admin/product-prices/{id}", successorId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UpdateProductPriceRequest(
+                                new BigDecimal("1.00"), "USD", BillingCycle.MONTHLY,
+                                cutoff, null, successorDraft.get("version").asLong()))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode successor = objectMapper.readTree(updatedBody);
+        ProductPriceReplacementRequest request = new ProductPriceReplacementRequest(
+                current.getId(), current.getVersion(), successor.get("version").asLong(),
+                "Schedule the next monthly price");
+
+        mockMvc.perform(post("/api/admin/product-prices/{id}/replacement-preview", successorId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ProductPriceReplacementPreviewRequest(
+                                        current.getId(), current.getVersion(),
+                                        successor.get("version").asLong()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schedulable").value(true))
+                .andExpect(jsonPath("$.cutoff").value(cutoff.toString()))
+                .andExpect(jsonPath("$.blockers").isEmpty());
+
+        CountDownLatch start = new CountDownLatch(1);
+        CompletableFuture<HttpResult> left = CompletableFuture.supplyAsync(
+                () -> scheduleReplacementAfter(start, adminToken, successorId, request));
+        CompletableFuture<HttpResult> right = CompletableFuture.supplyAsync(
+                () -> scheduleReplacementAfter(start, adminToken, successorId, request));
+        start.countDown();
+        List<HttpResult> results = List.of(left.join(), right.join());
+        assertThat(results).extracting(HttpResult::status).containsOnly(200);
+        assertThat(results.stream()
+                .map(HttpResult::body)
+                .map(body -> {
+                    try {
+                        return objectMapper.readTree(body).get("existingResult").asBoolean();
+                    } catch (Exception exception) {
+                        throw new RuntimeException(exception);
+                    }
+                }).toList()).containsExactlyInAnyOrder(false, true);
+
+        var bounded = productPriceRepository.findById(current.getId()).orElseThrow();
+        var scheduled = productPriceRepository.findById(successorId).orElseThrow();
+        assertThat(bounded.getEffectiveUntil()).isEqualTo(cutoff);
+        assertThat(scheduled.getStatus().name()).isEqualTo("ACTIVE");
+        assertThat(productPriceRepository.findApplicable(
+                ProductPriceOwnerType.PLAN, free.getId(), "USD", BillingCycle.MONTHLY,
+                cutoff.minusNanos(1))).singleElement()
+                .extracting(price -> price.getId()).isEqualTo(current.getId());
+        assertThat(productPriceRepository.findApplicable(
+                ProductPriceOwnerType.PLAN, free.getId(), "USD", BillingCycle.MONTHLY,
+                cutoff)).singleElement()
+                .extracting(price -> price.getId()).isEqualTo(successorId);
+
+        mockMvc.perform(post("/api/admin/product-prices/{id}/schedule-replacement", successorId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.existingResult").value(true));
+
+        mockMvc.perform(get("/api/admin/product-prices/{id}/history", current.getId())
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].action")
+                        .value("platform.price_books.schedule_replacement"))
+                .andExpect(jsonPath("$.content[0].reason").value("Schedule the next monthly price"));
+
+        mockMvc.perform(get("/api/admin/product-prices/{id}/history", successorId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].action")
+                        .value("platform.price_books.schedule_replacement"))
+                .andExpect(jsonPath("$.content[0].reason").value("Schedule the next monthly price"));
+        var successorHistory = auditLogRepository
+                .findAllByResourceTypeAndResourceIdOrderByOccurredAtDesc(
+                        "PRODUCT_PRICE_ADMIN", successorId.toString()).stream()
+                .filter(log -> "platform.price_books.schedule_replacement".equals(log.getAction()))
+                .toList();
+        assertThat(successorHistory).hasSize(3);
+        assertThat(successorHistory).anySatisfy(log -> assertThat(log.getResultData())
+                .contains("\"existingResult\":false"));
+        assertThat(successorHistory).anySatisfy(log -> assertThat(log.getResultData())
+                .contains("\"existingResult\":true"));
+
+        var subscriptionAfter = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow();
+        assertThat(subscriptionAfter.getId()).isEqualTo(subscriptionBefore.getId());
+        assertThat(subscriptionAfter.getEntitlementSnapshot()).isEqualTo(snapshotBefore);
+    }
+
+    @Test
     void priceIdentityIsBoundToTheExactProductRevision() throws Exception {
         String adminToken = loginAdminAndGetToken();
         UUID sourceId = createActivePlan(adminToken);
@@ -383,6 +610,26 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         }
     }
 
+    private HttpResult scheduleReplacementAfter(
+            CountDownLatch start,
+            String token,
+            UUID successorId,
+            ProductPriceReplacementRequest request
+    ) {
+        try {
+            start.await();
+            var response = mockMvc.perform(post(
+                                    "/api/admin/product-prices/{id}/schedule-replacement", successorId)
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andReturn().getResponse();
+            return new HttpResult(response.getStatus(), response.getContentAsString());
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
+        }
+    }
+
     private UUID createActivePlan(String token) throws Exception {
         var source = planRepository.findByCode("FREE").orElseThrow();
         PlanBranchRequest request = new PlanBranchRequest(
@@ -403,20 +650,32 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
 
     private JsonNode activateNewPrice(String token, ProductPriceOwnerType type, UUID ownerId,
                                       BigDecimal amount, BillingCycle cycle, Instant starts) throws Exception {
-        JsonNode draft = createPrice(token, type, ownerId, amount, cycle, starts, null);
+        return activateNewPrice(token, type, ownerId, amount, "USD", cycle, starts);
+    }
+
+    private JsonNode activateNewPrice(String token, ProductPriceOwnerType type, UUID ownerId,
+                                      BigDecimal amount, String currencyCode,
+                                      BillingCycle cycle, Instant starts) throws Exception {
+        JsonNode draft = createPrice(token, type, ownerId, amount, currencyCode, cycle, starts, null);
         return activate(token, UUID.fromString(draft.get("id").asText()), draft.get("version").asLong());
     }
 
     private JsonNode createPrice(String token, ProductPriceOwnerType type, UUID ownerId,
                                  BigDecimal amount, BillingCycle cycle, Instant starts,
                                  Instant until) throws Exception {
+        return createPrice(token, type, ownerId, amount, "USD", cycle, starts, until);
+    }
+
+    private JsonNode createPrice(String token, ProductPriceOwnerType type, UUID ownerId,
+                                 BigDecimal amount, String currencyCode, BillingCycle cycle,
+                                 Instant starts, Instant until) throws Exception {
         String response = mockMvc.perform(post("/api/admin/product-prices")
                         .header("Authorization", bearer(token))
                         .param("ownerType", type.name())
                         .param("ownerId", ownerId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new CreateProductPriceRequest(amount, "USD", cycle, starts, until))))
+                                new CreateProductPriceRequest(amount, currencyCode, cycle, starts, until))))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(response);

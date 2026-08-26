@@ -87,18 +87,18 @@ public class Subscription extends BaseEntity {
     void synchronizeUsableAccountSlot() {
         boolean usable = status == SubscriptionStatus.ACTIVE || status == SubscriptionStatus.TRIALING;
         usableAccountId = usable && account != null ? account.getId() : null;
+        if (entitlementSnapshot == null) {
+            throw new IllegalStateException("Subscription entitlement snapshot is required");
+        }
         if (currentPrice != null) {
             Money current = Money.of(currentPrice, currentPriceCurrencyCode);
-            plan.money().requireSameCurrency(current);
+            Money.zero(entitlementSnapshot.currencyCode()).requireSameCurrency(current);
             setCurrentMoney(current);
         } else {
             currentPriceCurrencyCode = null;
         }
         if (customOverrides == null) {
             customOverrides = SubscriptionOverrides.empty();
-        }
-        if (entitlementSnapshot == null) {
-            throw new IllegalStateException("Subscription entitlement snapshot is required");
         }
         if (currentPeriodStart == null || currentPeriodEnd == null || !currentPeriodEnd.isAfter(currentPeriodStart)) {
             throw new IllegalStateException("Subscription requires a valid current period");

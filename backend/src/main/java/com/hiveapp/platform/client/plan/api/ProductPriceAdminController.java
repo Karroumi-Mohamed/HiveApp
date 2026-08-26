@@ -7,6 +7,10 @@ import com.hiveapp.platform.client.plan.dto.CreateProductPriceRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceActivationPreview;
 import com.hiveapp.platform.client.plan.dto.ProductPriceDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceHistoryEntryDto;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreview;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreviewRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementResult;
 import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateProductPriceRequest;
 import com.hiveapp.platform.client.plan.service.ProductPriceAdminService;
@@ -127,6 +131,20 @@ public class ProductPriceAdminController {
     public ProductPriceDto revise(@PathVariable UUID priceId,
                                   @Valid @RequestBody ProductPriceVersionRequest request) {
         return productPriceAdminService.revise(priceId, request.version(), request.reason());
+    }
+
+    @PostMapping("/{priceId}/replacement-preview")
+    public ProductPriceReplacementPreview replacementPreview(
+            @PathVariable UUID priceId,
+            @Valid @RequestBody ProductPriceReplacementPreviewRequest request) {
+        return productPriceAdminService.previewReplacement(priceId, request);
+    }
+
+    @PostMapping("/{priceId}/schedule-replacement")
+    public ProductPriceReplacementResult scheduleReplacement(
+            @PathVariable UUID priceId,
+            @Valid @RequestBody ProductPriceReplacementRequest request) {
+        return productPriceAdminService.scheduleReplacement(priceId, request);
     }
 
     @PostMapping("/{priceId}/archive")

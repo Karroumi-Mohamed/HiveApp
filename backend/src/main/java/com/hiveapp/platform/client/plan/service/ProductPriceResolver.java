@@ -32,7 +32,7 @@ public class ProductPriceResolver {
     @Transactional(readOnly = true)
     public ProductPrice resolvePlan(Plan plan, ProductPriceSelectionRequest requested) {
         if (requested == null) {
-            return resolve(ProductPriceOwnerType.PLAN, plan.getId(), plan.money(), plan.getBillingCycle());
+            return resolveDefaultPlanPrice(plan);
         }
         return resolveRequested(ProductPriceOwnerType.PLAN, plan.getId(), requested);
     }
@@ -91,6 +91,30 @@ public class ProductPriceResolver {
                     "A price selection requires an exact priceEntryId or both currencyCode and billingCycle.");
         }
         return resolve(ownerType, ownerId, Money.zero(requested.currencyCode()), requested.billingCycle());
+    }
+
+    private ProductPrice resolveDefaultPlanPrice(Plan plan) {
+        validateCycle(plan.getBillingCycle());
+        Instant at = clock.instant();
+        List<ProductPrice> compatibilityMatches = productPriceRepository.findApplicable(
+                ProductPriceOwnerType.PLAN, plan.getId(), plan.getCurrencyCode(), plan.getBillingCycle(), at);
+        if (compatibilityMatches.size() == 1) {
+            return compatibilityMatches.getFirst();
+        }
+        if (compatibilityMatches.size() > 1) {
+            throw new InvalidStateException("Multiple active applicable prices exist for the same product tuple.");
+        }
+
+        List<ProductPrice> alternatives = productPriceRepository.findAllApplicable(
+                ProductPriceOwnerType.PLAN, plan.getId(), at);
+        if (alternatives.size() == 1) {
+            return alternatives.getFirst();
+        }
+        if (alternatives.isEmpty()) {
+            throw new InvalidStateException("No active applicable default price exists for this Plan revision.");
+        }
+        throw new InvalidStateException(
+                "This Plan revision has multiple active prices; an exact price selection is required.");
     }
 
     private ProductPrice resolve(ProductPriceOwnerType ownerType, UUID ownerId, Money currency,

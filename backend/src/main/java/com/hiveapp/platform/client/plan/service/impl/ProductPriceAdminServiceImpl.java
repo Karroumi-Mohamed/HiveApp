@@ -2,12 +2,14 @@ package com.hiveapp.platform.client.plan.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
+import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceAction;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
+import com.hiveapp.platform.client.plan.domain.constant.ProductPriceReplacementBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
@@ -22,6 +24,10 @@ import com.hiveapp.platform.client.plan.dto.CreateProductPriceRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceActivationPreview;
 import com.hiveapp.platform.client.plan.dto.ProductPriceDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceHistoryEntryDto;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreview;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreviewRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementResult;
 import com.hiveapp.platform.client.plan.dto.UpdateProductPriceRequest;
 import com.hiveapp.platform.client.plan.service.ProductPriceAdminService;
 import com.hiveapp.platform.client.plan.service.ProductPriceResolver;
@@ -36,8 +42,11 @@ import com.hiveapp.shared.exception.StaleResourceVersionException;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.audit.domain.AuditLog;
 import com.hiveapp.shared.audit.domain.AuditLogRepository;
+import com.hiveapp.shared.audit.AuditTrail;
+import com.hiveapp.shared.audit.domain.AuditActorSurface;
 import dev.karroumi.permissionizer.PermissionNode;
 import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -73,6 +82,9 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
     private final AuditLogRepository auditLogRepository;
     private final AdminUserRepository adminUserRepository;
     private final ObjectMapper objectMapper;
+    private final EntityManager entityManager;
+    private final AuditTrail auditTrail;
+    private final AdminMutationAuthorizer adminMutationAuthorizer;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -261,6 +273,81 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
     }
 
     @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "preview_replacement", description = "Preview an atomic scheduled price replacement")
+    public ProductPriceReplacementPreview previewReplacement(
+            UUID successorPriceId,
+            ProductPriceReplacementPreviewRequest request
+    ) {
+        ProductPrice successor = requirePrice(successorPriceId);
+        ProductPrice current = requirePrice(request.currentPriceId());
+        requireVersion(current, request.currentVersion());
+        requireVersion(successor, request.successorVersion());
+        List<ProductPriceReplacementBlocker> blockers = replacementBlockers(current, successor);
+        return new ProductPriceReplacementPreview(
+                current.getId(), current.getVersion(), successor.getId(), successor.getVersion(),
+                successor.getEffectiveFrom(), blockers.isEmpty(), blockers);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "schedule_replacement", description = "Atomically schedule a successor price")
+    public ProductPriceReplacementResult scheduleReplacement(
+            UUID successorPriceId,
+            ProductPriceReplacementRequest request
+    ) {
+        requireReason(request.reason());
+        ProductPrice successorHint = requirePrice(successorPriceId);
+        lockOwner(successorHint.getOwnerType(), successorHint.ownerId());
+
+        // The initial lookup only identifies the owner lock. Clear it so both price rows are
+        // re-read under pessimistic locks after any concurrent transaction that held the owner.
+        entityManager.clear();
+        List<UUID> orderedIds = java.util.stream.Stream.of(successorPriceId, request.currentPriceId())
+                .distinct()
+                .sorted()
+                .toList();
+        if (orderedIds.size() != 2) {
+            throw new InvalidRequestException("Current and successor price entries must be different.");
+        }
+        Map<UUID, ProductPrice> locked = orderedIds.stream().collect(Collectors.toMap(
+                java.util.function.Function.identity(), this::requirePriceForUpdate));
+        ProductPrice successor = locked.get(successorPriceId);
+        ProductPrice current = locked.get(request.currentPriceId());
+
+        if (isExistingReplacement(current, successor)) {
+            return replacementResult(current, successor, true);
+        }
+        requireVersion(current, request.currentVersion());
+        requireVersion(successor, request.successorVersion());
+        List<ProductPriceReplacementBlocker> blockers = replacementBlockers(current, successor);
+        if (!blockers.isEmpty()) {
+            throw new InvalidStateException("Price replacement cannot be scheduled: " + blockers + ".");
+        }
+
+        java.time.Instant previousUntil = current.getEffectiveUntil();
+        translateState(() -> current.endForReplacementAt(successor.getEffectiveFrom()));
+        translateState(successor::activate);
+        productPriceRepository.saveAllAndFlush(List.of(current, successor));
+        auditTrail.recordSuccess(
+                "platform.price_books.schedule_replacement",
+                AUDIT_RESOURCE_TYPE,
+                current.getId(),
+                AuditActorSurface.PLATFORM_ADMIN,
+                adminMutationAuthorizer.currentActorUserId(),
+                null,
+                Map.of(
+                        "reason", request.reason(),
+                        "effectiveUntil", previousUntil == null ? "UNBOUNDED" : previousUntil,
+                        "successorPriceId", successor.getId()),
+                Map.of(
+                        "effectiveUntil", current.getEffectiveUntil(),
+                        "successorPriceId", successor.getId(),
+                        "successorStatus", successor.getStatus()));
+        return replacementResult(current, successor, false);
+    }
+
+    @Override
     @Transactional
     @PermissionNode(key = "archive", description = "Archive a non-active product price entry")
     public ProductPriceDto archive(UUID priceId, long version, String reason) {
@@ -325,6 +412,72 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
             blockers.add(ProductPriceBlocker.ACTIVE_WINDOW_OVERLAP);
         }
         return List.copyOf(blockers);
+    }
+
+    private List<ProductPriceReplacementBlocker> replacementBlockers(
+            ProductPrice current,
+            ProductPrice successor
+    ) {
+        List<ProductPriceReplacementBlocker> blockers = new ArrayList<>();
+        if (current.getStatus() != ProductPriceStatus.ACTIVE) {
+            blockers.add(ProductPriceReplacementBlocker.CURRENT_NOT_ACTIVE);
+        }
+        if (successor.getStatus() != ProductPriceStatus.DRAFT) {
+            blockers.add(ProductPriceReplacementBlocker.SUCCESSOR_NOT_DRAFT);
+        }
+        if (successor.getSourcePrice() == null
+                || !current.getId().equals(successor.getSourcePrice().getId())
+                || !current.getLineageId().equals(successor.getLineageId())) {
+            blockers.add(ProductPriceReplacementBlocker.SUCCESSOR_NOT_DIRECT_REVISION);
+        }
+        if (!sameCommercialTuple(current, successor)) {
+            blockers.add(ProductPriceReplacementBlocker.COMMERCIAL_TUPLE_MISMATCH);
+        }
+        java.time.Instant cutoff = successor.getEffectiveFrom();
+        if (!cutoff.isAfter(clock.instant())) {
+            blockers.add(ProductPriceReplacementBlocker.CUTOFF_NOT_FUTURE);
+        }
+        if (!cutoff.isAfter(current.getEffectiveFrom())
+                || (current.getEffectiveUntil() != null
+                    && current.getEffectiveUntil().isBefore(cutoff))) {
+            blockers.add(ProductPriceReplacementBlocker.CURRENT_DOES_NOT_COVER_CUTOFF);
+        }
+        if (!ownerIsActive(successor)) {
+            blockers.add(ProductPriceReplacementBlocker.OWNER_NOT_ACTIVE);
+        }
+        if (sameCommercialTuple(current, successor)
+                && productPriceRepository.countActiveOverlapsExcluding(
+                        successor.getOwnerType(), successor.ownerId(), successor.getCurrencyCode(),
+                        successor.getBillingCycle(), successor.getEffectiveFrom(), successor.getEffectiveUntil(),
+                        List.of(current.getId(), successor.getId())) > 0) {
+            blockers.add(ProductPriceReplacementBlocker.OTHER_ACTIVE_WINDOW_OVERLAP);
+        }
+        return List.copyOf(blockers);
+    }
+
+    private boolean sameCommercialTuple(ProductPrice current, ProductPrice successor) {
+        return current.getOwnerType() == successor.getOwnerType()
+                && current.ownerId().equals(successor.ownerId())
+                && current.getCurrencyCode().equals(successor.getCurrencyCode())
+                && current.getBillingCycle() == successor.getBillingCycle();
+    }
+
+    private boolean isExistingReplacement(ProductPrice current, ProductPrice successor) {
+        return current.getStatus() == ProductPriceStatus.ACTIVE
+                && successor.getStatus() == ProductPriceStatus.ACTIVE
+                && successor.getSourcePrice() != null
+                && current.getId().equals(successor.getSourcePrice().getId())
+                && sameCommercialTuple(current, successor)
+                && successor.getEffectiveFrom().equals(current.getEffectiveUntil());
+    }
+
+    private ProductPriceReplacementResult replacementResult(
+            ProductPrice current,
+            ProductPrice successor,
+            boolean existing
+    ) {
+        return new ProductPriceReplacementResult(
+                toDto(current, true), toDto(successor, true), successor.getEffectiveFrom(), existing);
     }
 
     private ProductPriceDto toDto(ProductPrice price, boolean includeBlockers) {
@@ -504,6 +657,11 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
                 .orElseThrow(() -> new ResourceNotFoundException("ProductPrice", "id", id));
     }
 
+    private ProductPrice requirePriceForUpdate(UUID id) {
+        return productPriceRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("ProductPrice", "id", id));
+    }
+
     private void requireVersion(ProductPrice price, long expected) {
         if (price.getVersion() != expected) {
             throw new StaleResourceVersionException(
@@ -529,7 +687,14 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
             return null;
         }
         try {
-            var reason = objectMapper.readTree(log.getRequestData()).get("reason");
+            var request = objectMapper.readTree(log.getRequestData());
+            var reason = request.get("reason");
+            if ((reason == null || !reason.isTextual()) && request.path("request").isObject()) {
+                reason = request.path("request").get("reason");
+            }
+            if ((reason == null || !reason.isTextual()) && request.path("before").isObject()) {
+                reason = request.path("before").get("reason");
+            }
             return reason != null && reason.isTextual() && !reason.textValue().isBlank()
                     ? reason.textValue().trim()
                     : null;

@@ -5,6 +5,9 @@ import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
+import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 
 import java.util.List;
 import java.util.Set;
@@ -20,9 +23,13 @@ import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
  */
 public interface AdminSubscriptionService {
     Page<AccountDirectoryEntryDto> searchAccounts(String query, Pageable pageable);
+    Page<AssignablePlanPriceDto> listAssignablePlanPrices(
+            String search, String currencyCode, BillingCycle billingCycle, Pageable pageable);
     AdminSubscriptionDto getSubscription(UUID accountId);
-    SubscriptionDto createSubscription(UUID accountId, String planCode);
-    SubscriptionDto createTrial(UUID accountId, String planCode, int trialDays);
+    SubscriptionDto createSubscription(
+            UUID accountId, String planCode, ProductPriceSelectionRequest priceSelection);
+    SubscriptionDto createTrial(
+            UUID accountId, String planCode, int trialDays, ProductPriceSelectionRequest priceSelection);
     SubscriptionDto updateOverrides(UUID accountId, Set<String> addOnCodes, List<QuotaPackageSelection> quotaPackages);
     List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId);
     SubscriptionCheckoutDto confirmCheckoutManually(

@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 
 public interface SubscriptionService {
     /** Internal cross-service lookup; callers carry their own authorization. */
@@ -31,6 +32,10 @@ public interface SubscriptionService {
     List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId);
     SubscriptionChangeOperationDto cancelPendingChange(UUID accountId, UUID operationId);
     Subscription createSubscription(UUID accountId, String planCode);
+    Subscription createSubscription(
+            UUID accountId, String planCode, ProductPriceSelectionRequest priceSelection);
     Subscription createTrial(UUID accountId, String planCode, int trialDays);
+    Subscription createTrial(
+            UUID accountId, String planCode, int trialDays, ProductPriceSelectionRequest priceSelection);
     Subscription updateOverrides(UUID accountId, Set<String> addOnCodes, List<QuotaPackageSelection> quotaPackages);
 }

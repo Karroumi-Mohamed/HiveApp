@@ -9,11 +9,17 @@ import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
+import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
+import com.hiveapp.shared.exception.InvalidRequestException;
+import com.hiveapp.shared.money.Money;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.SubscriptionsFeature;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
@@ -25,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.time.Clock;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -39,12 +46,49 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     private final SubscriptionMapper subscriptionMapper;
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
+    private final ProductPriceRepository productPriceRepository;
+    private final Clock clock;
 
     @Override
     @PermissionNode(key = "search_accounts", description = "Search accounts for subscription operations")
     @Transactional(readOnly = true)
     public Page<AccountDirectoryEntryDto> searchAccounts(String query, Pageable pageable) {
         return accountDirectoryService.search(query, pageable);
+    }
+
+    @Override
+    @PermissionNode(key = "list_assignable_prices", description = "List exact Plan prices assignable to subscriptions")
+    @Transactional(readOnly = true)
+    public Page<AssignablePlanPriceDto> listAssignablePlanPrices(
+            String search,
+            String currencyCode,
+            BillingCycle billingCycle,
+            Pageable pageable
+    ) {
+        String normalizedSearch = search == null || search.isBlank() ? null : search.trim();
+        String normalizedCurrency = normalizeOptionalCurrency(currencyCode);
+        if (billingCycle != null && billingCycle != BillingCycle.MONTHLY && billingCycle != BillingCycle.YEARLY) {
+            throw new InvalidRequestException(
+                    "Assignable prices support MONTHLY and YEARLY billing cycles only.");
+        }
+        return productPriceRepository.findAssignablePlanPrices(
+                        normalizedSearch, normalizedCurrency, billingCycle, clock.instant(), pageable)
+                .map(price -> new AssignablePlanPriceDto(
+                        price.getPlan().getId(), price.getPlan().getCode(), price.getPlan().getName(),
+                        price.getPlan().getRevisionNumber(), price.getId(), price.getAmount(),
+                        price.getCurrencyCode(), price.getBillingCycle(),
+                        price.getEffectiveFrom(), price.getEffectiveUntil()));
+    }
+
+    private String normalizeOptionalCurrency(String currencyCode) {
+        if (currencyCode == null || currencyCode.isBlank()) {
+            return null;
+        }
+        try {
+            return Money.normalizeCurrencyCode(currencyCode);
+        } catch (IllegalArgumentException exception) {
+            throw new InvalidRequestException(exception.getMessage(), exception);
+        }
     }
 
     @Override
@@ -61,16 +105,27 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
 
     @Override
     @Transactional
-    @PermissionNode(key = "create", description = "Manually assign a plan to account")
-    public SubscriptionDto createSubscription(UUID accountId, String planCode) {
-        return subscriptionMapper.toDto(subscriptionService.createSubscription(accountId, planCode));
+    @PermissionNode(key = "create", description = "Manually assign an exact priced plan to account")
+    public SubscriptionDto createSubscription(
+            UUID accountId,
+            String planCode,
+            ProductPriceSelectionRequest priceSelection
+    ) {
+        return subscriptionMapper.toDto(
+                subscriptionService.createSubscription(accountId, planCode, priceSelection));
     }
 
     @Override
     @Transactional
-    @PermissionNode(key = "create_trial", description = "Start a trial subscription for an account")
-    public SubscriptionDto createTrial(UUID accountId, String planCode, int trialDays) {
-        return subscriptionMapper.toDto(subscriptionService.createTrial(accountId, planCode, trialDays));
+    @PermissionNode(key = "create_trial", description = "Start a trial on an exact priced plan")
+    public SubscriptionDto createTrial(
+            UUID accountId,
+            String planCode,
+            int trialDays,
+            ProductPriceSelectionRequest priceSelection
+    ) {
+        return subscriptionMapper.toDto(
+                subscriptionService.createTrial(accountId, planCode, trialDays, priceSelection));
     }
 
     @Override

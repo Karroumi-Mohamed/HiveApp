@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
@@ -23,6 +25,11 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
     @Override
     @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
     Optional<ProductPrice> findById(UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
+    @Query("select price from ProductPrice price where price.id = :priceId")
+    Optional<ProductPrice> findByIdForUpdate(@Param("priceId") UUID priceId);
 
     @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
     @Query("""
@@ -63,6 +70,31 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
                              @Param("effectiveFrom") Instant effectiveFrom,
                              @Param("effectiveUntil") Instant effectiveUntil,
                              @Param("excludedId") UUID excludedId);
+
+    @Query("""
+            select count(price) from ProductPrice price
+            where price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
+              and price.id not in :excludedIds
+              and price.ownerType = :ownerType
+              and ((:ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
+                    and price.plan.id = :ownerId)
+                or (:ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON
+                    and price.addOn.id = :ownerId)
+                or (:ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE
+                    and price.quotaPackage.id = :ownerId))
+              and price.currencyCode = :currencyCode
+              and price.billingCycle = :billingCycle
+              and (:effectiveUntil is null or price.effectiveFrom < :effectiveUntil)
+              and (price.effectiveUntil is null or price.effectiveUntil > :effectiveFrom)
+            """)
+    long countActiveOverlapsExcluding(
+            @Param("ownerType") ProductPriceOwnerType ownerType,
+            @Param("ownerId") UUID ownerId,
+            @Param("currencyCode") String currencyCode,
+            @Param("billingCycle") BillingCycle billingCycle,
+            @Param("effectiveFrom") Instant effectiveFrom,
+            @Param("effectiveUntil") Instant effectiveUntil,
+            @Param("excludedIds") Collection<UUID> excludedIds);
 
     @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
     @Query("""
@@ -115,6 +147,40 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
             order by price.ownerType, price.currencyCode, price.billingCycle, price.revisionNumber desc, price.id asc
             """)
     List<ProductPrice> findAllApplicable(@Param("at") Instant at);
+
+    @EntityGraph(attributePaths = {"plan"})
+    @Query(value = """
+            select price from ProductPrice price
+            join price.plan plan
+            where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
+              and price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
+              and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ACTIVE
+              and price.effectiveFrom <= :at
+              and (price.effectiveUntil is null or price.effectiveUntil > :at)
+              and (:search is null or lower(plan.code) like lower(concat('%', :search, '%'))
+                   or lower(plan.name) like lower(concat('%', :search, '%')))
+              and (:currencyCode is null or price.currencyCode = :currencyCode)
+              and (:billingCycle is null or price.billingCycle = :billingCycle)
+            """,
+            countQuery = """
+            select count(price) from ProductPrice price
+            join price.plan plan
+            where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
+              and price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
+              and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ACTIVE
+              and price.effectiveFrom <= :at
+              and (price.effectiveUntil is null or price.effectiveUntil > :at)
+              and (:search is null or lower(plan.code) like lower(concat('%', :search, '%'))
+                   or lower(plan.name) like lower(concat('%', :search, '%')))
+              and (:currencyCode is null or price.currencyCode = :currencyCode)
+              and (:billingCycle is null or price.billingCycle = :billingCycle)
+            """)
+    Page<ProductPrice> findAssignablePlanPrices(
+            @Param("search") String search,
+            @Param("currencyCode") String currencyCode,
+            @Param("billingCycle") BillingCycle billingCycle,
+            @Param("at") Instant at,
+            Pageable pageable);
 
     @Query("""
             select count(price) from ProductPrice price

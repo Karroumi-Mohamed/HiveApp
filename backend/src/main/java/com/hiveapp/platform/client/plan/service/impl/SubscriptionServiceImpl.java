@@ -155,6 +155,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         .thenComparing(Plan::getCode))
                 .map(plan -> toCatalogPlan(plan, current, definitions, usage, catalogPrices))
                 .toList();
+        SubscriptionEntitlementSnapshot currentSnapshot = current.getEntitlementSnapshot();
 
         return new ClientPlanCatalogResponse(
                 new ClientPlanCatalogResponse.CurrentSubscription(
@@ -163,6 +164,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         current.getStatus(),
                         current.getCurrentPrice(),
                         current.getCurrentPriceCurrencyCode(),
+                        currentSnapshot.planPriceEntryId(),
+                        currentSnapshot.billingCycle(),
                         current.getCurrentPeriodStart(),
                         current.getCurrentPeriodEnd(),
                         current.isCancelAtPeriodEnd(),
@@ -222,13 +225,12 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         ProductPrice selectedPlanPrice = productPriceResolver.resolvePlan(
                 selectedPlan, request.planPriceSelection());
         ChangeSelection selection = validateSelection(selectedPlan, request, selectedPlanPrice, null);
-        if (isNoOp(current, preview, selection)) {
-            throw new InvalidStateException("Requested subscription change does not modify the current subscription.");
-        }
-
         var targetPlan = planRepository.findByCode(request.targetPlanCode()).orElseThrow();
         var targetSnapshot = subscriptionSnapshotFactory.fromPlan(
                 targetPlan, selection.addOnCodes(), selection.quotaPackages(), selectedPlanPrice);
+        if (isNoOp(current, targetSnapshot, selection)) {
+            throw new InvalidStateException("Requested subscription change does not modify the current subscription.");
+        }
         SubscriptionOverrides requestedSelection = new SubscriptionOverrides(
                 selection.addOnCodes(), selection.quotaPackages());
         SubscriptionChangeOperation operation = newChangeOperation(
@@ -292,6 +294,16 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @Override
     @Transactional
     public Subscription createSubscription(UUID accountId, String planCode) {
+        return createSubscription(accountId, planCode, null);
+    }
+
+    @Override
+    @Transactional
+    public Subscription createSubscription(
+            UUID accountId,
+            String planCode,
+            com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest priceSelection
+    ) {
         var account = accountRepository.findByIdForSubscriptionUpdate(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
         var plan = planRepository.findByCode(planCode)
@@ -317,7 +329,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         sub.setAccount(account);
         sub.setPlan(plan);
         sub.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
-        ProductPrice selectedPrice = productPriceResolver.resolvePlan(plan, null);
+        ProductPrice selectedPrice = productPriceResolver.resolvePlan(plan, priceSelection);
         sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(
                 subscriptionSnapshotFactory.fromPlan(plan, Set.of(), List.of(), selectedPrice)));
         sub.setCurrentMoney(billingCalculator.calculateMoney(sub));
@@ -332,6 +344,17 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @Override
     @Transactional
     public Subscription createTrial(UUID accountId, String planCode, int trialDays) {
+        return createTrial(accountId, planCode, trialDays, null);
+    }
+
+    @Override
+    @Transactional
+    public Subscription createTrial(
+            UUID accountId,
+            String planCode,
+            int trialDays,
+            com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest priceSelection
+    ) {
         var account = accountRepository.findByIdForSubscriptionUpdate(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
         Plan plan = requireActivePlan(planCode);
@@ -344,7 +367,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         trial.setAccount(account);
         trial.setPlan(plan);
         trial.setCustomOverrides(SubscriptionOverrides.empty());
-        ProductPrice selectedPrice = productPriceResolver.resolvePlan(plan, null);
+        ProductPrice selectedPrice = productPriceResolver.resolvePlan(plan, priceSelection);
         trial.setEntitlementSnapshot(subscriptionSnapshotFactory.fromPlan(
                 plan, Set.of(), List.of(), selectedPrice));
         trial.setCurrentMoney(Money.zero(selectedPrice.getCurrencyCode()));
@@ -553,11 +576,87 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return billingCalculator.calculateMoney(preview);
     }
 
-    private boolean isNoOp(Subscription current, SubscriptionChangePreviewResponse preview, ChangeSelection selection) {
+    private boolean isNoOp(
+            Subscription current,
+            SubscriptionEntitlementSnapshot targetSnapshot,
+            ChangeSelection selection
+    ) {
         SubscriptionOverrides currentOverrides = subscriptionOverrideReader.read(current.getCustomOverrides());
-        return current.getPlan().getCode().equals(preview.targetPlanCode())
+        SubscriptionEntitlementSnapshot currentSnapshot = current.getEntitlementSnapshot();
+        return current.getPlan().getCode().equals(targetSnapshot.planCode())
                 && Objects.equals(currentOverrides.addOnCodes(), selection.addOnCodes())
-                && Objects.equals(currentOverrides.quotaPackages(), selection.quotaPackages());
+                && Objects.equals(currentOverrides.quotaPackages(), selection.quotaPackages())
+                && sameSelectedPrices(currentSnapshot, targetSnapshot);
+    }
+
+    private boolean sameSelectedPrices(
+            SubscriptionEntitlementSnapshot current,
+            SubscriptionEntitlementSnapshot target
+    ) {
+        if (!samePrice(
+                current.planPriceEntryId(), current.basePrice(), current.currencyCode(), current.billingCycle(),
+                target.planPriceEntryId(), target.basePrice(), target.currencyCode(), target.billingCycle())) {
+            return false;
+        }
+        Map<String, com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot> currentAddOns =
+                current.addOns().stream().collect(Collectors.toMap(
+                        com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot::code,
+                        Function.identity()));
+        if (currentAddOns.size() != target.addOns().size()
+                || !currentAddOns.keySet().equals(target.addOns().stream()
+                    .map(com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot::code)
+                    .collect(Collectors.toSet()))) {
+            return false;
+        }
+        for (var targetAddOn : target.addOns()) {
+            var currentAddOn = currentAddOns.get(targetAddOn.code());
+            if (currentAddOn == null || !samePrice(
+                    currentAddOn.priceEntryId(), currentAddOn.price(), currentAddOn.currencyCode(),
+                    currentAddOn.billingCycle(), targetAddOn.priceEntryId(), targetAddOn.price(),
+                    targetAddOn.currencyCode(), targetAddOn.billingCycle())) {
+                return false;
+            }
+        }
+        Map<String, com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot> currentPackages =
+                current.quotaPackages().stream().collect(Collectors.toMap(
+                        com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot::code,
+                        Function.identity()));
+        if (currentPackages.size() != target.quotaPackages().size()
+                || !currentPackages.keySet().equals(target.quotaPackages().stream()
+                    .map(com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot::code)
+                    .collect(Collectors.toSet()))) {
+            return false;
+        }
+        for (var targetPackage : target.quotaPackages()) {
+            var currentPackage = currentPackages.get(targetPackage.code());
+            if (currentPackage == null || !samePrice(
+                    currentPackage.priceEntryId(), currentPackage.unitPrice(), currentPackage.currencyCode(),
+                    currentPackage.billingCycle(), targetPackage.priceEntryId(), targetPackage.unitPrice(),
+                    targetPackage.currencyCode(), targetPackage.billingCycle())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean samePrice(
+            UUID currentId,
+            BigDecimal currentAmount,
+            String currentCurrency,
+            com.hiveapp.platform.client.plan.domain.constant.BillingCycle currentCycle,
+            UUID targetId,
+            BigDecimal targetAmount,
+            String targetCurrency,
+            com.hiveapp.platform.client.plan.domain.constant.BillingCycle targetCycle
+    ) {
+        if (currentId != null && targetId != null) {
+            return currentId.equals(targetId);
+        }
+        return currentAmount != null
+                && targetAmount != null
+                && currentAmount.compareTo(targetAmount) == 0
+                && Objects.equals(currentCurrency, targetCurrency)
+                && currentCycle == targetCycle;
     }
 
     private Plan requireActivePlan(String planCode) {

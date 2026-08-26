@@ -7,11 +7,13 @@ import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnCreationReason;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionCheckoutStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
+import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
@@ -26,6 +28,8 @@ import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
 import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
+import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
@@ -461,6 +465,40 @@ class PlanAdminServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Archived AddOns are terminal and cannot be revised.");
         verify(addOnRepository, never()).saveAndFlush(any(AddOn.class));
+    }
+
+    @Test
+    void inactivePublishedAddOnCannotBeEditedInPlace() {
+        UUID addOnId = UUID.randomUUID();
+        AddOn published = new AddOn();
+        ReflectionTestUtils.setField(published, "id", addOnId);
+        published.setStatus(AddOnStatus.INACTIVE);
+        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(published));
+
+        assertThatThrownBy(() -> planAdminService.updateAddOn(addOnId, new UpdateAddOnRequest(
+                "Changed", null, BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                Set.of(), Set.of(), Set.of(), Set.of())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Published AddOns are immutable; create and publish a draft revision instead.");
+        verify(addOnRepository, never()).saveAndFlush(any(AddOn.class));
+    }
+
+    @Test
+    void inactivePublishedQuotaPackageCannotBeEditedInPlace() {
+        UUID packageId = UUID.randomUUID();
+        QuotaPackage published = new QuotaPackage();
+        ReflectionTestUtils.setField(published, "id", packageId);
+        published.setStatus(QuotaPackageStatus.INACTIVE);
+        when(quotaPackageRepository.findById(packageId)).thenReturn(Optional.of(published));
+
+        assertThatThrownBy(() -> planAdminService.updateQuotaPackage(packageId,
+                new UpdateQuotaPackageRequest(
+                        "Changed", null, "platform.staff", "members", 5,
+                        BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                        false, 1, Set.of("FREE"), Set.of())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Published quota packages are immutable; create a new draft product instead.");
+        verify(quotaPackageRepository, never()).saveAndFlush(any(QuotaPackage.class));
     }
 
     @Test

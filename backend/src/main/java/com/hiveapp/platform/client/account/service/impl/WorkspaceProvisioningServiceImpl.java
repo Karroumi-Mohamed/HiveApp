@@ -14,6 +14,7 @@ import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
+import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
@@ -21,6 +22,7 @@ import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleManager;
 import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
+import com.hiveapp.shared.money.Money;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -108,14 +110,15 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
     }
 
     private void provisionFreeSubscription(Account account, Plan freePlan) {
+        SubscriptionEntitlementSnapshot snapshot = subscriptionSnapshotFactory.fromPlan(freePlan);
         Subscription sub = new Subscription();
         sub.setAccount(account);
         sub.setPlan(freePlan);
         sub.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
-        sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(subscriptionSnapshotFactory.fromPlan(freePlan)));
-        sub.setCurrentMoney(freePlan.money());
+        sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(snapshot));
+        sub.setCurrentMoney(Money.of(snapshot.basePrice(), snapshot.currencyCode()));
         subscriptionLifecycleManager.initialize(
-                sub, SubscriptionStatus.ACTIVE, subscriptionPeriodCalculator.recurring(freePlan.getBillingCycle()));
+                sub, SubscriptionStatus.ACTIVE, subscriptionPeriodCalculator.recurring(snapshot.billingCycle()));
         Subscription saved = subscriptionRepository.saveAndFlush(sub);
         subscriptionLifecycleManager.recordOpenPeriod(saved);
         log.info("FREE subscription provisioned for account={}", account.getId());
