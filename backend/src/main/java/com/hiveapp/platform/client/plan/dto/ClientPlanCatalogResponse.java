@@ -39,8 +39,19 @@ public record ClientPlanCatalogResponse(
             boolean current,
             List<CatalogFeature> features,
             List<CatalogAddOn> addOns,
-            List<CatalogQuotaPackage> quotaPackages
-    ) {}
+            List<CatalogQuotaPackage> quotaPackages,
+            List<CatalogPrice> prices
+    ) {
+        public CatalogPlan(
+                String code, String name, String description, BigDecimal basePrice,
+                String currencyCode, BillingCycle billingCycle, boolean current,
+                List<CatalogFeature> features, List<CatalogAddOn> addOns,
+                List<CatalogQuotaPackage> quotaPackages
+        ) {
+            this(code, name, description, basePrice, currencyCode, billingCycle, current,
+                    features, addOns, quotaPackages, List.of());
+        }
+    }
 
     public record CatalogFeature(
             String featureCode,
@@ -60,8 +71,19 @@ public record ClientPlanCatalogResponse(
             long definitionVersion,
             Set<String> dependencyCodes,
             Set<String> exclusionCodes,
-            List<CatalogAddOnFeature> features
-    ) {}
+            List<CatalogAddOnFeature> features,
+            List<CatalogPrice> prices
+    ) {
+        public CatalogAddOn(
+                String code, String name, String description, BigDecimal price,
+                String currencyCode, BillingCycle billingCycle, long definitionVersion,
+                Set<String> dependencyCodes, Set<String> exclusionCodes,
+                List<CatalogAddOnFeature> features
+        ) {
+            this(code, name, description, price, currencyCode, billingCycle, definitionVersion,
+                    dependencyCodes, exclusionCodes, features, List.of());
+        }
+    }
 
     public record CatalogAddOnFeature(
             String featureCode,
@@ -93,6 +115,27 @@ public record ClientPlanCatalogResponse(
             boolean repeatable,
             int maximumQuantity,
             Set<String> allowedPlanCodes,
-            Set<String> allowedAddOnCodes
+            Set<String> allowedAddOnCodes,
+            List<CatalogPrice> prices
+    ) {
+        public CatalogQuotaPackage(
+                String code, String name, String description, long definitionVersion,
+                String featureCode, String resource, long capacityPerUnit, BigDecimal price,
+                String currencyCode, BillingCycle billingCycle, boolean repeatable,
+                int maximumQuantity, Set<String> allowedPlanCodes, Set<String> allowedAddOnCodes
+        ) {
+            this(code, name, description, definitionVersion, featureCode, resource, capacityPerUnit,
+                    price, currencyCode, billingCycle, repeatable, maximumQuantity,
+                    allowedPlanCodes, allowedAddOnCodes, List.of());
+        }
+    }
+
+    public record CatalogPrice(
+            UUID priceEntryId,
+            BigDecimal amount,
+            String currencyCode,
+            BillingCycle billingCycle,
+            Instant effectiveFrom,
+            Instant effectiveUntil
     ) {}
 }

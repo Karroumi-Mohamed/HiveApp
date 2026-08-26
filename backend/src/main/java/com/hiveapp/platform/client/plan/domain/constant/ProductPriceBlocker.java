@@ -1,0 +1,11 @@
+package com.hiveapp.platform.client.plan.domain.constant;
+
+public enum ProductPriceBlocker {
+    OWNER_NOT_ACTIVE,
+    EFFECTIVE_WINDOW_EXPIRED,
+    ACTIVE_WINDOW_OVERLAP,
+    SUCCESSOR_ALREADY_EXISTS,
+    WRONG_LIFECYCLE_STATE,
+    ACTIVE_MUST_BE_PAUSED,
+    ARCHIVED_TERMINAL
+}

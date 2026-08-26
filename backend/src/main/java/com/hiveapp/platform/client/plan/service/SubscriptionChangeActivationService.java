@@ -66,7 +66,7 @@ public class SubscriptionChangeActivationService {
                     .collect(Collectors.joining(" ")));
         }
 
-        var period = periodCalculator.recurring(operation.getTargetPlan().getBillingCycle(), startsAt);
+        var period = periodCalculator.recurring(operation.getTargetSnapshot().billingCycle(), startsAt);
         operation.setEffectiveAt(period.startsAt());
         operation.setTargetSnapshot(operation.getTargetSnapshot()
                 .withEffectivePeriod(period.startsAt(), period.endsAt()));

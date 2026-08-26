@@ -5,10 +5,15 @@ import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.dto.AssignRoleRequest;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
+import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.CreateProductPriceRequest;
+import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.role.dto.CreateRoleRequest;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
+import com.hiveapp.shared.money.Money;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
@@ -20,6 +25,7 @@ import org.springframework.test.context.TestPropertySource;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -45,6 +51,12 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
 
     @Autowired
     private EntityManagerFactory entityManagerFactory;
+
+    @Autowired
+    private PlanRepository planRepository;
+
+    @Autowired
+    private ProductPriceRepository productPriceRepository;
 
     @Test
     void roleListStatementCountDoesNotGrowWithRolesOrTheirPermissions() throws Exception {
@@ -104,6 +116,55 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
         assertThat(fourFeatures)
                 .as("plan feature list must not issue an extra feature statement per plan feature")
                 .isEqualTo(oneFeature);
+    }
+
+    @Test
+    void productPricePageStatementCountDoesNotGrowWithRows() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        UUID planId = planRepository.findByCode("PRO").orElseThrow().getId();
+        createDraftPrice(adminToken, planId, new BigDecimal("100.00"));
+
+        long baseline = statementsFor(() -> listProductPrices(adminToken, planId));
+        int baselineSize = listProductPrices(adminToken, planId).size();
+
+        createDraftPrice(adminToken, planId, new BigDecimal("101.00"));
+        createDraftPrice(adminToken, planId, new BigDecimal("102.00"));
+        createDraftPrice(adminToken, planId, new BigDecimal("103.00"));
+
+        long expanded = statementsFor(() -> listProductPrices(adminToken, planId));
+
+        assertThat(listProductPrices(adminToken, planId).size()).isEqualTo(baselineSize + 3);
+        assertThat(expanded)
+                .as("price pages bulk-load owner and overlap facts with a constant statement count")
+                .isEqualTo(baseline);
+    }
+
+    @Test
+    void productPricePageDoesNotMaterializeUnrelatedActivePriceBooks() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        UUID requestedPlanId = planRepository.findByCode("PRO").orElseThrow().getId();
+        var unrelatedPlan = planRepository.findByCode("FREE").orElseThrow();
+
+        long baseline = entityLoadsFor(() -> listProductPrices(adminToken, requestedPlanId));
+        List<ProductPrice> unrelatedPrices = java.util.stream.IntStream.range(0, 8)
+                .mapToObj(index -> {
+                    ProductPrice price = ProductPrice.draft(
+                            unrelatedPlan, Money.of(BigDecimal.valueOf(index), "EUR"),
+                            BillingCycle.YEARLY, Instant.EPOCH, null);
+                    price.activate();
+                    return price;
+                })
+                .toList();
+        productPriceRepository.saveAllAndFlush(unrelatedPrices);
+        try {
+            long expanded = entityLoadsFor(() -> listProductPrices(adminToken, requestedPlanId));
+            assertThat(expanded)
+                    .as("a price page must load overlap facts only for tuples represented on that page")
+                    .isEqualTo(baseline);
+        } finally {
+            productPriceRepository.deleteAll(unrelatedPrices);
+            productPriceRepository.flush();
+        }
     }
 
     /**
@@ -170,6 +231,13 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
         return statistics.getPrepareStatementCount();
     }
 
+    private long entityLoadsFor(RequestBlock block) throws Exception {
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        block.run();
+        return statistics.getEntityLoadCount();
+    }
+
     private JsonNode listRoles(String token) throws Exception {
         String response = mockMvc.perform(get("/api/v1/roles")
                         .header("Authorization", bearer(token)))
@@ -231,6 +299,28 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(response);
+    }
+
+    private JsonNode listProductPrices(String adminToken, UUID planId) throws Exception {
+        String response = mockMvc.perform(get("/api/admin/product-prices")
+                        .header("Authorization", bearer(adminToken))
+                        .param("ownerType", "PLAN")
+                        .param("ownerId", planId.toString())
+                        .param("size", "100"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).get("content");
+    }
+
+    private void createDraftPrice(String adminToken, UUID planId, BigDecimal amount) throws Exception {
+        mockMvc.perform(post("/api/admin/product-prices")
+                        .header("Authorization", bearer(adminToken))
+                        .param("ownerType", "PLAN")
+                        .param("ownerId", planId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateProductPriceRequest(
+                                amount, "USD", BillingCycle.YEARLY, Instant.now(), null))))
+                .andExpect(status().isCreated());
     }
 
     private UUID createDraftPlan(String adminToken) throws Exception {

@@ -1,16 +1,20 @@
 package com.hiveapp.platform.security;
 
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
+import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
+import com.hiveapp.shared.money.Money;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.math.BigDecimal;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -41,6 +45,9 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
 
     @Autowired
     private SubscriptionRepository subscriptionRepository;
+
+    @Autowired
+    private ProductPriceRepository productPriceRepository;
 
     @Autowired
     private PlanFeatureRepository planFeatureRepository;
@@ -216,20 +223,21 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
     void explicitlyZeroPricedChangeActivatesWithoutCreatingFakePayment() throws Exception {
         String token = registerClientAndGetToken();
         var pro = planRepository.findByCode("PRO").orElseThrow();
-        BigDecimal originalPrice = pro.getPrice();
+        ProductPrice zeroPrice = ProductPrice.draft(
+                pro, Money.zero(pro.getCurrencyCode()), pro.getBillingCycle(), Instant.EPOCH, null);
+        zeroPrice.activate();
+        productPriceRepository.saveAndFlush(zeroPrice);
         try {
-            pro.setPrice(BigDecimal.ZERO);
-            planRepository.saveAndFlush(pro);
-
-            apply(token, new SubscriptionChangeRequest("PRO", Set.of(), List.of()))
+            var selection = new ProductPriceSelectionRequest(zeroPrice.getId(), null, null);
+            apply(token, new SubscriptionChangeRequest(
+                    "PRO", Set.of(), List.of(), SubscriptionChangeTiming.IMMEDIATE, selection))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.subscription.plan.code").value("PRO"))
                     .andExpect(jsonPath("$.operation.status").value("APPLIED"))
                     .andExpect(jsonPath("$.operation.checkout").doesNotExist());
         } finally {
-            var currentPro = planRepository.findByCode("PRO").orElseThrow();
-            currentPro.setPrice(originalPrice);
-            planRepository.saveAndFlush(currentPro);
+            productPriceRepository.deleteById(zeroPrice.getId());
+            productPriceRepository.flush();
         }
     }
 

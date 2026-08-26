@@ -82,7 +82,8 @@ public class SubscriptionLifecycleManager {
     }
 
     private void renewZeroPricedSubscription(Subscription current) {
-        var next = periodCalculator.recurring(current.getPlan().getBillingCycle(), current.getCurrentPeriodEnd());
+        var next = periodCalculator.recurring(
+                current.getEntitlementSnapshot().billingCycle(), current.getCurrentPeriodEnd());
         current.setCurrentPeriodStart(next.startsAt());
         current.setCurrentPeriodEnd(next.endsAt());
         current.setEntitlementSnapshot(

@@ -1,6 +1,8 @@
 package com.hiveapp.platform.client.plan.service;
 
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
+import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
@@ -14,12 +16,14 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -29,6 +33,7 @@ public class SubscriptionSnapshotFactory {
     private final AddOnRepository addOnRepository;
     private final AddOnFeatureRepository addOnFeatureRepository;
     private final QuotaPackageRepository quotaPackageRepository;
+    private final ProductPriceResolver productPriceResolver;
 
     public SubscriptionEntitlementSnapshot fromPlan(Plan plan) {
         return fromPlan(plan, Set.of(), List.of());
@@ -42,6 +47,54 @@ public class SubscriptionSnapshotFactory {
             Plan plan,
             Set<String> selectedAddOnCodes,
             List<QuotaPackageSelection> selectedQuotaPackages
+    ) {
+        return fromPlan(plan, selectedAddOnCodes, selectedQuotaPackages,
+                productPriceResolver.resolvePlan(plan, null));
+    }
+
+    public SubscriptionEntitlementSnapshot fromPlan(
+            Plan plan,
+            Set<String> selectedAddOnCodes,
+            List<QuotaPackageSelection> selectedQuotaPackages,
+            ProductPrice planPrice
+    ) {
+        return fromPlan(plan, selectedAddOnCodes, selectedQuotaPackages,
+                PriceTerms.from(planPrice), Map.of(), Map.of());
+    }
+
+    /**
+     * Rebuilds entitlements without repricing commercial items already present in a subscription.
+     * Newly selected add-ons or quota packages still resolve against the current plan price tuple.
+     */
+    public SubscriptionEntitlementSnapshot fromPlanPreservingPrices(
+            Plan plan,
+            Set<String> selectedAddOnCodes,
+            List<QuotaPackageSelection> selectedQuotaPackages,
+            SubscriptionEntitlementSnapshot currentSnapshot
+    ) {
+        if (!plan.getCode().equals(currentSnapshot.planCode())) {
+            throw new IllegalArgumentException("Existing snapshot does not belong to the supplied plan.");
+        }
+        Map<String, SubscriptionAddOnSnapshot> existingAddOns = currentSnapshot.addOns().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        SubscriptionAddOnSnapshot::code, java.util.function.Function.identity()));
+        Map<String, SubscriptionQuotaPackageSnapshot> existingPackages = currentSnapshot.quotaPackages().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        SubscriptionQuotaPackageSnapshot::code, java.util.function.Function.identity()));
+        PriceTerms planPrice = new PriceTerms(
+                currentSnapshot.basePrice(), currentSnapshot.currencyCode(), currentSnapshot.billingCycle(),
+                currentSnapshot.planPriceEntryId());
+        return fromPlan(plan, selectedAddOnCodes, selectedQuotaPackages,
+                planPrice, existingAddOns, existingPackages);
+    }
+
+    private SubscriptionEntitlementSnapshot fromPlan(
+            Plan plan,
+            Set<String> selectedAddOnCodes,
+            List<QuotaPackageSelection> selectedQuotaPackages,
+            PriceTerms planPrice,
+            Map<String, SubscriptionAddOnSnapshot> existingAddOns,
+            Map<String, SubscriptionQuotaPackageSnapshot> existingPackages
     ) {
         Set<String> requestedCodes = selectedAddOnCodes != null ? selectedAddOnCodes : Set.of();
         Map<String, SubscriptionFeatureSnapshot> features = new LinkedHashMap<>();
@@ -73,9 +126,15 @@ public class SubscriptionSnapshotFactory {
                                 return featureCode;
                             })
                             .toList();
+                    SubscriptionAddOnSnapshot existing = existingAddOns.get(addOn.getCode());
+                    PriceTerms addOnPrice = existing == null
+                            ? PriceTerms.from(productPriceResolver.resolveAddOn(
+                                    addOn, planPrice.currencyCode(), planPrice.billingCycle()))
+                            : PriceTerms.from(existing);
                     return new SubscriptionAddOnSnapshot(
                             addOn.getCode(), addOn.getName(), addOn.getDefinitionVersion(),
-                            addOn.getPrice(), addOn.getCurrencyCode(), addOn.getBillingCycle(), featureCodes);
+                            addOnPrice.amount(), addOnPrice.currencyCode(), addOnPrice.billingCycle(),
+                            featureCodes, addOnPrice.priceEntryId());
                 })
                 .toList();
 
@@ -101,10 +160,16 @@ public class SubscriptionSnapshotFactory {
                 .sorted(Comparator.comparing(QuotaPackageSelection::packageCode))
                 .map(selection -> {
                     var item = packagesByCode.get(selection.packageCode());
+                    SubscriptionQuotaPackageSnapshot existing = existingPackages.get(item.getCode());
+                    PriceTerms packagePrice = existing == null
+                            ? PriceTerms.from(productPriceResolver.resolveQuotaPackage(
+                                    item, planPrice.currencyCode(), planPrice.billingCycle()))
+                            : PriceTerms.from(existing);
                     return new SubscriptionQuotaPackageSnapshot(
                             item.getCode(), item.getName(), item.getDefinitionVersion(),
                             item.getFeature().getCode(), item.getResource(), item.getCapacityPerUnit(),
-                            selection.quantity(), item.getPrice(), item.getCurrencyCode(), item.getBillingCycle());
+                            selection.quantity(), packagePrice.amount(), packagePrice.currencyCode(),
+                            packagePrice.billingCycle(), packagePrice.priceEntryId());
                 })
                 .toList();
 
@@ -113,16 +178,37 @@ public class SubscriptionSnapshotFactory {
                 plan.getCode(),
                 plan.getName(),
                 plan.getRevisionNumber(),
-                plan.getPrice(),
-                plan.getCurrencyCode(),
-                plan.getBillingCycle(),
+                planPrice.amount(),
+                planPrice.currencyCode(),
+                planPrice.billingCycle(),
                 null,
                 null,
                 features.values().stream()
                         .sorted(Comparator.comparing(SubscriptionFeatureSnapshot::featureCode))
                         .toList(),
                 addOns,
-                quotaPackages
+                quotaPackages,
+                planPrice.priceEntryId()
         );
+    }
+
+    private record PriceTerms(
+            BigDecimal amount,
+            String currencyCode,
+            BillingCycle billingCycle,
+            UUID priceEntryId
+    ) {
+        private static PriceTerms from(ProductPrice price) {
+            return new PriceTerms(price.getAmount(), price.getCurrencyCode(), price.getBillingCycle(), price.getId());
+        }
+
+        private static PriceTerms from(SubscriptionAddOnSnapshot price) {
+            return new PriceTerms(price.price(), price.currencyCode(), price.billingCycle(), price.priceEntryId());
+        }
+
+        private static PriceTerms from(SubscriptionQuotaPackageSnapshot price) {
+            return new PriceTerms(
+                    price.unitPrice(), price.currencyCode(), price.billingCycle(), price.priceEntryId());
+        }
     }
 }

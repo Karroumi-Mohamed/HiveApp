@@ -164,6 +164,48 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void priceBookPermissionsAreFineGrainedAndRejectClientIdentities() throws Exception {
+        String clientToken = registerClientAndGetToken();
+        LimitedAdmin reader = createLimitedAdmin("platform.price_books.list");
+
+        mockMvc.perform(get("/api/admin/product-prices"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/admin/product-prices")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isForbidden());
+        String priceList = mockMvc.perform(get("/api/admin/product-prices")
+                        .header("Authorization", bearer(reader.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andReturn().getResponse().getContentAsString();
+        UUID priceId = UUID.fromString(objectMapper.readTree(priceList)
+                .get("content").get(0).get("id").asText());
+
+        mockMvc.perform(get("/api/admin/product-prices/{id}/history", priceId)
+                        .header("Authorization", bearer(reader.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+
+        LimitedAdmin historian = createLimitedAdmin("platform.price_books.read_history");
+        mockMvc.perform(get("/api/admin/product-prices/{id}/history", priceId)
+                        .header("Authorization", bearer(historian.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray());
+
+        mockMvc.perform(post("/api/admin/product-prices")
+                        .param("ownerType", "PLAN")
+                        .param("ownerId", UUID.randomUUID().toString())
+                        .header("Authorization", bearer(reader.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"amount":0,"currencyCode":"USD","billingCycle":"YEARLY",
+                                 "effectiveFrom":"2026-01-01T00:00:00Z"}
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+    }
+
+    @Test
     void registryCatalogEndpointsRequireAdminRegistryPermission() throws Exception {
         String clientToken = registerClientAndGetToken();
         LimitedAdmin admin = createLimitedAdmin("platform.plans.list");
