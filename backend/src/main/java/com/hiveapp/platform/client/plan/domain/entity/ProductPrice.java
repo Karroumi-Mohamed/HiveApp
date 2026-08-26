@@ -167,6 +167,24 @@ public class ProductPrice extends BaseEntity {
         status = ProductPriceStatus.ARCHIVED;
     }
 
+    /**
+     * Atomically closes new-sale applicability for a published price at the exact start of its
+     * successor. This is the only supported mutation of a published effective window; it may
+     * shorten, but never extend, the historical window.
+     */
+    public void endForReplacementAt(Instant cutoff) {
+        requireStatus(ProductPriceStatus.ACTIVE,
+                "Only an active price entry can be bounded by a scheduled replacement.");
+        Objects.requireNonNull(cutoff, "Replacement cutoff is required");
+        if (!cutoff.isAfter(effectiveFrom)) {
+            throw new IllegalStateException("Replacement cutoff must be after the current price starts.");
+        }
+        if (effectiveUntil != null && cutoff.isAfter(effectiveUntil)) {
+            throw new IllegalStateException("Replacement cutoff cannot extend the current price window.");
+        }
+        effectiveUntil = cutoff;
+    }
+
     public void markCompatibilityDefault() {
         requireStatus(ProductPriceStatus.DRAFT, "Compatibility metadata can only be set on a draft.");
         compatibilityDefault = true;

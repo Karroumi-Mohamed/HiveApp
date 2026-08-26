@@ -860,11 +860,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     private AddOn requireEditableAddOn(UUID addOnId) {
         AddOn addOn = requireAddOn(addOnId);
-        if (addOn.getStatus() == AddOnStatus.ACTIVE) {
-            throw new BusinessException("Active AddOns are immutable; deactivate before editing.");
-        }
-        if (addOn.getStatus() == AddOnStatus.ARCHIVED) {
-            throw new BusinessException("Archived AddOns are read-only.");
+        if (addOn.getStatus() != AddOnStatus.DRAFT) {
+            throw new BusinessException(
+                    "Published AddOns are immutable; create and publish a draft revision instead.");
         }
         return addOn;
     }
@@ -885,11 +883,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     private QuotaPackage requireEditableQuotaPackage(UUID quotaPackageId) {
         QuotaPackage item = requireQuotaPackage(quotaPackageId);
-        if (item.getStatus() == QuotaPackageStatus.ACTIVE) {
-            throw new BusinessException("Active quota packages are immutable; deactivate before editing.");
-        }
-        if (item.getStatus() == QuotaPackageStatus.ARCHIVED) {
-            throw new BusinessException("Archived quota packages are read-only.");
+        if (item.getStatus() != QuotaPackageStatus.DRAFT) {
+            throw new BusinessException(
+                    "Published quota packages are immutable; create a new draft product instead.");
         }
         return item;
     }

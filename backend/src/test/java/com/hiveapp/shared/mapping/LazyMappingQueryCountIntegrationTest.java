@@ -167,6 +167,33 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
         }
     }
 
+    @Test
+    void assignablePlanPricePageStatementCountDoesNotGrowWithRows() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        var plan = planRepository.findByCode("PRO").orElseThrow();
+        long baseline = statementsFor(() -> listAssignablePlanPrices(adminToken));
+
+        List<ProductPrice> additionalPrices = List.of("GBP", "CAD", "AUD").stream()
+                .map(currency -> {
+                    ProductPrice price = ProductPrice.draft(
+                            plan, Money.of(new BigDecimal("99.00"), currency),
+                            BillingCycle.YEARLY, Instant.EPOCH, null);
+                    price.activate();
+                    return price;
+                })
+                .toList();
+        productPriceRepository.saveAllAndFlush(additionalPrices);
+        try {
+            long expanded = statementsFor(() -> listAssignablePlanPrices(adminToken));
+            assertThat(expanded)
+                    .as("the subscription price chooser must not query each Plan revision separately")
+                    .isEqualTo(baseline);
+        } finally {
+            productPriceRepository.deleteAll(additionalPrices);
+            productPriceRepository.flush();
+        }
+    }
+
     /**
      * Role DETAIL, not just the list. This surface is what a role screen opens, and it was
      * left relying on open-in-view when the list paths were fixed.
@@ -306,6 +333,15 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
                         .header("Authorization", bearer(adminToken))
                         .param("ownerType", "PLAN")
                         .param("ownerId", planId.toString())
+                        .param("size", "100"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).get("content");
+    }
+
+    private JsonNode listAssignablePlanPrices(String adminToken) throws Exception {
+        String response = mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
+                        .header("Authorization", bearer(adminToken))
                         .param("size", "100"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();

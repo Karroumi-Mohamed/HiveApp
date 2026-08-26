@@ -206,6 +206,96 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void assignablePlanPriceChooserIsBoundedAndDoesNotGrantPriceBookAccess() throws Exception {
+        String clientToken = registerClientAndGetToken();
+        LimitedAdmin creatorOnly = createLimitedAdmin("platform.subscriptions.create");
+        LimitedAdmin chooser = createLimitedAdmin("platform.subscriptions.list_assignable_prices");
+
+        mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
+                        .header("Authorization", bearer(creatorOnly.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+
+        mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
+                        .header("Authorization", bearer(chooser.token()))
+                        .param("search", "free")
+                        .param("currencyCode", "usd")
+                        .param("billingCycle", "MONTHLY")
+                        .param("page", "0")
+                        .param("size", "1")
+                        .param("sort", "planName")
+                        .param("direction", "desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].planCode").value("FREE"))
+                .andExpect(jsonPath("$.content[0].planRevisionNumber").isNumber())
+                .andExpect(jsonPath("$.content[0].priceEntryId").isNotEmpty())
+                .andExpect(jsonPath("$.content[0].currencyCode").value("USD"))
+                .andExpect(jsonPath("$.content[0].billingCycle").value("MONTHLY"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(1));
+
+        // This permission exposes only the exact choices needed by subscription creation, not
+        // the full commercial price-book control plane or extension owners.
+        mockMvc.perform(get("/api/admin/product-prices")
+                        .header("Authorization", bearer(chooser.token())))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
+                        .header("Authorization", bearer(chooser.token()))
+                        .param("size", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
+                        .header("Authorization", bearer(chooser.token()))
+                        .param("currencyCode", "not-a-currency"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
+                        .header("Authorization", bearer(chooser.token()))
+                        .param("billingCycle", "FOREVER"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void scheduledReplacementPreviewAndExecutionUseSeparatePermissionNodes() throws Exception {
+        UUID currentId = UUID.randomUUID();
+        UUID successorId = UUID.randomUUID();
+        String previewBody = "{\"currentPriceId\":\"" + currentId
+                + "\",\"currentVersion\":0,\"successorVersion\":0}";
+        String executionBody = "{\"currentPriceId\":\"" + currentId
+                + "\",\"currentVersion\":0,\"successorVersion\":0,\"reason\":\"Scheduled change\"}";
+        LimitedAdmin previewer = createLimitedAdmin("platform.price_books.preview_replacement");
+        LimitedAdmin scheduler = createLimitedAdmin("platform.price_books.schedule_replacement");
+
+        mockMvc.perform(post("/api/admin/product-prices/{id}/replacement-preview", successorId)
+                        .header("Authorization", bearer(previewer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(previewBody))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/admin/product-prices/{id}/schedule-replacement", successorId)
+                        .header("Authorization", bearer(previewer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(executionBody))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/admin/product-prices/{id}/replacement-preview", successorId)
+                        .header("Authorization", bearer(scheduler.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(previewBody))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/product-prices/{id}/schedule-replacement", successorId)
+                        .header("Authorization", bearer(scheduler.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(executionBody))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void registryCatalogEndpointsRequireAdminRegistryPermission() throws Exception {
         String clientToken = registerClientAndGetToken();
         LimitedAdmin admin = createLimitedAdmin("platform.plans.list");
