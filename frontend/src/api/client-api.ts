@@ -19,6 +19,8 @@ import type {
   Role,
   RoleImpact,
   Subscription,
+  SubscriptionChangeApplyResponse,
+  SubscriptionChangeInput,
   SubscriptionChangeOperation,
   SubscriptionChangePreview,
   UUID,
@@ -193,13 +195,13 @@ export const clientApi = {
 
   subscription: () => client<Subscription>("/api/v1/subscriptions/me"),
   planCatalog: () => client<ClientPlanCatalog>("/api/v1/subscriptions/catalog"),
-  previewSubscriptionChange: (input: unknown) =>
+  previewSubscriptionChange: (input: SubscriptionChangeInput) =>
     client<SubscriptionChangePreview>("/api/v1/subscriptions/preview", { method: "POST", body: jsonBody(input) }),
-  applySubscriptionChange: (input: unknown) =>
-    client<{ subscription: Subscription; preview: SubscriptionChangePreview; operation: SubscriptionChangeOperation }>(
-      "/api/v1/subscriptions/apply",
-      { method: "POST", body: jsonBody(input) },
-    ),
+  applySubscriptionChange: (input: SubscriptionChangeInput) =>
+    client<SubscriptionChangeApplyResponse>("/api/v1/subscriptions/apply", {
+      method: "POST",
+      body: jsonBody(input),
+    }),
   subscriptionChanges: () => client<SubscriptionChangeOperation[]>("/api/v1/subscriptions/changes"),
   cancelSubscriptionChange: (id: UUID) =>
     client<SubscriptionChangeOperation>(`/api/v1/subscriptions/changes/${id}`, { method: "DELETE" }),

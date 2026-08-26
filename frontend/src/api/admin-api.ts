@@ -1,6 +1,7 @@
 import type {
   AccountDirectoryEntry,
   AddOn,
+  AddOnInput,
   AdminAccessOverview,
   AdminMe,
   AdminPermission,
@@ -12,24 +13,36 @@ import type {
   AdminSubscription,
   AdminUser,
   AdminUserCreation,
+  AssignAddOnFeatureInput,
+  AssignPlanFeatureInput,
   AuthResponse,
   BulkOperationResult,
   CommercialOverview,
+  CreatePlanInput,
+  FeatureCatalogAudience,
   FeatureOperationalChange,
+  ManualCheckoutConfirmationInput,
   OperatorAccess,
   PageResponse,
+  PermissionCatalogAudience,
   Plan,
+  PlanBranchInput,
   PlanDeletionPreview,
   PlanDetail,
   PlanFeature,
   PlanSubscriber,
+  PlanSubscriberOwnerLookup,
   QuotaPackage,
+  QuotaPackageInput,
   RegistryFeature,
   RegistryModule,
   RegistrySyncRun,
   RoleHolder,
   Subscription,
   SubscriptionChangeOperation,
+  SubscriptionCheckout,
+  SubscriptionOverridesInput,
+  UpdatePlanInput,
   UUID,
 } from "@/api/contracts";
 import { apiRequest, jsonBody } from "@/api/http";
@@ -163,33 +176,38 @@ export const adminApi = {
   planFeatures: (id: UUID) => admin<PlanFeature[]>(`/plans/${id}/features`),
   planSubscribers: (id: UUID, query: { search?: string; status?: string; page?: number; size?: number }) =>
     admin<PageResponse<PlanSubscriber>>(`/plans/${id}/subscribers`, { query }),
-  createPlan: (input: unknown) => admin<Plan>("/plans", { method: "POST", body: jsonBody(input) }),
-  updatePlan: (id: UUID, input: unknown) => admin<Plan>(`/plans/${id}`, { method: "PUT", body: jsonBody(input) }),
-  duplicatePlan: (id: UUID, input: unknown) =>
+  planSubscribersByOwnerEmail: (id: UUID, query: { ownerEmail: string; page?: number; size?: number }) =>
+    admin<PageResponse<PlanSubscriberOwnerLookup>>(`/plans/${id}/subscribers/by-owner-email`, { query }),
+  createPlan: (input: CreatePlanInput) => admin<Plan>("/plans", { method: "POST", body: jsonBody(input) }),
+  updatePlan: (id: UUID, input: UpdatePlanInput) =>
+    admin<Plan>(`/plans/${id}`, { method: "PUT", body: jsonBody(input) }),
+  duplicatePlan: (id: UUID, input: PlanBranchInput) =>
     admin<Plan>(`/plans/${id}/duplicate`, { method: "POST", body: jsonBody(input) }),
-  revisePlan: (id: UUID, input: unknown) =>
+  revisePlan: (id: UUID, input: PlanBranchInput) =>
     admin<Plan>(`/plans/${id}/revisions`, { method: "POST", body: jsonBody(input) }),
   transitionPlan: (id: UUID, status: string) =>
     admin<Plan>(`/plans/${id}/status`, { method: "PATCH", query: { status } }),
   previewPlanDeletion: (id: UUID) => admin<PlanDeletionPreview>(`/plans/${id}/deletion-preview`),
   deletePlan: (id: UUID, input: { confirmationName: string; expectedVersion: number; previewToken: string }) =>
     admin<void>(`/plans/${id}`, { method: "DELETE", body: jsonBody(input) }),
-  assignPlanFeature: (id: UUID, input: unknown) =>
+  assignPlanFeature: (id: UUID, input: AssignPlanFeatureInput) =>
     admin<PlanFeature>(`/plans/${id}/features`, { method: "POST", body: jsonBody(input) }),
-  updatePlanFeature: (id: UUID, featureId: UUID, input: unknown) =>
+  updatePlanFeature: (id: UUID, featureId: UUID, input: AssignPlanFeatureInput) =>
     admin<PlanFeature>(`/plans/${id}/features/${featureId}`, { method: "PUT", body: jsonBody(input) }),
   removePlanFeature: (id: UUID, featureId: UUID) =>
     admin<void>(`/plans/${id}/features/${featureId}`, { method: "DELETE" }),
   addOns: () => admin<AddOn[]>("/add-ons"),
-  createAddOn: (input: unknown) => admin<AddOn>("/add-ons", { method: "POST", body: jsonBody(input) }),
+  addOn: (id: UUID) => admin<AddOn>(`/add-ons/${id}`),
+  createAddOn: (input: AddOnInput) => admin<AddOn>("/add-ons", { method: "POST", body: jsonBody(input) }),
   reviseAddOn: (id: UUID) => admin<AddOn>(`/add-ons/${id}/revisions`, { method: "POST" }),
-  updateAddOn: (id: UUID, input: unknown) => admin<AddOn>(`/add-ons/${id}`, { method: "PUT", body: jsonBody(input) }),
+  updateAddOn: (id: UUID, input: AddOnInput) =>
+    admin<AddOn>(`/add-ons/${id}`, { method: "PUT", body: jsonBody(input) }),
   deleteAddOn: (id: UUID) => admin<void>(`/add-ons/${id}`, { method: "DELETE" }),
   transitionAddOn: (id: UUID, status: string) =>
     admin<AddOn>(`/add-ons/${id}/status`, { method: "PATCH", query: { status } }),
-  assignAddOnFeature: (id: UUID, input: unknown) =>
+  assignAddOnFeature: (id: UUID, input: AssignAddOnFeatureInput) =>
     admin<AddOn["features"][number]>(`/add-ons/${id}/features`, { method: "POST", body: jsonBody(input) }),
-  updateAddOnFeature: (id: UUID, featureId: UUID, input: unknown) =>
+  updateAddOnFeature: (id: UUID, featureId: UUID, input: AssignAddOnFeatureInput) =>
     admin<AddOn["features"][number]>(`/add-ons/${id}/features/${featureId}`, {
       method: "PUT",
       body: jsonBody(input),
@@ -197,9 +215,10 @@ export const adminApi = {
   removeAddOnFeature: (id: UUID, featureId: UUID) =>
     admin<void>(`/add-ons/${id}/features/${featureId}`, { method: "DELETE" }),
   quotaPackages: () => admin<QuotaPackage[]>("/quota-packages"),
-  createQuotaPackage: (input: unknown) =>
+  quotaPackage: (id: UUID) => admin<QuotaPackage>(`/quota-packages/${id}`),
+  createQuotaPackage: (input: QuotaPackageInput) =>
     admin<QuotaPackage>("/quota-packages", { method: "POST", body: jsonBody(input) }),
-  updateQuotaPackage: (id: UUID, input: unknown) =>
+  updateQuotaPackage: (id: UUID, input: QuotaPackageInput) =>
     admin<QuotaPackage>(`/quota-packages/${id}`, { method: "PUT", body: jsonBody(input) }),
   deleteQuotaPackage: (id: UUID) => admin<void>(`/quota-packages/${id}`, { method: "DELETE" }),
   transitionQuotaPackage: (id: UUID, status: string) =>
@@ -216,13 +235,18 @@ export const adminApi = {
       method: "POST",
       query: { planCode, trialDays },
     }),
-  updateSubscriptionOverrides: (accountId: UUID, input: unknown) =>
+  updateSubscriptionOverrides: (accountId: UUID, input: SubscriptionOverridesInput) =>
     admin<Subscription>(`/subscriptions/account/${accountId}/overrides`, { method: "PATCH", body: jsonBody(input) }),
-  confirmCheckout: (checkoutId: UUID, input: unknown) =>
-    admin<unknown>(`/subscriptions/checkouts/${checkoutId}/confirm-manual`, { method: "POST", body: jsonBody(input) }),
+  confirmCheckout: (checkoutId: UUID, input: ManualCheckoutConfirmationInput) =>
+    admin<SubscriptionCheckout>(`/subscriptions/checkouts/${checkoutId}/confirm-manual`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
   registryInventory: () => admin<RegistryModule[]>("/registry/inventory"),
-  permissionCatalog: () =>
-    admin<RegistryModule[]>("/registry/permission-catalog", { query: { audience: "PLATFORM_ADMIN_ROLE_GRANTABLE" } }),
+  featureCatalog: (audience: FeatureCatalogAudience = "ALL") =>
+    admin<RegistryModule[]>("/registry/feature-catalog", { query: { audience } }),
+  permissionCatalog: (audience: PermissionCatalogAudience = "PLATFORM_ADMIN_ROLE_GRANTABLE") =>
+    admin<RegistryModule[]>("/registry/permission-catalog", { query: { audience } }),
   latestRegistrySync: () => admin<RegistrySyncRun>("/registry/synchronization/latest"),
   featureHistory: (id: UUID) => admin<FeatureOperationalChange[]>(`/registry/features/${id}/control-history`),
   updateFeatureControl: (

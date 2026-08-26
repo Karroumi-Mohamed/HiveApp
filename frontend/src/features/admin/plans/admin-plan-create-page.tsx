@@ -1,10 +1,10 @@
 import { ArrowLeftIcon, CheckCircleIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useBlocker, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { BillingCycle, QuotaLimit } from "@/api/contracts";
+import type { AssignPlanFeatureInput, BillingCycle } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
@@ -18,8 +18,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { prefillFromSource, requiredCreationPermission } from "@/features/admin/plans/plan-create-rules";
 import { cycleText, featureModePresentation, money, selectableCycles } from "@/features/admin/plans/plan-presentation";
+import {
+  adminCommercialKeys,
+  commercialQueryEnabled,
+  invalidateAdminCommercial,
+} from "@/features/commercial/commercial-query";
 
-type StagedFeature = { featureCode: string; mode: string; quotaConfigs: QuotaLimit[] };
+type StagedFeature = AssignPlanFeatureInput;
 
 const STEPS = ["Point de départ", "Identité", "Tarification", "Composition & quotas", "Révision"] as const;
 
@@ -31,11 +36,16 @@ const STEPS = ["Point de départ", "Identité", "Tarification", "Composition & q
  */
 export function AdminPlanCreatePage() {
   const session = useAdminSession();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [step, setStep] = useState(0);
 
-  const plans = useQuery({ queryKey: ["admin", "plans"], queryFn: adminApi.plans });
+  const plans = useQuery({
+    queryKey: adminCommercialKeys.plans.list(),
+    queryFn: adminApi.plans,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList),
+  });
   const [sourceId, setSourceId] = useState(params.get("from") ?? "");
   const source = (plans.data ?? []).find((plan) => plan.id === sourceId);
 
@@ -55,17 +65,17 @@ export function AdminPlanCreatePage() {
     setFields(prefillFromSource(source));
   }, [source, fields.name]);
 
-  const canReadCatalog = session.can(adminPermissions.registryRead);
+  const canReadCatalog = session.can(adminPermissions.registryFeatureCatalog);
   const catalog = useQuery({
-    queryKey: ["admin", "registry", "plan-features"],
-    queryFn: adminApi.registryInventory,
-    enabled: canReadCatalog,
+    queryKey: adminCommercialKeys.registry.featureCatalog("PLAN_ASSIGNABLE"),
+    queryFn: () => adminApi.featureCatalog("PLAN_ASSIGNABLE"),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog),
   });
   const canPreviewSource = session.can(adminPermissions.plansListFeatures);
   const sourceFeatures = useQuery({
-    queryKey: ["admin", "plans", sourceId, "features"],
+    queryKey: adminCommercialKeys.plans.features(sourceId),
     queryFn: () => adminApi.planFeatures(sourceId),
-    enabled: Boolean(sourceId) && canPreviewSource,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansListFeatures, Boolean(sourceId)),
   });
 
   const canStageComposition = !source && canReadCatalog && session.can(adminPermissions.plansAssignFeature);
@@ -92,6 +102,7 @@ export function AdminPlanCreatePage() {
       return source ? adminApi.duplicatePlan(source.id, input) : adminApi.createPlan({ ...input, features: staged });
     },
     onSuccess: (plan) => {
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
       completedRef.current = true;
       toast.success("Brouillon créé", { description: "Activez-le depuis le cycle de vie une fois vérifié." });
       navigate(`/admin/plans/${plan.id}/features`);
@@ -370,7 +381,11 @@ export function AdminPlanCreatePage() {
                                 setStaged((current) =>
                                   current.map((item, at) =>
                                     at === index
-                                      ? { ...item, mode, quotaConfigs: mode === "INCLUDED" ? item.quotaConfigs : [] }
+                                      ? {
+                                          ...item,
+                                          mode: mode as AssignPlanFeatureInput["mode"],
+                                          quotaConfigs: mode === "INCLUDED" ? item.quotaConfigs : [],
+                                        }
                                       : item,
                                   ),
                                 )

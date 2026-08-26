@@ -1,5 +1,7 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { AppProviders } from "@/app/providers";
+import { adminPermissions, clientPermissions } from "@/auth/permissions";
+import { AdminReadPermissionGate, ClientReadPermissionGate } from "@/components/patterns/permission-gate";
 import { AdminLayout } from "@/features/admin/admin-layout";
 import {
   AdminAccountsPlaceholderPage,
@@ -60,21 +62,122 @@ const router = createBrowserRouter([
     path: "/admin",
     element: <AdminLayout />,
     children: [
-      { index: true, element: <AdminOverviewPage /> },
+      {
+        index: true,
+        element: (
+          <AdminReadPermissionGate anyOf={[adminPermissions.accessOverview, adminPermissions.plansOverview]}>
+            <AdminOverviewPage />
+          </AdminReadPermissionGate>
+        ),
+      },
       { path: "operators", element: <AdminOperatorsPage /> },
       { path: "operators/:operatorId", element: <AdminOperatorDetailPage /> },
       { path: "roles", element: <AdminRolesPage /> },
       { path: "roles/:roleId", element: <AdminRoleDetailPage /> },
-      { path: "plans", element: <AdminPlansPage /> },
-      { path: "plans/new", element: <AdminPlanCreatePage /> },
-      { path: "plans/:planId", element: <AdminPlansPage /> },
-      { path: "plans/:planId/:tab", element: <AdminPlansPage /> },
-      { path: "subscriptions", element: <AdminSubscriptionsPage /> },
-      { path: "subscriptions/:accountId", element: <AdminSubscriptionsPage /> },
-      { path: "add-ons", element: <AdminAddOnsPage /> },
-      { path: "add-ons/:addOnId", element: <AdminAddOnsPage /> },
-      { path: "quota-packages", element: <AdminQuotaPackagesPage /> },
-      { path: "quota-packages/:packageId", element: <AdminQuotaPackagesPage /> },
+      {
+        path: "plans",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.plansList]}>
+            <AdminPlansPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "plans/new",
+        element: (
+          <AdminReadPermissionGate anyOf={[adminPermissions.plansCreate, adminPermissions.plansDuplicate]}>
+            <AdminPlanCreatePage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "plans/:planId",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.plansReadDetail]}>
+            <AdminPlansPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "plans/:planId/features",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.plansReadDetail, adminPermissions.plansListFeatures]}>
+            <AdminPlansPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "plans/:planId/schema",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.plansReadDetail, adminPermissions.plansListFeatures]}>
+            <AdminPlansPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "plans/:planId/subscribers",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.plansReadDetail, adminPermissions.plansListSubscribers]}>
+            <AdminPlansPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "plans/:planId/:tab",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.plansReadDetail]}>
+            <AdminPlansPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "subscriptions",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.subscriptionsRead, adminPermissions.subscriptionsSearch]}>
+            <AdminSubscriptionsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "subscriptions/:accountId",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.subscriptionsRead]}>
+            <AdminSubscriptionsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "add-ons",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.addOnsList]}>
+            <AdminAddOnsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "add-ons/:addOnId",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.addOnsReadDetail]}>
+            <AdminAddOnsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "quota-packages",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.quotaPackagesList]}>
+            <AdminQuotaPackagesPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "quota-packages/:packageId",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.quotaPackagesReadDetail]}>
+            <AdminQuotaPackagesPage />
+          </AdminReadPermissionGate>
+        ),
+      },
       { path: "features", element: <AdminFeaturesPage /> },
       { path: "features/:featureId", element: <AdminFeaturesPage /> },
       { path: "role-templates", element: <AdminRoleTemplatesPlaceholderPage /> },
@@ -107,7 +210,14 @@ const router = createBrowserRouter([
       { path: "roles/:roleId", element: <ClientRolesPage /> },
       { path: "collaborations", element: <ClientCollaborationsPage /> },
       { path: "collaborations/:collaborationId", element: <ClientCollaborationsPage /> },
-      { path: "subscription", element: <ClientSubscriptionPage /> },
+      {
+        path: "subscription",
+        element: (
+          <ClientReadPermissionGate allOf={[clientPermissions.subscriptionRead]}>
+            <ClientSubscriptionPage />
+          </ClientReadPermissionGate>
+        ),
+      },
       { path: "me", element: <ClientMePage /> },
     ],
   },

@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
+import { clientCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
 
 export function ClientOverviewPage() {
   const session = useClientSession();
@@ -16,15 +17,16 @@ export function ClientOverviewPage() {
   const canRoles = session.can(clientPermissions.rolesRead);
   const canCollaborations =
     session.can(clientPermissions.collaborationsRead) || session.can(clientPermissions.incomingCollaborationsRead);
+  const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
   const [members, roles, collaborations, subscription] = useQueries({
     queries: [
       { queryKey: ["client", "members"], queryFn: clientApi.members, enabled: canMembers },
       { queryKey: ["client", "roles"], queryFn: clientApi.roles, enabled: canRoles },
       { queryKey: ["client", "collaborations"], queryFn: clientApi.collaborations, enabled: canCollaborations },
       {
-        queryKey: ["client", "subscription"],
+        queryKey: clientCommercialKeys.subscription(commercialContext),
         queryFn: clientApi.subscription,
-        enabled: session.can(clientPermissions.subscriptionRead),
+        enabled: commercialQueryEnabled(session.can, clientPermissions.subscriptionRead),
       },
     ],
   });

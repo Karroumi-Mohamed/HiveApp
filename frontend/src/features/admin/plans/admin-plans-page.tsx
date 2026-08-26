@@ -18,6 +18,7 @@ import type {
   BillingCycle,
   Plan,
   PlanFeature,
+  PlanFeatureMode,
   PlanStatus,
   QuotaLimit,
   QuotaPackage,
@@ -61,6 +62,11 @@ import {
   statusText,
 } from "@/features/admin/plans/plan-presentation";
 import { quotaLinesOf } from "@/features/admin/plans/plan-schema-model";
+import {
+  adminCommercialKeys,
+  commercialQueryEnabled,
+  invalidateAdminCommercial,
+} from "@/features/commercial/commercial-query";
 
 type PlanFeatureCommercialRow = {
   feature: PlanFeature;
@@ -111,10 +117,10 @@ function PlanFormDialog({
       if (mode === "edit" && source) return adminApi.updatePlan(source.id, input);
       if (mode === "duplicate" && source) return adminApi.duplicatePlan(source.id, input);
       if (mode === "revise" && source) return adminApi.revisePlan(source.id, input);
-      return adminApi.createPlan(input);
+      return adminApi.createPlan({ ...input, features: [] });
     },
     onSuccess: (plan) => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "plans"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
       toast.success(mode === "edit" ? "Forfait mis à jour" : "Brouillon créé");
       setOpen(false);
       navigate(`/admin/plans/${plan.id}`);
@@ -255,7 +261,7 @@ function PlanFeatureDialog({
     else onOpenChange?.(next);
   };
   const [featureCode, setFeatureCode] = useState(item?.featureCode ?? "");
-  const [mode, setMode] = useState(item?.mode ?? "INCLUDED");
+  const [mode, setMode] = useState<PlanFeatureMode>(item?.mode ?? "INCLUDED");
   const [quotas, setQuotas] = useState<QuotaLimit[]>(item?.quotaConfigs ?? []);
   const definition = available.find((feature) => feature.code === featureCode);
   const save = useMutation({
@@ -264,7 +270,7 @@ function PlanFeatureDialog({
       return item ? adminApi.updatePlanFeature(plan.id, item.id, input) : adminApi.assignPlanFeature(plan.id, input);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "plans", plan.id] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
       toast.success(item ? "Configuration mise à jour" : "Fonctionnalité ajoutée");
       setOpen(false);
     },
@@ -309,7 +315,7 @@ function PlanFeatureDialog({
           </div>
           <div className="space-y-2">
             <Label>Disponibilité dans le forfait</Label>
-            <Select onValueChange={setMode} value={mode}>
+            <Select onValueChange={(value) => setMode(value as PlanFeatureMode)} value={mode}>
               <SelectTrigger aria-label="Mode de la fonctionnalité">
                 <SelectValue />
               </SelectTrigger>
@@ -364,27 +370,28 @@ function PlanFeatures({ plan }: { plan: Plan }) {
   const canSeeAddOns = session.can(adminPermissions.addOnsList);
   const canSeeCapacityPacks = session.can(adminPermissions.quotaPackagesList);
   const features = useQuery({
-    queryKey: ["admin", "plans", plan.id, "features"],
+    queryKey: adminCommercialKeys.plans.features(plan.id),
     queryFn: () => adminApi.planFeatures(plan.id),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansListFeatures),
   });
   const catalog = useQuery({
-    queryKey: ["admin", "registry", "plan-features"],
-    queryFn: adminApi.registryInventory,
+    queryKey: adminCommercialKeys.registry.featureCatalog("PLAN_ASSIGNABLE"),
+    queryFn: () => adminApi.featureCatalog("PLAN_ASSIGNABLE"),
     // Without registry access the rows fall back to raw codes instead of provoking 403s.
-    enabled: session.can(adminPermissions.registryRead),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog),
   });
   const addOns = useQuery({
-    queryKey: ["admin", "add-ons"],
+    queryKey: adminCommercialKeys.addOns.list(),
     queryFn: adminApi.addOns,
-    enabled: canSeeAddOns,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList),
   });
   const quotaPackages = useQuery({
-    queryKey: ["admin", "quota-packages"],
+    queryKey: adminCommercialKeys.quotaPackages.list(),
     queryFn: adminApi.quotaPackages,
-    enabled: canSeeCapacityPacks,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesList),
   });
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ["admin", "plans", plan.id] });
+    void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
   };
   const remove = useMutation({
     mutationFn: (id: string) => adminApi.removePlanFeature(plan.id, id),
@@ -776,12 +783,13 @@ function PlanFeatureActions({
 }
 
 function PlanSubscribers({ plan }: { plan: Plan }) {
+  const session = useAdminSession();
   const [search, setSearch] = useState("");
   const deferred = useDeferredValue(search);
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(0);
   const subscribers = useQuery({
-    queryKey: ["admin", "plans", plan.id, "subscribers", deferred, status, page],
+    queryKey: adminCommercialKeys.plans.subscribers(plan.id, { search: deferred, status, page }),
     queryFn: () =>
       adminApi.planSubscribers(plan.id, {
         search: deferred || undefined,
@@ -789,6 +797,7 @@ function PlanSubscribers({ plan }: { plan: Plan }) {
         page,
         size: 20,
       }),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansListSubscribers),
   });
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
@@ -895,9 +904,9 @@ function DeletePlanDialog({ plan }: { plan: Plan }) {
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const preview = useQuery({
-    queryKey: ["admin", "plans", plan.id, "delete-preview"],
+    queryKey: adminCommercialKeys.plans.deletePreview(plan.id),
     queryFn: () => adminApi.previewPlanDeletion(plan.id),
-    enabled: open,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansPreviewDelete, open),
   });
   const remove = useMutation({
     mutationFn: () =>
@@ -907,7 +916,7 @@ function DeletePlanDialog({ plan }: { plan: Plan }) {
         previewToken: preview.data?.previewToken ?? "",
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "plans"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
       toast.success("Forfait supprimé");
       navigate("/admin/plans");
     },
@@ -981,11 +990,15 @@ function DeletePlanDialog({ plan }: { plan: Plan }) {
 function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
-  const plan = useQuery({ queryKey: ["admin", "plans", id], queryFn: () => adminApi.plan(id) });
+  const plan = useQuery({
+    queryKey: adminCommercialKeys.plans.detail(id),
+    queryFn: () => adminApi.plan(id),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansReadDetail),
+  });
   const transition = useMutation({
     mutationFn: (status: PlanStatus) => adminApi.transitionPlan(id, status),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "plans"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
       toast.success("Cycle de vie mis à jour");
     },
   });
@@ -1192,7 +1205,11 @@ export function AdminPlansPage() {
   const session = useAdminSession();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
-  const plans = useQuery({ queryKey: ["admin", "plans"], queryFn: adminApi.plans });
+  const plans = useQuery({
+    queryKey: adminCommercialKeys.plans.list(),
+    queryFn: adminApi.plans,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, !planId),
+  });
   const filtered = useMemo(
     () =>
       (plans.data ?? []).filter(

@@ -201,6 +201,32 @@ export type CommercialOverview = {
 export type BillingCycle = "MONTHLY" | "YEARLY" | "FOREVER";
 export type PlanStatus = "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
 export type SubscriptionStatus = "TRIALING" | "ACTIVE" | "PAST_DUE" | "SUSPENDED" | "CANCELLED" | "EXPIRED";
+export type PlanFeatureMode = "INCLUDED" | "OPTIONAL_ADD_ON" | "BLOCKED_FOR_PLAN";
+export type QuotaLimitMode = "FINITE" | "UNLIMITED";
+
+export type QuotaLimitInput = {
+  resource: string;
+  mode: QuotaLimitMode;
+  limit: number | null;
+};
+
+export type AssignPlanFeatureInput = {
+  featureCode: string;
+  mode: PlanFeatureMode;
+  quotaConfigs: QuotaLimitInput[];
+};
+
+export type CreatePlanInput = {
+  name: string;
+  description: string | null;
+  price: number;
+  currencyCode: string;
+  billingCycle: BillingCycle;
+  features: AssignPlanFeatureInput[];
+};
+
+export type UpdatePlanInput = Omit<CreatePlanInput, "features">;
+export type PlanBranchInput = UpdatePlanInput;
 
 export type Plan = {
   id: UUID;
@@ -229,8 +255,8 @@ export type PlanDetail = Plan & {
   warnings: string[];
 };
 
-export type QuotaLimit = { resource: string; mode: string; limit: number | null };
-export type PlanFeature = { id: UUID; featureCode: string; mode: string; quotaConfigs: QuotaLimit[] };
+export type QuotaLimit = { resource: string; mode: QuotaLimitMode; limit: number | null };
+export type PlanFeature = { id: UUID; featureCode: string; mode: PlanFeatureMode; quotaConfigs: QuotaLimit[] };
 
 export type PlanSubscriber = {
   subscriptionId: UUID;
@@ -241,6 +267,11 @@ export type PlanSubscriber = {
   configuredRecurringPrice: number;
   configuredRecurringPriceCurrencyCode: string;
   currentPeriodEnd: Instant | null;
+};
+
+export type PlanSubscriberOwnerLookup = {
+  ownerEmail: string;
+  subscriber: PlanSubscriber;
 };
 
 export type PlanDeletionPreview = {
@@ -279,6 +310,23 @@ export type AddOn = {
   features: Array<{ id: UUID; featureCode: string; quotaConfigs: QuotaLimit[] }>;
 };
 
+export type AddOnInput = {
+  name: string;
+  description: string | null;
+  price: number;
+  currencyCode: string;
+  billingCycle: BillingCycle;
+  allowedPlanCodes: string[];
+  blockedPlanCodes: string[];
+  dependencyCodes: string[];
+  exclusionCodes: string[];
+};
+
+export type AssignAddOnFeatureInput = {
+  featureCode: string;
+  quotaConfigs: QuotaLimitInput[];
+};
+
 export type QuotaPackage = {
   id: UUID;
   code: string;
@@ -297,6 +345,28 @@ export type QuotaPackage = {
   allowedPlanCodes: string[];
   allowedAddOnCodes: string[];
 };
+
+export type QuotaPackageInput = {
+  name: string;
+  description: string | null;
+  featureCode: string;
+  resource: string;
+  capacityPerUnit: number;
+  price: number;
+  currencyCode: string;
+  billingCycle: BillingCycle;
+  repeatable: boolean;
+  maximumQuantity: number;
+  allowedPlanCodes: string[];
+  allowedAddOnCodes: string[];
+};
+
+export type FeatureCatalogAudience = "ALL" | "PLAN_ASSIGNABLE" | "PUBLIC_CATALOG";
+export type PermissionCatalogAudience =
+  | "ALL"
+  | "CLIENT_ROLE_GRANTABLE"
+  | "PLATFORM_ADMIN_ROLE_GRANTABLE"
+  | "B2B_DELEGATABLE";
 
 export type RegistryPermission = AdminPermission;
 export type RegistryFeature = {
@@ -703,6 +773,15 @@ export type SubscriptionChangePreview = {
   }>;
 };
 
+export type QuotaPackageSelection = { packageCode: string; quantity: number };
+
+export type SubscriptionChangeInput = {
+  targetPlanCode: string;
+  addOnCodes: string[];
+  quotaPackages: QuotaPackageSelection[];
+  timing: "IMMEDIATE" | "AT_RENEWAL";
+};
+
 export type Subscription = {
   id: UUID;
   plan: { code: string; name: string; basePrice: number; currencyCode: string };
@@ -752,4 +831,33 @@ export type SubscriptionChangeOperation = {
   targetPlanCode: string;
   attentionReason: string | null;
   checkout: { id: UUID; status: string; amount: number; currencyCode: string } | null;
+};
+
+export type SubscriptionChangeApplyResponse = {
+  subscription: Subscription;
+  preview: SubscriptionChangePreview;
+  operation: SubscriptionChangeOperation;
+};
+
+export type SubscriptionOverridesInput = {
+  addOnCodes: string[];
+  quotaPackages: QuotaPackageSelection[];
+};
+
+export type ManualCheckoutConfirmationInput = {
+  reference: string;
+  reason: string;
+};
+
+export type SubscriptionCheckout = {
+  id: UUID;
+  status: "PENDING_CONFIRMATION" | "CONFIRMED" | "FAILED" | "CANCELLED";
+  amount: number;
+  currencyCode: string;
+  gatewayAttemptStatus: "SUCCESS" | "FAILED" | "PENDING" | null;
+  gatewayReference: string | null;
+  gatewayFailureReason: string | null;
+  confirmationSource: "MANUAL_OPERATOR" | "TRUSTED_PROVIDER" | null;
+  confirmationReference: string | null;
+  confirmedAt: Instant | null;
 };
