@@ -5,6 +5,8 @@ import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
+import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
@@ -17,6 +19,7 @@ import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.QuotaLimitRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
 import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
@@ -51,6 +54,12 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
     @Autowired
     private PlanFeatureRepository planFeatureRepository;
+
+    @Autowired
+    private AddOnRepository addOnRepository;
+
+    @Autowired
+    private ProductPriceRepository productPriceRepository;
 
     @Autowired
     private FeatureRepository featureRepository;
@@ -141,9 +150,12 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID planFeatureId = UUID.fromString(objectMapper.readTree(assigned).get("id").asText());
+        publishPlanPriceDrafts(adminToken, planId);
 
         mockMvc.perform(patch("/api/admin/plans/{planId}/status", planId)
                         .param("status", "ACTIVE")
+                        .param("expectedVersion", String.valueOf(
+                                planRepository.findById(planId).orElseThrow().getVersion()))
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(
@@ -157,6 +169,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
         mockMvc.perform(patch("/api/admin/plans/{planId}/status", planId)
                         .param("status", "ACTIVE")
+                        .param("expectedVersion", String.valueOf(
+                                planRepository.findById(planId).orElseThrow().getVersion()))
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
@@ -289,8 +303,16 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         var createdPackage = objectMapper.readTree(created);
         UUID packageId = UUID.fromString(createdPackage.get("id").asText());
         String packageCode = createdPackage.get("code").asText();
+        var activationPreview = objectMapper.readTree(mockMvc.perform(
+                        get("/api/admin/quota-packages/{id}/activation-preview", packageId)
+                                .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
         mockMvc.perform(patch("/api/admin/quota-packages/{id}/status", packageId)
                         .param("status", "ACTIVE")
+                        .param("expectedVersion", activationPreview.get("expectedVersion").asText())
+                        .param("reason", "Publish test capacity package")
+                        .param("activationPreviewToken", activationPreview.get("previewToken").asText())
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk());
 
@@ -370,12 +392,15 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new UpdatePlanRequest(
-                                "Unsafe live edit", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY))))
+                                "Unsafe live edit", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                                planRepository.findById(freePlanId).orElseThrow().getVersion()))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message", containsString("create a draft revision")));
 
         mockMvc.perform(patch("/api/admin/plans/{planId}/status", freePlanId)
                         .param("status", "INACTIVE")
+                        .param("expectedVersion", String.valueOf(
+                                planRepository.findById(freePlanId).orElseThrow().getVersion()))
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message", containsString("default FREE plan must remain ACTIVE")));
@@ -397,7 +422,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                                 "Editable plan basics",
                                 new BigDecimal("18.00"),
                                 "USD",
-                                BillingCycle.YEARLY
+                                BillingCycle.YEARLY,
+                                planRepository.findById(draftPlanId).orElseThrow().getVersion()
                         ))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Temporary Plan Edited"))
@@ -442,7 +468,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .content(objectMapper.writeValueAsString(new DeletePlanRequest(
                                 freePreview.planName(), freePreview.expectedVersion(), freePreview.previewToken())))
                         .header("Authorization", bearer(adminToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
                 .andExpect(jsonPath("$.message", containsString("cannot be deleted")));
     }
 
@@ -451,6 +478,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         String adminToken = loginAdminAndGetToken();
         var free = planRepository.findByCode("FREE").orElseThrow();
         mockMvc.perform(post("/api/admin/plans/{sourcePlanId}/revisions", free.getId())
+                        .param("expectedVersion", String.valueOf(free.getVersion()))
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new PlanBranchRequest(
@@ -464,6 +492,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(jsonPath("$.creationReason").value("REVISED"));
 
         mockMvc.perform(post("/api/admin/plans/{sourcePlanId}/duplicate", free.getId())
+                        .param("expectedVersion", String.valueOf(
+                                planRepository.findById(free.getId()).orElseThrow().getVersion()))
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new PlanBranchRequest(
@@ -495,7 +525,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new UpdatePlanRequest(
-                                "Edited empty draft", null, BigDecimal.ONE, "USD", BillingCycle.MONTHLY))))
+                                "Edited empty draft", null, BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                                stalePreview.expectedVersion()))))
                 .andExpect(status().isOk());
 
         mockMvc.perform(delete("/api/admin/plans/{planId}", planId)
@@ -525,8 +556,11 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 "platform.company", PlanFeatureMode.OPTIONAL_ADD_ON, List.of()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mode").value("OPTIONAL_ADD_ON"));
+        publishPlanPriceDrafts(adminToken, planId);
         mockMvc.perform(patch("/api/admin/plans/{planId}/status", planId)
                         .param("status", "ACTIVE")
+                        .param("expectedVersion", String.valueOf(
+                                planRepository.findById(planId).orElseThrow().getVersion()))
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
@@ -545,14 +579,19 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         String addOnCode = createdAddOn.get("code").asText();
 
         mockMvc.perform(post("/api/admin/add-ons/{addOnId}/features", addOnId)
+                        .param("expectedVersion", String.valueOf(
+                                addOnRepository.findById(addOnId).orElseThrow().getRowVersion()))
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
                                 new AssignAddOnFeatureRequest("platform.company", List.of()))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.featureCode").value("platform.company"));
+        publishAddOnPriceDrafts(adminToken, addOnId);
         mockMvc.perform(patch("/api/admin/add-ons/{addOnId}/status", addOnId)
                         .param("status", "ACTIVE")
+                        .param("expectedVersion", String.valueOf(
+                                addOnRepository.findById(addOnId).orElseThrow().getRowVersion()))
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
@@ -568,6 +607,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         + "')].addOns[0].features[0].featureCode").value("platform.company"));
 
         String revisionResponse = mockMvc.perform(post("/api/admin/add-ons/{addOnId}/revisions", addOnId)
+                        .param("expectedVersion", String.valueOf(
+                                addOnRepository.findById(addOnId).orElseThrow().getRowVersion()))
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
@@ -579,9 +620,12 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         var revision = objectMapper.readTree(revisionResponse);
         UUID revisionId = UUID.fromString(revision.get("id").asText());
         String revisionCode = revision.get("code").asText();
+        publishAddOnPriceDrafts(adminToken, revisionId);
 
         mockMvc.perform(patch("/api/admin/add-ons/{addOnId}/status", revisionId)
                         .param("status", "ACTIVE")
+                        .param("expectedVersion", String.valueOf(
+                                addOnRepository.findById(revisionId).orElseThrow().getRowVersion()))
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
@@ -605,6 +649,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
             AssignPlanFeatureRequest request
     ) throws Exception {
         return mockMvc.perform(post("/api/admin/plans/{planId}/features", planId)
+                .param("expectedVersion", String.valueOf(
+                        planRepository.findById(planId).orElseThrow().getVersion()))
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)));
@@ -617,6 +663,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
             AssignPlanFeatureRequest request
     ) throws Exception {
         return mockMvc.perform(put("/api/admin/plans/{planId}/features/{planFeatureId}", planId, planFeatureId)
+                .param("expectedVersion", String.valueOf(
+                        planRepository.findById(planId).orElseThrow().getVersion()))
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)));
@@ -662,6 +710,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
     private UUID duplicatePlan(String adminToken, UUID sourcePlanId, PlanBranchRequest request) throws Exception {
         String response = mockMvc.perform(post("/api/admin/plans/{sourcePlanId}/duplicate", sourcePlanId)
+                        .param("expectedVersion", String.valueOf(
+                                planRepository.findById(sourcePlanId).orElseThrow().getVersion()))
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -693,5 +743,32 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .getResponse()
                 .getContentAsString();
         return UUID.fromString(objectMapper.readTree(response).get("id").asText());
+    }
+
+    private void publishPlanPriceDrafts(String token, UUID planId) throws Exception {
+        for (var price : productPriceRepository.findAllByPlanId(planId)) {
+            if (price.getStatus()
+                    == com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.DRAFT) {
+                publishPrice(token, price.getId(), price.getVersion());
+            }
+        }
+    }
+
+    private void publishAddOnPriceDrafts(String token, UUID addOnId) throws Exception {
+        for (var price : productPriceRepository.findAllByAddOnId(addOnId)) {
+            if (price.getStatus()
+                    == com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.DRAFT) {
+                publishPrice(token, price.getId(), price.getVersion());
+            }
+        }
+    }
+
+    private void publishPrice(String token, UUID priceId, long version) throws Exception {
+        mockMvc.perform(post("/api/admin/product-prices/{id}/activate", priceId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ProductPriceVersionRequest(
+                                version, "Publish test price"))))
+                .andExpect(status().isOk());
     }
 }

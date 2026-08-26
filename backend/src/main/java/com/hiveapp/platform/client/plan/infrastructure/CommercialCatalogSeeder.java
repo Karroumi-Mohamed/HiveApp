@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageCreationReason;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
@@ -199,6 +200,7 @@ public class CommercialCatalogSeeder {
             quotaPackage.setAllowedPlanCodes(new LinkedHashSet<>(specification.allowedPlanCodes()));
             quotaPackage.setAllowedAddOnCodes(new LinkedHashSet<>());
             quotaPackage.setStatus(QuotaPackageStatus.ACTIVE);
+            quotaPackage.setCreationReason(QuotaPackageCreationReason.SEEDED);
             quotaPackageRepository.save(quotaPackage);
             created++;
         }

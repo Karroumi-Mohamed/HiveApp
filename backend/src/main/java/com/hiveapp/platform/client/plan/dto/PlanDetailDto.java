@@ -29,6 +29,7 @@ public record PlanDetailDto(
         long activeSubscriberCount,
         long trialingSubscriberCount,
         long currentSubscriberCount,
+        long affectedSubscriptionCount,
         long historicalSubscriberCount,
         @ExactDecimal BigDecimal configuredRecurringPriceTotal,
         String configuredRecurringPriceCurrencyCode,
@@ -49,7 +50,8 @@ public record PlanDetailDto(
         this(id, code, name, description, price, currencyCode, billingCycle, status,
                 lineageId, revisionNumber, sourcePlanId, creationReason, featureCount,
                 quotaConfiguredFeatureCount, activeSubscriberCount, trialingSubscriberCount,
-                currentSubscriberCount, historicalSubscriberCount, configuredRecurringPriceTotal,
+                currentSubscriberCount, currentSubscriberCount, historicalSubscriberCount,
+                configuredRecurringPriceTotal,
                 configuredRecurringPriceCurrencyCode, warnings,
                 PlanExtensionPolicy.OPEN_COMPATIBLE, ProductSalesVisibility.PUBLIC, 0L);
     }

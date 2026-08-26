@@ -52,7 +52,8 @@ public class ProductPriceBackfill {
     }
 
     private int ensure(Plan plan) {
-        if (plan.getStatus() == PlanStatus.DRAFT || !recurring(plan.getBillingCycle())
+        if ((plan.getStatus() != PlanStatus.ACTIVE && plan.getStatus() != PlanStatus.INACTIVE)
+                || !recurring(plan.getBillingCycle())
                 || exists(ProductPriceOwnerType.PLAN, plan.getId(),
                 plan.getCurrencyCode(), plan.getBillingCycle())) {
             return 0;
@@ -64,7 +65,8 @@ public class ProductPriceBackfill {
     }
 
     private int ensure(AddOn addOn) {
-        if (addOn.getStatus() == AddOnStatus.DRAFT || !recurring(addOn.getBillingCycle())
+        if ((addOn.getStatus() != AddOnStatus.ACTIVE && addOn.getStatus() != AddOnStatus.INACTIVE)
+                || !recurring(addOn.getBillingCycle())
                 || exists(ProductPriceOwnerType.ADD_ON, addOn.getId(),
                 addOn.getCurrencyCode(), addOn.getBillingCycle())) {
             return 0;
@@ -76,7 +78,9 @@ public class ProductPriceBackfill {
     }
 
     private int ensure(QuotaPackage item) {
-        if (item.getStatus() == QuotaPackageStatus.DRAFT || !recurring(item.getBillingCycle())
+        if ((item.getStatus() != QuotaPackageStatus.ACTIVE
+                && item.getStatus() != QuotaPackageStatus.INACTIVE)
+                || !recurring(item.getBillingCycle())
                 || exists(ProductPriceOwnerType.QUOTA_PACKAGE, item.getId(),
                 item.getCurrencyCode(), item.getBillingCycle())) {
             return 0;

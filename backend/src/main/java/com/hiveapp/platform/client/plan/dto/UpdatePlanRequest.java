@@ -8,6 +8,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.PositiveOrZero;
 
 import java.math.BigDecimal;
 
@@ -16,5 +17,6 @@ public record UpdatePlanRequest(
         @Size(max = 1000) String description,
         @ExactDecimal @NotNull @DecimalMin("0.0") @Digits(integer = 15, fraction = 4) BigDecimal price,
         @NotBlank @Pattern(regexp = "(?i)[A-Z]{3}", message = "must be a three-letter ISO currency code") String currencyCode,
-        @NotNull BillingCycle billingCycle
+        @NotNull BillingCycle billingCycle,
+        @NotNull @PositiveOrZero Long expectedVersion
 ) {}

@@ -9,6 +9,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.PositiveOrZero;
 
 import java.math.BigDecimal;
 import java.util.Set;
@@ -25,5 +26,6 @@ public record UpdateQuotaPackageRequest(
         boolean repeatable,
         @Min(1) int maximumQuantity,
         Set<@NotBlank @Size(max = 100) String> allowedPlanCodes,
-        Set<@NotBlank @Size(max = 100) String> allowedAddOnCodes
+        Set<@NotBlank @Size(max = 100) String> allowedAddOnCodes,
+        @NotNull @PositiveOrZero Long expectedVersion
 ) {}

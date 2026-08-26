@@ -8,6 +8,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.PositiveOrZero;
 
 import java.math.BigDecimal;
 import java.util.Set;
@@ -21,5 +22,6 @@ public record UpdateAddOnRequest(
         Set<@NotBlank @Size(max = 100) String> allowedPlanCodes,
         Set<@NotBlank @Size(max = 100) String> blockedPlanCodes,
         Set<@NotBlank @Size(max = 100) String> dependencyCodes,
-        Set<@NotBlank @Size(max = 100) String> exclusionCodes
+        Set<@NotBlank @Size(max = 100) String> exclusionCodes,
+        @NotNull @PositiveOrZero Long expectedVersion
 ) {}

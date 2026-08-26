@@ -50,6 +50,13 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(409, ErrorCode.PRICE_ENTRY_OVERLAP, "Conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(DraftSuccessorExistsException.class)
+    public ResponseEntity<ApiError> handleDraftSuccessorExists(DraftSuccessorExistsException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.DRAFT_SUCCESSOR_EXISTS, "Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(StaleResourceVersionException.class)
     public ResponseEntity<ApiError> handleStaleResourceVersion(StaleResourceVersionException ex) {
         return ResponseEntity

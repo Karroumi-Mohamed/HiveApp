@@ -27,6 +27,10 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
 
     List<Subscription> findAllByAccountIdAndStatusIn(UUID accountId, Collection<SubscriptionStatus> statuses);
 
+    Optional<Subscription> findTopByAccountIdAndStatusInOrderByCreatedAtDesc(
+            UUID accountId,
+            Collection<SubscriptionStatus> statuses);
+
     List<Subscription> findAllByPlan_IdAndStatusInOrderByCreatedAtDesc(UUID planId, Collection<SubscriptionStatus> statuses);
 
     @Query(value = "select subscription from Subscription subscription "
@@ -68,6 +72,16 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
     long countByPlan_IdAndStatus(UUID planId, SubscriptionStatus status);
 
     long countByPlan_IdAndStatusIn(UUID planId, Collection<SubscriptionStatus> statuses);
+
+    @Query("""
+            select subscription.plan.id, count(subscription)
+            from Subscription subscription
+            where subscription.plan.id in :planIds and subscription.status in :statuses
+            group by subscription.plan.id
+            """)
+    List<Object[]> countCurrentByPlanIds(
+            @Param("planIds") Collection<UUID> planIds,
+            @Param("statuses") Collection<SubscriptionStatus> statuses);
 
     default Optional<Subscription> findActiveByAccountId(UUID accountId) {
         return findTopByAccountIdAndStatusOrderByCreatedAtDesc(accountId, SubscriptionStatus.ACTIVE);

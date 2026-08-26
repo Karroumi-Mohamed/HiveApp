@@ -18,10 +18,17 @@ public record ExtensionCompatibilityDto(
         List<ExtensionAvailabilityIssue> issues,
         int applicablePriceCount,
         boolean directlySelectable,
-        Set<String> requiredAddOnCodes
+        Set<String> requiredAddOnCodes,
+        Set<String> featureCodes,
+        String quotaFeatureCode,
+        String quotaResource,
+        Long capacityPerUnit,
+        Boolean repeatable,
+        Integer maximumQuantity
 ) {
     public ExtensionCompatibilityDto {
         issues = List.copyOf(issues == null ? List.of() : issues);
         requiredAddOnCodes = Set.copyOf(requiredAddOnCodes == null ? Set.of() : requiredAddOnCodes);
+        featureCodes = Set.copyOf(featureCodes == null ? Set.of() : featureCodes);
     }
 }

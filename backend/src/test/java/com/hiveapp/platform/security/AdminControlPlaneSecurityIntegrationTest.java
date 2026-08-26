@@ -21,6 +21,9 @@ import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
+import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
+import com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus;
+import com.hiveapp.platform.registry.definition.PriceBooksFeature;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +62,9 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
     @Autowired
     private QuotaPackageRepository quotaPackageRepository;
+
+    @Autowired
+    private ProductPriceRepository productPriceRepository;
 
     @Test
     void adminUsersAndRolesExposeBoundedStablePages() throws Exception {
@@ -112,11 +118,12 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
     @Test
     void composedPlanCreationRequiresTheAssignFeaturePermission() throws Exception {
-        LimitedAdmin creator = createLimitedAdmin("platform.plans.create");
+        LimitedAdmin creator = createLimitedAdmin(
+                "platform.plans.create", "platform.price_books.create");
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
 
-        // The bulk path must enforce the same node as the dedicated assign endpoint: plans.create
-        // alone composes nothing.
+        // The bulk path must enforce the same node as the dedicated assign endpoint. The
+        // operator has both halves of bare commercial creation, but cannot compose features.
         mockMvc.perform(post("/api/admin/plans")
                         .header("Authorization", bearer(creator.token()))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -129,12 +136,27 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(jsonPath("$.message")
                         .value("Composing a plan at creation requires the assign-feature permission."));
 
-        // A bare creation stays within plans.create.
+        // A bare creation stays within the create + initial-price-draft composite authority.
         mockMvc.perform(post("/api/admin/plans")
                         .header("Authorization", bearer(creator.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreatePlanRequest(
                                 "Bare " + suffix, null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isCreated());
+
+        LimitedAdmin composer = createLimitedAdmin(
+                "platform.plans.create",
+                "platform.price_books.create",
+                "platform.plans.assign_feature");
+        mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(composer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                "Authorized composed " + suffix, null, BigDecimal.ZERO, "USD",
+                                BillingCycle.MONTHLY,
+                                java.util.List.of(new AssignPlanFeatureRequest(
+                                        "platform.workspace", PlanFeatureMode.INCLUDED,
+                                        java.util.List.of()))))))
                 .andExpect(status().isCreated());
     }
 
@@ -142,7 +164,8 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     void nonDefaultAvailabilityAtCreationRequiresItsDedicatedPermission() throws Exception {
         LimitedAdmin planCreator = createLimitedAdmin("platform.plans.create");
         LimitedAdmin addOnCreator = createLimitedAdmin("platform.plans.create_add_on");
-        LimitedAdmin quotaCreator = createLimitedAdmin("platform.plans.create_quota_package");
+        LimitedAdmin quotaCreator = createLimitedAdmin(
+                "platform.plans.create_quota_package", "platform.price_books.create");
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
 
         mockMvc.perform(post("/api/admin/plans")
@@ -309,6 +332,286 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                                 """))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+    }
+
+    @Test
+    void productChoosersDoNotGrantOperationalCatalogueAccess() throws Exception {
+        LimitedAdmin chooser = createLimitedAdmin(
+                "platform.plans.choose_plans", "platform.plans.resolve_plan_choices",
+                "platform.plans.resolve_plan_choice_codes");
+        UUID flexId = planRepository.findByCode("FLEX").orElseThrow().getId();
+
+        mockMvc.perform(get("/api/admin/plans/chooser")
+                        .header("Authorization", bearer(chooser.token()))
+                        .param("search", "FLEX"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(flexId.toString()))
+                .andExpect(jsonPath("$.content[0].choiceState").value("SELECTABLE"));
+        mockMvc.perform(get("/api/admin/plans/chooser/selected")
+                        .header("Authorization", bearer(chooser.token()))
+                        .param("ids", flexId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(flexId.toString()));
+        mockMvc.perform(get("/api/admin/plans/chooser/selected-codes")
+                        .header("Authorization", bearer(chooser.token()))
+                        .param("codes", " flex ")
+                        .param("codes", "DELETED_RETAINED_PLAN"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(flexId.toString()))
+                .andExpect(jsonPath("$[0].code").value("FLEX"))
+                .andExpect(jsonPath("$[0].choiceState").value("SELECTABLE"))
+                .andExpect(jsonPath("$[1].code").value("DELETED_RETAINED_PLAN"))
+                .andExpect(jsonPath("$[1].choiceState").value("MISSING"));
+
+        mockMvc.perform(get("/api/admin/plans")
+                        .header("Authorization", bearer(chooser.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(get("/api/admin/plans/{id}", flexId)
+                        .header("Authorization", bearer(chooser.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(get("/api/admin/plans/{id}/operations", flexId)
+                        .header("Authorization", bearer(chooser.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+
+        LimitedAdmin operationsOnly = createLimitedAdmin("platform.plans.read_plan_operations");
+        mockMvc.perform(get("/api/admin/plans/{id}/operations", flexId)
+                        .header("Authorization", bearer(operationsOnly.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(flexId.toString()))
+                .andExpect(jsonPath("$.availableActions.length()").value(0));
+        mockMvc.perform(get("/api/admin/plans")
+                        .header("Authorization", bearer(operationsOnly.token())))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void accountOverrideChoosersAreBoundedAndSeparatelyPermissioned() throws Exception {
+        String clientToken = registerClientAndGetToken();
+        String accountBody = mockMvc.perform(get("/api/v1/accounts/me")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID accountId = UUID.fromString(objectMapper.readTree(accountBody).get("id").asText());
+        LimitedAdmin addOnChooser = createLimitedAdmin(
+                "platform.subscriptions.choose_add_on_overrides");
+
+        mockMvc.perform(get("/api/admin/subscriptions/account/{id}/override-choices/add-ons", accountId)
+                        .header("Authorization", bearer(addOnChooser.token()))
+                        .param("page", "0")
+                        .param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.retainedSelections").isArray())
+                .andExpect(jsonPath("$.size").value(1));
+        mockMvc.perform(get(
+                                "/api/admin/subscriptions/account/{id}/override-choices/quota-packages",
+                                accountId)
+                        .header("Authorization", bearer(addOnChooser.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(get("/api/admin/add-ons")
+                        .header("Authorization", bearer(addOnChooser.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(patch("/api/admin/subscriptions/account/{id}/overrides", accountId)
+                        .header("Authorization", bearer(addOnChooser.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"addOnCodes\":[],\"quotaPackages\":[]}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/subscriptions/account/{id}/override-choices/add-ons", accountId)
+                        .header("Authorization", bearer(addOnChooser.token()))
+                        .param("size", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void quotaLifecycleCannotPublishPricesWithoutPriceActivationPermission() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        QuotaActivationFixture fixture = createQuotaActivationFixture(superToken);
+        try {
+            LimitedAdmin lifecycleOnly = createLimitedAdmin(
+                    "platform.plans.lifecycle_quota_package");
+
+            mockMvc.perform(post("/api/admin/quota-packages/{id}/lifecycle", fixture.packageId())
+                            .header("Authorization", bearer(lifecycleOnly.token()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(fixture.lifecycleBody()))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+                    .andExpect(jsonPath("$.message").value(
+                            "Publishing a capacity-package revision and its reviewed prices "
+                                    + "requires platform.price_books.activate."));
+
+            assertQuotaActivationWasAtomic(fixture);
+        } finally {
+            removeQuotaActivationFixture(fixture.packageId());
+        }
+    }
+
+    @Test
+    void quotaCreationCannotCreateAPriceDraftWithoutPriceBookCreatePermission() throws Exception {
+        LimitedAdmin packageOnly = createLimitedAdmin("platform.plans.create_quota_package");
+        String name = "Unauthorized price draft " + UUID.randomUUID();
+        long packageCount = quotaPackageRepository.count();
+        long priceCount = productPriceRepository.count();
+
+        mockMvc.perform(post("/api/admin/quota-packages")
+                        .header("Authorization", bearer(packageOnly.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateQuotaPackageRequest(
+                                name, null, "platform.staff", "members", 1,
+                                BigDecimal.ONE, "USD", BillingCycle.MONTHLY, true, 10,
+                                java.util.Set.of("FLEX"), java.util.Set.of(),
+                                ProductSalesVisibility.PUBLIC))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+                .andExpect(jsonPath("$.message").value(
+                        "Creating a capacity package and its initial reviewable price draft "
+                                + "requires platform.price_books.create."));
+
+        assertThat(quotaPackageRepository.count()).isEqualTo(packageCount);
+        assertThat(productPriceRepository.count()).isEqualTo(priceCount);
+        assertThat(quotaPackageRepository.findAll()).noneMatch(item -> name.equals(item.getName()));
+    }
+
+    @Test
+    void planAndAddOnCreationCannotHidePriceDraftPublicationAuthority() throws Exception {
+        LimitedAdmin planOnly = createLimitedAdmin("platform.plans.create");
+        LimitedAdmin addOnOnly = createLimitedAdmin("platform.plans.create_add_on");
+        long planCount = planRepository.count();
+        long addOnCount = addOnRepository.count();
+        long priceCount = productPriceRepository.count();
+
+        mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(planOnly.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                "Unauthorized Plan price draft " + UUID.randomUUID(), null,
+                                BigDecimal.ONE, "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+                .andExpect(jsonPath("$.message").value(
+                        "Creating a Plan and its initial reviewable price draft requires "
+                                + "platform.price_books.create."));
+        mockMvc.perform(post("/api/admin/add-ons")
+                        .header("Authorization", bearer(addOnOnly.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateAddOnRequest(
+                                "Unauthorized AddOn price draft " + UUID.randomUUID(), null,
+                                BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                                java.util.Set.of("FLEX"), java.util.Set.of(), java.util.Set.of(),
+                                java.util.Set.of(), ProductSalesVisibility.PUBLIC))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"))
+                .andExpect(jsonPath("$.message").value(
+                        "Creating an AddOn and its initial reviewable price draft requires "
+                                + "platform.price_books.create."));
+
+        assertThat(planRepository.count()).isEqualTo(planCount);
+        assertThat(addOnRepository.count()).isEqualTo(addOnCount);
+        assertThat(productPriceRepository.count()).isEqualTo(priceCount);
+    }
+
+    @Test
+    void priceBooksRuntimeShutdownVetoesPlanAndAddOnPriceDraftCreation() throws Exception {
+        String token = loginAdminAndGetToken();
+        var priceBooks = featureRepository.findByCode(PriceBooksFeature.CODE).orElseThrow();
+        boolean runtimeEnabled = priceBooks.isRuntimeEnabled();
+        long planCount = planRepository.count();
+        long addOnCount = addOnRepository.count();
+        long priceCount = productPriceRepository.count();
+        try {
+            priceBooks.setRuntimeEnabled(false);
+            featureRepository.saveAndFlush(priceBooks);
+
+            mockMvc.perform(post("/api/admin/plans")
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                    "Runtime-disabled Plan draft " + UUID.randomUUID(), null,
+                                    BigDecimal.ONE, "USD", BillingCycle.MONTHLY))))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+            mockMvc.perform(post("/api/admin/add-ons")
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new CreateAddOnRequest(
+                                    "Runtime-disabled AddOn draft " + UUID.randomUUID(), null,
+                                    BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                                    java.util.Set.of("FLEX"), java.util.Set.of(),
+                                    java.util.Set.of(), java.util.Set.of(),
+                                    ProductSalesVisibility.PUBLIC))))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+            assertThat(planRepository.count()).isEqualTo(planCount);
+            assertThat(addOnRepository.count()).isEqualTo(addOnCount);
+            assertThat(productPriceRepository.count()).isEqualTo(priceCount);
+        } finally {
+            var restored = featureRepository.findByCode(PriceBooksFeature.CODE).orElseThrow();
+            restored.setRuntimeEnabled(runtimeEnabled);
+            featureRepository.saveAndFlush(restored);
+        }
+    }
+
+    @Test
+    void priceBooksRuntimeShutdownVetoesCompositeQuotaCreation() throws Exception {
+        String token = loginAdminAndGetToken();
+        var priceBooks = featureRepository.findByCode(PriceBooksFeature.CODE).orElseThrow();
+        boolean runtimeEnabled = priceBooks.isRuntimeEnabled();
+        String name = "Runtime-disabled price draft " + UUID.randomUUID();
+        long packageCount = quotaPackageRepository.count();
+        long priceCount = productPriceRepository.count();
+        try {
+            priceBooks.setRuntimeEnabled(false);
+            featureRepository.saveAndFlush(priceBooks);
+
+            mockMvc.perform(post("/api/admin/quota-packages")
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new CreateQuotaPackageRequest(
+                                    name, null, "platform.staff", "members", 1,
+                                    BigDecimal.ONE, "USD", BillingCycle.MONTHLY, true, 10,
+                                    java.util.Set.of("FLEX"), java.util.Set.of(),
+                                    ProductSalesVisibility.PUBLIC))))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+            assertThat(quotaPackageRepository.count()).isEqualTo(packageCount);
+            assertThat(productPriceRepository.count()).isEqualTo(priceCount);
+        } finally {
+            var restored = featureRepository.findByCode(PriceBooksFeature.CODE).orElseThrow();
+            restored.setRuntimeEnabled(runtimeEnabled);
+            featureRepository.saveAndFlush(restored);
+        }
+    }
+
+    @Test
+    void priceBooksRuntimeShutdownVetoesCompositeQuotaActivation() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        QuotaActivationFixture fixture = createQuotaActivationFixture(superToken);
+        var priceBooks = featureRepository.findByCode(PriceBooksFeature.CODE).orElseThrow();
+        boolean runtimeEnabled = priceBooks.isRuntimeEnabled();
+        try {
+            priceBooks.setRuntimeEnabled(false);
+            featureRepository.saveAndFlush(priceBooks);
+
+            mockMvc.perform(post("/api/admin/quota-packages/{id}/lifecycle", fixture.packageId())
+                            .header("Authorization", bearer(superToken))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(fixture.lifecycleBody()))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+            assertQuotaActivationWasAtomic(fixture);
+        } finally {
+            var restored = featureRepository.findByCode(PriceBooksFeature.CODE).orElseThrow();
+            restored.setRuntimeEnabled(runtimeEnabled);
+            featureRepository.saveAndFlush(restored);
+            removeQuotaActivationFixture(fixture.packageId());
+        }
     }
 
     @Test
@@ -784,6 +1087,55 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         updateFeatureControl(admin.token(), featureId, "new-grants", false)
                 .andExpect(status().isForbidden());
     }
+
+    private QuotaActivationFixture createQuotaActivationFixture(String token) throws Exception {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        CreateQuotaPackageRequest request = new CreateQuotaPackageRequest(
+                "Composite activation " + suffix, null, "platform.staff", "members", 1,
+                new BigDecimal("4.2500"), "USD", BillingCycle.MONTHLY,
+                true, 3, java.util.Set.of("FLEX"), java.util.Set.of(),
+                ProductSalesVisibility.PUBLIC);
+        JsonNode created = objectMapper.readTree(mockMvc.perform(post("/api/admin/quota-packages")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString());
+        UUID packageId = UUID.fromString(created.get("id").asText());
+        JsonNode preview = objectMapper.readTree(mockMvc.perform(
+                        get("/api/admin/quota-packages/{id}/activation-preview", packageId)
+                                .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activatable").value(true))
+                .andExpect(jsonPath("$.reviewedPrices.length()").value(1))
+                .andReturn().getResponse().getContentAsString());
+        String lifecycleBody = objectMapper.writeValueAsString(java.util.Map.of(
+                "action", "ACTIVATE",
+                "expectedVersion", preview.get("expectedVersion").asLong(),
+                "reason", "Composite activation security boundary",
+                "activationPreviewToken", preview.get("previewToken").asText()));
+        return new QuotaActivationFixture(packageId, lifecycleBody);
+    }
+
+    private void assertQuotaActivationWasAtomic(QuotaActivationFixture fixture) {
+        assertThat(quotaPackageRepository.findById(fixture.packageId()).orElseThrow().getStatus())
+                .isEqualTo(com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus.DRAFT);
+        assertThat(productPriceRepository.findAllByQuotaPackageId(fixture.packageId()))
+                .isNotEmpty()
+                .allMatch(price -> price.getStatus() == ProductPriceStatus.DRAFT);
+    }
+
+    private void removeQuotaActivationFixture(UUID packageId) {
+        var prices = productPriceRepository.findAllByQuotaPackageId(packageId);
+        if (!prices.isEmpty()) {
+            productPriceRepository.deleteAllInBatch(prices);
+            productPriceRepository.flush();
+        }
+        quotaPackageRepository.findById(packageId).ifPresent(quotaPackageRepository::delete);
+        quotaPackageRepository.flush();
+    }
+
+    private record QuotaActivationFixture(UUID packageId, String lifecycleBody) {}
 
     @Test
     void emergencyRuntimeCanBeCutOffAndRestoredWithExplicitConfirmation() throws Exception {

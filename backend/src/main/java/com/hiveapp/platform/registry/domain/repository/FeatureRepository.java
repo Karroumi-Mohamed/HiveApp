@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 import java.util.UUID;
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 
 public interface FeatureRepository extends JpaRepository<Feature, UUID> {
@@ -19,4 +20,8 @@ public interface FeatureRepository extends JpaRepository<Feature, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select feature from Feature feature where feature.id = :id")
     Optional<Feature> findByIdForUpdate(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select feature from Feature feature where feature.id in :ids order by feature.id")
+    List<Feature> findAllByIdInForUpdate(@Param("ids") Collection<UUID> ids);
 }

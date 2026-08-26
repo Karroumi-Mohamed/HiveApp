@@ -375,12 +375,17 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
     }
 
     private ProductPriceDto activate(UUID priceId, long version, ProductPriceStatus requiredStatus) {
-        ProductPrice price = requirePrice(priceId);
+        ProductPrice hint = requirePrice(priceId);
+        lockOwner(hint.getOwnerType(), hint.ownerId());
+        // The initial read only identifies the authoritative owner lock. A concurrent archive may
+        // have committed while this command waited for that lock, so discard the managed hint and
+        // re-read both the price and its owner under locks before evaluating lifecycle blockers.
+        entityManager.clear();
+        ProductPrice price = requirePriceForUpdate(priceId);
         requireVersion(price, version);
         if (price.getStatus() != requiredStatus) {
             throw new InvalidStateException("Price entry is not in the required " + requiredStatus + " state.");
         }
-        lockOwner(price.getOwnerType(), price.ownerId());
         List<ProductPriceBlocker> blockers = activationBlockers(price);
         if (blockers.contains(ProductPriceBlocker.ACTIVE_WINDOW_OVERLAP)) {
             throw new PriceEntryOverlapException(
@@ -623,9 +628,15 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
 
     private boolean ownerIsActive(ProductPrice price) {
         return switch (price.getOwnerType()) {
-            case PLAN -> price.getPlan().getStatus() == PlanStatus.ACTIVE;
-            case ADD_ON -> price.getAddOn().getStatus() == AddOnStatus.ACTIVE;
-            case QUOTA_PACKAGE -> price.getQuotaPackage().getStatus() == QuotaPackageStatus.ACTIVE;
+            case PLAN -> price.getPlan().getStatus() == PlanStatus.ACTIVE
+                    || price.getPlan().getStatus() == PlanStatus.DRAFT
+                    || price.getPlan().getStatus() == PlanStatus.INACTIVE;
+            case ADD_ON -> price.getAddOn().getStatus() == AddOnStatus.ACTIVE
+                    || price.getAddOn().getStatus() == AddOnStatus.DRAFT
+                    || price.getAddOn().getStatus() == AddOnStatus.INACTIVE;
+            case QUOTA_PACKAGE -> price.getQuotaPackage().getStatus() == QuotaPackageStatus.ACTIVE
+                    || price.getQuotaPackage().getStatus() == QuotaPackageStatus.DRAFT
+                    || price.getQuotaPackage().getStatus() == QuotaPackageStatus.INACTIVE;
         };
     }
 

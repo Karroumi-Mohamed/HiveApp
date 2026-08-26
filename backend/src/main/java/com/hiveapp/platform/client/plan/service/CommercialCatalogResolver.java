@@ -58,6 +58,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CommercialCatalogResolver {
 
+    private static final UUID EMPTY_QUERY_SENTINEL = new UUID(0L, 0L);
+    private static final int MAX_SCOPED_PRODUCTS = 300;
+
     public enum Audience { CLIENT_CATALOG, AUTHORIZED_OPERATOR }
 
     private final PlanRepository planRepository;
@@ -141,7 +144,91 @@ public class CommercialCatalogResolver {
             Audience audience,
             RetainedSelection retained
     ) {
-        CatalogData data = load();
+        return resolveSelection(load(), plan, tuple, requestedAddOnCodes, requestedPackages,
+                audience, retained);
+    }
+
+    /**
+     * Resolves one bounded subscription-override candidate page and the Account's retained
+     * selections without loading unrelated Plans or the full extension catalogue.
+     */
+    @Transactional(readOnly = true)
+    public OverrideCandidateResolution resolveOverrideCandidates(
+            UUID planId,
+            PriceTuple tuple,
+            Collection<UUID> addOnCandidateIds,
+            Collection<UUID> quotaPackageCandidateIds,
+            Set<String> selectedAddOnCodes,
+            Set<String> retainedQuotaPackageCodes,
+            RetainedSelection retained
+    ) {
+        RetainedSelection retainedSelection = retained == null ? RetainedSelection.none() : retained;
+        Set<String> scopedAddOnCodes = new LinkedHashSet<>(
+                selectedAddOnCodes == null ? Set.of() : selectedAddOnCodes);
+        scopedAddOnCodes.addAll(retainedSelection.addOnCodes());
+        CatalogData data = loadScoped(
+                planId, addOnCandidateIds, quotaPackageCandidateIds,
+                scopedAddOnCodes, retainedQuotaPackageCodes);
+        Plan plan = data.plansById().get(planId);
+        if (plan == null) {
+            throw new com.hiveapp.shared.exception.ResourceNotFoundException("Plan", "id", planId);
+        }
+        Set<String> selected = selectedAddOnCodes == null ? Set.of() : Set.copyOf(selectedAddOnCodes);
+        PlanResolution planResolution = resolvePlan(
+                data, plan, Audience.AUTHORIZED_OPERATOR, tuple,
+                plan.getExtensionPolicy(), plan.getSalesVisibility());
+        Map<UUID, AddOn> candidateAddOns = data.addOns().stream()
+                .filter(item -> addOnCandidateIds != null && addOnCandidateIds.contains(item.getId()))
+                .collect(Collectors.toMap(AddOn::getId, Function.identity()));
+        Map<String, AddOnCandidateDecision> addOnDecisions = new LinkedHashMap<>();
+        Map<String, AddOnResolution> addOnResolutions = planResolution.addOns().stream()
+                .collect(Collectors.toMap(AddOnResolution::code, Function.identity()));
+        RetainedSelection retainedByProposedSelection = new RetainedSelection(
+                retainedSelection.addOnCodes().stream()
+                        .filter(selected::contains)
+                        .collect(Collectors.toCollection(LinkedHashSet::new)),
+                retainedSelection.quotaPackageQuantities(),
+                retainedSelection.heldPlanPriceEntryId());
+        candidateAddOns.values().stream().sorted(Comparator.comparing(AddOn::getCode)).forEach(candidate -> {
+            AddOnResolution product = addOnResolutions.get(candidate.getCode());
+            Set<String> proposed = new LinkedHashSet<>(selected);
+            proposed.add(candidate.getCode());
+            if (product != null) proposed.addAll(product.dependencyClosureCodes());
+            SelectionResolution selection = resolveSelection(
+                    data, plan, tuple, proposed, List.of(), Audience.AUTHORIZED_OPERATOR,
+                    retainedByProposedSelection);
+            addOnDecisions.put(candidate.getCode(),
+                    new AddOnCandidateDecision(product, selection, selection.selectable()));
+        });
+
+        Map<UUID, QuotaPackage> candidatePackages = data.packages().stream()
+                .filter(item -> quotaPackageCandidateIds != null
+                        && quotaPackageCandidateIds.contains(item.getId()))
+                .collect(Collectors.toMap(QuotaPackage::getId, Function.identity()));
+        Map<String, QuotaPackageCandidateDecision> packageDecisions = new LinkedHashMap<>();
+        candidatePackages.values().stream().sorted(Comparator.comparing(QuotaPackage::getCode))
+                .forEach(candidate -> {
+                    SelectionResolution selection = resolveSelection(
+                            data, plan, tuple, selected,
+                            List.of(new QuotaPackageSelection(candidate.getCode(), 1)),
+                            Audience.AUTHORIZED_OPERATOR, retainedSelection);
+                    QuotaPackageResolution product = selection.packageResolutions().get(candidate.getCode());
+                    packageDecisions.put(candidate.getCode(),
+                            new QuotaPackageCandidateDecision(product, selection, selection.selectable()));
+                });
+        return new OverrideCandidateResolution(
+                planResolution, Map.copyOf(addOnDecisions), Map.copyOf(packageDecisions));
+    }
+
+    private SelectionResolution resolveSelection(
+            CatalogData data,
+            Plan plan,
+            PriceTuple tuple,
+            Set<String> requestedAddOnCodes,
+            List<QuotaPackageSelection> requestedPackages,
+            Audience audience,
+            RetainedSelection retained
+    ) {
         Plan authoritativePlan = data.plansById().get(plan.getId());
         if (authoritativePlan == null) {
             throw new com.hiveapp.shared.exception.ResourceNotFoundException("Plan", "id", plan.getId());
@@ -750,6 +837,85 @@ public class CommercialCatalogResolver {
                 Map.copyOf(pricesByOwner));
     }
 
+    private CatalogData loadScoped(
+            UUID planId,
+            Collection<UUID> addOnCandidateIds,
+            Collection<UUID> quotaPackageCandidateIds,
+            Set<String> selectedAddOnCodes,
+            Set<String> retainedQuotaPackageCodes
+    ) {
+        Plan plan = planRepository.findById(planId)
+                .orElseThrow(() -> new com.hiveapp.shared.exception.ResourceNotFoundException(
+                        "Plan", "id", planId));
+        List<PlanFeature> planFeatures = planFeatureRepository.findAllByPlanId(planId);
+
+        Map<String, AddOn> addOnsByCode = new LinkedHashMap<>();
+        Collection<UUID> candidateIds = addOnCandidateIds == null ? List.of() : addOnCandidateIds;
+        addOnRepository.findAllDetailedByIdIn(
+                        candidateIds.isEmpty() ? List.of(EMPTY_QUERY_SENTINEL) : candidateIds)
+                .forEach(item -> addOnsByCode.put(item.getCode(), item));
+        Set<String> pendingCodes = new LinkedHashSet<>(
+                selectedAddOnCodes == null ? Set.of() : selectedAddOnCodes);
+        addOnsByCode.values().forEach(item -> pendingCodes.addAll(item.getDependencyCodes()));
+        while (!pendingCodes.isEmpty()) {
+            if (addOnsByCode.size() + pendingCodes.size() > MAX_SCOPED_PRODUCTS) {
+                throw new com.hiveapp.shared.exception.InvalidRequestException(
+                        "The override candidate dependency graph exceeds 300 products.");
+            }
+            List<String> batch = pendingCodes.stream()
+                    .filter(code -> !addOnsByCode.containsKey(code))
+                    .sorted().toList();
+            pendingCodes.clear();
+            if (batch.isEmpty()) break;
+            List<AddOn> found = addOnRepository.findAllByCodeIn(batch);
+            found.forEach(item -> {
+                addOnsByCode.put(item.getCode(), item);
+                item.getDependencyCodes().stream()
+                        .filter(code -> !addOnsByCode.containsKey(code))
+                        .forEach(pendingCodes::add);
+            });
+        }
+        List<AddOn> addOns = addOnsByCode.values().stream()
+                .sorted(Comparator.comparing(AddOn::getCode)).toList();
+
+        Map<String, QuotaPackage> packagesByCode = new LinkedHashMap<>();
+        Collection<UUID> packageIds = quotaPackageCandidateIds == null
+                ? List.of() : quotaPackageCandidateIds;
+        quotaPackageRepository.findAllDetailedByIdIn(
+                        packageIds.isEmpty() ? List.of(EMPTY_QUERY_SENTINEL) : packageIds)
+                .forEach(item -> packagesByCode.put(item.getCode(), item));
+        Set<String> retainedCodes = retainedQuotaPackageCodes == null
+                ? Set.of() : retainedQuotaPackageCodes;
+        if (retainedCodes.size() + packagesByCode.size() > MAX_SCOPED_PRODUCTS) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "The override package candidate graph exceeds 300 products.");
+        }
+        if (!retainedCodes.isEmpty()) {
+            quotaPackageRepository.findAllByCodeIn(retainedCodes)
+                    .forEach(item -> packagesByCode.putIfAbsent(item.getCode(), item));
+        }
+        List<QuotaPackage> packages = packagesByCode.values().stream()
+                .sorted(Comparator.comparing(QuotaPackage::getCode)).toList();
+
+        List<UUID> addOnIds = addOns.stream().map(AddOn::getId).toList();
+        List<UUID> scopedPackageIds = packages.stream().map(QuotaPackage::getId).toList();
+        List<ProductPrice> prices = productPriceRepository.findAllApplicableForOwners(
+                List.of(planId),
+                addOnIds.isEmpty() ? List.of(EMPTY_QUERY_SENTINEL) : addOnIds,
+                scopedPackageIds.isEmpty() ? List.of(EMPTY_QUERY_SENTINEL) : scopedPackageIds,
+                clock.instant());
+        Map<PriceOwnerKey, List<ProductPrice>> pricesByOwner = prices.stream()
+                .collect(Collectors.groupingBy(
+                        price -> new PriceOwnerKey(price.getOwnerType(), price.ownerId()),
+                        LinkedHashMap::new, Collectors.toList()));
+        return new CatalogData(
+                List.of(plan), Map.of(planId, plan), Map.of(planId, List.copyOf(planFeatures)),
+                List.copyOf(addOns), Map.copyOf(addOnsByCode),
+                List.copyOf(packages), Map.copyOf(packagesByCode),
+                featureDefinitionCollectorProvider.getObject().collectByCode(),
+                Map.copyOf(pricesByOwner));
+    }
+
     private void addPriceIssues(
             List<ProductPrice> prices,
             String productCode,
@@ -799,6 +965,24 @@ public class CommercialCatalogResolver {
     }
 
     public record CatalogResolution(List<PlanResolution> plans) {}
+
+    public record OverrideCandidateResolution(
+            PlanResolution plan,
+            Map<String, AddOnCandidateDecision> addOns,
+            Map<String, QuotaPackageCandidateDecision> quotaPackages
+    ) {}
+
+    public record AddOnCandidateDecision(
+            AddOnResolution product,
+            SelectionResolution proposedSelection,
+            boolean selectable
+    ) {}
+
+    public record QuotaPackageCandidateDecision(
+            QuotaPackageResolution product,
+            SelectionResolution proposedSelection,
+            boolean selectable
+    ) {}
 
     public record PlanResolution(
             Plan plan,

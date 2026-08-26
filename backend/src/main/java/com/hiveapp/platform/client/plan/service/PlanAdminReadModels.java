@@ -67,6 +67,8 @@ public class PlanAdminReadModels {
                 item.getPrice(), item.getCurrencyCode(), item.getBillingCycle(), item.isRepeatable(),
                 item.getMaximumQuantity(), item.getStatus(), item.getDefinitionVersion(),
                 item.getAllowedPlanCodes(), item.getAllowedAddOnCodes(), item.getSalesVisibility(),
-                item.getRowVersion());
+                item.getRowVersion(), item.getLineageId(), item.getRevisionNumber(),
+                item.getSourceQuotaPackage() == null ? null : item.getSourceQuotaPackage().getId(),
+                item.getCreationReason());
     }
 }

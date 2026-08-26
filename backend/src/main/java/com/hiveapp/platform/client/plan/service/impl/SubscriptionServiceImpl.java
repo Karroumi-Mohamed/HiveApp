@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
+import com.hiveapp.platform.client.plan.domain.constant.RetainedEntitlementState;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
@@ -136,9 +137,13 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         Map<String, FeatureDefinition> definitions = featureDefinitionCollectorProvider.getObject().collectByCode();
         Map<String, Long> usage = usageByQuotaSlot(accountId, definitions);
         UUID currentPlanId = current.getPlan().getId();
-        var plans = commercialCatalogResolver
-                .resolveCatalog(CommercialCatalogResolver.Audience.CLIENT_CATALOG)
-                .plans().stream()
+        CommercialCatalogResolver.CatalogResolution catalog = commercialCatalogResolver
+                .resolveCatalog(CommercialCatalogResolver.Audience.CLIENT_CATALOG);
+        CommercialCatalogResolver.PlanResolution currentResolution = catalog.plans().stream()
+                .filter(result -> result.plan().getId().equals(currentPlanId))
+                .findFirst().orElseThrow(() -> new InvalidStateException(
+                        "The current Plan revision is missing from the commercial catalogue."));
+        var plans = catalog.plans().stream()
                 // A held direct-only or retired exact revision remains readable as the
                 // Account's current product, but is never exposed to another Account and
                 // cannot be selected again through self service.
@@ -166,8 +171,64 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         current.getCurrentPeriodEnd(),
                         current.isCancelAtPeriodEnd(),
                         currentOverrides.addOnCodes(),
-                        currentOverrides.quotaPackages()),
+                        currentOverrides.quotaPackages(),
+                        retainedAddOns(currentSnapshot, currentResolution),
+                        retainedQuotaPackages(currentSnapshot, currentResolution)),
                 plans);
+    }
+
+    private List<ClientPlanCatalogResponse.RetainedAddOn> retainedAddOns(
+            SubscriptionEntitlementSnapshot snapshot,
+            CommercialCatalogResolver.PlanResolution currentResolution
+    ) {
+        Map<String, CommercialCatalogResolver.AddOnResolution> currentByCode =
+                currentResolution.addOns().stream().collect(Collectors.toMap(
+                        CommercialCatalogResolver.AddOnResolution::code, Function.identity()));
+        return snapshot.addOns().stream()
+                .sorted(Comparator.comparing(com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot::code))
+                .map(held -> {
+                    CommercialCatalogResolver.AddOnResolution current = currentByCode.get(held.code());
+                    boolean selectable = currentResolution.clientVisible()
+                            && current != null && current.clientVisible();
+                    RetainedEntitlementState state = selectable
+                            ? RetainedEntitlementState.SELECTABLE
+                            : current == null
+                                    ? RetainedEntitlementState.HISTORICAL_ONLY
+                                    : RetainedEntitlementState.RETAINED_ONLY;
+                    return new ClientPlanCatalogResponse.RetainedAddOn(
+                            held.code(), held.name(), held.definitionVersion(), held.price(),
+                            held.currencyCode(), held.billingCycle(), List.copyOf(held.featureCodes()),
+                            held.priceEntryId(), state, true, selectable);
+                })
+                .toList();
+    }
+
+    private List<ClientPlanCatalogResponse.RetainedQuotaPackage> retainedQuotaPackages(
+            SubscriptionEntitlementSnapshot snapshot,
+            CommercialCatalogResolver.PlanResolution currentResolution
+    ) {
+        Map<String, CommercialCatalogResolver.QuotaPackageResolution> currentByCode =
+                currentResolution.quotaPackages().stream().collect(Collectors.toMap(
+                        CommercialCatalogResolver.QuotaPackageResolution::code, Function.identity()));
+        return snapshot.quotaPackages().stream()
+                .sorted(Comparator.comparing(
+                        com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot::code))
+                .map(held -> {
+                    CommercialCatalogResolver.QuotaPackageResolution current = currentByCode.get(held.code());
+                    boolean selectable = currentResolution.clientVisible()
+                            && current != null && current.clientVisible();
+                    RetainedEntitlementState state = selectable
+                            ? RetainedEntitlementState.SELECTABLE
+                            : current == null
+                                    ? RetainedEntitlementState.HISTORICAL_ONLY
+                                    : RetainedEntitlementState.RETAINED_ONLY;
+                    return new ClientPlanCatalogResponse.RetainedQuotaPackage(
+                            held.code(), held.name(), held.definitionVersion(), held.featureCode(),
+                            held.resource(), held.capacityPerUnit(), held.quantity(), held.unitPrice(),
+                            held.currencyCode(), held.billingCycle(), held.priceEntryId(), state, true,
+                            selectable, selectable ? current.quotaPackage().getMaximumQuantity() : null);
+                })
+                .toList();
     }
 
     @Override
@@ -623,6 +684,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     private Set<String> normalizeAddOnCodes(Set<String> requested) {
         if (requested == null) return Set.of();
+        if (requested.size() > 100) {
+            throw new InvalidRequestException("Subscription overrides support at most 100 AddOns.");
+        }
         if (requested.stream().anyMatch(code -> code == null || code.isBlank())) {
             throw new InvalidRequestException("AddOn codes cannot be null or blank.");
         }
@@ -631,6 +695,10 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     private List<QuotaPackageSelection> normalizeQuotaPackages(List<QuotaPackageSelection> requested) {
         if (requested == null) return List.of();
+        if (requested.size() > 100) {
+            throw new InvalidRequestException(
+                    "Subscription overrides support at most 100 capacity packages.");
+        }
         if (requested.stream().anyMatch(Objects::isNull)) {
             throw new InvalidRequestException("Quota package selection cannot be null.");
         }
