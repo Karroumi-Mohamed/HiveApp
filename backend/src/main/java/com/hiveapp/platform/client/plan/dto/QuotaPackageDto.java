@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
+import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
 import java.util.Set;
@@ -15,7 +16,7 @@ public record QuotaPackageDto(
         String featureCode,
         String resource,
         long capacityPerUnit,
-        BigDecimal price,
+        @ExactDecimal BigDecimal price,
         String currencyCode,
         BillingCycle billingCycle,
         boolean repeatable,

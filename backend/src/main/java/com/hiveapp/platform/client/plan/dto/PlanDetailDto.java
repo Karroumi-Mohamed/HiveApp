@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.dto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
+import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -13,7 +14,7 @@ public record PlanDetailDto(
         String code,
         String name,
         String description,
-        BigDecimal price,
+        @ExactDecimal BigDecimal price,
         String currencyCode,
         BillingCycle billingCycle,
         PlanStatus status,
@@ -27,7 +28,7 @@ public record PlanDetailDto(
         long trialingSubscriberCount,
         long currentSubscriberCount,
         long historicalSubscriberCount,
-        BigDecimal configuredRecurringPriceTotal,
+        @ExactDecimal BigDecimal configuredRecurringPriceTotal,
         String configuredRecurringPriceCurrencyCode,
         List<String> warnings
 ) {}

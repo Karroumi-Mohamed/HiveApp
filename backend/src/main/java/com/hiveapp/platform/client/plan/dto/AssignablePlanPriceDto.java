@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -13,7 +14,7 @@ public record AssignablePlanPriceDto(
         String planName,
         int planRevisionNumber,
         UUID priceEntryId,
-        BigDecimal amount,
+        @ExactDecimal BigDecimal amount,
         String currencyCode,
         BillingCycle billingCycle,
         Instant effectiveFrom,

@@ -1,5 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
+import com.hiveapp.shared.money.ExactDecimal;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
@@ -7,8 +9,8 @@ import java.util.Set;
 public record SubscriptionChangePreviewResponse(
         String currentPlanCode,
         String targetPlanCode,
-        BigDecimal currentPrice,
-        BigDecimal previewPrice,
+        @ExactDecimal BigDecimal currentPrice,
+        @ExactDecimal BigDecimal previewPrice,
         String currencyCode,
         boolean immediateAllowed,
         Set<String> effectiveFeatureCodes,

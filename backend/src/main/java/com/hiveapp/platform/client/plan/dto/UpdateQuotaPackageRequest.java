@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.shared.money.ExactDecimal;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -18,7 +19,7 @@ public record UpdateQuotaPackageRequest(
         @NotBlank @Size(max = 160) String featureCode,
         @NotBlank @Size(max = 100) String resource,
         @Min(1) long capacityPerUnit,
-        @NotNull @DecimalMin("0.0") @Digits(integer = 15, fraction = 4) BigDecimal price,
+        @ExactDecimal @NotNull @DecimalMin("0.0") @Digits(integer = 15, fraction = 4) BigDecimal price,
         @NotBlank @Pattern(regexp = "(?i)[A-Z]{3}", message = "must be a three-letter ISO currency code") String currencyCode,
         @NotNull BillingCycle billingCycle,
         boolean repeatable,

@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceAction;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceBlocker;
+import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -17,7 +18,7 @@ public record ProductPriceDto(
         UUID productId,
         String productCode,
         String productName,
-        BigDecimal amount,
+        @ExactDecimal BigDecimal amount,
         String currencyCode,
         BillingCycle billingCycle,
         ProductPriceStatus status,

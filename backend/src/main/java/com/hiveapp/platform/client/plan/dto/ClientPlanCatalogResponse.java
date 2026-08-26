@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.shared.quota.QuotaSlot;
+import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -20,7 +21,7 @@ public record ClientPlanCatalogResponse(
             UUID id,
             String planCode,
             SubscriptionStatus status,
-            BigDecimal currentPrice,
+            @ExactDecimal BigDecimal currentPrice,
             String currentPriceCurrencyCode,
             UUID planPriceEntryId,
             BillingCycle billingCycle,
@@ -35,7 +36,7 @@ public record ClientPlanCatalogResponse(
             String code,
             String name,
             String description,
-            BigDecimal basePrice,
+            @ExactDecimal BigDecimal basePrice,
             String currencyCode,
             BillingCycle billingCycle,
             boolean current,
@@ -67,7 +68,7 @@ public record ClientPlanCatalogResponse(
             String code,
             String name,
             String description,
-            BigDecimal price,
+            @ExactDecimal BigDecimal price,
             String currencyCode,
             BillingCycle billingCycle,
             long definitionVersion,
@@ -111,7 +112,7 @@ public record ClientPlanCatalogResponse(
             String featureCode,
             String resource,
             long capacityPerUnit,
-            BigDecimal price,
+            @ExactDecimal BigDecimal price,
             String currencyCode,
             BillingCycle billingCycle,
             boolean repeatable,
@@ -134,7 +135,7 @@ public record ClientPlanCatalogResponse(
 
     public record CatalogPrice(
             UUID priceEntryId,
-            BigDecimal amount,
+            @ExactDecimal BigDecimal amount,
             String currencyCode,
             BillingCycle billingCycle,
             Instant effectiveFrom,

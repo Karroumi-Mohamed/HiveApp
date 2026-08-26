@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -13,7 +14,7 @@ public record SubscriptionQuotaPackageSnapshot(
         String resource,
         long capacityPerUnit,
         int quantity,
-        BigDecimal unitPrice,
+        @ExactDecimal BigDecimal unitPrice,
         String currencyCode,
         BillingCycle billingCycle,
         UUID priceEntryId

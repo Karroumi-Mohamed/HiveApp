@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
+import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -15,7 +16,7 @@ public record AddOnDto(
         String code,
         String name,
         String description,
-        BigDecimal price,
+        @ExactDecimal BigDecimal price,
         String currencyCode,
         BillingCycle billingCycle,
         AddOnStatus status,

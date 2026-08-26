@@ -116,7 +116,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
 
         JsonNode annual = activate(adminToken, annualId, annualDraft.get("version").asLong());
         assertThat(annual.get("status").asText()).isEqualTo("ACTIVE");
-        assertThat(annual.get("amount").decimalValue()).isEqualByComparingTo("120.00");
+        assertThat(new BigDecimal(annual.get("amount").asText())).isEqualByComparingTo("120.00");
 
         mockMvc.perform(get("/api/admin/product-prices/{id}/history", annualId)
                         .header("Authorization", bearer(adminToken))
@@ -234,7 +234,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.operation.status").value("APPLIED"))
-                .andExpect(jsonPath("$.preview.previewPrice").value(0));
+                .andExpect(jsonPath("$.preview.previewPrice").value("0.00"));
 
         var subscription = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow();
         var snapshot = subscription.getEntitlementSnapshot();
@@ -342,7 +342,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .content(objectMapper.writeValueAsString(proSelection)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.currentPrice").value(240.00));
+                .andExpect(jsonPath("$.currentPrice").value("240.00"));
         var annualSubscription = subscriptionRepository.findActiveByAccountId(subscriberAccountId).orElseThrow();
         assertThat(annualSubscription.getEntitlementSnapshot().planPriceEntryId())
                 .isEqualTo(proSelection.priceEntryId());
@@ -360,7 +360,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .content(objectMapper.writeValueAsString(proSelection)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("TRIALING"))
-                .andExpect(jsonPath("$.currentPrice").value(0));
+                .andExpect(jsonPath("$.currentPrice").value("0.00"));
         var annualTrial = subscriptionRepository.findByAccountIdAndStatus(
                 trialAccountId,
                 com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus.TRIALING).orElseThrow();
