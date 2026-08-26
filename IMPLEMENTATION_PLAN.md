@@ -1686,6 +1686,8 @@ flowchart TD
 - **Action**: IMPLEMENT.
 - **Description**: Rebuild the Admin Frontend using clean, versioned DTO catalogs, stable pagination, reusable table/action/form patterns, permission-aware routes, and operational detail pages. The shell and current access/catalog surfaces are implemented; the commercial-control-plane screens remain in Phases 9–15.
 
+**Execution status — 2026-08-26:** The existing commercial surfaces now share context-safe query-key factories and invalidation rules, including commercial-overview refresh after mutations and Company/B2B separation for client caches. Route/read gates prevent unauthorized commercial pages and children from mounting or issuing requests; add-on/quota detail uses its dedicated backend endpoint; registry audiences no longer create duplicate inventory caches; client catalogue and change history plus admin subscription history are fetched only under their distinct permissions. Commercial mutation inputs and current checkout responses use exact TypeScript contracts instead of `unknown`. Focused gate/query tests plus the complete 106-test frontend suite, TypeScript, Biome, and production build pass. Future price-book/policy/marketing/billing DTOs remain owned by their later phases rather than being invented in advance.
+
 ---
 
 # Phase 8: End-to-end verification and documentation cleanup
