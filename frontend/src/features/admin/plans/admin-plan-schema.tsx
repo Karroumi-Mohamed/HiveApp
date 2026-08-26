@@ -18,6 +18,7 @@ import {
   SCHEMA,
   shouldShowNoCommercialExtensions,
 } from "@/features/admin/plans/plan-schema-model";
+import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
 
 /**
  * The plan as a wiring diagram: the plan node feeds its features; each feature shows what it
@@ -44,26 +45,27 @@ export function PlanSchema({ plan }: { plan: Plan }) {
   // touch-reachable, never hover-only.
   const [focus, setFocus] = useState<string | null>(null);
   const features = useQuery({
-    queryKey: ["admin", "plans", plan.id, "features"],
+    queryKey: adminCommercialKeys.plans.features(plan.id),
     queryFn: () => adminApi.planFeatures(plan.id),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansListFeatures),
   });
-  const canReadCatalog = session.can(adminPermissions.registryRead);
+  const canReadCatalog = session.can(adminPermissions.registryFeatureCatalog);
   const catalog = useQuery({
-    queryKey: ["admin", "registry", "plan-features"],
-    queryFn: adminApi.registryInventory,
-    enabled: canReadCatalog,
+    queryKey: adminCommercialKeys.registry.featureCatalog("PLAN_ASSIGNABLE"),
+    queryFn: () => adminApi.featureCatalog("PLAN_ASSIGNABLE"),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog),
   });
   const canSeePackages = session.can(adminPermissions.quotaPackagesList);
   const packages = useQuery({
-    queryKey: ["admin", "quota-packages"],
+    queryKey: adminCommercialKeys.quotaPackages.list(),
     queryFn: adminApi.quotaPackages,
-    enabled: canSeePackages,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesList),
   });
   const canSeeAddOns = session.can(adminPermissions.addOnsList);
   const addOns = useQuery({
-    queryKey: ["admin", "add-ons"],
+    queryKey: adminCommercialKeys.addOns.list(),
     queryFn: adminApi.addOns,
-    enabled: canSeeAddOns,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList),
   });
 
   const model = useMemo(

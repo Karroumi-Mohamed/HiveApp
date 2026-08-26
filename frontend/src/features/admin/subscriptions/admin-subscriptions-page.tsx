@@ -27,6 +27,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  adminCommercialKeys,
+  commercialQueryEnabled,
+  invalidateAdminCommercial,
+} from "@/features/commercial/commercial-query";
 
 const money = (value: number, currency: string) =>
   new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(value);
@@ -36,7 +41,11 @@ const date = (value: string | null) =>
 function CreateSubscription({ accountId }: { accountId: string }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
-  const plans = useQuery({ queryKey: ["admin", "plans"], queryFn: adminApi.plans });
+  const plans = useQuery({
+    queryKey: adminCommercialKeys.plans.list(),
+    queryFn: adminApi.plans,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList),
+  });
   const [planCode, setPlanCode] = useState("");
   const [trialDays, setTrialDays] = useState("14");
   const [mode, setMode] = useState("subscription");
@@ -46,7 +55,7 @@ function CreateSubscription({ accountId }: { accountId: string }) {
         ? adminApi.createTrial(accountId, planCode, Number(trialDays))
         : adminApi.createSubscription(accountId, planCode),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "subscription", accountId] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.subscriptions.all());
       toast.success(mode === "trial" ? "Essai démarré" : "Abonnement créé");
     },
   });
@@ -124,8 +133,24 @@ function OverridesEditor({ subscription }: { subscription: AdminSubscription }) 
   );
   const [addOns, quotaPackages] = useQueries({
     queries: [
-      { queryKey: ["admin", "add-ons"], queryFn: adminApi.addOns },
-      { queryKey: ["admin", "quota-packages"], queryFn: adminApi.quotaPackages },
+      {
+        queryKey: adminCommercialKeys.addOns.list(),
+        queryFn: adminApi.addOns,
+        enabled: commercialQueryEnabled(
+          session.can,
+          adminPermissions.addOnsList,
+          open && session.can(adminPermissions.subscriptionsOverrides),
+        ),
+      },
+      {
+        queryKey: adminCommercialKeys.quotaPackages.list(),
+        queryFn: adminApi.quotaPackages,
+        enabled: commercialQueryEnabled(
+          session.can,
+          adminPermissions.quotaPackagesList,
+          open && session.can(adminPermissions.subscriptionsOverrides),
+        ),
+      },
     ],
   });
   useEffect(() => {
@@ -145,7 +170,7 @@ function OverridesEditor({ subscription }: { subscription: AdminSubscription }) 
           .map(([packageCode, quantity]) => ({ packageCode, quantity })),
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "subscription", subscription.accountId] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.subscriptions.all());
       toast.success("Exceptions mises à jour");
       setOpen(false);
     },
@@ -230,7 +255,7 @@ function OverridesEditor({ subscription }: { subscription: AdminSubscription }) 
   );
 }
 
-function CheckoutDialog({ checkoutId, accountId }: { checkoutId: string; accountId: string }) {
+function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -239,8 +264,7 @@ function CheckoutDialog({ checkoutId, accountId }: { checkoutId: string; account
   const confirm = useMutation({
     mutationFn: () => adminApi.confirmCheckout(checkoutId, { reference, reason }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "subscription-changes", accountId] });
-      void queryClient.invalidateQueries({ queryKey: ["admin", "subscription", accountId] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.subscriptions.all());
       toast.success("Paiement confirmé manuellement");
       setOpen(false);
     },
@@ -297,14 +321,18 @@ function CheckoutDialog({ checkoutId, accountId }: { checkoutId: string; account
 }
 
 function SubscriptionDetail({ accountId }: { accountId: string }) {
+  const session = useAdminSession();
+  const canReadChanges = session.can(adminPermissions.subscriptionsReadChanges);
   const subscription = useQuery({
-    queryKey: ["admin", "subscription", accountId],
+    queryKey: adminCommercialKeys.subscriptions.detail(accountId),
     queryFn: () => adminApi.subscription(accountId),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.subscriptionsRead),
     retry: false,
   });
   const changes = useQuery({
-    queryKey: ["admin", "subscription-changes", accountId],
+    queryKey: adminCommercialKeys.subscriptions.changes(accountId),
     queryFn: () => adminApi.subscriptionChanges(accountId),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.subscriptionsReadChanges),
     retry: false,
   });
   if (subscription.isLoading) return <LoadingState />;
@@ -360,72 +388,78 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
           </dl>
         </section>
       </div>
-      <section className="overflow-hidden rounded-xl border bg-card">
-        <div className="border-b p-4">
-          <h2 className="text-sm font-semibold">Opérations de changement</h2>
-        </div>
-        {changes.isLoading ? (
-          <div className="p-5">
-            <LoadingState rows={3} />
+      {canReadChanges ? (
+        <section className="overflow-hidden rounded-xl border bg-card">
+          <div className="border-b p-4">
+            <h2 className="text-sm font-semibold">Opérations de changement</h2>
           </div>
-        ) : !changes.data?.length ? (
-          <EmptyState title="Aucune opération" />
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Changement</TableHead>
-                <TableHead>Timing</TableHead>
-                <TableHead>Statut</TableHead>
-                <TableHead>Effet</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {changes.data.map((operation: SubscriptionChangeOperation) => (
-                <TableRow key={operation.id}>
-                  <TableCell>
-                    <code className="text-xs">{operation.sourcePlanCode}</code> →{" "}
-                    <code className="text-xs">{operation.targetPlanCode}</code>
-                  </TableCell>
-                  <TableCell>{operation.timing === "IMMEDIATE" ? "Immédiat" : "Au renouvellement"}</TableCell>
-                  <TableCell>
-                    <StatusBadge
-                      tone={
-                        operation.status === "APPLIED"
-                          ? "success"
-                          : operation.status === "NEEDS_ATTENTION"
-                            ? "danger"
-                            : "warning"
-                      }
-                    >
-                      {operation.status}
-                    </StatusBadge>
-                  </TableCell>
-                  <TableCell>{date(operation.effectiveAt)}</TableCell>
-                  <TableCell>
-                    {operation.checkout?.status === "PENDING_CONFIRMATION" ? (
-                      <CheckoutDialog accountId={accountId} checkoutId={operation.checkout.id} />
-                    ) : null}
-                  </TableCell>
+          {changes.isLoading ? (
+            <div className="p-5">
+              <LoadingState rows={3} />
+            </div>
+          ) : changes.isError ? (
+            <ErrorState retry={() => void changes.refetch()} title="Impossible de charger les changements" />
+          ) : !changes.data?.length ? (
+            <EmptyState title="Aucune opération" />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Changement</TableHead>
+                  <TableHead>Timing</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead>Effet</TableHead>
+                  <TableHead />
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </section>
+              </TableHeader>
+              <TableBody>
+                {changes.data.map((operation: SubscriptionChangeOperation) => (
+                  <TableRow key={operation.id}>
+                    <TableCell>
+                      <code className="text-xs">{operation.sourcePlanCode}</code> →{" "}
+                      <code className="text-xs">{operation.targetPlanCode}</code>
+                    </TableCell>
+                    <TableCell>{operation.timing === "IMMEDIATE" ? "Immédiat" : "Au renouvellement"}</TableCell>
+                    <TableCell>
+                      <StatusBadge
+                        tone={
+                          operation.status === "APPLIED"
+                            ? "success"
+                            : operation.status === "NEEDS_ATTENTION"
+                              ? "danger"
+                              : "warning"
+                        }
+                      >
+                        {operation.status}
+                      </StatusBadge>
+                    </TableCell>
+                    <TableCell>{date(operation.effectiveAt)}</TableCell>
+                    <TableCell>
+                      {operation.checkout?.status === "PENDING_CONFIRMATION" ? (
+                        <CheckoutDialog checkoutId={operation.checkout.id} />
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }
 
 export function AdminSubscriptionsPage() {
   const { accountId } = useParams();
+  const session = useAdminSession();
   const [search, setSearch] = useState("");
   const deferred = useDeferredValue(search);
   const [page, setPage] = useState(0);
   const accounts = useQuery({
-    queryKey: ["admin", "subscription-accounts", deferred, page],
+    queryKey: adminCommercialKeys.subscriptions.accounts({ search: deferred, page }),
     queryFn: () => adminApi.accounts({ query: deferred || undefined, page, size: 20 }),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.subscriptionsSearch, !accountId),
   });
   if (accountId)
     return (
@@ -436,9 +470,7 @@ export function AdminSubscriptionsPage() {
             Abonnements
           </Link>
         </Button>
-        <PageHeader
-          title={accounts.data?.content.find((account) => account.id === accountId)?.name ?? "Abonnement du compte"}
-        />
+        <PageHeader title="Abonnement du compte" />
         <SubscriptionDetail accountId={accountId} />
       </div>
     );

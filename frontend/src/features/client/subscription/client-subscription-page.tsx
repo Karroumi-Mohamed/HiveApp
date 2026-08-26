@@ -16,6 +16,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  clientCommercialKeys,
+  commercialQueryEnabled,
+  invalidateClientCommercial,
+} from "@/features/commercial/commercial-query";
 
 const money = (amount: number, currency: string) =>
   new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(amount);
@@ -70,7 +75,7 @@ function PreviewDialog({
   preview: SubscriptionChangePreview | null;
   open: boolean;
   onOpenChange: (value: boolean) => void;
-  timing: string;
+  timing: "IMMEDIATE" | "AT_RENEWAL";
   onApply: () => void;
   applying: boolean;
   canApply: boolean;
@@ -155,7 +160,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
   const [quantities, setQuantities] = useState<Record<string, number>>(
     Object.fromEntries((current?.quotaPackages ?? []).map((item) => [item.packageCode, item.quantity])),
   );
-  const [timing, setTiming] = useState("IMMEDIATE");
+  const [timing, setTiming] = useState<"IMMEDIATE" | "AT_RENEWAL">("IMMEDIATE");
   const [preview, setPreview] = useState<SubscriptionChangePreview | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   useEffect(() => {
@@ -183,7 +188,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
   const apply = useMutation({
     mutationFn: () => clientApi.applySubscriptionChange(request),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["client", "subscription"] });
+      void invalidateClientCommercial(queryClient);
       setPreviewOpen(false);
       toast.success(timing === "IMMEDIATE" ? "Changement appliqué" : "Changement planifié");
     },
@@ -286,7 +291,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
         <section className="flex flex-col gap-4 rounded-xl border bg-card p-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-2">
             <Label>Moment du changement</Label>
-            <Select onValueChange={setTiming} value={timing}>
+            <Select onValueChange={(value) => setTiming(value as "IMMEDIATE" | "AT_RENEWAL")} value={timing}>
               <SelectTrigger aria-label="Moment du changement" className="w-56">
                 <SelectValue />
               </SelectTrigger>
@@ -326,15 +331,23 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
 function ChangeHistory() {
   const session = useClientSession();
   const queryClient = useQueryClient();
-  const changes = useQuery({ queryKey: ["client", "subscription", "changes"], queryFn: clientApi.subscriptionChanges });
+  const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
+  const changes = useQuery({
+    queryKey: clientCommercialKeys.changes(commercialContext),
+    queryFn: clientApi.subscriptionChanges,
+    enabled: commercialQueryEnabled(session.can, clientPermissions.subscriptionReadChanges),
+  });
   const cancel = useMutation({
     mutationFn: clientApi.cancelSubscriptionChange,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["client", "subscription", "changes"] });
+      void invalidateClientCommercial(queryClient);
       toast.success("Changement annulé");
     },
   });
   if (changes.isLoading) return <LoadingState />;
+  if (changes.isError) {
+    return <ErrorState retry={() => void changes.refetch()} title="Impossible de charger les changements" />;
+  }
   if (!changes.data?.length) return <EmptyState title="Aucun changement" />;
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
@@ -393,10 +406,22 @@ function ChangeHistory() {
 export function ClientSubscriptionPage() {
   const session = useClientSession();
   const [tab, setTab] = useState("current");
+  const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
+  const canReadCatalog = session.can(clientPermissions.subscriptionCatalog);
+  const canReadChanges = session.can(clientPermissions.subscriptionReadChanges);
   const [subscription, catalog] = useQueries({
     queries: [
-      { queryKey: ["client", "subscription"], queryFn: clientApi.subscription, retry: false },
-      { queryKey: ["client", "subscription", "catalog"], queryFn: clientApi.planCatalog },
+      {
+        queryKey: clientCommercialKeys.subscription(commercialContext),
+        queryFn: clientApi.subscription,
+        enabled: commercialQueryEnabled(session.can, clientPermissions.subscriptionRead),
+        retry: false,
+      },
+      {
+        queryKey: clientCommercialKeys.catalog(commercialContext),
+        queryFn: clientApi.planCatalog,
+        enabled: commercialQueryEnabled(session.can, clientPermissions.subscriptionCatalog, tab === "catalog"),
+      },
     ],
   });
   return (
@@ -405,21 +430,21 @@ export function ClientSubscriptionPage() {
       <SectionTabs
         items={[
           { label: "Abonnement actuel", value: "current" },
-          ...(session.can(clientPermissions.subscriptionPreview)
-            ? [{ label: "Changer de forfait", value: "catalog" }]
-            : []),
-          { label: "Changements", value: "changes" },
+          ...(canReadCatalog ? [{ label: "Changer de forfait", value: "catalog" }] : []),
+          ...(canReadChanges ? [{ label: "Changements", value: "changes" }] : []),
         ]}
         onValueChange={setTab}
         value={tab}
       />
-      {subscription.isLoading || catalog.isLoading ? (
+      {subscription.isLoading || (tab === "catalog" && catalog.isLoading) ? (
         <LoadingState />
-      ) : catalog.isError ? (
+      ) : subscription.isError ? (
+        <ErrorState retry={() => void subscription.refetch()} title="Impossible de charger l’abonnement" />
+      ) : tab === "catalog" && catalog.isError ? (
         <ErrorState retry={() => void catalog.refetch()} />
-      ) : tab === "catalog" && catalog.data ? (
+      ) : tab === "catalog" && canReadCatalog && catalog.data ? (
         <Configurator catalog={catalog.data} />
-      ) : tab === "changes" ? (
+      ) : tab === "changes" && canReadChanges ? (
         <ChangeHistory />
       ) : subscription.data ? (
         <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">

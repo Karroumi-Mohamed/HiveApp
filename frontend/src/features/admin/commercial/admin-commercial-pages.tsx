@@ -27,6 +27,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  adminCommercialKeys,
+  commercialQueryEnabled,
+  invalidateAdminCommercial,
+} from "@/features/commercial/commercial-query";
+import {
   type AddOnPlanCompatibilityIssue,
   addOnLifecycleActions,
   addOnPlanCompatibilityIssue,
@@ -289,8 +294,16 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const planOptions = useQuery({ queryKey: ["admin", "plans"], queryFn: adminApi.plans, enabled: open });
-  const addOnOptions = useQuery({ queryKey: ["admin", "add-ons"], queryFn: adminApi.addOns, enabled: open });
+  const planOptions = useQuery({
+    queryKey: adminCommercialKeys.plans.list(),
+    queryFn: adminApi.plans,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, open),
+  });
+  const addOnOptions = useQuery({
+    queryKey: adminCommercialKeys.addOns.list(),
+    queryFn: adminApi.addOns,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList, open),
+  });
   const [name, setName] = useState(item?.name ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
   const [amount, setAmount] = useState(String(item?.price ?? 0));
@@ -340,7 +353,7 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
   const save = useMutation({
     mutationFn: () => (item ? adminApi.updateAddOn(item.id, input) : adminApi.createAddOn(input)),
     onSuccess: (saved) => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "add-ons"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.addOns.all());
       toast.success(item ? "Add-on mis à jour" : "Add-on créé");
       setOpen(false);
       navigate(`/admin/add-ons/${saved.id}`);
@@ -484,7 +497,11 @@ function AddOnFeatureDialog({ item, addOn }: { item?: AddOn["features"][number];
   const [open, setOpen] = useState(false);
   const [featureCode, setFeatureCode] = useState(item?.featureCode ?? "");
   const [quotas, setQuotas] = useState<QuotaLimit[]>(item?.quotaConfigs ?? []);
-  const catalog = useQuery({ queryKey: ["admin", "registry", "add-on-features"], queryFn: adminApi.registryInventory });
+  const catalog = useQuery({
+    queryKey: adminCommercialKeys.registry.featureCatalog("PLAN_ASSIGNABLE"),
+    queryFn: () => adminApi.featureCatalog("PLAN_ASSIGNABLE"),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog, open),
+  });
   const available = (catalog.data ?? [])
     .flatMap((module) => module.features)
     .filter(
@@ -502,7 +519,7 @@ function AddOnFeatureDialog({ item, addOn }: { item?: AddOn["features"][number];
         : adminApi.assignAddOnFeature(addOn.id, input);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "add-ons"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.addOns.all());
       toast.success(item ? "Configuration mise à jour" : "Fonctionnalité ajoutée");
       setOpen(false);
     },
@@ -629,14 +646,27 @@ export function AdminAddOnsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const session = useAdminSession();
-  const items = useQuery({ queryKey: ["admin", "add-ons"], queryFn: adminApi.addOns });
-  const plans = useQuery({ queryKey: ["admin", "plans"], queryFn: adminApi.plans });
-  const registry = useQuery({
-    queryKey: ["admin", "registry", "inventory"],
-    queryFn: adminApi.registryInventory,
-    enabled: session.can(adminPermissions.registryRead),
+  const items = useQuery({
+    queryKey: adminCommercialKeys.addOns.list(),
+    queryFn: adminApi.addOns,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList, !addOnId),
   });
-  const selected = items.data?.find((item) => item.id === addOnId);
+  const detail = useQuery({
+    queryKey: adminCommercialKeys.addOns.detail(addOnId ?? ""),
+    queryFn: () => adminApi.addOn(addOnId ?? ""),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsReadDetail, Boolean(addOnId)),
+  });
+  const plans = useQuery({
+    queryKey: adminCommercialKeys.plans.list(),
+    queryFn: adminApi.plans,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, Boolean(addOnId)),
+  });
+  const registry = useQuery({
+    queryKey: adminCommercialKeys.registry.featureCatalog("PLAN_ASSIGNABLE"),
+    queryFn: () => adminApi.featureCatalog("PLAN_ASSIGNABLE"),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog, Boolean(addOnId)),
+  });
+  const selected = detail.data;
   const planBlocker =
     selected && plans.data && (selected.status === "DRAFT" || selected.status === "INACTIVE")
       ? publicationPlanBlocker(selected, plans.data)
@@ -658,7 +688,7 @@ export function AdminAddOnsPage() {
   const transition = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => adminApi.transitionAddOn(id, status),
     onSuccess: (_, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "add-ons"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.addOns.all());
       toast.success(
         variables.status === "ACTIVE"
           ? selected?.status === "DRAFT"
@@ -673,10 +703,7 @@ export function AdminAddOnsPage() {
   const revise = useMutation({
     mutationFn: (id: string) => adminApi.reviseAddOn(id),
     onSuccess: (revision) => {
-      queryClient.setQueryData<AddOn[]>(["admin", "add-ons"], (current) =>
-        current ? [...current, revision] : [revision],
-      );
-      void queryClient.invalidateQueries({ queryKey: ["admin", "add-ons"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.addOns.all());
       toast.success(`Révision R${revision.revisionNumber} créée`);
       navigate(`/admin/add-ons/${revision.id}`);
     },
@@ -684,20 +711,22 @@ export function AdminAddOnsPage() {
   const removeFeature = useMutation({
     mutationFn: ({ id, featureId }: { id: string; featureId: string }) => adminApi.removeAddOnFeature(id, featureId),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "add-ons"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.addOns.all());
       toast.success("Fonctionnalité retirée");
     },
   });
   const remove = useMutation({
     mutationFn: (id: string) => adminApi.deleteAddOn(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "add-ons"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.addOns.all());
       toast.success("Brouillon supprimé");
       navigate("/admin/add-ons");
     },
   });
-  if (addOnId && items.isLoading) return <LoadingState />;
-  if (addOnId && !selected && !items.isLoading) return <ErrorState title="Add-on introuvable" />;
+  if (addOnId && detail.isLoading) return <LoadingState />;
+  if (addOnId && (detail.isError || (!selected && !detail.isLoading))) {
+    return <ErrorState retry={() => void detail.refetch()} title="Add-on introuvable" />;
+  }
   if (selected)
     return (
       <div className="space-y-7">
@@ -769,11 +798,11 @@ export function AdminAddOnsPage() {
             />
             <ReferenceSet
               label="Dépendances"
-              values={selected.dependencyCodes.map((code) => addOnNames.get(code) ?? "Add-on indisponible")}
+              values={selected.dependencyCodes.map((code) => addOnNames.get(code) ?? code)}
             />
             <ReferenceSet
               label="Exclusions"
-              values={selected.exclusionCodes.map((code) => addOnNames.get(code) ?? "Add-on indisponible")}
+              values={selected.exclusionCodes.map((code) => addOnNames.get(code) ?? code)}
             />
           </section>
         </div>
@@ -916,12 +945,20 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const planOptions = useQuery({ queryKey: ["admin", "plans"], queryFn: adminApi.plans, enabled: open });
-  const addOnOptions = useQuery({ queryKey: ["admin", "add-ons"], queryFn: adminApi.addOns, enabled: open });
+  const planOptions = useQuery({
+    queryKey: adminCommercialKeys.plans.list(),
+    queryFn: adminApi.plans,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, open),
+  });
+  const addOnOptions = useQuery({
+    queryKey: adminCommercialKeys.addOns.list(),
+    queryFn: adminApi.addOns,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList, open),
+  });
   const registry = useQuery({
-    queryKey: ["admin", "registry", "inventory"],
-    queryFn: adminApi.registryInventory,
-    enabled: open && session.can(adminPermissions.registryRead),
+    queryKey: adminCommercialKeys.registry.featureCatalog("PLAN_ASSIGNABLE"),
+    queryFn: () => adminApi.featureCatalog("PLAN_ASSIGNABLE"),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog, open),
   });
   const [name, setName] = useState(item?.name ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
@@ -956,7 +993,7 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
   const save = useMutation({
     mutationFn: () => (item ? adminApi.updateQuotaPackage(item.id, input) : adminApi.createQuotaPackage(input)),
     onSuccess: (saved) => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "quota-packages"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.quotaPackages.all());
       toast.success(item ? "Package mis à jour" : "Package créé");
       setOpen(false);
       navigate(`/admin/quota-packages/${saved.id}`);
@@ -1095,13 +1132,22 @@ export function AdminQuotaPackagesPage() {
   const navigate = useNavigate();
   const session = useAdminSession();
   const [search, setSearch] = useState("");
-  const items = useQuery({ queryKey: ["admin", "quota-packages"], queryFn: adminApi.quotaPackages });
-  const registry = useQuery({
-    queryKey: ["admin", "registry", "inventory"],
-    queryFn: adminApi.registryInventory,
-    enabled: session.can(adminPermissions.registryRead),
+  const items = useQuery({
+    queryKey: adminCommercialKeys.quotaPackages.list(),
+    queryFn: adminApi.quotaPackages,
+    enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesList, !packageId),
   });
-  const selected = items.data?.find((item) => item.id === packageId);
+  const detail = useQuery({
+    queryKey: adminCommercialKeys.quotaPackages.detail(packageId ?? ""),
+    queryFn: () => adminApi.quotaPackage(packageId ?? ""),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesReadDetail, Boolean(packageId)),
+  });
+  const registry = useQuery({
+    queryKey: adminCommercialKeys.registry.featureCatalog("PLAN_ASSIGNABLE"),
+    queryFn: () => adminApi.featureCatalog("PLAN_ASSIGNABLE"),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog),
+  });
+  const selected = detail.data;
   const registryFeatures = (registry.data ?? []).flatMap((module) => module.features);
   const featureNames = new Map(registryFeatures.map((feature) => [feature.code, feature.displayName]));
   const resourceUnits = new Map(
@@ -1116,20 +1162,22 @@ export function AdminQuotaPackagesPage() {
   const transition = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => adminApi.transitionQuotaPackage(id, status),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "quota-packages"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.quotaPackages.all());
       toast.success("Statut mis à jour");
     },
   });
   const remove = useMutation({
     mutationFn: (id: string) => adminApi.deleteQuotaPackage(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin", "quota-packages"] });
+      void invalidateAdminCommercial(queryClient, adminCommercialKeys.quotaPackages.all());
       toast.success("Brouillon supprimé");
       navigate("/admin/quota-packages");
     },
   });
-  if (packageId && items.isLoading) return <LoadingState />;
-  if (packageId && !selected && !items.isLoading) return <ErrorState title="Package introuvable" />;
+  if (packageId && detail.isLoading) return <LoadingState />;
+  if (packageId && (detail.isError || (!selected && !detail.isLoading))) {
+    return <ErrorState retry={() => void detail.refetch()} title="Package introuvable" />;
+  }
   if (selected)
     return (
       <div className="space-y-7">

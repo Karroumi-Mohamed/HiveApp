@@ -45,7 +45,7 @@ export function QuotaEditor({
                       ? null
                       : {
                           resource: slot.resource,
-                          mode: nextMode,
+                          mode: nextMode as QuotaLimit["mode"],
                           limit: nextMode === "FINITE" ? (configured?.limit ?? 0) : null,
                         },
                   ),

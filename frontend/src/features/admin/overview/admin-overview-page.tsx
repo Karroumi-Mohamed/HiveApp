@@ -7,11 +7,12 @@ import { OperationalCard } from "@/components/patterns/operational-card";
 import { PageHeader } from "@/components/patterns/page-header";
 import { ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
+import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
 
 export function AdminOverviewPage() {
   const session = useAdminSession();
   const accessEnabled = session.can(adminPermissions.accessOverview);
-  const commercialEnabled = session.can(adminPermissions.plansOverview);
+  const commercialEnabled = commercialQueryEnabled(session.can, adminPermissions.plansOverview);
   const syncEnabled = session.can(adminPermissions.registrySync);
   const access = useQuery({
     queryKey: ["admin", "overview", "access"],
@@ -19,7 +20,7 @@ export function AdminOverviewPage() {
     enabled: accessEnabled,
   });
   const commercial = useQuery({
-    queryKey: ["admin", "overview", "commercial"],
+    queryKey: adminCommercialKeys.overview(),
     queryFn: adminApi.commercialOverview,
     enabled: commercialEnabled,
   });
