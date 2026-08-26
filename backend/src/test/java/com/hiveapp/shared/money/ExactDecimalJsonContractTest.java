@@ -60,6 +60,21 @@ class ExactDecimalJsonContractTest {
     }
 
     @Test
+    void serializesCommercialMoneyWithoutScientificNotation() throws Exception {
+        ProductPriceDto dto = new ProductPriceDto(
+                UUID.randomUUID(), ProductPriceOwnerType.PLAN, UUID.randomUUID(), "ENTERPRISE",
+                "Enterprise", new BigDecimal("1E+3"), "CLF", BillingCycle.YEARLY,
+                ProductPriceStatus.DRAFT, Instant.parse("2026-09-01T00:00:00Z"), null,
+                UUID.randomUUID(), 1, null, false, 0,
+                Instant.parse("2026-08-26T00:00:00Z"),
+                Instant.parse("2026-08-26T00:00:00Z"), List.of(), List.of());
+
+        JsonNode json = objectMapper.readTree(objectMapper.writeValueAsBytes(dto));
+
+        assertThat(json.path("amount").textValue()).isEqualTo("1000");
+    }
+
+    @Test
     void acceptsExactDecimalStringInMutationRequests() throws Exception {
         CreateProductPriceRequest request = objectMapper.readValue("""
                 {

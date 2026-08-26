@@ -2,7 +2,6 @@ package com.hiveapp.shared.money;
 
 import com.fasterxml.jackson.annotation.JacksonAnnotationsInside;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
-import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Documented;
@@ -16,7 +15,7 @@ import java.lang.annotation.Target;
  * the declared {@code BigDecimal} component for backward-compatible request handling.
  */
 @JacksonAnnotationsInside
-@JsonSerialize(using = ToStringSerializer.class)
+@JsonSerialize(using = ExactDecimalSerializer.class)
 @Documented
 @Target({ElementType.FIELD, ElementType.METHOD, ElementType.PARAMETER, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.RUNTIME)
