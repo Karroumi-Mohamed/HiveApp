@@ -91,8 +91,10 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
             planRepository.saveAndFlush(pro);
 
             preview(token, new SubscriptionChangeRequest("PRO", Set.of(), List.of()))
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.message").value("Inactive plans cannot be selected."));
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.message")
+                            .value("The requested commercial selection is unavailable."));
         } finally {
             var currentPro = planRepository.findByCode("PRO").orElseThrow();
             currentPro.setStatus(originalActive ? PlanStatus.ACTIVE : PlanStatus.INACTIVE);
@@ -101,7 +103,32 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
 
         preview(token, new SubscriptionChangeRequest("FREE", Set.of("platform.plans"), List.of()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("One or more selected AddOns do not exist."));
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message")
+                        .value("The requested commercial selection is unavailable."));
+    }
+
+    @Test
+    void malformedSelectionElementsAreRejectedWithoutReachingCommercialResolution() throws Exception {
+        String token = registerClientAndGetToken();
+
+        mockMvc.perform(post("/api/v1/subscriptions/preview")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"targetPlanCode":"FLEX","addOnCodes":[null],"quotaPackages":[]}
+                                """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        mockMvc.perform(post("/api/v1/subscriptions/preview")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"targetPlanCode":"FLEX","addOnCodes":[],"quotaPackages":[null]}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test
@@ -124,7 +151,9 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
 
             preview(token, new SubscriptionChangeRequest("PRO", Set.of("platform.company"), List.of()))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.message").value("One or more selected AddOns do not exist."));
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.message")
+                            .value("The requested commercial selection is unavailable."));
         } finally {
             company.setStatus(originalStatus);
             featureRepository.saveAndFlush(company);

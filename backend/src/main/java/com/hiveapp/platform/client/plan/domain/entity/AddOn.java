@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.domain.entity;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.money.Money;
 import jakarta.persistence.Column;
@@ -58,6 +59,10 @@ public class AddOn extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private AddOnStatus status = AddOnStatus.DRAFT;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sales_visibility", nullable = false, length = 20)
+    private ProductSalesVisibility salesVisibility = ProductSalesVisibility.PUBLIC;
 
     @Column(name = "definition_version", nullable = false)
     private long definitionVersion = 1;
@@ -139,6 +144,9 @@ public class AddOn extends BaseEntity {
         }
         if (lineageId == null || revisionNumber < 1 || creationReason == null) {
             throw new IllegalStateException("AddOn lineage identity is required");
+        }
+        if (salesVisibility == null) {
+            throw new IllegalStateException("AddOn sales visibility is required");
         }
     }
 

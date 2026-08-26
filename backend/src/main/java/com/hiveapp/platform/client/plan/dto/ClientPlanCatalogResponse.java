@@ -40,6 +40,7 @@ public record ClientPlanCatalogResponse(
             String currencyCode,
             BillingCycle billingCycle,
             boolean current,
+            boolean selectable,
             List<CatalogFeature> features,
             List<CatalogAddOn> addOns,
             List<CatalogQuotaPackage> quotaPackages,
@@ -51,7 +52,7 @@ public record ClientPlanCatalogResponse(
                 List<CatalogFeature> features, List<CatalogAddOn> addOns,
                 List<CatalogQuotaPackage> quotaPackages
         ) {
-            this(code, name, description, basePrice, currencyCode, billingCycle, current,
+            this(code, name, description, basePrice, currencyCode, billingCycle, current, true,
                     features, addOns, quotaPackages, List.of());
         }
     }
@@ -119,7 +120,9 @@ public record ClientPlanCatalogResponse(
             int maximumQuantity,
             Set<String> allowedPlanCodes,
             Set<String> allowedAddOnCodes,
-            List<CatalogPrice> prices
+            List<CatalogPrice> prices,
+            boolean directlyAvailable,
+            Set<String> requiresAddOnCodes
     ) {
         public CatalogQuotaPackage(
                 String code, String name, String description, long definitionVersion,
@@ -129,7 +132,7 @@ public record ClientPlanCatalogResponse(
         ) {
             this(code, name, description, definitionVersion, featureCode, resource, capacityPerUnit,
                     price, currencyCode, billingCycle, repeatable, maximumQuantity,
-                    allowedPlanCodes, allowedAddOnCodes, List.of());
+                    allowedPlanCodes, allowedAddOnCodes, List.of(), false, Set.of());
         }
     }
 

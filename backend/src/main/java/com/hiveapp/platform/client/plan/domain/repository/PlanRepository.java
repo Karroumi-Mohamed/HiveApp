@@ -17,6 +17,10 @@ public interface PlanRepository extends JpaRepository<Plan, UUID> {
     @Query("select plan from Plan plan where plan.id = :planId")
     Optional<Plan> findByIdForUpdate(@Param("planId") UUID planId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select plan from Plan plan where plan.code = :code")
+    Optional<Plan> findByCodeForUpdate(@Param("code") String code);
+
     long countBySourcePlan_Id(UUID planId);
 
     @Query("select coalesce(max(plan.revisionNumber), 0) from Plan plan where plan.lineageId = :lineageId")

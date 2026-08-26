@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.util.Set;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 
 public record CreateAddOnRequest(
         @NotBlank @Size(max = 160) String name,
@@ -21,5 +22,15 @@ public record CreateAddOnRequest(
         Set<@NotBlank @Size(max = 100) String> allowedPlanCodes,
         Set<@NotBlank @Size(max = 100) String> blockedPlanCodes,
         Set<@NotBlank @Size(max = 100) String> dependencyCodes,
-        Set<@NotBlank @Size(max = 100) String> exclusionCodes
-) {}
+        Set<@NotBlank @Size(max = 100) String> exclusionCodes,
+        ProductSalesVisibility salesVisibility
+) {
+    public CreateAddOnRequest(
+            String name, String description, BigDecimal price, String currencyCode,
+            BillingCycle billingCycle, Set<String> allowedPlanCodes, Set<String> blockedPlanCodes,
+            Set<String> dependencyCodes, Set<String> exclusionCodes
+    ) {
+        this(name, description, price, currencyCode, billingCycle, allowedPlanCodes,
+                blockedPlanCodes, dependencyCodes, exclusionCodes, ProductSalesVisibility.PUBLIC);
+    }
+}

@@ -15,6 +15,7 @@ import java.util.UUID;
 
 public interface QuotaPackageRepository extends JpaRepository<QuotaPackage, UUID> {
     Optional<QuotaPackage> findByCode(String code);
+    @EntityGraph(attributePaths = "feature")
     List<QuotaPackage> findAllByCodeIn(Collection<String> codes);
 
     @EntityGraph(attributePaths = "feature")
@@ -26,4 +27,9 @@ public interface QuotaPackageRepository extends JpaRepository<QuotaPackage, UUID
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select item from QuotaPackage item where item.id = :quotaPackageId")
     Optional<QuotaPackage> findByIdForUpdate(@Param("quotaPackageId") UUID quotaPackageId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = "feature")
+    @Query("select item from QuotaPackage item where item.code in :codes order by item.id")
+    List<QuotaPackage> findAllByCodeInForUpdate(@Param("codes") Collection<String> codes);
 }

@@ -1,10 +1,10 @@
 package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
-import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -31,7 +33,6 @@ public class SubscriptionSnapshotFactory {
 
     private final PlanFeatureRepository planFeatureRepository;
     private final AddOnRepository addOnRepository;
-    private final AddOnFeatureRepository addOnFeatureRepository;
     private final QuotaPackageRepository quotaPackageRepository;
     private final ProductPriceResolver productPriceResolver;
 
@@ -88,6 +89,125 @@ public class SubscriptionSnapshotFactory {
                 planPrice, existingAddOns, existingPackages);
     }
 
+    /**
+     * Materializes the immutable entitlement snapshot from the exact graph produced by the
+     * commercial resolver while its owners and price rows are locked. Unlike the legacy
+     * convenience methods above, this path performs no repository or price-book reads.
+     */
+    public SubscriptionEntitlementSnapshot fromResolvedSelection(
+            Plan plan,
+            ProductPrice planPrice,
+            CommercialCatalogResolver.SelectionResolution resolved,
+            SubscriptionEntitlementSnapshot currentSnapshot
+    ) {
+        boolean preserveHeldPrices = currentSnapshot != null
+                && plan.getCode().equals(currentSnapshot.planCode())
+                && planPrice.getId().equals(currentSnapshot.planPriceEntryId());
+        Map<String, SubscriptionAddOnSnapshot> existingAddOns = preserveHeldPrices
+                ? currentSnapshot.addOns().stream().collect(Collectors.toMap(
+                        SubscriptionAddOnSnapshot::code, Function.identity()))
+                : Map.of();
+        Map<String, SubscriptionQuotaPackageSnapshot> existingPackages = preserveHeldPrices
+                ? currentSnapshot.quotaPackages().stream().collect(Collectors.toMap(
+                        SubscriptionQuotaPackageSnapshot::code, Function.identity()))
+                : Map.of();
+
+        Map<String, SubscriptionFeatureSnapshot> features = new LinkedHashMap<>();
+        resolved.plan().planFeatures().stream()
+                .filter(planFeature -> planFeature.getMode() == PlanFeatureMode.INCLUDED)
+                .forEach(planFeature -> features.put(
+                        planFeature.getFeature().getCode(),
+                        new SubscriptionFeatureSnapshot(
+                                planFeature.getFeature().getCode(),
+                                planFeature.getQuotaConfigs() == null
+                                        ? List.of() : planFeature.getQuotaConfigs())));
+
+        Map<String, CommercialCatalogResolver.AddOnResolution> addOnResults =
+                resolved.plan().addOns().stream().collect(Collectors.toMap(
+                        CommercialCatalogResolver.AddOnResolution::code, Function.identity()));
+        List<SubscriptionAddOnSnapshot> addOns = resolved.addOnCodes().stream()
+                .sorted()
+                .map(code -> {
+                    CommercialCatalogResolver.AddOnResolution result = addOnResults.get(code);
+                    if (result == null) {
+                        throw new IllegalStateException("Selected AddOn disappeared from finalized resolution: " + code);
+                    }
+                    var addOn = result.addOn();
+                    List<String> featureCodes = addOn.getFeatures().stream()
+                            .sorted(Comparator.comparing(feature -> feature.getFeature().getCode()))
+                            .map(addOnFeature -> {
+                                String featureCode = addOnFeature.getFeature().getCode();
+                                if (features.putIfAbsent(featureCode, new SubscriptionFeatureSnapshot(
+                                        featureCode,
+                                        addOnFeature.getQuotaConfigs() == null
+                                                ? List.of() : addOnFeature.getQuotaConfigs())) != null) {
+                                    throw new IllegalStateException(
+                                            "Selected AddOns overlap entitlement for feature " + featureCode);
+                                }
+                                return featureCode;
+                            })
+                            .toList();
+                    SubscriptionAddOnSnapshot existing = existingAddOns.get(code);
+                    PriceTerms price = existing == null
+                            ? PriceTerms.from(requireExactPrice(result.prices(), "AddOn", code))
+                            : PriceTerms.from(existing);
+                    return new SubscriptionAddOnSnapshot(
+                            code, addOn.getName(), addOn.getDefinitionVersion(),
+                            price.amount(), price.currencyCode(), price.billingCycle(),
+                            featureCodes, price.priceEntryId());
+                })
+                .toList();
+
+        Map<String, CommercialCatalogResolver.QuotaPackageResolution> packageResults =
+                resolved.packageResolutions();
+        List<SubscriptionQuotaPackageSnapshot> quotaPackages = resolved.quotaPackages().stream()
+                .sorted(Comparator.comparing(QuotaPackageSelection::packageCode))
+                .map(selection -> {
+                    CommercialCatalogResolver.QuotaPackageResolution result =
+                            packageResults.get(selection.packageCode());
+                    if (result == null) {
+                        throw new IllegalStateException(
+                                "Selected quota package disappeared from finalized resolution: "
+                                        + selection.packageCode());
+                    }
+                    var item = result.quotaPackage();
+                    SubscriptionQuotaPackageSnapshot existing = existingPackages.get(item.getCode());
+                    boolean unchangedHeldQuantity = existing != null
+                            && existing.quantity() == selection.quantity();
+                    PriceTerms price = unchangedHeldQuantity
+                            ? PriceTerms.from(existing)
+                            : PriceTerms.from(requireExactPrice(
+                                    result.prices(), "quota package", item.getCode()));
+                    return new SubscriptionQuotaPackageSnapshot(
+                            item.getCode(), item.getName(), item.getDefinitionVersion(),
+                            item.getFeature().getCode(), item.getResource(), item.getCapacityPerUnit(),
+                            selection.quantity(), price.amount(), price.currencyCode(),
+                            price.billingCycle(), price.priceEntryId());
+                })
+                .toList();
+
+        PriceTerms price = PriceTerms.from(planPrice);
+        return new SubscriptionEntitlementSnapshot(
+                SubscriptionEntitlementSnapshot.CURRENT_SCHEMA_VERSION,
+                plan.getCode(), plan.getName(), plan.getRevisionNumber(),
+                price.amount(), price.currencyCode(), price.billingCycle(),
+                null, null,
+                features.values().stream()
+                        .sorted(Comparator.comparing(SubscriptionFeatureSnapshot::featureCode))
+                        .toList(),
+                addOns,
+                quotaPackages,
+                price.priceEntryId());
+    }
+
+    private ProductPrice requireExactPrice(List<ProductPrice> prices, String type, String code) {
+        if (prices.size() != 1) {
+            throw new IllegalStateException(
+                    "Finalized " + type + " " + code + " does not have exactly one price.");
+        }
+        return prices.getFirst();
+    }
+
     private SubscriptionEntitlementSnapshot fromPlan(
             Plan plan,
             Set<String> selectedAddOnCodes,
@@ -97,6 +217,10 @@ public class SubscriptionSnapshotFactory {
             Map<String, SubscriptionQuotaPackageSnapshot> existingPackages
     ) {
         Set<String> requestedCodes = selectedAddOnCodes != null ? selectedAddOnCodes : Set.of();
+        List<ProductPrice> catalogPrices = requestedCodes.isEmpty()
+                && (selectedQuotaPackages == null || selectedQuotaPackages.isEmpty())
+                ? List.of()
+                : productPriceResolver.availableCatalogPrices();
         Map<String, SubscriptionFeatureSnapshot> features = new LinkedHashMap<>();
         planFeatureRepository.findAllByPlanId(plan.getId()).stream()
                 .filter(planFeature -> planFeature.getMode() == PlanFeatureMode.INCLUDED)
@@ -111,7 +235,7 @@ public class SubscriptionSnapshotFactory {
         var addOns = addOnRepository.findAllByCodeIn(requestedCodes).stream()
                 .sorted(Comparator.comparing(com.hiveapp.platform.client.plan.domain.entity.AddOn::getCode))
                 .map(addOn -> {
-                    List<String> featureCodes = addOnFeatureRepository.findAllByAddOnId(addOn.getId()).stream()
+                    List<String> featureCodes = addOn.getFeatures().stream()
                             .sorted(Comparator.comparing(feature -> feature.getFeature().getCode()))
                             .map(addOnFeature -> {
                                 String featureCode = addOnFeature.getFeature().getCode();
@@ -128,8 +252,9 @@ public class SubscriptionSnapshotFactory {
                             .toList();
                     SubscriptionAddOnSnapshot existing = existingAddOns.get(addOn.getCode());
                     PriceTerms addOnPrice = existing == null
-                            ? PriceTerms.from(productPriceResolver.resolveAddOn(
-                                    addOn, planPrice.currencyCode(), planPrice.billingCycle()))
+                            ? PriceTerms.from(productPriceResolver.resolveFromCatalog(
+                                    catalogPrices, ProductPriceOwnerType.ADD_ON, addOn.getId(),
+                                    planPrice.currencyCode(), planPrice.billingCycle()))
                             : PriceTerms.from(existing);
                     return new SubscriptionAddOnSnapshot(
                             addOn.getCode(), addOn.getName(), addOn.getDefinitionVersion(),
@@ -162,8 +287,9 @@ public class SubscriptionSnapshotFactory {
                     var item = packagesByCode.get(selection.packageCode());
                     SubscriptionQuotaPackageSnapshot existing = existingPackages.get(item.getCode());
                     PriceTerms packagePrice = existing == null
-                            ? PriceTerms.from(productPriceResolver.resolveQuotaPackage(
-                                    item, planPrice.currencyCode(), planPrice.billingCycle()))
+                            ? PriceTerms.from(productPriceResolver.resolveFromCatalog(
+                                    catalogPrices, ProductPriceOwnerType.QUOTA_PACKAGE, item.getId(),
+                                    planPrice.currencyCode(), planPrice.billingCycle()))
                             : PriceTerms.from(existing);
                     return new SubscriptionQuotaPackageSnapshot(
                             item.getCode(), item.getName(), item.getDefinitionVersion(),

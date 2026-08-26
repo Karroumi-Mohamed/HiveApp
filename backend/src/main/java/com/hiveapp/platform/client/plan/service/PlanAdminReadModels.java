@@ -31,7 +31,8 @@ public class PlanAdminReadModels {
                 plan.getBillingCycle(), plan.getStatus(),
                 plan.getLineageId(), plan.getRevisionNumber(),
                 plan.getSourcePlan() != null ? plan.getSourcePlan().getId() : null,
-                plan.getCreationReason());
+                plan.getCreationReason(), plan.getExtensionPolicy(), plan.getSalesVisibility(),
+                plan.getVersion());
     }
 
     public PlanFeatureDto toDto(PlanFeature planFeature) {
@@ -50,7 +51,8 @@ public class PlanAdminReadModels {
                 addOn.getSourceAddOn() != null ? addOn.getSourceAddOn().getId() : null,
                 addOn.getCreationReason(), addOn.getAllowedPlanCodes(), addOn.getBlockedPlanCodes(),
                 addOn.getDependencyCodes(), addOn.getExclusionCodes(),
-                addOn.getFeatures().stream().map(this::toDto).toList());
+                addOn.getFeatures().stream().map(this::toDto).toList(),
+                addOn.getSalesVisibility(), addOn.getRowVersion());
     }
 
     public AddOnDto.FeatureItem toDto(AddOnFeature feature) {
@@ -64,6 +66,7 @@ public class PlanAdminReadModels {
                 item.getFeature().getCode(), item.getResource(), item.getCapacityPerUnit(),
                 item.getPrice(), item.getCurrencyCode(), item.getBillingCycle(), item.isRepeatable(),
                 item.getMaximumQuantity(), item.getStatus(), item.getDefinitionVersion(),
-                item.getAllowedPlanCodes(), item.getAllowedAddOnCodes());
+                item.getAllowedPlanCodes(), item.getAllowedAddOnCodes(), item.getSalesVisibility(),
+                item.getRowVersion());
     }
 }

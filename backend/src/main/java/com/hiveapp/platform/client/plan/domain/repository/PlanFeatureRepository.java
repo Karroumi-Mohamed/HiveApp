@@ -24,4 +24,8 @@ public interface PlanFeatureRepository extends JpaRepository<PlanFeature, UUID> 
     // rather than initializing one proxy per plan feature.
     @EntityGraph(attributePaths = "feature")
     List<PlanFeature> findAllByPlanId(UUID planId);
+
+    @EntityGraph(attributePaths = {"plan", "feature"})
+    @Query("select item from PlanFeature item")
+    List<PlanFeature> findAllDetailed();
 }

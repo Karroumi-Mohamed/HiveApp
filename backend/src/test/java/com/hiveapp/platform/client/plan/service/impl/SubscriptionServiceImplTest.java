@@ -7,24 +7,24 @@ import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
+import com.hiveapp.platform.client.plan.domain.constant.ExtensionAvailabilityReason;
+import com.hiveapp.platform.client.plan.domain.constant.ExtensionResolutionSource;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
-import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.entity.SubscriptionChangeOperation;
-import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
-import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
-import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.service.BillingCalculator;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
+import com.hiveapp.platform.client.plan.service.CommercialSelectionFinalizer;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
@@ -44,6 +44,7 @@ import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
+import com.hiveapp.shared.exception.OperationBlockedException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
@@ -82,8 +83,6 @@ class SubscriptionServiceImplTest {
     @Mock private PlanRepository planRepository;
     @Mock private PlanFeatureRepository planFeatureRepository;
     @Mock private AddOnRepository addOnRepository;
-    @Mock private AddOnFeatureRepository addOnFeatureRepository;
-    @Mock private QuotaPackageRepository quotaPackageRepository;
     @Mock private AccountRepository accountRepository;
     @Mock private BillingCalculator billingCalculator;
     @Mock private SubscriptionOverrideReader subscriptionOverrideReader;
@@ -98,6 +97,8 @@ class SubscriptionServiceImplTest {
     @Mock private SubscriptionCheckoutService subscriptionCheckoutService;
     @Mock private SubscriptionChangeActivationService subscriptionChangeActivationService;
     @Mock private com.hiveapp.platform.client.plan.service.ProductPriceResolver productPriceResolver;
+    @Mock private CommercialCatalogResolver commercialCatalogResolver;
+    @Mock private CommercialSelectionFinalizer commercialSelectionFinalizer;
 
     @InjectMocks
     private SubscriptionServiceImpl subscriptionService;
@@ -114,6 +115,30 @@ class SubscriptionServiceImplTest {
                     ReflectionTestUtils.setField(price, "id", UUID.randomUUID());
                     return price;
                 });
+        lenient().when(subscriptionOverrideReader.read(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0) instanceof SubscriptionOverrides overrides
+                        ? overrides : SubscriptionOverrides.empty());
+        lenient().when(commercialCatalogResolver.resolveCatalog(any()))
+                .thenReturn(new CommercialCatalogResolver.CatalogResolution(List.of()));
+        lenient().when(commercialCatalogResolver.resolveSelection(
+                        any(Plan.class), any(CommercialCatalogResolver.PriceTuple.class),
+                        org.mockito.ArgumentMatchers.anySet(), org.mockito.ArgumentMatchers.anyList(),
+                        any(CommercialCatalogResolver.Audience.class)))
+                .thenAnswer(invocation -> successfulResolution(
+                        invocation.getArgument(0), invocation.getArgument(2), invocation.getArgument(3)));
+        lenient().when(commercialCatalogResolver.resolveSelection(
+                        any(Plan.class), any(CommercialCatalogResolver.PriceTuple.class),
+                        org.mockito.ArgumentMatchers.anySet(), org.mockito.ArgumentMatchers.anyList(),
+                        any(CommercialCatalogResolver.Audience.class),
+                        any(CommercialCatalogResolver.RetainedSelection.class)))
+                .thenAnswer(invocation -> successfulResolution(
+                        invocation.getArgument(0), invocation.getArgument(2), invocation.getArgument(3)));
+        lenient().when(commercialCatalogResolver.resolveSelection(
+                        any(Plan.class), any(ProductPrice.class),
+                        org.mockito.ArgumentMatchers.anySet(), org.mockito.ArgumentMatchers.anyList(),
+                        any(CommercialCatalogResolver.Audience.class)))
+                .thenAnswer(invocation -> successfulResolution(
+                        invocation.getArgument(0), invocation.getArgument(2), invocation.getArgument(3)));
     }
 
     @Test
@@ -122,14 +147,23 @@ class SubscriptionServiceImplTest {
         Plan plan = plan("PRO", true);
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
         Subscription subscription = subscription(plan, SubscriptionStatus.ACTIVE);
+        Account account = new Account();
+        ReflectionTestUtils.setField(account, "id", accountId);
+        subscription.setAccount(account);
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
-        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
-        when(featureDefinitionCollector.collectByCode()).thenReturn(Map.of());
-        when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of());
+        when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
+        var blocked = blockedResolution(
+                plan, Set.of("MISSING_ADDON"), List.of(), ExtensionAvailabilityReason.PRODUCT_NOT_FOUND);
+        when(commercialSelectionFinalizer.finalizeSelection(
+                eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
+                eq(Set.of("MISSING_ADDON")), eq(List.of()),
+                eq(CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR),
+                any(CommercialCatalogResolver.RetainedSelection.class), eq(subscription.getEntitlementSnapshot())))
+                .thenReturn(finalized(plan, blocked, subscription.getEntitlementSnapshot()));
 
         assertThatThrownBy(() -> subscriptionService.updateOverrides(accountId, Set.of("MISSING_ADDON"), List.of()))
-                .isInstanceOf(InvalidRequestException.class)
-                .hasMessage("One or more selected AddOns do not exist.");
+                .isInstanceOf(OperationBlockedException.class)
+                .hasMessage("The requested commercial selection is unavailable.");
 
         verify(subscriptionOverrideReader, never()).write(org.mockito.ArgumentMatchers.any());
         verify(subscriptionRepository, never()).save(org.mockito.ArgumentMatchers.any());
@@ -141,28 +175,25 @@ class SubscriptionServiceImplTest {
         Plan plan = plan("PRO", true);
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
         Subscription subscription = subscription(plan, SubscriptionStatus.ACTIVE);
+        Account account = new Account();
+        ReflectionTestUtils.setField(account, "id", accountId);
+        subscription.setAccount(account);
         List<QuotaPackageSelection> quotaPackages = List.of(new QuotaPackageSelection("MEMBERS_10", 1));
-        QuotaPackage quotaPackage = quotaPackage("MEMBERS_10", StaffFeature.MEMBERS, plan);
-        PlanFeature workspace = planFeature(plan, StaffFeature.CODE, PlanFeatureMode.INCLUDED,
-                List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 3L)));
         var snapshot = new SubscriptionEntitlementSnapshot(
                 "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(
                         StaffFeature.CODE, List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 3L)))),
                 List.of());
         var currentSnapshot = subscription.getEntitlementSnapshot();
+        when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
-        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
-        when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
-        when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of(workspace));
-        when(subscriptionSnapshotFactory.fromPlanPreservingPrices(
-                eq(plan), eq(Set.of()), eq(List.of()), eq(currentSnapshot)))
-                .thenReturn(snapshot);
-        when(quotaPackageRepository.findAllByCodeIn(Set.of("MEMBERS_10")))
-                .thenReturn(List.of(quotaPackage));
-        when(subscriptionSnapshotFactory.fromPlanPreservingPrices(
-                eq(plan), eq(Set.of()), eq(quotaPackages), eq(currentSnapshot))).thenReturn(snapshot);
+        var resolved = successfulResolution(plan, Set.of(), quotaPackages);
+        when(commercialSelectionFinalizer.finalizeSelection(
+                eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
+                eq(Set.of()), eq(quotaPackages),
+                eq(CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR),
+                any(CommercialCatalogResolver.RetainedSelection.class), eq(currentSnapshot)))
+                .thenReturn(finalized(plan, resolved, snapshot));
         when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(billingCalculator.calculateMoney(subscription)).thenReturn(Money.of(new BigDecimal("39.99"), "USD"));
@@ -180,31 +211,22 @@ class SubscriptionServiceImplTest {
         UUID accountId = UUID.randomUUID();
         Plan plan = plan("PRO", true);
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
-        PlanFeature workspace = planFeature(plan, StaffFeature.CODE, PlanFeatureMode.INCLUDED,
-                List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 3L)));
-        var baseSnapshot = new SubscriptionEntitlementSnapshot(
-                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
-                List.of(new SubscriptionFeatureSnapshot(
-                        StaffFeature.CODE, List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 3L)))),
-                List.of());
-        QuotaPackage item = quotaPackage("MEMBERS_10", StaffFeature.MEMBERS, plan);
         var selection = new QuotaPackageSelection("MEMBERS_10", 2);
 
         when(subscriptionRepository.findActiveByAccountId(accountId))
                 .thenReturn(Optional.of(subscription(plan, SubscriptionStatus.ACTIVE)));
-        when(planRepository.findByCode("PRO")).thenReturn(Optional.of(plan));
-        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
-        when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
-        when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of(workspace));
-        when(subscriptionSnapshotFactory.fromPlan(
-                eq(plan), eq(Set.of()), eq(List.of()), any(ProductPrice.class))).thenReturn(baseSnapshot);
-        when(quotaPackageRepository.findAllByCodeIn(Set.of("MEMBERS_10"))).thenReturn(List.of(item));
+        allowClientPlan(plan, List.of(), List.of(), List.of());
+        when(commercialCatalogResolver.resolveSelection(
+                eq(plan), any(CommercialCatalogResolver.PriceTuple.class), eq(Set.of()),
+                eq(List.of(selection)), eq(CommercialCatalogResolver.Audience.CLIENT_CATALOG),
+                any(CommercialCatalogResolver.RetainedSelection.class)))
+                .thenReturn(blockedResolution(
+                        plan, Set.of(), List.of(selection), ExtensionAvailabilityReason.INVALID_QUANTITY));
 
         assertThatThrownBy(() -> subscriptionService.previewChange(
                 accountId, new SubscriptionChangeRequest("PRO", Set.of(), List.of(selection))))
                 .isInstanceOf(InvalidRequestException.class)
-                .hasMessage("Quota package MEMBERS_10 quantity must be between 1 and 1.");
+                .hasMessage("The requested commercial selection is unavailable.");
     }
 
     @Test
@@ -215,9 +237,17 @@ class SubscriptionServiceImplTest {
         Plan pro = plan("PRO", true);
         Subscription active = subscription(free, SubscriptionStatus.ACTIVE);
         Subscription trialing = subscription(free, SubscriptionStatus.TRIALING);
+        var snapshot = SubscriptionEntitlementSnapshot.empty(
+                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
 
         when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
-        when(planRepository.findByCode("PRO")).thenReturn(Optional.of(pro));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+        var finalized = finalized(pro, successfulResolution(pro, Set.of(), List.of()), snapshot);
+        when(commercialSelectionFinalizer.finalizeSelection(
+                eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
+                eq(Set.of()), eq(List.of()), eq(CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR),
+                eq(CommercialCatalogResolver.RetainedSelection.none()), nullable(SubscriptionEntitlementSnapshot.class)))
+                .thenReturn(finalized);
         when(subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
                 .thenReturn(List.of(active, trialing));
@@ -239,10 +269,6 @@ class SubscriptionServiceImplTest {
                 any(SubscriptionPeriodCalculator.Period.class));
         when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        var snapshot = SubscriptionEntitlementSnapshot.empty(
-                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
-        when(subscriptionSnapshotFactory.fromPlan(
-                eq(pro), eq(Set.of()), eq(List.of()), any(ProductPrice.class))).thenReturn(snapshot);
         when(subscriptionSnapshotReader.write(snapshot)).thenReturn(snapshot);
         when(subscriptionPeriodCalculator.recurring(BillingCycle.MONTHLY))
                 .thenReturn(period());
@@ -263,12 +289,21 @@ class SubscriptionServiceImplTest {
     @Test
     void planAssignmentRejectsInactivePlanBeforeChangingCurrentSubscription() {
         UUID accountId = UUID.randomUUID();
+        Plan archived = plan("ARCHIVED", false);
         when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(new Account()));
-        when(planRepository.findByCode("ARCHIVED")).thenReturn(Optional.of(plan("ARCHIVED", false)));
+        when(commercialSelectionFinalizer.finalizeSelection(
+                eq("ARCHIVED"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
+                eq(Set.of()), eq(List.of()), eq(CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR),
+                eq(CommercialCatalogResolver.RetainedSelection.none()), nullable(SubscriptionEntitlementSnapshot.class)))
+                .thenReturn(finalized(
+                        archived,
+                        blockedPlanResolution(archived, ExtensionAvailabilityReason.PRODUCT_NOT_ACTIVE),
+                        SubscriptionEntitlementSnapshot.empty(
+                                "ARCHIVED", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY)));
 
         assertThatThrownBy(() -> subscriptionService.createSubscription(accountId, "ARCHIVED"))
-                .isInstanceOf(InvalidStateException.class)
-                .hasMessageContaining("Inactive plans");
+                .isInstanceOf(OperationBlockedException.class)
+                .hasMessageContaining("unavailable");
 
         verify(subscriptionRepository, never()).findAllByAccountIdAndStatusIn(
                 any(), org.mockito.ArgumentMatchers.anyCollection());
@@ -279,8 +314,17 @@ class SubscriptionServiceImplTest {
     void planAssignmentRejectsReassigningTheCurrentActivePlan() {
         UUID accountId = UUID.randomUUID();
         Plan pro = plan("PRO", true);
-        when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(new Account()));
-        when(planRepository.findByCode("PRO")).thenReturn(Optional.of(pro));
+        Account account = new Account();
+        when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
+        when(commercialSelectionFinalizer.finalizeSelection(
+                eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
+                eq(Set.of()), eq(List.of()), eq(CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR),
+                eq(CommercialCatalogResolver.RetainedSelection.none()), nullable(SubscriptionEntitlementSnapshot.class)))
+                .thenReturn(finalized(
+                        pro, successfulResolution(pro, Set.of(), List.of()),
+                        SubscriptionEntitlementSnapshot.empty(
+                                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY)));
         when(subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
                 .thenReturn(List.of(subscription(pro, SubscriptionStatus.ACTIVE)));
@@ -298,22 +342,23 @@ class SubscriptionServiceImplTest {
         UUID accountId = UUID.randomUUID();
         Plan pro = plan("PRO", true);
         ReflectionTestUtils.setField(pro, "id", UUID.randomUUID());
-        PlanFeature includedWorkspace = planFeature(pro, StaffFeature.CODE, null,
-                List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 10L)));
 
         when(subscriptionRepository.findActiveByAccountId(accountId))
                 .thenReturn(Optional.of(subscription(plan("FREE", true), SubscriptionStatus.ACTIVE)));
-        when(planRepository.findByCode("PRO")).thenReturn(Optional.of(pro));
-        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
-        when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
-        when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(includedWorkspace));
+        allowClientPlan(pro, List.of(), List.of(), List.of());
+        when(commercialCatalogResolver.resolveSelection(
+                eq(pro), any(CommercialCatalogResolver.PriceTuple.class), eq(Set.of("MISSING_ADDON")),
+                eq(List.of()), eq(CommercialCatalogResolver.Audience.CLIENT_CATALOG),
+                any(CommercialCatalogResolver.RetainedSelection.class)))
+                .thenReturn(blockedResolution(
+                        pro, Set.of("MISSING_ADDON"), List.of(),
+                        ExtensionAvailabilityReason.PRODUCT_NOT_FOUND));
 
         assertThatThrownBy(() -> subscriptionService.previewChange(
                 accountId,
                 new SubscriptionChangeRequest("PRO", Set.of("MISSING_ADDON"), List.of())))
                 .isInstanceOf(InvalidRequestException.class)
-                .hasMessage("One or more selected AddOns do not exist.");
+                .hasMessage("The requested commercial selection is unavailable.");
     }
 
     @Test
@@ -344,11 +389,7 @@ class SubscriptionServiceImplTest {
                 List.of());
 
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
-        when(planRepository.findByCode("PRO")).thenReturn(Optional.of(pro));
-        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
-        when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
-        when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(workspace));
+        allowClientPlan(pro, List.of(workspace), List.of(), List.of());
         when(subscriptionSnapshotFactory.fromPlan(
                 eq(pro), eq(Set.of()), eq(List.of()), any(ProductPrice.class))).thenReturn(targetSnapshot);
         when(subscriptionImpactAnalyzer.analyze(accountId, current, targetSnapshot))
@@ -377,9 +418,6 @@ class SubscriptionServiceImplTest {
         PlanFeature optional = planFeature(
                 free, StaffFeature.CODE, PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
         AddOn addOn = addOn("EXTRA_MEMBERS");
-        AddOnFeature addOnFeature = new AddOnFeature();
-        addOnFeature.setAddOn(addOn);
-        addOnFeature.setFeature(optional.getFeature());
         SubscriptionEntitlementSnapshot snapshot = new SubscriptionEntitlementSnapshot(
                 "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
                 List.of(new SubscriptionFeatureSnapshot(StaffFeature.CODE, List.of())),
@@ -388,17 +426,9 @@ class SubscriptionServiceImplTest {
                         BillingCycle.MONTHLY, List.of(StaffFeature.CODE))));
 
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
-        when(planRepository.findByCode("FREE")).thenReturn(Optional.of(free));
-        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
-        when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
-        when(planFeatureRepository.findAllByPlanId(free.getId())).thenReturn(List.of(optional));
-        when(planFeatureRepository.findByPlanIdAndFeature_Code(free.getId(), StaffFeature.CODE))
-                .thenReturn(Optional.of(optional));
-        when(addOnRepository.findAllByCodeIn(Set.of("EXTRA_MEMBERS"))).thenReturn(List.of(addOn));
-        when(addOnFeatureRepository.findAllByAddOnId(addOn.getId())).thenReturn(List.of(addOnFeature));
-        when(subscriptionSnapshotFactory.fromPlan(
-                eq(free), eq(Set.of("EXTRA_MEMBERS")), eq(List.of()), any(ProductPrice.class)))
+        allowClientPlan(free, List.of(optional), List.of(), List.of());
+        when(subscriptionSnapshotFactory.fromPlanPreservingPrices(
+                eq(free), eq(Set.of("EXTRA_MEMBERS")), eq(List.of()), eq(current.getEntitlementSnapshot())))
                 .thenReturn(snapshot);
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.TEN, "USD"));
 
@@ -422,9 +452,6 @@ class SubscriptionServiceImplTest {
                 plan, StaffFeature.CODE, PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
         optional.getFeature().setStatus(FeatureStatus.INTERNAL);
         AddOn addOn = addOn("EXTRA_MEMBERS");
-        AddOnFeature addOnFeature = new AddOnFeature();
-        addOnFeature.setAddOn(addOn);
-        addOnFeature.setFeature(optional.getFeature());
 
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
         when(subscriptionOverrideReader.read(current.getCustomOverrides()))
@@ -432,10 +459,13 @@ class SubscriptionServiceImplTest {
         when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
         when(featureDefinitionCollector.collectByCode())
                 .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
-        when(planRepository.findAll()).thenReturn(List.of(plan));
-        when(planFeatureRepository.findAllByPlanId(plan.getId())).thenReturn(List.of(optional));
-        when(addOnRepository.findAll()).thenReturn(List.of(addOn));
-        when(addOnFeatureRepository.findAllByAddOnId(addOn.getId())).thenReturn(List.of(addOnFeature));
+        allowClientPlan(plan, List.of(optional), List.of(new CommercialCatalogResolver.AddOnResolution(
+                addOn,
+                List.of(new com.hiveapp.platform.client.plan.dto.ExtensionAvailabilityIssue(
+                        ExtensionAvailabilityReason.FEATURE_NOT_CLIENT_FACING,
+                        ExtensionResolutionSource.REGISTRY,
+                        StaffFeature.CODE)),
+                List.of(), Set.of(), Set.of())), List.of());
 
         var catalog = subscriptionService.catalog(accountId);
 
@@ -474,13 +504,12 @@ class SubscriptionServiceImplTest {
 
         when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
-        when(planRepository.findByCode("PRO")).thenReturn(Optional.of(pro));
-        when(featureDefinitionCollectorProvider.getObject()).thenReturn(featureDefinitionCollector);
-        when(featureDefinitionCollector.collectByCode())
-                .thenReturn(Map.of(StaffFeature.CODE, StaffFeature.definition()));
-        when(planFeatureRepository.findAllByPlanId(pro.getId())).thenReturn(List.of(workspace));
-        when(subscriptionSnapshotFactory.fromPlan(
-                eq(pro), eq(Set.of()), eq(List.of()), any(ProductPrice.class))).thenReturn(targetSnapshot);
+        allowClientPlan(pro, List.of(workspace), List.of(), List.of());
+        when(commercialSelectionFinalizer.finalizeSelection(
+                eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
+                eq(Set.of()), eq(List.of()), eq(CommercialCatalogResolver.Audience.CLIENT_CATALOG),
+                any(CommercialCatalogResolver.RetainedSelection.class), eq(current.getEntitlementSnapshot())))
+                .thenReturn(finalized(pro, successfulResolution(pro, Set.of(), List.of()), targetSnapshot));
         when(subscriptionSnapshotReader.read(current.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(SubscriptionEntitlementSnapshot.empty(
                         "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY)));
@@ -507,6 +536,87 @@ class SubscriptionServiceImplTest {
                 any(), org.mockito.ArgumentMatchers.eq(Money.of(BigDecimal.valueOf(29), "USD")),
                 org.mockito.ArgumentMatchers.eq(actorUserId));
         verify(subscriptionChangeActivationService, never()).activate(any(), any());
+    }
+
+    private void allowClientPlan(
+            Plan plan,
+            List<PlanFeature> features,
+            List<CommercialCatalogResolver.AddOnResolution> addOns,
+            List<CommercialCatalogResolver.QuotaPackageResolution> packages
+    ) {
+        when(commercialCatalogResolver.resolveCatalog(
+                CommercialCatalogResolver.Audience.CLIENT_CATALOG))
+                .thenReturn(new CommercialCatalogResolver.CatalogResolution(List.of(
+                        planResolution(plan, features, addOns, packages))));
+    }
+
+    private CommercialCatalogResolver.SelectionResolution successfulResolution(
+            Plan plan,
+            Set<String> addOnCodes,
+            List<QuotaPackageSelection> packages
+    ) {
+        return new CommercialCatalogResolver.SelectionResolution(
+                planResolution(plan, List.of(), List.of(), List.of()),
+                addOnCodes,
+                packages,
+                List.of(),
+                Map.of());
+    }
+
+    private CommercialCatalogResolver.SelectionResolution blockedResolution(
+            Plan plan,
+            Set<String> addOnCodes,
+            List<QuotaPackageSelection> packages,
+            ExtensionAvailabilityReason reason
+    ) {
+        return new CommercialCatalogResolver.SelectionResolution(
+                planResolution(plan, List.of(), List.of(), List.of()),
+                addOnCodes,
+                packages,
+                List.of(new com.hiveapp.platform.client.plan.dto.ExtensionAvailabilityIssue(
+                        reason, ExtensionResolutionSource.PRODUCT_LIFECYCLE, "test-product")),
+                Map.of());
+    }
+
+    private CommercialCatalogResolver.SelectionResolution blockedPlanResolution(
+            Plan plan,
+            ExtensionAvailabilityReason reason
+    ) {
+        var issue = new com.hiveapp.platform.client.plan.dto.ExtensionAvailabilityIssue(
+                reason, ExtensionResolutionSource.PRODUCT_LIFECYCLE, plan.getCode());
+        return new CommercialCatalogResolver.SelectionResolution(
+                new CommercialCatalogResolver.PlanResolution(
+                        plan, List.of(issue), List.of(), List.of(), List.of(), List.of(),
+                        plan.getExtensionPolicy(), plan.getSalesVisibility()),
+                Set.of(), List.of(), List.of(), Map.of());
+    }
+
+    private CommercialSelectionFinalizer.FinalizedSelection finalized(
+            Plan plan,
+            CommercialCatalogResolver.SelectionResolution resolution,
+            SubscriptionEntitlementSnapshot snapshot
+    ) {
+        return new CommercialSelectionFinalizer.FinalizedSelection(
+                plan, testPrice(plan), resolution, snapshot);
+    }
+
+    private ProductPrice testPrice(Plan plan) {
+        ProductPrice price = ProductPrice.draft(
+                plan, plan.money(), plan.getBillingCycle(), java.time.Instant.EPOCH, null);
+        price.activate();
+        ReflectionTestUtils.setField(price, "id", UUID.randomUUID());
+        return price;
+    }
+
+    private CommercialCatalogResolver.PlanResolution planResolution(
+            Plan plan,
+            List<PlanFeature> features,
+            List<CommercialCatalogResolver.AddOnResolution> addOns,
+            List<CommercialCatalogResolver.QuotaPackageResolution> packages
+    ) {
+        return new CommercialCatalogResolver.PlanResolution(
+                plan, List.of(), List.of(), features, addOns, packages,
+                plan.getExtensionPolicy(), plan.getSalesVisibility());
     }
 
     private Plan plan(String code, boolean active) {
@@ -559,20 +669,4 @@ class SubscriptionServiceImplTest {
         return addOn;
     }
 
-    private QuotaPackage quotaPackage(String code, String resource, Plan plan) {
-        QuotaPackage item = new QuotaPackage();
-        ReflectionTestUtils.setField(item, "id", UUID.randomUUID());
-        item.setCode(code);
-        item.setName(code);
-        item.setFeature(planFeature(plan, StaffFeature.CODE, PlanFeatureMode.INCLUDED, List.of()).getFeature());
-        item.setResource(resource);
-        item.setCapacityPerUnit(10);
-        item.setMoney(Money.of(BigDecimal.TEN, "USD"));
-        item.setBillingCycle(BillingCycle.MONTHLY);
-        item.setRepeatable(false);
-        item.setMaximumQuantity(1);
-        item.setAllowedPlanCodes(Set.of(plan.getCode()));
-        item.setStatus(QuotaPackageStatus.ACTIVE);
-        return item;
-    }
 }

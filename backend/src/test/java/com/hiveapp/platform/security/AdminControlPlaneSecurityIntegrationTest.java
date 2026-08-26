@@ -13,7 +13,12 @@ import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
+import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
+import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
+import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
+import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +48,9 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
     @Autowired
     private FeatureRepository featureRepository;
+
+    @Autowired
+    private PlanRepository planRepository;
 
     @Test
     void adminUsersAndRolesExposeBoundedStablePages() throws Exception {
@@ -120,6 +128,43 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                         .content(objectMapper.writeValueAsString(new CreatePlanRequest(
                                 "Bare " + suffix, null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY))))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void nonDefaultAvailabilityAtCreationRequiresItsDedicatedPermission() throws Exception {
+        LimitedAdmin planCreator = createLimitedAdmin("platform.plans.create");
+        LimitedAdmin addOnCreator = createLimitedAdmin("platform.plans.create_add_on");
+        LimitedAdmin quotaCreator = createLimitedAdmin("platform.plans.create_quota_package");
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+
+        mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(planCreator.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                "Closed " + suffix, null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                                java.util.List.of(), PlanExtensionPolicy.CLOSED,
+                                ProductSalesVisibility.PUBLIC))))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/admin/add-ons")
+                        .header("Authorization", bearer(addOnCreator.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateAddOnRequest(
+                                "Direct AddOn " + suffix, null, BigDecimal.ZERO, "USD",
+                                BillingCycle.MONTHLY, java.util.Set.of(), java.util.Set.of(),
+                                java.util.Set.of(), java.util.Set.of(),
+                                ProductSalesVisibility.DIRECT_ONLY))))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/admin/quota-packages")
+                        .header("Authorization", bearer(quotaCreator.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateQuotaPackageRequest(
+                                "Direct quota " + suffix, null, "platform.staff", "members", 1,
+                                BigDecimal.ZERO, "USD", BillingCycle.MONTHLY, true, 10,
+                                java.util.Set.of(), java.util.Set.of(),
+                                ProductSalesVisibility.DIRECT_ONLY))))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -206,6 +251,54 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void commercialAvailabilityPermissionsAreFineGrainedAndRejectClientIdentities() throws Exception {
+        UUID planId = planRepository.findByCode("FLEX").orElseThrow().getId();
+        String clientToken = registerClientAndGetToken();
+        LimitedAdmin inspector = createLimitedAdmin(
+                "platform.commercial_availability.inspect_compatibility");
+
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", planId))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", planId)
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", planId)
+                        .header("Authorization", bearer(inspector.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray());
+
+        mockMvc.perform(post("/api/admin/plans/{id}/commercial-availability/preview", planId)
+                        .header("Authorization", bearer(inspector.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"extensionPolicy\":\"CLOSED\",\"salesVisibility\":\"PUBLIC\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+
+        LimitedAdmin previewer = createLimitedAdmin(
+                "platform.commercial_availability.preview_plan_policy");
+        String preview = mockMvc.perform(
+                        post("/api/admin/plans/{id}/commercial-availability/preview", planId)
+                                .header("Authorization", bearer(previewer.token()))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"extensionPolicy\":\"CLOSED\",\"salesVisibility\":\"PUBLIC\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableActions[0]").value("APPLY_PLAN_AVAILABILITY"))
+                .andReturn().getResponse().getContentAsString();
+        JsonNode body = objectMapper.readTree(preview);
+        mockMvc.perform(patch("/api/admin/plans/{id}/commercial-availability", planId)
+                        .header("Authorization", bearer(previewer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "expectedVersion", body.get("expectedVersion").asLong(),
+                                "extensionPolicy", "CLOSED",
+                                "salesVisibility", "PUBLIC",
+                                "reason", "permission boundary test",
+                                "previewToken", body.get("previewToken").asText()))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+    }
+
+    @Test
     void assignablePlanPriceChooserIsBoundedAndDoesNotGrantPriceBookAccess() throws Exception {
         String clientToken = registerClientAndGetToken();
         LimitedAdmin creatorOnly = createLimitedAdmin("platform.subscriptions.create");
@@ -237,6 +330,21 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(jsonPath("$.content[0].billingCycle").value("MONTHLY"))
                 .andExpect(jsonPath("$.page").value(0))
                 .andExpect(jsonPath("$.size").value(1));
+
+        var workspace = featureRepository.findByCode("platform.workspace").orElseThrow();
+        boolean runtimeEnabled = workspace.isRuntimeEnabled();
+        try {
+            workspace.setRuntimeEnabled(false);
+            featureRepository.saveAndFlush(workspace);
+            mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
+                            .header("Authorization", bearer(chooser.token()))
+                            .param("search", "free"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content.length()").value(0));
+        } finally {
+            workspace.setRuntimeEnabled(runtimeEnabled);
+            featureRepository.saveAndFlush(workspace);
+        }
 
         // This permission exposes only the exact choices needed by subscription creation, not
         // the full commercial price-book control plane or extension owners.

@@ -18,6 +18,7 @@ import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
@@ -47,6 +48,7 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
     private final ProductPriceRepository productPriceRepository;
+    private final CommercialCatalogResolver commercialCatalogResolver;
     private final Clock clock;
 
     @Override
@@ -71,8 +73,18 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
             throw new InvalidRequestException(
                     "Assignable prices support MONTHLY and YEARLY billing cycles only.");
         }
+        Set<UUID> eligiblePlanIds = commercialCatalogResolver.resolveCatalog(
+                        CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR)
+                .plans().stream()
+                .filter(CommercialCatalogResolver.PlanResolution::selectable)
+                .map(result -> result.plan().getId())
+                .collect(java.util.stream.Collectors.toSet());
+        if (eligiblePlanIds.isEmpty()) {
+            return Page.empty(pageable);
+        }
         return productPriceRepository.findAssignablePlanPrices(
-                        normalizedSearch, normalizedCurrency, billingCycle, clock.instant(), pageable)
+                        eligiblePlanIds, normalizedSearch, normalizedCurrency,
+                        billingCycle, clock.instant(), pageable)
                 .map(price -> new AssignablePlanPriceDto(
                         price.getPlan().getId(), price.getPlan().getCode(), price.getPlan().getName(),
                         price.getPlan().getRevisionNumber(), price.getId(), price.getAmount(),

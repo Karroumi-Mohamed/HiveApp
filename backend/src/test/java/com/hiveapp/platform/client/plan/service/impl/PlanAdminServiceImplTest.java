@@ -82,6 +82,7 @@ class PlanAdminServiceImplTest {
     @Mock private QuotaPackageRepository quotaPackageRepository;
     @Mock private com.hiveapp.platform.client.plan.service.ProductPriceCompatibilityService
             productPriceCompatibilityService;
+    @Mock private com.hiveapp.platform.client.plan.service.ProductPriceResolver productPriceResolver;
     // Real projection so these assertions also cover the read model the service now owns.
     @Spy private PlanAdminReadModels readModels = new PlanAdminReadModels();
 
@@ -556,6 +557,8 @@ class PlanAdminServiceImplTest {
         when(addOnRepository.findLineageForUpdate(lineageId)).thenReturn(List.of(previousRevision, addOn));
         when(addOnRepository.saveAndFlush(addOn)).thenReturn(addOn);
         when(addOnRepository.findDetailedById(addOnId)).thenReturn(Optional.of(addOn));
+        when(productPriceResolver.availableCatalogPrices()).thenReturn(List.of(
+                activePrice(plan), activePrice(addOn)));
 
         AddOnDto activated = planAdminService.transitionAddOnStatus(addOnId, AddOnStatus.ACTIVE);
 
@@ -586,6 +589,22 @@ class PlanAdminServiceImplTest {
 
     private static Plan plan(UUID id) {
         return plan(id, "PRO");
+    }
+
+    private static com.hiveapp.platform.client.plan.domain.entity.ProductPrice activePrice(Plan plan) {
+        var price = com.hiveapp.platform.client.plan.domain.entity.ProductPrice.draft(
+                plan, plan.money(), plan.getBillingCycle(), java.time.Instant.EPOCH, null);
+        price.activate();
+        ReflectionTestUtils.setField(price, "id", UUID.randomUUID());
+        return price;
+    }
+
+    private static com.hiveapp.platform.client.plan.domain.entity.ProductPrice activePrice(AddOn addOn) {
+        var price = com.hiveapp.platform.client.plan.domain.entity.ProductPrice.draft(
+                addOn, addOn.money(), addOn.getBillingCycle(), java.time.Instant.EPOCH, null);
+        price.activate();
+        ReflectionTestUtils.setField(price, "id", UUID.randomUUID());
+        return price;
     }
 
     private static Plan plan(UUID id, String code) {

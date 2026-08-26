@@ -155,6 +155,7 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
             where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
               and price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
               and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ACTIVE
+              and plan.id in :eligiblePlanIds
               and price.effectiveFrom <= :at
               and (price.effectiveUntil is null or price.effectiveUntil > :at)
               and (:search is null or lower(plan.code) like lower(concat('%', :search, '%'))
@@ -168,6 +169,7 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
             where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
               and price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
               and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ACTIVE
+              and plan.id in :eligiblePlanIds
               and price.effectiveFrom <= :at
               and (price.effectiveUntil is null or price.effectiveUntil > :at)
               and (:search is null or lower(plan.code) like lower(concat('%', :search, '%'))
@@ -176,6 +178,7 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
               and (:billingCycle is null or price.billingCycle = :billingCycle)
             """)
     Page<ProductPrice> findAssignablePlanPrices(
+            @Param("eligiblePlanIds") Collection<UUID> eligiblePlanIds,
             @Param("search") String search,
             @Param("currencyCode") String currencyCode,
             @Param("billingCycle") BillingCycle billingCycle,
@@ -213,6 +216,11 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
 
     @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
     List<ProductPrice> findAllByIdIn(Collection<UUID> ids);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
+    @Query("select price from ProductPrice price where price.id in :ids order by price.id")
+    List<ProductPrice> findAllByIdInForUpdate(@Param("ids") Collection<UUID> ids);
 
     @Override
     @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
