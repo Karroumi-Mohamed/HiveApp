@@ -130,6 +130,14 @@ flowchart TD
         AUTHZ-003 --> AUTHZ-006
         EMAIL-001
     end
+
+    subgraph Phase 9-14: Commercial Control Plane
+        BILLING-003 & PLAN-012 & QUOTA-004 --> PRICEBOOK-001
+        PRICEBOOK-001 --> COMMERCIAL-001
+        COMMERCIAL-001 --> MARKETING-001
+        PRICEBOOK-001 --> BILLING-003_LEDGER["BILLING-003 ledger completion"]
+        MARKETING-001 & BILLING-003_LEDGER --> ANALYTICS-001
+    end
 ```
 
 ---
@@ -1673,10 +1681,10 @@ flowchart TD
 
 ---
 
-# Phase 7: Remove and rewrite the admin frontend
+# Phase 7: Admin frontend foundation
 - **Prerequisites**: All Phase 6 API work completed.
 - **Action**: IMPLEMENT.
-- **Description**: Rebuild the Admin Frontend using clean, versioned DTO catalogs and paginated subscriber queries. Delete legacy views.
+- **Description**: Rebuild the Admin Frontend using clean, versioned DTO catalogs, stable pagination, reusable table/action/form patterns, permission-aware routes, and operational detail pages. The shell and current access/catalog surfaces are implemented; the commercial-control-plane screens remain in Phases 9–15.
 
 ---
 
@@ -1684,6 +1692,107 @@ flowchart TD
 - **Prerequisites**: All Phase 7 work completed.
 - **Action**: IMPLEMENT.
 - **Description**: Verification of migrations, B2B connections, and deletion of obsolete docs.
+
+---
+
+# Phase 9: Price books and commercial catalogue policy
+
+### Batch 9.1: Immutable product price books
+
+#### [IMPLEMENT] PRICEBOOK-001 — Commercial products support only one price and billing cycle
+- **Prerequisites**: BILLING-003, PLAN-012, QUOTA-004.
+- **Unlocks**: COMMERCIAL-001, MARKETING-001, BILLING-003 completion.
+- **Order Rationale**: Every later Offer, invoice, renewal, and analytic fact needs an exact immutable product-price identity.
+- **Affected Backend Areas**: Plan/AddOn/quota-package entities and services, Money, catalogue/checkout/snapshot/billing calculation, seeding, admin/client APIs.
+- **Database Migration**: Update the generated disposable H2 schema directly; no Flyway history before production persistence by standing decision.
+- **Acceptance Criteria**: Independently managed monthly/yearly entries, lifecycle, overlap protection, exact selection, snapshot identity, history, and no mutation of existing subscribers.
+- **Tests**: Product-owner isolation, monthly/yearly, annual independence, zero-price, currency/cycle compatibility, overlapping activation race, immutable active entry, pause/new-version snapshot isolation, permissions, pagination, query-count, and client catalogue/checkout contract.
+- **Future UI Flow**: Shared Price-book panel on Plan/AddOn/package detail plus guided product creation/revision.
+
+### Batch 9.2: Extension policy and sales visibility
+
+#### [IMPLEMENT] COMMERCIAL-001 — Extension targeting and Account commercial policy are encoded as scattered special cases
+- **Prerequisites**: PRICEBOOK-001.
+- **Unlocks**: Phase 10 policies and Phase 11 offers.
+- **Order Rationale**: Mandatory compatibility and public/direct-only availability must be authoritative before targeting or marketing can reuse them.
+- **Affected Backend Areas**: Plan/AddOn/package catalogue, compatibility resolver, checkout preview, subscription snapshots, admin/client catalog DTOs.
+- **Database Migration**: Generated H2 schema only under the pre-production policy.
+- **Acceptance Criteria**: CLOSED/ALLOW_LIST/OPEN_COMPATIBLE Plan extension policy, PUBLIC/DIRECT_ONLY product visibility, source-owned availability reasons, and snapshot-safe published changes.
+- **Tests**: Policy matrix, direct-only privacy, dependency/exclusion/duplicate/quota ownership, price compatibility, stale registry, snapshot isolation, Permissionizer coverage, and constant-query catalogue resolution.
+- **Future UI Flow**: Plan extension-policy editor, product sales-visibility actions, explainable compatibility preview.
+
+# Phase 10: Typed commercial policies and targeting
+
+### Batch 10.1: Account policy model and precedence
+
+- **Prerequisites**: Phase 9.
+- **Action**: IMPLEMENT.
+- **Description**: Implement typed versioned policy targets/effects, deterministic precedence, lifecycle, preview, immutable affected-set snapshots, immediate/renewal/scheduled execution, cancel/retry, history, and client effective-term explanations. Do not accept arbitrary scripts or client-provided discounts.
+- **Tests**: Target isolation, effect validation, priority/restriction precedence, expiry, revision immutability, stale preview, concurrent subscription change, partial result/retry, audit, and client privacy.
+- **Future UI Flow**: Paginated policy table, guided policy builder, target simulator, impact/execution views, Account policy history.
+
+# Phase 11: Segments, campaigns, and offers
+
+### Batch 11.1: Safe Account segments
+
+#### [IMPLEMENT] MARKETING-001 — HiveApp has no safe Segment, Campaign, Offer, or redemption model
+- **Prerequisites**: Phase 10.
+- **Unlocks**: Batch 11.2.
+- **Order Rationale**: Campaign execution needs a safe reusable and snapshot-able audience.
+- **Affected Backend Areas**: New commercial marketing domain, Account/subscription read contracts, audit and job infrastructure.
+- **Database Migration**: Generated H2 schema only under the pre-production policy.
+- **Acceptance Criteria**: Explicit and typed criteria Segments, bounded preview/sample/count, lifecycle, duplication, immutable execution audience, archive/delete blockers, pagination/search/history, and separately authorized sensitive identity lookup.
+- **Tests**: Criteria validation, tenant/data privacy, deterministic snapshot, lifecycle/version, concurrency, permissions, pagination, query count, and stale preview.
+- **Future UI Flow**: Segment table, builder, audience preview, detail/history.
+
+### Batch 11.2: Campaigns, offers, and redemption
+
+- **Prerequisites**: Batch 11.1.
+- **Action**: IMPLEMENT.
+- **Description**: Add Campaign/Offer revisions, scheduling/pause/end/archive, typed price/product/quota effects, normalized optional codes, audience and redemption limits, client eligibility/preview/acceptance/history, and authorized operator application through the subscription-operation engine.
+- **Tests**: Lifecycle, scheduling, code collision, eligibility privacy, direct-only product, Money bounds, per-Account/global limit concurrency, idempotent redemption, pause/end behavior, account lock, snapshot/invoice evidence, and audit.
+- **Future UI Flow**: Campaign table/timeline, Offer builder and preview, audience/results tabs, client Offers page and acceptance flow.
+
+# Phase 12: Operational subscription and renewal jobs
+
+### Batch 12.1: Finish PLAN-011 operation engine
+
+- **Prerequisites**: Phase 11.
+- **Action**: IMPLEMENT.
+- **Description**: Complete one/selected/filtered Account operations with immutable preview sets, now/renewal/scheduled timing, per-Account transactions/results, cancellation cutoff, idempotent retry, correction, lifecycle commands, policy/Offer source, usage conflicts, communication state, and history.
+- **Tests**: Selection privacy, version conflicts, mixed success, retry, cancel race, renewal execution, usage remediation/grace/restriction, restoration, audit and realistic table drill-down.
+- **Future UI Flow**: Subscriber workbench, bulk-operation wizard, progress/result detail, pending-renewal queue, Account commercial timeline.
+
+# Phase 13: Invoice, payment, credit, and refund ledgers
+
+### Batch 13.1: Complete BILLING-003
+
+- **Prerequisites**: Phases 9 and 12.
+- **Action**: IMPLEMENT.
+- **Description**: Add immutable numbered invoices/lines, idempotent payment attempts/manual settlements, credits/refunds, provider event/reconciliation boundary, zero-amount settlement, past-due/grace hooks, operational admin APIs, and client invoice/payment-history reads. Automatic tax, FX, metered billing, proration, and automatic refunds remain deferred.
+- **Tests**: Number uniqueness, exact itemization, immutable evidence, pending/succeeded/failed states, manual evidence permission, duplicate callbacks, over-refund rejection, zero amount, renewal failure, currency isolation, reconciliation, privacy, pagination and audit.
+- **Future UI Flow**: Invoice/payment/refund workbench, Account financial timeline, manual-settlement and refund dialogs, client invoice history.
+
+# Phase 14: Commercial facts and analytics
+
+### Batch 14.1: Durable commercial analytics
+
+#### [IMPLEMENT] ANALYTICS-001 — Commercial dashboards have no durable fact model or operational drill-down
+- **Prerequisites**: Phases 11–13.
+- **Unlocks**: Phase 15.
+- **Order Rationale**: Truthful adoption, offer, renewal, and money metrics require the completed authoritative records.
+- **Affected Backend Areas**: Commercial events/read models, subscription/billing/marketing projections, admin analytics API and permissions.
+- **Database Migration**: Generated H2 schema only under the pre-production policy.
+- **Acceptance Criteria**: Bounded summary/time-series/drill-down endpoints, currency/cycle dimensions, completeness timestamps, stable historical facts, no configured-price-as-revenue labels, and permission-separated sensitive evidence.
+- **Tests**: Timezone/interval boundaries, mixed currency, event idempotency, historical stability, incomplete data, permission/privacy, query count, and drill-down totals.
+- **Future UI Flow**: Operational commercial dashboard with range/filter controls, accessible charts, and links to exact filtered tables.
+
+# Phase 15: Cross-surface consistency and adversarial audit
+
+- **Prerequisites**: Phases 9–14.
+- **Action**: IMPLEMENT.
+- **Description**: Independently audit backend and frontend after every phase, then run a final consistency pass over all commercial tables, filters, actions, forms, dialogs, detail/history tabs, loading/error/empty states, permissions, accessibility, RTL, performance, API contracts, and duplicated components. Audits must exercise realistic operator and client workflows rather than only checking file presence.
+- **Acceptance Criteria**: No unresolved high-severity correctness/security finding; reusable table/action/filter/price/impact components; stable API pagination/errors; backend-enforced actions; complete keyboard/dark/light/RTL behavior; backend/frontend/full suites green.
 
 ---
 
@@ -1695,6 +1804,7 @@ flowchart TD
 - All advanced target-aware management rules (deferred per `MANAGEMENT-FLOW-001` and `AUTHZ-006` agreements).
 - Emergency runtime catalog shutdowns and new-sale suspensions (`REGISTRY-FLOW-002` / `REGISTRY-004` aspects).
 - Read-access and denied-read security auditing (`AUDIT-002`) pending an explicit product/security-forensics scope, retention, privacy, and volume decision.
+- Automatic tax, foreign exchange, metered usage billing, automatic proration, customer-selectable unlimited quota pricing, perpetual/`FOREVER` licenses, and automatic refunds. Their extension points may exist, but no API/UI may claim the capability is complete.
 
 ---
 
@@ -1752,7 +1862,11 @@ flowchart TD
 | **PLAN-006** | Lifecycle states | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Validated state machine, terminal archive, optimistic lock; replacement/audit later |
 | **PLAN-007** | Branching revisions | PARTIAL — REVISION FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Published immutability plus explicit lineage-aware draft revision/duplication |
 | **BILLING-001** | Checkouts activation | IMPLEMENTED FOR CLIENT ACTIVATION | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Durable non-entitling checkout plus guarded, idempotent confirmation and final recheck |
-| **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.1 | None | Explicit ISO Money/currency persistence, calculation, and API tests |
+| **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED; LEDGER PHASE 13 | IMPLEMENT | Phase 4/13 | Batch 4.1/13.1 | None | Explicit ISO Money foundation, then immutable invoice/payment/credit/refund evidence and lifecycle tests |
+| **PRICEBOOK-001** | Multi-cycle immutable prices | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 9 | Batch 9.1 | BILLING-003 foundation, PLAN-012, QUOTA-004 | Independent monthly/yearly entries, overlap race protection, exact snapshot identity and client checkout tests |
+| **COMMERCIAL-001** | Extension and policy control | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 9/10 | Batch 9.2/10.1 | PRICEBOOK-001 | Extension/visibility matrix plus typed target/effect precedence, preview, execution and history tests |
+| **MARKETING-001** | Segments, campaigns and offers | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 11 | Batch 11.1/11.2 | COMMERCIAL-001 | Safe audience snapshots, lifecycle, eligibility privacy, bounded/idempotent redemption and client flow tests |
+| **ANALYTICS-001** | Durable commercial analytics | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 14 | Batch 14.1 | MARKETING-001, BILLING-003 | Time/currency-aware facts, truthful dimensions, stable history and operational drill-down tests |
 | **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
 | **SUBSCRIPTION-003**| Periods scheduler | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-002 | UTC history, scheduled trial/free/paid transitions and renewal operations |
 | **SUBSCRIPTION-004**| Trial visibility | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-003 | Admin-created bounded trial visible to Account |

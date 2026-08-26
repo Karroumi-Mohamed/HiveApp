@@ -1059,7 +1059,7 @@ Preview every quota reduction against feature-owned current usage. Do not silent
 
 ## PLAN-FLOW-008 — Pricing and billing-cycle changes
 
-**Status:** `DECIDED FOUNDATION — ADVANCED BILLING LATER`
+**Status:** `DECIDED FOUNDATION — PRICE BOOKS AND COMMERCIAL OFFERS REOPENED 2026-08-26`
 
 ### Confirmed current behavior
 
@@ -1080,7 +1080,7 @@ Preview every quota reduction against feature-owned current usage. Do not silent
 - Keep price preview, invoice/amount due, confirmed payment, and refund/credit as distinct records/states. Only confirmed payment/manual settlement counts as collected money/revenue.
 - Payment states include at least `PENDING`, `SUCCEEDED`, `FAILED`, `PARTIALLY_REFUNDED`, and `REFUNDED`, with provider/manual references and idempotency so retries cannot charge twice.
 - Failed renewal moves to `PAST_DUE`; configured grace may continue access, then declared restricted/suspended behavior applies without deleting data. Zero-priced renewal requires no fake payment and renews after current eligibility validation.
-- Defer automatic tax, coupons/percentage discounts, metered usage charging, automatic proration, foreign-exchange conversion, and automated refunds. Keep extension points/item types without presenting those capabilities as working.
+- Percentage/fixed discounts and offer codes are now in scope only through the typed, versioned, auditable Offer/Commercial Policy model in `MARKETING-FLOW-002`; they are never mutable price fields or arbitrary checkout inputs. Automatic tax, metered usage charging, automatic proration, foreign-exchange conversion, and automated refunds remain deferred. Keep extension points/item types without presenting those capabilities as working.
 - Authorized manual adjustments require reason, actor, before/after calculation, and audit. Marking an amount paid requires a distinct confirmed manual settlement or provider event.
 
 ### Rule until real billing exists
@@ -1151,6 +1151,104 @@ A bulk subscriber plan change is a separate explicit operation, never a side eff
 - Support immediate, each-Account renewal, and scheduled effective times. Pending operations may be cancelled before their cutoff/effective execution; started/completed Accounts remain recorded.
 
 ---
+
+# Commercial control-plane decisions
+
+The canonical cross-area contract is `docs/COMMERCIAL_CONTROL_PLANE_V1.md`. These decisions add capabilities to the existing Plan/AddOn/quota/subscription model; they do not relax immutable published revisions, snapshot-pinned subscriber terms, or explicit subscriber-change operations.
+
+## COMMERCIAL-FLOW-001 — Technical capabilities and commercial products remain separate
+
+**Status:** `DECIDED — 2026-08-26`
+
+- Code and the registry own Feature, permission, and quota identities and safety metadata.
+- Platform operators own Plan, AddOn, capacity-package, Price-book, policy, Campaign, and Offer records.
+- A Feature has no universal price. A commercial product revision references only currently sellable registry capabilities.
+- A subscription belongs to an Account and resolves one Plan plus selected compatible AddOns/packages and explicit commercial effects into an immutable snapshot.
+- Authorization, entitlement, quota enforcement, commercial policy, and settlement remain separate layers. Success in one layer never implies success in another.
+- Marketing may narrow or propose compatible products and adjustments; it cannot make an internal/non-sellable Feature purchasable or bypass authorization, dependency, quota-ownership, currency/cycle, payment, or platform-safety rules.
+
+## COMMERCIAL-FLOW-002 — Plan extension and sales-visibility policy
+
+**Status:** `DECIDED — 2026-08-26`
+
+Every Plan revision declares one extension policy:
+
+- `CLOSED`: the Plan cannot be extended through customer purchase.
+- `ALLOW_LIST`: only explicitly attached compatible AddOns and capacity packages are available.
+- `OPEN_COMPATIBLE`: any active public extension that passes compatibility may be sold unless explicitly blocked.
+
+Product visibility is independently `PUBLIC` or `DIRECT_ONLY`. Direct-only products remain usable by authorized operators and targeted Offers but never appear in the ordinary client catalogue.
+
+Compatibility is always backend-computed from registry sellability, dependency/exclusion rules, duplicate-capability prevention, included-quota ownership, already-entitled quota ownership for packages, active product revisions, and exact currency/cycle support. Optional Plan/Segment/Account targeting can only narrow this set. The backend catalogue and preview explain why an item is unavailable; the UI does not reproduce the rules.
+
+Changing either policy on a published product requires a new commercial revision or a separately audited sales-availability operation. Existing snapshots remain unchanged.
+
+## COMMERCIAL-FLOW-003 — Immutable multi-cycle price books
+
+**Status:** `DECIDED — 2026-08-26`
+
+- Plan, AddOn, and capacity-package revisions no longer have only one usable price/cycle. Each may expose independently entered `MONTHLY` and `YEARLY` Price-book entries for supported currencies.
+- A yearly price is never derived automatically from monthly. Zero-price recurring entries are valid.
+- Price entries use `DRAFT`, `ACTIVE`, `INACTIVE`, and terminal `ARCHIVED`. Amount, currency, cycle, owner revision, and effective-from time are immutable after activation.
+- An active entry may be paused for new selection without changing existing subscriber snapshots. A changed amount creates a new entry/version.
+- At most one entry is applicable for one product revision, currency, cycle, and instant. Activation validates overlap transactionally.
+- Subscription preview and checkout select exact compatible entries and snapshot every item. No implicit currency conversion or mixed-cycle total exists.
+- Existing subscribers change prices only through an immediate/renewal/scheduled subscription operation. A template edit never reprices them.
+
+## COMMERCIAL-FLOW-004 — Typed Account commercial policies and precedence
+
+**Status:** `DECIDED — 2026-08-26`
+
+Commercial policies provide reusable operator tools without hard-coding a business strategy.
+
+- Targets are one Account, explicit Accounts, a typed Segment, or subscribers of one Plan revision. The backend snapshots the affected set for preview/execution.
+- Initial typed effects are product allow/block, fixed Money adjustment, percentage discount with explicit maximum, free recurring periods, finite quota bonus, time-bounded AddOn/package grant, and renewal instruction.
+- Every policy has source, reason, owner, actor, lifecycle, priority, effective window, expiry or explicit permanence, optional approval/contract reference, preview version, and audit.
+- Direct Account policy outranks Segment policy. At equal priority, restriction wins over grant. Purchased extensions precede commercial adjustments, while platform hard safety ceilings and Account governance restrictions always win.
+- An active policy is immutable; editing creates a draft revision. Expiry stops future effect and never rewrites historical snapshots, invoices, or operations.
+- Policy activation and bulk application require backend impact preview, version recheck, per-Account result, idempotent retry, and cancellation before the execution cutoff.
+
+## MARKETING-FLOW-001 — Safe reusable Account segments
+
+**Status:** `DECIDED — 2026-08-26`
+
+- A Segment is either an explicit Account set or typed commercial criteria. It never accepts SQL, scripts, or permission/business-record predicates.
+- Initial criteria may use current Plan, subscription status, currency/cycle, Account creation date, and purchased commercial products.
+- Preview returns a bounded sample, total, criteria version, and evaluation time. Activation snapshots membership for a Campaign execution; later Account changes do not silently rewrite an already scheduled audience.
+- Segment list/detail APIs support pagination, search, lifecycle, duplication, impact preview, safe delete/archive, and history. Sensitive Account identity fields remain separately authorized.
+
+## MARKETING-FLOW-002 — Campaigns, offers, and redemption
+
+**Status:** `DECIDED — 2026-08-26; REOPENS TYPED DISCOUNTS FROM PLAN-FLOW-008`
+
+- Campaign lifecycle is `DRAFT`, `SCHEDULED`, `ACTIVE`, `PAUSED`, `ENDED`, and terminal `ARCHIVED`.
+- Offers are immutable published revisions containing compatible product selections and typed policy effects, with eligibility/effective windows, overall and per-Account limits, optional normalized code, and explicit acceptance rules.
+- Fixed/percentage discounts exist only as Offer/Policy effects with Money/currency compatibility, bounded duration/redemptions, reason/source, and immutable evidence. They are not arbitrary client-supplied checkout values.
+- Public offers are visible only to currently eligible Accounts. Targeted offers are visible only to their snapshotted audience. Direct-only products may appear through an authorized targeted offer.
+- Preview explains resulting products, features, quotas, exact itemized price, adjustment, amount due, and timing. Acceptance revalidates under an Account lock and is idempotent.
+- Pausing/ending stops new redemption but never reverses completed changes. Operator application to Accounts uses the same tracked subscription-operation engine and per-Account outcomes.
+
+## BILLING-FLOW-001 — Invoice, settlement, credit, and refund ledgers
+
+**Status:** `DECIDED — 2026-08-26`
+
+- Price preview, invoice/amount due, payment attempt, confirmed settlement, credit, refund, and collected-value analytics are distinct records.
+- Invoices are immutable numbered documents containing Account, period, currency, status, totals, and versioned lines that retain source product/price/policy identifiers and readable snapshots.
+- Payment attempts are idempotent and record pending/succeeded/failed state, amount, method/provider type, external or manual reference, source/actor, and timestamps. Manual settlement needs a dedicated permission, evidence/reference, and reason.
+- Credit and refund records append corrections; they never mutate original invoice/payment evidence. Refund totals cannot exceed eligible settled amounts.
+- Zero-amount invoices may settle without a fake payment. Only succeeded settlement contributes to collected-value reporting.
+- Provider callbacks/reconciliation are idempotent and never activate entitlement merely because a price calculation succeeded. Failed renewal enters explicit past-due/grace/restricted lifecycle without deleting data.
+- Automatic tax, FX, metered billing, automatic proration, and automatic refunds remain deferred and must not appear as implemented.
+
+## ANALYTICS-FLOW-001 — Durable commercial facts and truthful analytics
+
+**Status:** `DECIDED — 2026-08-26`
+
+- Analytics derive from durable subscription periods, operations, invoice/payment/credit/refund records, and append-only commercial events—not mutable template totals.
+- Initial metrics cover subscription state over time, configured recurring value, invoiced/settled/credited/refunded value separately, product adoption/churn, Offer eligibility/redemption, policy execution, renewal outcomes, past-due aging, and capacity-package/near-quota adoption.
+- Every endpoint takes a bounded time range, timezone, interval, and safe filters; returns completeness time and dimensions; and never sums different currencies or cycles into one unlabeled number.
+- Summary cards/charts link to the filtered operational table that explains the number. Missing/incomplete data is shown honestly rather than as zero.
+- Analytics read permissions do not imply access to sensitive payment references, owner email, or client business records.
 
 # Account subscription administration
 
@@ -1365,6 +1463,11 @@ Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
+| 2026-08-26 | Build the commercial control plane as separate technical capabilities, products, prices, policies, offers, subscription operations, and financial records | Combining these meanings created unclear UI, unsafe implicit effects, and totals that could be mistaken for settlement; separation keeps each operation explainable and auditable | Registry, Plans/AddOns/packages, price books, subscriptions, policies, marketing, billing, analytics, admin/client UI |
+| 2026-08-26 | Give every Plan revision an explicit CLOSED, ALLOW_LIST, or OPEN_COMPATIBLE extension policy plus independent PUBLIC/DIRECT_ONLY product visibility | Operators need strict and extensible commercial strategies without marketing being able to override mandatory compatibility or expose private products | Plan/AddOn/package catalogue, compatibility previews, targeted offers, client self-service |
+| 2026-08-26 | Replace the single-price product assumption with immutable independently entered monthly/yearly price-book entries | A product commonly supports monthly, yearly, or both; annual price is a commercial decision, while existing subscribers must retain accepted prices | Plan/AddOn/package pricing, checkout, snapshots, renewals, admin price-book UI |
+| 2026-08-26 | Reopen discounts only as bounded typed Offer/Commercial Policy effects | Marketing control is required, but arbitrary checkout discounts or mutable base prices would bypass evidence, targeting, and currency/settlement rules | Segments, campaigns, offers, commercial policies, price preview, subscription operations, audit |
+| 2026-08-26 | Derive commercial analytics from durable operational and financial facts and never mix configured, invoiced, settled, credited, or refunded amounts | Admin decisions require truthful drillable measures rather than decorative cards or mutable configured totals mislabeled as revenue | Commercial events/read models, billing ledger, dashboard charts, operational tables and permissions |
 | 2026-08-14 | Duplicate only Plan-owned composition and require explicit AddOn/quota-package attachment to the new draft | Incoming attachments are owned by separate commercial items through `allowedPlanCodes`; copying them would silently widen those existing items while creating a Plan | Plan duplication service and wizard, AddOn/quota-package management, schema visualization, audit |
 | 2026-07-14 | HiveApp remains one organized monolith | Company/product direction | Entire backend architecture |
 | 2026-07-14 | One active client Account membership per user | Members are employer-managed workers, not users managing multiple personal workspaces | Identity, membership, invitations, request context, B2B, client UI |

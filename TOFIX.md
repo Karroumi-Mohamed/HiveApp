@@ -2941,6 +2941,99 @@ Immutable price-book revisions, itemized invoices, payment/refund/credit ledgers
 
 ---
 
+### PRICEBOOK-001 — Commercial products support only one price and billing cycle
+
+**Status:** `CONFIRMED — DESIGN DECIDED 2026-08-26`
+
+**Evidence**
+
+- `Plan`, `AddOn`, and `QuotaPackage` each persist one amount, one ISO currency, and one `BillingCycle` directly on the product revision.
+- Create/update DTOs require that single tuple, and client/admin catalogue DTOs expose only it.
+- A product therefore cannot honestly offer independent monthly and yearly prices at the same time. Creating a second product row would split product identity, composition, history, and analytics.
+
+**Risk**
+
+Operators cannot model ordinary monthly/yearly choices, scheduled price changes, or a paused price without cloning the whole product. Mutating the tuple risks conflating product definition with price history, while cloned products make adoption and reporting misleading.
+
+**Required fix direction**
+
+- Add immutable versioned Price-book entries owned by an exact Plan/AddOn/quota-package revision, with amount, ISO currency, monthly/yearly cycle, effective window, lifecycle, optimistic version, and audit.
+- Permit independently entered monthly and yearly values; never derive annual price automatically.
+- Enforce non-overlapping active applicability for one owner/currency/cycle and select exact compatible entries during preview/checkout.
+- Snapshot selected price-entry identity and itemized amount. Pausing/new versions affect future selection only; existing snapshots remain unchanged.
+- Replace product CRUD/UI single-price assumptions with price management, availability, history, and activation preview. Keep zero-price recurring entries valid and `FOREVER` deferred.
+
+---
+
+### COMMERCIAL-001 — Extension targeting and Account commercial policy are encoded as scattered special cases
+
+**Status:** `CONFIRMED — DESIGN DECIDED 2026-08-26`
+
+**Evidence**
+
+- AddOns and quota packages carry Plan-code allow/block sets, while Plans have no explicit CLOSED/ALLOW_LIST/OPEN_COMPATIBLE extension policy or public/direct-only sales visibility.
+- Subscription overrides represent selected AddOns/packages but cannot model a reasoned time window, targeting source, priority, approval, renewal instruction, price adjustment, free period, or quota bonus.
+- Compatibility logic exists in checkout/snapshot services, but there is no reusable target preview or policy lifecycle for one Account, selected Accounts, a Segment, or Plan subscribers.
+
+**Risk**
+
+Operators must request new code for each commercial exception or encode business strategy as an untraceable override. Marketing can be accidentally coupled to entitlement internals, conflicts have no deterministic precedence, and expiry/history cannot be explained to support or customers.
+
+**Required fix direction**
+
+- Add explicit Plan extension policy and product sales visibility while retaining backend-computed mandatory compatibility.
+- Add typed, versioned commercial policies with bounded targets/effects, priority/precedence, effective window, reason/source/actor, preview, affected-set snapshot, execution results, expiry, and audit.
+- Reuse the subscription-operation engine for immediate/renewal/scheduled application; never mutate historical snapshots or delete data.
+- Provide paginated/searchable admin APIs for policy list/detail/draft/preview/activate/pause/revise/archive, target simulation, execution/cancel/retry, and history plus minimum client read models for effective terms.
+
+---
+
+### MARKETING-001 — HiveApp has no safe Segment, Campaign, Offer, or redemption model
+
+**Status:** `CONFIRMED — DESIGN DECIDED 2026-08-26`
+
+**Evidence**
+
+- No production backend package/entity/controller exists for commercial Segments, Campaigns, Offers, offer codes, eligibility, audience snapshots, redemption, or campaign performance.
+- The frontend has no marketing routes or client offer surface.
+- Current catalogue selection can only choose normal active products at their configured price; there is no typed fixed/percentage adjustment, free period, bonus capacity, bundle, redemption limit, or targeted direct offer.
+
+**Risk**
+
+Business teams cannot run controlled campaigns without developer changes or unsafe direct subscription edits. Ad hoc discounts would have no currency bounds, immutable evidence, idempotency, audience privacy, expiry, or truthful performance record.
+
+**Required fix direction**
+
+- Implement explicit/typed Account Segments with preview and immutable Campaign audience snapshots; never allow SQL/script predicates.
+- Implement Campaign and Offer revision lifecycles, typed compatible effects, windows, overall/per-Account limits, optional normalized unique codes, eligibility preview, pause/end/archive, and history.
+- Revalidate redemption under the Account lock, make retries idempotent, and materialize accepted effects through the normal subscription-operation/snapshot/billing path.
+- Add operational admin tables/detail/builders/preview/execution analytics and a client eligible-offer/detail/preview/accept/history surface protected by Account authority.
+
+---
+
+### ANALYTICS-001 — Commercial dashboards have no durable fact model or operational drill-down
+
+**Status:** `CONFIRMED — DESIGN DECIDED 2026-08-26`
+
+**Evidence**
+
+- `/admin/analytics` is a placeholder page.
+- Existing summary amounts come from configured current subscription prices rather than invoice/payment/credit/refund evidence.
+- No append-only commercial event/fact contract records Offer eligibility/redemption, policy execution, product adoption/churn, renewal outcomes, or near/over-quota states for bounded time-series queries.
+
+**Risk**
+
+Decorative totals may be mislabeled as revenue, mixed currency/cycle values can be combined, historical graphs can change when mutable records change, and operators cannot drill into the Accounts/events behind a number.
+
+**Required fix direction**
+
+- Build durable commercial facts from subscription periods/operations and the invoice/payment/credit/refund ledgers, plus append-only events where no authoritative state transition already exists.
+- Add bounded timezone/interval/filter-aware summary and time-series APIs with explicit currency/cycle dimensions, completeness time, pagination, and no mixed-money total.
+- Make every summary/chart link to a filtered operational table. Expose missing/incomplete data honestly and keep sensitive settlement evidence under separate permissions.
+- Add event idempotency, historical stability, time-bound validation, mixed-currency, permission/privacy, query-count, and realistic drill-down tests.
+
+---
+
 ### EMAIL-001 — Missing SMTP silently becomes token logging and apparent delivery success
 
 **Status:** `IMPLEMENTED — 2026-08-10`
