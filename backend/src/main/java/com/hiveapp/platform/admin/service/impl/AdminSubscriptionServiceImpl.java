@@ -90,17 +90,14 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
             throw new InvalidRequestException(
                     "Assignable prices support MONTHLY and YEARLY billing cycles only.");
         }
-        Set<UUID> eligiblePlanIds = commercialCatalogResolver.resolveCatalog(
-                        CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR)
-                .plans().stream()
-                .filter(CommercialCatalogResolver.PlanResolution::selectable)
-                .map(result -> result.plan().getId())
-                .collect(java.util.stream.Collectors.toSet());
-        if (eligiblePlanIds.isEmpty()) {
-            return Page.empty(pageable);
+        Set<String> staticallyEligibleFeatureCodes =
+                commercialCatalogResolver.staticallyEligiblePlanFeatureCodes(
+                        CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR);
+        if (staticallyEligibleFeatureCodes.isEmpty()) {
+            staticallyEligibleFeatureCodes = Set.of("__NO_ELIGIBLE_FEATURE__");
         }
         return productPriceRepository.findAssignablePlanPrices(
-                        eligiblePlanIds, normalizedSearch, normalizedCurrency,
+                        staticallyEligibleFeatureCodes, normalizedSearch, normalizedCurrency,
                         billingCycle, clock.instant(), pageable)
                 .map(price -> new AssignablePlanPriceDto(
                         price.getPlan().getId(), price.getPlan().getCode(), price.getPlan().getName(),

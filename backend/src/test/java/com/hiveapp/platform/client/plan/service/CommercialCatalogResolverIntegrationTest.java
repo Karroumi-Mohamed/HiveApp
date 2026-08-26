@@ -17,6 +17,7 @@ import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.registry.definition.OrganizationFeature;
+import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.definition.WorkspaceRolesFeature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.money.Money;
@@ -116,6 +117,30 @@ class CommercialCatalogResolverIntegrationTest {
     }
 
     @Test
+    void publicVisibilityControlsClientDiscoveryWithoutBlockingAuthorizedOperators() {
+        var feature = featureRepository.findByCode(WorkspaceFeature.CODE).orElseThrow();
+        feature.setPublicVisible(false);
+        flushAndClear();
+
+        var client = plan("FLEX", CommercialCatalogResolver.Audience.CLIENT_CATALOG);
+        assertThat(reasons(client)).contains(ExtensionAvailabilityReason.FEATURE_NOT_CLIENT_FACING);
+
+        var operator = plan("FLEX", CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR);
+        assertThat(operator.selectable()).isTrue();
+        assertThat(reasons(operator)).doesNotContain(
+                ExtensionAvailabilityReason.FEATURE_NOT_CLIENT_FACING);
+
+        feature = featureRepository.findByCode(WorkspaceFeature.CODE).orElseThrow();
+        feature.setNewSalesEnabled(false);
+        flushAndClear();
+
+        assertThat(reasons(plan("FLEX", CommercialCatalogResolver.Audience.CLIENT_CATALOG)))
+                .contains(ExtensionAvailabilityReason.FEATURE_NEW_SALES_DISABLED);
+        assertThat(reasons(plan("FLEX", CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR)))
+                .contains(ExtensionAvailabilityReason.FEATURE_NEW_SALES_DISABLED);
+    }
+
+    @Test
     void dependenciesCyclesExclusionsAndDuplicateCapabilitiesFailClosed() {
         var custom = addOnRepository.findByCode("CUSTOM_ROLES").orElseThrow();
         var organization = addOnRepository.findByCode("ORGANIZATION_TOOLS").orElseThrow();
@@ -152,6 +177,11 @@ class CommercialCatalogResolverIntegrationTest {
         assertThat(reasons(addOn("FLEX", "CUSTOM_ROLES")))
                 .contains(ExtensionAvailabilityReason.DUPLICATE_PAID_CAPABILITY);
         flex = planRepository.findByCode("FLEX").orElseThrow();
+        var activation = resolver.resolveAddOnActivation(custom.getId(), List.of(flex))
+                .get(flex.getId());
+        assertThat(activation.selectable()).isFalse();
+        assertThat(activation.issues()).extracting(item -> item.reason())
+                .contains(ExtensionAvailabilityReason.DUPLICATE_PAID_CAPABILITY);
         planPrice = productPriceResolver.resolvePlan(flex, null);
         var overlapping = resolver.resolveSelection(
                 flex, planPrice, Set.of("CUSTOM_ROLES", "ORGANIZATION_TOOLS"), List.of(),

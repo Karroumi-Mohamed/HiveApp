@@ -191,7 +191,21 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
             where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
               and price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
               and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ACTIVE
-              and plan.id in :eligiblePlanIds
+              and not exists (
+                select planFeature.id from PlanFeature planFeature
+                join planFeature.feature feature
+                where planFeature.plan = plan
+                  and planFeature.mode = com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode.INCLUDED
+                  and (
+                    feature.code not in :staticallyEligibleFeatureCodes
+                    or feature.newSalesEnabled = false
+                    or feature.runtimeEnabled = false
+                    or feature.status not in (
+                      com.hiveapp.platform.registry.domain.constant.FeatureStatus.PUBLIC,
+                      com.hiveapp.platform.registry.domain.constant.FeatureStatus.BETA
+                    )
+                  )
+              )
               and price.effectiveFrom <= :at
               and (price.effectiveUntil is null or price.effectiveUntil > :at)
               and (:search is null or lower(plan.code) like lower(concat('%', :search, '%'))
@@ -205,7 +219,21 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
             where price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
               and price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
               and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ACTIVE
-              and plan.id in :eligiblePlanIds
+              and not exists (
+                select planFeature.id from PlanFeature planFeature
+                join planFeature.feature feature
+                where planFeature.plan = plan
+                  and planFeature.mode = com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode.INCLUDED
+                  and (
+                    feature.code not in :staticallyEligibleFeatureCodes
+                    or feature.newSalesEnabled = false
+                    or feature.runtimeEnabled = false
+                    or feature.status not in (
+                      com.hiveapp.platform.registry.domain.constant.FeatureStatus.PUBLIC,
+                      com.hiveapp.platform.registry.domain.constant.FeatureStatus.BETA
+                    )
+                  )
+              )
               and price.effectiveFrom <= :at
               and (price.effectiveUntil is null or price.effectiveUntil > :at)
               and (:search is null or lower(plan.code) like lower(concat('%', :search, '%'))
@@ -214,7 +242,7 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
               and (:billingCycle is null or price.billingCycle = :billingCycle)
             """)
     Page<ProductPrice> findAssignablePlanPrices(
-            @Param("eligiblePlanIds") Collection<UUID> eligiblePlanIds,
+            @Param("staticallyEligibleFeatureCodes") Collection<String> staticallyEligibleFeatureCodes,
             @Param("search") String search,
             @Param("currencyCode") String currencyCode,
             @Param("billingCycle") BillingCycle billingCycle,
@@ -465,4 +493,34 @@ public interface ProductPriceRepository extends JpaRepository<ProductPrice, UUID
             @Param("addOnIds") Collection<UUID> addOnIds,
             @Param("quotaPackageIds") Collection<UUID> quotaPackageIds,
             @Param("at") Instant at);
+
+    @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
+    @Query("""
+            select price from ProductPrice price
+            where price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE
+              and price.effectiveFrom <= :at
+              and (price.effectiveUntil is null or price.effectiveUntil > :at)
+              and ((price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN
+                    and price.plan.id in :planIds)
+                or (price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON
+                    and price.addOn.id in :addOnIds)
+                or (price.ownerType = com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.QUOTA_PACKAGE
+                    and price.quotaPackage.id in :quotaPackageIds))
+              and not exists (select plan.id from Plan plan
+                    where plan = price.plan
+                      and plan.status = com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ARCHIVED)
+              and not exists (select addOn.id from AddOn addOn
+                    where addOn = price.addOn
+                      and addOn.status = com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.ARCHIVED)
+              and not exists (select item.id from QuotaPackage item
+                    where item = price.quotaPackage
+                      and item.status = com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus.ARCHIVED)
+            order by price.id
+            """)
+    List<ProductPrice> findAllApplicableForOwnersBounded(
+            @Param("planIds") Collection<UUID> planIds,
+            @Param("addOnIds") Collection<UUID> addOnIds,
+            @Param("quotaPackageIds") Collection<UUID> quotaPackageIds,
+            @Param("at") Instant at,
+            Pageable pageable);
 }

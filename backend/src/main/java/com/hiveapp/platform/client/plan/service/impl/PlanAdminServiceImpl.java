@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnActivationBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialProductBlocker;
@@ -15,6 +16,7 @@ import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
+import com.hiveapp.platform.client.plan.domain.constant.ProductPriceAudit;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageActivationBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageComparisonField;
@@ -96,6 +98,8 @@ import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.exception.StaleResourceVersionException;
 import com.hiveapp.shared.audit.domain.AuditLog;
 import com.hiveapp.shared.audit.domain.AuditLogRepository;
+import com.hiveapp.shared.audit.AuditTrail;
+import com.hiveapp.shared.audit.domain.AuditActorSurface;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.quota.QuotaLimitMode;
 import dev.karroumi.permissionizer.PermissionNode;
@@ -108,6 +112,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
@@ -119,6 +124,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -152,11 +158,13 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final AddOnFeatureRepository addOnFeatureRepository;
     private final QuotaPackageRepository quotaPackageRepository;
     private final ProductPriceResolver productPriceResolver;
+    private final CommercialCatalogResolver commercialCatalogResolver;
     private final CommercialProductOperationsService productOperationsService;
     private final ProductPriceRepository productPriceRepository;
     private final CrossFeatureCommercialAuthorizer crossFeatureCommercialAuthorizer;
     private final FeatureRepository featureRepository;
     private final AuditLogRepository auditLogRepository;
+    private final AuditTrail auditTrail;
     private final AdminUserRepository adminUserRepository;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -335,9 +343,15 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     public PlanDto duplicatePlan(UUID sourcePlanId, long expectedVersion, PlanBranchRequest request) {
         requirePriceBookPermission(
                 "create", "Duplicating a Plan and its reviewable price schedules");
-        Plan source = planRepository.findByIdForUpdate(sourcePlanId)
+        Plan hint = planRepository.findById(sourcePlanId)
+                .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", sourcePlanId));
+        List<Plan> lineage = planRepository.findLineageForUpdate(hint.getLineageId());
+        Plan source = lineage.stream()
+                .filter(candidate -> candidate.getId().equals(sourcePlanId))
+                .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", sourcePlanId));
         requireVersion(source, expectedVersion);
+        requireCopiedPlanAvailabilityPermission(source, "duplicate");
         Plan duplicate = createBranch(source, request, UUID.randomUUID(), 1, PlanCreationReason.DUPLICATED);
         copyPlanComposition(source, duplicate);
         copySaleRelevantPrices(source, duplicate);
@@ -351,16 +365,21 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     public PlanDto revisePlan(UUID sourcePlanId, long expectedVersion, PlanBranchRequest request) {
         requirePriceBookPermission(
                 "create", "Revising a Plan and copying its reviewable price schedules");
-        Plan source = planRepository.findByIdForUpdate(sourcePlanId)
+        Plan hint = planRepository.findById(sourcePlanId)
+                .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", sourcePlanId));
+        List<Plan> lineage = planRepository.findLineageForUpdate(hint.getLineageId());
+        Plan source = lineage.stream()
+                .filter(candidate -> candidate.getId().equals(sourcePlanId))
+                .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", sourcePlanId));
         requireVersion(source, expectedVersion);
+        requireCopiedPlanAvailabilityPermission(source, "revise");
         if (source.getStatus() == PlanStatus.DRAFT) {
             throw new BusinessException("A draft can be edited directly and cannot be revised.");
         }
         if (source.getStatus() == PlanStatus.ARCHIVED) {
             throw new InvalidStateException("Archived Plans are terminal and cannot be revised.");
         }
-        List<Plan> lineage = planRepository.findLineageForUpdate(source.getLineageId());
         int maximumRevision = lineage.stream().mapToInt(Plan::getRevisionNumber).max().orElse(0);
         lineage.stream()
                 .filter(candidate -> candidate.getStatus() == PlanStatus.DRAFT)
@@ -462,6 +481,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "delete",
             description = "Delete a confirmed unused Plan draft and its unpublished price drafts")
     public void deletePlan(UUID planId, DeletePlanRequest request) {
+        requirePriceBookPermission(
+                "delete_draft", "Deleting a Plan and its owned price drafts");
         Plan plan = planRepository.findByIdForUpdate(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         List<ProductPrice> prices = productPriceRepository.findAllByPlanIdForUpdate(planId);
@@ -715,9 +736,18 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     public AddOnDto reviseAddOn(UUID sourceAddOnId, long expectedVersion) {
         requirePriceBookPermission(
                 "create", "Revising an AddOn and copying its reviewable price schedules");
-        AddOn source = addOnRepository.findByIdForUpdate(sourceAddOnId)
+        AddOn hint = addOnRepository.findById(sourceAddOnId)
+                .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", sourceAddOnId));
+        List<AddOn> lineage = addOnRepository.findLineageForUpdate(hint.getLineageId());
+        AddOn source = lineage.stream()
+                .filter(candidate -> candidate.getId().equals(sourceAddOnId))
+                .findFirst()
                 .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", sourceAddOnId));
         requireVersion(source, expectedVersion);
+        if (source.getSalesVisibility() != ProductSalesVisibility.PUBLIC) {
+            requireCommercialAvailabilityPermission(
+                    "update_add_on_visibility", "copy direct-only AddOn visibility while revising");
+        }
         if (source.getStatus() == AddOnStatus.DRAFT) {
             throw new BusinessException("An AddOn draft can be edited directly and cannot be revised.");
         }
@@ -725,7 +755,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new BusinessException("Archived AddOns are terminal and cannot be revised.");
         }
 
-        List<AddOn> lineage = addOnRepository.findLineageForUpdate(source.getLineageId());
         int maximumRevision = lineage.stream().mapToInt(AddOn::getRevisionNumber).max().orElse(0);
         lineage.stream()
                 .filter(candidate -> candidate.getStatus() == AddOnStatus.DRAFT)
@@ -807,12 +836,24 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             long expectedVersion,
             String reason
     ) {
-        AddOn addOn = addOnRepository.findByIdForUpdate(addOnId)
-                .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", addOnId));
-        requireVersion(addOn, expectedVersion);
         if (targetStatus == null) {
             throw new InvalidRequestException("Target AddOn status is required.");
         }
+        AddOn addOn;
+        List<AddOn> lockedLineage = List.of();
+        if (targetStatus == AddOnStatus.ACTIVE) {
+            AddOn hint = addOnRepository.findById(addOnId)
+                    .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", addOnId));
+            lockedLineage = addOnRepository.findLineageForUpdate(hint.getLineageId());
+            addOn = lockedLineage.stream()
+                    .filter(candidate -> candidate.getId().equals(addOnId))
+                    .findFirst()
+                    .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", addOnId));
+        } else {
+            addOn = addOnRepository.findByIdForUpdate(addOnId)
+                    .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", addOnId));
+        }
+        requireVersion(addOn, expectedVersion);
         if (addOn.getStatus() == targetStatus) {
             return readModels.toDto(addOn);
         }
@@ -832,12 +873,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                     "An AddOn draft may only be published, archived, or deleted.");
         }
         if (targetStatus == AddOnStatus.ACTIVE) {
-            validateAddOnActivation(addOn, productPriceResolver.availableCatalogPrices());
-            List<AddOn> lineage = addOnRepository.findLineageForUpdate(addOn.getLineageId());
-            List<AddOn> previouslyActive = lineage.stream()
+            validateAddOnActivation(addOn);
+            List<AddOn> previouslyActive = lockedLineage.stream()
                     .filter(candidate -> !candidate.getId().equals(addOn.getId()))
                     .filter(candidate -> candidate.getStatus() == AddOnStatus.ACTIVE)
                     .toList();
+            requirePriorAddOnRevisionsCanRetire(previouslyActive);
             previouslyActive.forEach(candidate -> candidate.setStatus(AddOnStatus.INACTIVE));
             if (!previouslyActive.isEmpty()) {
                 addOnRepository.saveAllAndFlush(previouslyActive);
@@ -848,11 +889,35 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         return readModels.toDto(addOnRepository.findDetailedById(addOnId).orElseThrow());
     }
 
+    private void requirePriorAddOnRevisionsCanRetire(List<AddOn> previouslyActive) {
+        if (previouslyActive.isEmpty()) return;
+        Set<UUID> ids = previouslyActive.stream().map(AddOn::getId).collect(Collectors.toSet());
+        boolean dependentAddOns = !addOnRepository.countInboundAddOnReferencesByStatusIn(
+                ids, List.of(AddOnStatus.ACTIVE, AddOnStatus.INACTIVE, AddOnStatus.DRAFT)).isEmpty();
+        boolean targetedPackages = !quotaPackageRepository.countAddOnReferencesByStatusIn(
+                ids, List.of(QuotaPackageStatus.ACTIVE, QuotaPackageStatus.INACTIVE,
+                        QuotaPackageStatus.DRAFT)).isEmpty();
+        List<String> blockers = new ArrayList<>();
+        if (dependentAddOns) {
+            blockers.add(AddOnActivationBlocker.DEPENDENT_ADD_ON_REQUIRES_MIGRATION.name());
+        }
+        if (targetedPackages) {
+            blockers.add(AddOnActivationBlocker.TARGETED_QUOTA_PACKAGE_REQUIRES_MIGRATION.name());
+        }
+        if (!blockers.isEmpty()) {
+            throw new OperationBlockedException(
+                    "Non-archived products still reference the currently published AddOn revision.",
+                    blockers);
+        }
+    }
+
     @Override
     @Transactional
     @PermissionNode(key = "delete_add_on",
             description = "Delete an unused AddOn draft and its unpublished price drafts")
     public void deleteAddOn(UUID addOnId, long expectedVersion) {
+        requirePriceBookPermission(
+                "delete_draft", "Deleting an AddOn and its owned price drafts");
         AddOn addOn = addOnRepository.findByIdForUpdate(addOnId)
                 .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", addOnId));
         requireVersion(addOn, expectedVersion);
@@ -1035,6 +1100,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 saved, saved.money(), saved.getBillingCycle(), clock.instant(), null);
         initialPrice.markCompatibilityDefault();
         productPriceRepository.saveAndFlush(initialPrice);
+        recordCompositePriceAudit(
+                ProductPriceAudit.CREATE_ACTION,
+                initialPrice,
+                "Created with capacity-package draft",
+                Map.of(),
+                Map.of("status", ProductPriceStatus.DRAFT.name()));
         return readModels.toDto(saved);
     }
 
@@ -1059,6 +1130,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "QuotaPackage", "id", sourceQuotaPackageId));
         requireVersion(source, request.expectedVersion());
+        if (source.getSalesVisibility() != ProductSalesVisibility.PUBLIC) {
+            requireCommercialAvailabilityPermission(
+                    "update_quota_visibility",
+                    "copy direct-only capacity-package visibility while revising");
+        }
         if (source.getStatus() != QuotaPackageStatus.ACTIVE
                 && source.getStatus() != QuotaPackageStatus.INACTIVE) {
             throw new InvalidStateException(
@@ -1122,6 +1198,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new InvalidStateException(
                     "The successor price starting point conflicts with concurrent catalogue work.");
         }
+        copiedPrices.forEach(price -> recordCompositePriceAudit(
+                ProductPriceAudit.CREATE_ACTION,
+                price,
+                request.reason(),
+                Map.of("copiedFromQuotaPackageId", source.getId()),
+                Map.of("status", ProductPriceStatus.DRAFT.name())));
         return new QuotaPackageRevisionResult(
                 readModels.toDto(saved), copiedPrices.stream().map(this::toQuotaPriceDto).toList(),
                 copiedPrices.isEmpty() ? List.of("NO_PRICE_STARTING_POINT") : List.of());
@@ -1196,7 +1278,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         requireVersion(item, request.expectedVersion());
 
         switch (request.action()) {
-            case ACTIVATE -> activateQuotaPackageRevision(item, lineage, request.activationPreviewToken());
+            case ACTIVATE -> activateQuotaPackageRevision(
+                    item, lineage, request.activationPreviewToken(), request.reason());
             case DEACTIVATE -> {
                 if (item.getStatus() != QuotaPackageStatus.ACTIVE) {
                     throw new InvalidStateException(
@@ -1287,6 +1370,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "delete_quota_package",
             description = "Delete a version-pinned package draft and its unpublished price drafts")
     public void deleteQuotaPackage(UUID quotaPackageId, long expectedVersion) {
+        requirePriceBookPermission(
+                "delete_draft", "Deleting a capacity package and its owned price drafts");
         QuotaPackage hint = requireDetailedQuotaPackage(quotaPackageId);
         List<QuotaPackage> lineage = quotaPackageRepository.findLineageForUpdate(hint.getLineageId());
         QuotaPackage item = lineage.stream()
@@ -1322,7 +1407,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private void activateQuotaPackageRevision(
             QuotaPackage item,
             List<QuotaPackage> lineage,
-            String previewToken
+            String previewToken,
+            String reason
     ) {
         if (previewToken == null || previewToken.isBlank()) {
             throw new InvalidRequestException(
@@ -1365,6 +1451,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         quotaPackageRepository.saveAllAndFlush(lineage);
         if (!draftsToActivate.isEmpty()) {
             productPriceRepository.saveAllAndFlush(draftsToActivate);
+            draftsToActivate.forEach(price -> recordCompositePriceAudit(
+                    ProductPriceAudit.ACTIVATE_ACTION,
+                    price,
+                    reason,
+                    Map.of("status", ProductPriceStatus.DRAFT.name()),
+                    Map.of("status", ProductPriceStatus.ACTIVE.name())));
         }
     }
 
@@ -1391,17 +1483,17 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 .filter(price -> price.getStatus() == ProductPriceStatus.DRAFT)
                 .sorted(Comparator.comparing(ProductPrice::getId))
                 .toList();
+        Instant now = clock.instant();
         List<ProductPrice> activePrices = prices.stream()
                 .filter(price -> price.getStatus() == ProductPriceStatus.ACTIVE)
                 .filter(price -> price.getEffectiveUntil() == null
-                        || price.getEffectiveUntil().isAfter(clock.instant()))
+                        || price.getEffectiveUntil().isAfter(now))
                 .sorted(Comparator.comparing(ProductPrice::getId))
                 .toList();
         List<ProductPrice> reviewed = !draftPrices.isEmpty() ? draftPrices : activePrices;
         if (reviewed.isEmpty()) {
             blockers.add(QuotaPackageActivationBlocker.NO_REVIEWABLE_PRICE);
         }
-        Instant now = clock.instant();
         boolean applicableAfterPublication = prices.stream().anyMatch(price ->
                 (price.getStatus() == ProductPriceStatus.ACTIVE
                         || price.getStatus() == ProductPriceStatus.DRAFT)
@@ -1423,10 +1515,10 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 && !blockers.contains(QuotaPackageActivationBlocker.EXPIRED_PRICE_WINDOW)
                 && !blockers.contains(QuotaPackageActivationBlocker.OVERLAPPING_PRICE_DRAFTS)) {
             List<ProductPrice> catalog = dependencies.prices().stream()
-                    .filter(price -> price.isApplicableAt(clock.instant()))
+                    .filter(price -> price.isApplicableAt(now))
                     .collect(Collectors.toCollection(ArrayList::new));
             prices.stream()
-                    .filter(price -> price.isApplicableAt(clock.instant()))
+                    .filter(price -> price.isApplicableAt(now))
                     .forEach(catalog::add);
             reviewed.stream()
                     .filter(price -> price.getStatus() == ProductPriceStatus.DRAFT)
@@ -1443,7 +1535,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 .map(QuotaPackage::getId)
                 .sorted()
                 .toList();
-        String token = quotaActivationToken(item, lineage, prices, dependencies);
+        String token = quotaActivationToken(item, lineage, prices, dependencies, blockers, now);
         return new QuotaPackageActivationPreviewDto(
                 item.getId(), item.getRowVersion(), token, blockers.isEmpty(), List.copyOf(blockers),
                 reviewed.stream().map(this::toQuotaPriceDto).toList(), packagesToDeactivate);
@@ -1480,7 +1572,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             QuotaPackage item,
             List<QuotaPackage> lineage,
             List<ProductPrice> prices,
-            QuotaActivationDependencies dependencies
+            QuotaActivationDependencies dependencies,
+            Collection<QuotaPackageActivationBlocker> blockers,
+            Instant evaluatedAt
     ) {
         String lineageState = lineage.stream()
                 .sorted(Comparator.comparing(QuotaPackage::getId))
@@ -1496,10 +1590,35 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                         price.getEffectiveFrom().toString(),
                         price.getEffectiveUntil() == null ? "OPEN" : price.getEffectiveUntil().toString()))
                 .collect(Collectors.joining(","));
+        String temporalState = temporalPriceFingerprint(
+                java.util.stream.Stream.concat(prices.stream(), dependencies.prices().stream())
+                        .distinct()
+                        .toList(),
+                evaluatedAt);
+        String blockerState = blockers.stream()
+                .map(Enum::name)
+                .sorted()
+                .collect(Collectors.joining(","));
         return sha256(String.join("|",
                 item.getId().toString(), Long.toString(item.getRowVersion()), item.getStatus().name(),
                 item.getLineageId().toString(), Integer.toString(item.getRevisionNumber()),
-                lineageState, priceState, dependencies.fingerprint()));
+                lineageState, priceState, dependencies.fingerprint(), temporalState, blockerState));
+    }
+
+    static String temporalPriceFingerprint(
+            Collection<ProductPrice> prices, Instant evaluatedAt) {
+        return prices.stream()
+                .sorted(Comparator.comparing(ProductPrice::getId))
+                .map(price -> price.getId() + ":" + priceWindowState(price, evaluatedAt))
+                .collect(Collectors.joining(","));
+    }
+
+    private static String priceWindowState(ProductPrice price, Instant evaluatedAt) {
+        if (price.getEffectiveFrom().isAfter(evaluatedAt)) return "FUTURE";
+        if (price.getEffectiveUntil() != null && !price.getEffectiveUntil().isAfter(evaluatedAt)) {
+            return "EXPIRED";
+        }
+        return "CURRENT";
     }
 
     /**
@@ -2130,16 +2249,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         var feature = billingConfigurationValidator.validateQuotaPackageDefinition(featureCode, resource);
         Set<String> plans = normalizeCodes(allowedPlanCodes, "Allowed Plan code");
         Set<String> addOns = normalizeCodes(allowedAddOnCodes, "Allowed AddOn code");
-        for (String planCode : plans) {
-            if (planRepository.findByCode(planCode).isEmpty()) {
-                throw new InvalidRequestException("Unknown Plan code in quota package availability: " + planCode);
-            }
-        }
-        for (String addOnCode : addOns) {
-            if (addOnRepository.findByCode(addOnCode).isEmpty()) {
-                throw new InvalidRequestException("Unknown AddOn code in quota package availability: " + addOnCode);
-            }
-        }
+        requireLockedPlans(plans, "Unknown Plan code in quota package availability: ");
+        requireLockedAddOns(addOns, null, "Unknown AddOn code in quota package availability: ");
 
         item.setName(name);
         item.setDescription(description);
@@ -2261,19 +2372,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (!java.util.Collections.disjoint(dependencies, exclusions)) {
             throw new InvalidRequestException("An AddOn cannot both require and exclude the same AddOn.");
         }
-        for (String planCode : union(allowed, blocked)) {
-            if (planRepository.findByCode(planCode).isEmpty()) {
-                throw new InvalidRequestException("Unknown Plan code in AddOn availability: " + planCode);
-            }
+        requireLockedPlans(union(allowed, blocked), "Unknown Plan code in AddOn availability: ");
+        Set<String> relatedCodes = union(dependencies, exclusions);
+        if (relatedCodes.contains(addOn.getCode())) {
+            throw new InvalidRequestException("An AddOn cannot depend on or exclude itself.");
         }
-        for (String relatedCode : union(dependencies, exclusions)) {
-            if (relatedCode.equals(addOn.getCode())) {
-                throw new InvalidRequestException("An AddOn cannot depend on or exclude itself.");
-            }
-            if (addOnRepository.findByCode(relatedCode).isEmpty()) {
-                throw new InvalidRequestException("Unknown related AddOn code: " + relatedCode);
-            }
-        }
+        requireLockedAddOns(relatedCodes, addOn.getCode(), "Unknown related AddOn code: ");
 
         addOn.setName(name);
         addOn.setDescription(description);
@@ -2285,7 +2389,41 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         addOn.setExclusionCodes(exclusions);
     }
 
-    private void validateAddOnActivation(AddOn addOn, List<ProductPrice> catalogPrices) {
+    /**
+     * JSON code references have no foreign key. Locking the referenced products before the
+     * writer persists them serializes reference creation with product deletion: either deletion
+     * observes the committed reference, or this validation re-runs after deletion and rejects the
+     * now-missing code. Sorted repository locks keep every multi-target acquisition deterministic.
+     */
+    private void requireLockedPlans(Collection<String> codes, String missingPrefix) {
+        if (codes.isEmpty()) return;
+        List<Plan> locked = planRepository.findAllByCodeInForUpdate(codes.stream().sorted().toList());
+        Set<String> found = locked.stream().map(Plan::getCode).collect(Collectors.toSet());
+        codes.stream().sorted().filter(code -> !found.contains(code)).findFirst()
+                .ifPresent(code -> {
+                    throw new InvalidRequestException(missingPrefix + code);
+                });
+    }
+
+    private void requireLockedAddOns(
+            Collection<String> codes,
+            String currentCode,
+            String missingPrefix
+    ) {
+        List<String> targets = codes.stream()
+                .filter(code -> !Objects.equals(code, currentCode))
+                .sorted()
+                .toList();
+        if (targets.isEmpty()) return;
+        List<AddOn> locked = addOnRepository.findAllByCodeInForUpdate(targets);
+        Set<String> found = locked.stream().map(AddOn::getCode).collect(Collectors.toSet());
+        targets.stream().filter(code -> !found.contains(code)).findFirst()
+                .ifPresent(code -> {
+                    throw new InvalidRequestException(missingPrefix + code);
+                });
+    }
+
+    private void validateAddOnActivation(AddOn addOn) {
         requireActivePrice(ProductPriceOwnerType.ADD_ON, addOn.getId(), "AddOn");
         List<AddOnFeature> features = addOnFeatureRepository.findAllByAddOnId(addOn.getId());
         if (features.isEmpty()) {
@@ -2295,87 +2433,48 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             billingConfigurationValidator.validateAddOnFeature(
                     feature.getFeature().getCode(), feature.getQuotaConfigs(), addOn.getCurrencyCode());
         }
-        if (addOn.getAllowedPlanCodes().isEmpty()) {
-            List<Plan> candidates = planRepository.findAll().stream()
-                    .filter(Plan::isActive)
-                    .filter(plan -> !addOn.getBlockedPlanCodes().contains(plan.getCode()))
-                    .toList();
-            boolean compatible = candidates.stream().anyMatch(plan -> {
-                try {
-                    requireAddOnAvailableOnPlan(addOn, plan, catalogPrices, new LinkedHashSet<>(), true);
-                    return true;
-                } catch (BusinessException ignored) {
-                    return false;
-                }
-            });
-            if (!compatible) {
-                throw new BusinessException(
-                        "An AddOn must be available to at least one active Plan with a shared active price tuple.");
-            }
+        if (!addOn.getAllowedPlanCodes().isEmpty()) {
+            List<Plan> candidates = planRepository.findAllByCodeInOrderByIdAsc(
+                    addOn.getAllowedPlanCodes().stream().sorted().toList());
+            Set<String> foundCodes = candidates.stream().map(Plan::getCode).collect(Collectors.toSet());
+            addOn.getAllowedPlanCodes().stream().sorted()
+                    .filter(code -> !foundCodes.contains(code))
+                    .findFirst()
+                    .ifPresent(code -> {
+                        throw new BusinessException("Allowed Plan no longer exists: " + code);
+                    });
+            Map<UUID, CommercialCatalogResolver.AddOnActivationResolution> results =
+                    commercialCatalogResolver.resolveAddOnActivation(addOn.getId(), candidates);
+            candidates.stream()
+                    .map(plan -> results.get(plan.getId()))
+                    .filter(result -> result == null || !result.selectable())
+                    .findFirst()
+                    .ifPresent(result -> {
+                        String details = result == null ? "TARGET_PLAN_MISSING" : result.issues().toString();
+                        throw new BusinessException(
+                                "An explicitly targeted Plan is incompatible with this AddOn: " + details);
+                    });
             return;
         }
-        for (String planCode : addOn.getAllowedPlanCodes()) {
-            Plan plan = planRepository.findByCode(planCode)
-                    .orElseThrow(() -> new BusinessException("Allowed Plan no longer exists: " + planCode));
-            requireAddOnAvailableOnPlan(addOn, plan, catalogPrices, new LinkedHashSet<>(), true);
-        }
-    }
 
-    private Set<CommercialCatalogResolver.PriceTuple> requireAddOnAvailableOnPlan(
-            AddOn addOn,
-            Plan plan,
-            List<ProductPrice> catalogPrices,
-            Set<String> visited,
-            boolean root
-    ) {
-        if (!visited.add(addOn.getCode())) {
-            throw new BusinessException("Cyclic AddOn dependency detected at " + addOn.getCode() + ".");
-        }
-        boolean allowed = addOn.getAllowedPlanCodes().isEmpty()
-                || addOn.getAllowedPlanCodes().contains(plan.getCode());
-        if (!plan.isActive() || (!root && !addOn.isActive()) || !allowed
-                || addOn.getBlockedPlanCodes().contains(plan.getCode())) {
-            throw new BusinessException("AddOn " + addOn.getCode()
-                    + " is not available for Plan " + plan.getCode() + ".");
-        }
-        requirePlanSupportsAddOn(plan, addOnFeatureRepository.findAllByAddOnId(addOn.getId()));
-        Set<CommercialCatalogResolver.PriceTuple> supported = new LinkedHashSet<>(priceTuples(
-                catalogPrices, ProductPriceOwnerType.ADD_ON, addOn.getId()));
-        supported.retainAll(priceTuples(catalogPrices, ProductPriceOwnerType.PLAN, plan.getId()));
-        for (String dependencyCode : addOn.getDependencyCodes()) {
-            AddOn dependency = addOnRepository.findByCode(dependencyCode)
-                    .orElseThrow(() -> new BusinessException("Missing AddOn dependency " + dependencyCode + "."));
-            supported.retainAll(requireAddOnAvailableOnPlan(
-                    dependency, plan, catalogPrices, visited, false));
-        }
-        visited.remove(addOn.getCode());
-        if (supported.isEmpty()) {
-            throw new BusinessException("AddOn " + addOn.getCode() + " and Plan " + plan.getCode()
-                    + " have no shared active price tuple across their dependency closure.");
-        }
-        return Set.copyOf(supported);
-    }
-
-    private Set<CommercialCatalogResolver.PriceTuple> compatibleAddOnPriceTuples(
-            AddOn addOn,
-            List<ProductPrice> catalogPrices,
-            Set<String> visited
-    ) {
-        if (!visited.add(addOn.getCode())) {
-            throw new BusinessException("Cyclic AddOn dependency detected at " + addOn.getCode() + ".");
-        }
-        if (!addOn.isActive()) {
-            throw new BusinessException("AddOn dependency " + addOn.getCode() + " must be ACTIVE.");
-        }
-        Set<CommercialCatalogResolver.PriceTuple> supported = new LinkedHashSet<>(priceTuples(
-                catalogPrices, ProductPriceOwnerType.ADD_ON, addOn.getId()));
-        for (String dependencyCode : addOn.getDependencyCodes()) {
-            AddOn dependency = addOnRepository.findByCode(dependencyCode)
-                    .orElseThrow(() -> new BusinessException("Missing AddOn dependency " + dependencyCode + "."));
-            supported.retainAll(compatibleAddOnPriceTuples(dependency, catalogPrices, visited));
-        }
-        visited.remove(addOn.getCode());
-        return Set.copyOf(supported);
+        int page = 0;
+        Slice<Plan> candidates;
+        do {
+            candidates = planRepository.findAllByStatus(
+                    PlanStatus.ACTIVE,
+                    PageRequest.of(page++, 100, Sort.by(Sort.Direction.ASC, "id")));
+            List<Plan> batch = candidates.getContent().stream()
+                    .filter(plan -> !addOn.getBlockedPlanCodes().contains(plan.getCode()))
+                    .toList();
+            if (!batch.isEmpty() && commercialCatalogResolver
+                    .resolveAddOnActivation(addOn.getId(), batch)
+                    .values().stream().anyMatch(
+                            CommercialCatalogResolver.AddOnActivationResolution::selectable)) {
+                return;
+            }
+        } while (candidates.hasNext());
+        throw new BusinessException(
+                "An AddOn must be genuinely selectable on at least one active Plan.");
     }
 
     private Set<CommercialCatalogResolver.PriceTuple> compatibleAddOnPriceTuples(
@@ -2468,6 +2567,15 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         }
     }
 
+    private void requireCopiedPlanAvailabilityPermission(Plan source, String operation) {
+        if (source.getExtensionPolicy() != PlanExtensionPolicy.OPEN_COMPATIBLE
+                || source.getSalesVisibility() != ProductSalesVisibility.PUBLIC) {
+            requireCommercialAvailabilityPermission(
+                    "update_plan_policy",
+                    operation + " a Plan with non-default availability policy");
+        }
+    }
+
     private void requirePriceBookPermission(String node, String operation) {
         String permissionCode = "platform.price_books." + node;
         crossFeatureCommercialAuthorizer.require(permissionCode, operation);
@@ -2478,6 +2586,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 plan, plan.money(), plan.getBillingCycle(), clock.instant(), null);
         price.markCompatibilityDefault();
         productPriceRepository.saveAndFlush(price);
+        recordCompositePriceAudit(
+                ProductPriceAudit.CREATE_ACTION,
+                price,
+                "Created with Plan draft",
+                Map.of(),
+                Map.of("status", ProductPriceStatus.DRAFT.name()));
     }
 
     private void createInitialPriceDraft(AddOn addOn) {
@@ -2485,6 +2599,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 addOn, addOn.money(), addOn.getBillingCycle(), clock.instant(), null);
         price.markCompatibilityDefault();
         productPriceRepository.saveAndFlush(price);
+        recordCompositePriceAudit(
+                ProductPriceAudit.CREATE_ACTION,
+                price,
+                "Created with AddOn draft",
+                Map.of(),
+                Map.of("status", ProductPriceStatus.DRAFT.name()));
     }
 
     private void copySaleRelevantPrices(Plan source, Plan target) {
@@ -2493,7 +2613,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 .stream()
                 .map(price -> price.copyDraftTo(target))
                 .toList();
-        saveCopiedPriceDrafts(copied);
+        saveCopiedPriceDrafts(copied, "Copied with Plan branch");
     }
 
     private void copySaleRelevantPrices(AddOn source, AddOn target) {
@@ -2502,7 +2622,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 .stream()
                 .map(price -> price.copyDraftTo(target))
                 .toList();
-        saveCopiedPriceDrafts(copied);
+        saveCopiedPriceDrafts(copied, "Copied with AddOn revision");
     }
 
     private List<ProductPrice> saleRelevantSourcePrices(List<ProductPrice> sourcePrices) {
@@ -2515,13 +2635,45 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 .toList();
     }
 
-    private void saveCopiedPriceDrafts(List<ProductPrice> copied) {
+    private void saveCopiedPriceDrafts(List<ProductPrice> copied, String reason) {
         try {
             productPriceRepository.saveAllAndFlush(copied);
         } catch (DataIntegrityViolationException exception) {
             throw new InvalidStateException(
                     "The copied price starting point conflicts with concurrent catalogue work.");
         }
+        copied.forEach(price -> recordCompositePriceAudit(
+                ProductPriceAudit.CREATE_ACTION,
+                price,
+                reason,
+                Map.of(),
+                Map.of("status", ProductPriceStatus.DRAFT.name())));
+    }
+
+    private void recordCompositePriceAudit(
+            String action,
+            ProductPrice price,
+            String reason,
+            Map<String, ?> before,
+            Map<String, ?> after
+    ) {
+        Map<String, Object> beforePayload = new LinkedHashMap<>();
+        if (before != null) beforePayload.putAll(before);
+        beforePayload.put("reason", reason);
+        Map<String, Object> afterPayload = new LinkedHashMap<>();
+        if (after != null) afterPayload.putAll(after);
+        afterPayload.put("ownerType", price.getOwnerType().name());
+        afterPayload.put("ownerId", price.ownerId());
+        afterPayload.put("priceRevision", price.getRevisionNumber());
+        auditTrail.recordSuccess(
+                action,
+                ProductPriceAudit.RESOURCE_TYPE,
+                price.getId(),
+                AuditActorSurface.PLATFORM_ADMIN,
+                adminMutationAuthorizer.currentActorUserId(),
+                null,
+                beforePayload,
+                afterPayload);
     }
 
     private void requireActivePrice(
@@ -2573,13 +2725,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         int ownedFeatureCount = planFeatureRepository.findAllByPlanId(planId).size();
         long subscriptionHistory = subscriptionRepository.countByPlan_Id(planId);
         long changeOperationReferences = subscriptionChangeOperationRepository.countByTargetPlan_Id(planId);
-        long addOnReferences = addOnRepository.findAll().stream()
-                .filter(addOn -> addOn.getAllowedPlanCodes().contains(plan.getCode())
-                        || addOn.getBlockedPlanCodes().contains(plan.getCode()))
-                .count();
-        long quotaPackageReferences = quotaPackageRepository.findAll().stream()
-                .filter(item -> item.getAllowedPlanCodes().contains(plan.getCode()))
-                .count();
+        long addOnReferences = countRows(addOnRepository.countPlanReferences(Set.of(planId)), planId);
+        long quotaPackageReferences = countRows(
+                quotaPackageRepository.countPlanReferences(Set.of(planId)), planId);
         long lineageReferences = planRepository.countBySourcePlan_Id(planId);
 
         List<String> blockers = new ArrayList<>();
@@ -2640,6 +2788,14 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 List.copyOf(blockers));
     }
 
+    private long countRows(List<Object[]> rows, UUID id) {
+        return rows.stream()
+                .filter(row -> id.equals(row[0]))
+                .mapToLong(row -> ((Number) row[1]).longValue())
+                .findFirst()
+                .orElse(0L);
+    }
+
     private String sha256(String value) {
         try {
             return HexFormat.of().formatHex(
@@ -2652,7 +2808,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private Pageable safeSubscriberPage(Pageable pageable) {
         int page = pageable == null ? 0 : Math.max(0, pageable.getPageNumber());
         int size = pageable == null ? 20 : Math.min(100, Math.max(1, pageable.getPageSize()));
-        return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")
+                .and(Sort.by(Sort.Direction.DESC, "id")));
     }
 
     private PlanSubscriberDto toSubscriberDto(Plan plan, Subscription subscription) {

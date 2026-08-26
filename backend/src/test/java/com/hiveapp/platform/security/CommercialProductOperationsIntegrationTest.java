@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
@@ -752,6 +753,80 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
         assertThat(productPriceRepository.findAllByAddOnId(addOnRevisionId)).isEmpty();
         assertNoPriceStartingPoint(
                 operations(token, "/api/admin/add-ons/{id}/operations", addOnRevisionId));
+    }
+
+    @Test
+    void addOnSuccessorCannotStrandNonArchivedExactCodeReferences() throws Exception {
+        String token = loginAdminAndGetToken();
+        JsonNode source = createAddOn(token, marker + " Referenced AddOn");
+        UUID sourceId = UUID.fromString(source.get("id").asText());
+        addOnIds.add(sourceId);
+        mockMvc.perform(post("/api/admin/add-ons/{id}/features", sourceId)
+                        .param("expectedVersion", source.get("version").asText())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AssignAddOnFeatureRequest(
+                                "platform.organization", List.of()))))
+                .andExpect(status().isCreated());
+        activateInitialPrice(token, productPriceRepository.findAllByAddOnId(sourceId).getFirst());
+        long sourceVersion = addOnRepository.findById(sourceId).orElseThrow().getRowVersion();
+        JsonNode activeSource = responseJson(mockMvc.perform(
+                        patch("/api/admin/add-ons/{id}/status", sourceId)
+                                .header("Authorization", bearer(token))
+                                .param("status", "ACTIVE")
+                                .param("expectedVersion", Long.toString(sourceVersion)))
+                .andExpect(status().isOk()));
+        String sourceCode = activeSource.get("code").asText();
+
+        CreateAddOnRequest dependentRequest = new CreateAddOnRequest(
+                marker + " Excluding dependent", null, BigDecimal.ONE, "USD",
+                BillingCycle.MONTHLY, Set.of("FLEX"), Set.of(), Set.of(),
+                Set.of(sourceCode), ProductSalesVisibility.PUBLIC);
+        JsonNode dependent = responseJson(mockMvc.perform(post("/api/admin/add-ons")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(dependentRequest)))
+                .andExpect(status().isCreated()));
+        UUID dependentId = UUID.fromString(dependent.get("id").asText());
+        addOnIds.add(dependentId);
+        var pausedDependent = addOnRepository.findById(dependentId).orElseThrow();
+        pausedDependent.setStatus(
+                com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.INACTIVE);
+        addOnRepository.saveAndFlush(pausedDependent);
+
+        JsonNode targetedPackage = createQuotaPackage(
+                token, marker + " Targeting old AddOn", ProductSalesVisibility.PUBLIC,
+                Set.of(), Set.of(sourceCode));
+        UUID targetedPackageId = UUID.fromString(targetedPackage.get("id").asText());
+        var pausedPackage = quotaPackageRepository.findById(targetedPackageId).orElseThrow();
+        pausedPackage.setStatus(QuotaPackageStatus.INACTIVE);
+        quotaPackageRepository.saveAndFlush(pausedPackage);
+
+        JsonNode successor = responseJson(mockMvc.perform(
+                        post("/api/admin/add-ons/{id}/revisions", sourceId)
+                                .header("Authorization", bearer(token))
+                                .param("expectedVersion", activeSource.get("version").asText()))
+                .andExpect(status().isCreated()));
+        UUID successorId = UUID.fromString(successor.get("id").asText());
+        addOnIds.add(successorId);
+        for (var price : productPriceRepository.findAllByAddOnId(successorId)) {
+            activateInitialPrice(token, price);
+        }
+
+        mockMvc.perform(patch("/api/admin/add-ons/{id}/status", successorId)
+                        .header("Authorization", bearer(token))
+                        .param("status", "ACTIVE")
+                        .param("expectedVersion", successor.get("version").asText()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
+                .andExpect(jsonPath("$.details", org.hamcrest.Matchers.hasItems(
+                        "DEPENDENT_ADD_ON_REQUIRES_MIGRATION",
+                        "TARGETED_QUOTA_PACKAGE_REQUIRES_MIGRATION")));
+
+        assertThat(addOnRepository.findById(sourceId).orElseThrow().getStatus())
+                .isEqualTo(com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.ACTIVE);
+        assertThat(addOnRepository.findById(successorId).orElseThrow().getStatus())
+                .isEqualTo(com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.DRAFT);
     }
 
     private void assertNoPriceStartingPoint(JsonNode operations) {

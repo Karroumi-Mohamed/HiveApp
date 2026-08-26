@@ -197,6 +197,16 @@ class QuotaPackageRevisionIntegrationTest extends PlatformShellIntegrationTestSu
         assertThat(quotaPackageRepository.findById(successorId).orElseThrow().getStatus())
                 .isEqualTo(QuotaPackageStatus.ACTIVE);
         assertThat(onlyPrice(successorId).getStatus()).isEqualTo(ProductPriceStatus.ACTIVE);
+        mockMvc.perform(get("/api/admin/product-prices/{id}/history", copiedPrice.getId())
+                        .header("Authorization", bearer(token))
+                        .param("size", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[*].action", org.hamcrest.Matchers.hasItems(
+                        "platform.price_books.create", "platform.price_books.activate")))
+                .andExpect(jsonPath("$.content[?(@.action == 'platform.price_books.activate')].reason",
+                        org.hamcrest.Matchers.hasItem("Publish reviewed successor")))
+                .andExpect(jsonPath("$.content[*].actorEmail",
+                        org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.equalTo(ADMIN_EMAIL))));
         ProductPrice unchangedSourcePrice = productPriceRepository.findById(sourcePriceBefore.getId()).orElseThrow();
         assertThat(unchangedSourcePrice.getStatus()).isEqualTo(ProductPriceStatus.ACTIVE);
         assertThat(unchangedSourcePrice.money()).isEqualTo(sourcePriceBefore.money());

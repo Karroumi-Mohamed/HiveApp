@@ -1,11 +1,13 @@
 package com.hiveapp.platform.client.plan.domain.repository;
 
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
@@ -21,6 +23,8 @@ public interface AddOnRepository extends JpaRepository<AddOn, UUID>, JpaSpecific
 
     @EntityGraph(attributePaths = {"features", "features.feature"})
     List<AddOn> findAllByOrderByNameAscRevisionNumberDesc();
+
+    List<AddOn> findAllByOrderByIdAsc(Pageable pageable);
 
     @EntityGraph(attributePaths = {"features", "features.feature"})
     Optional<AddOn> findDetailedById(UUID id);
@@ -71,6 +75,24 @@ public interface AddOnRepository extends JpaRepository<AddOn, UUID>, JpaSpecific
     List<Object[]> countInboundAddOnReferences(@Param("targetIds") Collection<UUID> targetIds);
 
     @Query("""
+            select target.id, count(distinct referring.id)
+            from AddOn target, AddOn referring
+            where target.id in :targetIds
+              and referring.id <> target.id
+              and referring.status in :statuses
+              and (
+                locate(concat(concat('"', target.code), '"'),
+                       cast(referring.dependencyCodes as string)) > 0
+                or locate(concat(concat('"', target.code), '"'),
+                          cast(referring.exclusionCodes as string)) > 0
+              )
+            group by target.id
+            """)
+    List<Object[]> countInboundAddOnReferencesByStatusIn(
+            @Param("targetIds") Collection<UUID> targetIds,
+            @Param("statuses") Collection<AddOnStatus> statuses);
+
+    @Query("""
             select target.id, count(distinct quotaPackage.id)
             from AddOn target, QuotaPackage quotaPackage
             where target.id in :targetIds
@@ -80,6 +102,20 @@ public interface AddOnRepository extends JpaRepository<AddOn, UUID>, JpaSpecific
             """)
     List<Object[]> countInboundQuotaPackageReferences(
             @Param("targetIds") Collection<UUID> targetIds);
+
+    @Query("""
+            select target.id, count(distinct addOn.id)
+            from Plan target, AddOn addOn
+            where target.id in :targetIds
+              and (
+                locate(concat(concat('"', target.code), '"'),
+                       cast(addOn.allowedPlanCodes as string)) > 0
+                or locate(concat(concat('"', target.code), '"'),
+                          cast(addOn.blockedPlanCodes as string)) > 0
+              )
+            group by target.id
+            """)
+    List<Object[]> countPlanReferences(@Param("targetIds") Collection<UUID> targetIds);
 
     List<AddOn> findAllByIdInOrderByNameAscIdAsc(Collection<UUID> ids);
 

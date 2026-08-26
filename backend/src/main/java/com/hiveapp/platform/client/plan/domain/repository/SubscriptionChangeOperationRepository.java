@@ -29,6 +29,14 @@ public interface SubscriptionChangeOperationRepository extends JpaRepository<Sub
 
     long countByTargetPlan_Id(UUID planId);
 
+    @Query("""
+            select operation.targetPlan.id, count(operation)
+            from SubscriptionChangeOperation operation
+            where operation.targetPlan.id in :planIds
+            group by operation.targetPlan.id
+            """)
+    List<Object[]> countByTargetPlanIds(@Param("planIds") Collection<UUID> planIds);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select operation from SubscriptionChangeOperation operation "
             + "where operation.status = :status and operation.effectiveAt <= :cutoff")
