@@ -1711,6 +1711,8 @@ flowchart TD
 - **Tests**: Product-owner isolation, monthly/yearly, annual independence, zero-price, currency/cycle compatibility, overlapping activation race, immutable active entry, pause/new-version snapshot isolation, permissions, pagination, query-count, and client catalogue/checkout contract.
 - **Future UI Flow**: Shared Price-book panel on Plan/AddOn/package detail plus guided product creation/revision.
 
+**Backend execution status — 2026-08-26:** The authoritative Price-book aggregate, bounded operational API, fine-grained Permissionizer nodes, lifecycle reasons/history, owner-lock overlap protection, exact client selection, V2 immutable snapshot provenance, V1 compatibility, snapshot-safe overrides/renewals, and disposable-H2 compatibility bridge are implemented. The full backend suite passes 514 tests. Independent adversarial backend review and the admin/client Price-book UI are running; `PRICEBOOK-001` remains open until those complete.
+
 ### Batch 9.2: Extension policy and sales visibility
 
 #### [IMPLEMENT] COMMERCIAL-001 — Extension targeting and Account commercial policy are encoded as scattered special cases

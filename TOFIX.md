@@ -2943,7 +2943,7 @@ Immutable price-book revisions, itemized invoices, payment/refund/credit ledgers
 
 ### PRICEBOOK-001 — Commercial products support only one price and billing cycle
 
-**Status:** `CONFIRMED — DESIGN DECIDED 2026-08-26`
+**Status:** `IMPLEMENTING — BACKEND COMPLETE 2026-08-26; FRONTEND/AUDIT IN PROGRESS`
 
 **Evidence**
 
@@ -2962,6 +2962,16 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 - Enforce non-overlapping active applicability for one owner/currency/cycle and select exact compatible entries during preview/checkout.
 - Snapshot selected price-entry identity and itemized amount. Pausing/new versions affect future selection only; existing snapshots remain unchanged.
 - Replace product CRUD/UI single-price assumptions with price management, availability, history, and activation preview. Keep zero-price recurring entries valid and `FOREVER` deferred.
+
+**Backend implementation evidence — 2026-08-26**
+
+- `ProductPrice` now owns immutable Money/cycle/effective-window terms for one exact Plan, AddOn, or quota-package revision, with lineage, source revision, optimistic version, and `DRAFT`/`ACTIVE`/`INACTIVE`/terminal `ARCHIVED` lifecycle.
+- Activation locks the product owner and rejects overlapping half-open applicability windows; list/detail APIs expose backend-derived blockers and valid next actions without scanning the complete active Price book.
+- Fine-grained admin APIs cover paginated search/filter/sort, create/edit, activation preview, activate/pause/reactivate/revise/archive/delete, and bounded actor-aware history with required lifecycle reasons and stable conflict codes.
+- Client catalogue and subscription-change contracts expose/select exact applicable entries. Snapshot schema V2 stores the Plan/AddOn/package price identities and immutable amounts while schema V1 remains readable.
+- Existing subscription overrides, scheduled activation, and renewal preserve snapshot terms even after a selected price expires or is paused; future selections use the authoritative resolver.
+- Disposable-H2 compatibility backfill preserves the current legacy product columns while seeding one authoritative entry per published tuple. Durable production migration and database-native exclusion constraints remain deferred with the standing persistence decision.
+- The full JDK 21 backend suite passes 514 tests. An independent backend audit and the complete admin/client Price-book UI remain in progress before this finding is closed.
 
 ---
 
