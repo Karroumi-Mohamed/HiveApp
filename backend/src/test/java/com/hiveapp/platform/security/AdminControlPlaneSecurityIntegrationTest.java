@@ -15,6 +15,7 @@ import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
+import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
@@ -309,6 +310,8 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andReturn().getResponse().getContentAsString();
         UUID priceId = UUID.fromString(objectMapper.readTree(priceList)
                 .get("content").get(0).get("id").asText());
+        assertThat(objectMapper.readTree(priceList).path("content"))
+                .allSatisfy(item -> assertThat(item.path("availableActions")).isEmpty());
 
         mockMvc.perform(get("/api/admin/product-prices/{id}/history", priceId)
                         .header("Authorization", bearer(reader.token())))
@@ -513,6 +516,105 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         assertThat(planRepository.count()).isEqualTo(planCount);
         assertThat(addOnRepository.count()).isEqualTo(addOnCount);
         assertThat(productPriceRepository.count()).isEqualTo(priceCount);
+    }
+
+    @Test
+    void productDeleteRequiresPriceDraftDeletionAuthorityAndActionTruthMatches() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        JsonNode created = responseJson(mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(superToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                "Delete authority " + UUID.randomUUID(), null,
+                                BigDecimal.ONE, "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isCreated()));
+        UUID planId = UUID.fromString(created.get("id").asText());
+        JsonNode preview = responseJson(mockMvc.perform(
+                        get("/api/admin/plans/{id}/deletion-preview", planId)
+                                .header("Authorization", bearer(superToken)))
+                .andExpect(status().isOk()));
+
+        LimitedAdmin productOnly = createLimitedAdmin(
+                "platform.plans.delete",
+                "platform.plans.preview_delete",
+                "platform.plans.read_plan_operations");
+        mockMvc.perform(get("/api/admin/plans/{id}/operations", planId)
+                        .header("Authorization", bearer(productOnly.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableActions",
+                        not(hasItem("DELETE_DRAFT"))));
+        mockMvc.perform(delete("/api/admin/plans/{id}", planId)
+                        .header("Authorization", bearer(productOnly.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DeletePlanRequest(
+                                created.get("name").asText(),
+                                preview.get("expectedVersion").asLong(),
+                                preview.get("previewToken").asText()))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        assertThat(planRepository.findById(planId)).isPresent();
+        assertThat(productPriceRepository.findAllByPlanId(planId)).isNotEmpty();
+
+        LimitedAdmin complete = createLimitedAdmin(
+                "platform.plans.delete",
+                "platform.price_books.delete_draft");
+        mockMvc.perform(delete("/api/admin/plans/{id}", planId)
+                        .header("Authorization", bearer(complete.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new DeletePlanRequest(
+                                created.get("name").asText(),
+                                preview.get("expectedVersion").asLong(),
+                                preview.get("previewToken").asText()))))
+                .andExpect(status().isNoContent());
+        assertThat(planRepository.findById(planId)).isEmpty();
+        assertThat(productPriceRepository.findAllByPlanId(planId)).isEmpty();
+    }
+
+    @Test
+    void priceBooksRuntimeShutdownVetoesCompositeProductDeletion() throws Exception {
+        String token = loginAdminAndGetToken();
+        JsonNode created = responseJson(mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                "Runtime delete " + UUID.randomUUID(), null,
+                                BigDecimal.ONE, "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isCreated()));
+        UUID planId = UUID.fromString(created.get("id").asText());
+        JsonNode preview = responseJson(mockMvc.perform(
+                        get("/api/admin/plans/{id}/deletion-preview", planId)
+                                .header("Authorization", bearer(token)))
+                .andExpect(status().isOk()));
+        var priceBooks = featureRepository.findByCode(PriceBooksFeature.CODE).orElseThrow();
+        boolean runtimeEnabled = priceBooks.isRuntimeEnabled();
+        try {
+            priceBooks.setRuntimeEnabled(false);
+            featureRepository.saveAndFlush(priceBooks);
+            mockMvc.perform(get("/api/admin/plans/{id}/operations", planId)
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.availableActions",
+                            not(hasItem("DELETE_DRAFT"))));
+            mockMvc.perform(delete("/api/admin/plans/{id}", planId)
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new DeletePlanRequest(
+                                    created.get("name").asText(),
+                                    preview.get("expectedVersion").asLong(),
+                                    preview.get("previewToken").asText()))))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+            assertThat(planRepository.findById(planId)).isPresent();
+            assertThat(productPriceRepository.findAllByPlanId(planId)).isNotEmpty();
+        } finally {
+            var restored = featureRepository.findByCode(PriceBooksFeature.CODE).orElseThrow();
+            restored.setRuntimeEnabled(runtimeEnabled);
+            featureRepository.saveAndFlush(restored);
+            productPriceRepository.deleteAllInBatch(productPriceRepository.findAllByPlanId(planId));
+            productPriceRepository.flush();
+            planRepository.deleteById(planId);
+            planRepository.flush();
+        }
     }
 
     @Test
@@ -723,6 +825,20 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                     .andExpect(jsonPath("$.content.length()").value(0));
         } finally {
             workspace.setRuntimeEnabled(runtimeEnabled);
+            featureRepository.saveAndFlush(workspace);
+        }
+
+        boolean publicVisible = workspace.isPublicVisible();
+        try {
+            workspace.setPublicVisible(false);
+            featureRepository.saveAndFlush(workspace);
+            mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
+                            .header("Authorization", bearer(chooser.token()))
+                            .param("search", "free"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content[0].planCode").value("FREE"));
+        } finally {
+            workspace.setPublicVisible(publicVisible);
             featureRepository.saveAndFlush(workspace);
         }
 
@@ -1410,6 +1526,10 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     private UUID responseId(ResultActions action) throws Exception {
         JsonNode response = objectMapper.readTree(action.andReturn().getResponse().getContentAsString());
         return UUID.fromString(response.get("id").asText());
+    }
+
+    private JsonNode responseJson(ResultActions action) throws Exception {
+        return objectMapper.readTree(action.andReturn().getResponse().getContentAsString());
     }
 
     private String accessToken(ResultActions action) throws Exception {

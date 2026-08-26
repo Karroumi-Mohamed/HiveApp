@@ -19,10 +19,10 @@ public record CreateAddOnRequest(
         @ExactDecimal @NotNull @DecimalMin("0.0") @Digits(integer = 15, fraction = 4) BigDecimal price,
         @NotBlank @Pattern(regexp = "(?i)[A-Z]{3}", message = "must be a three-letter ISO currency code") String currencyCode,
         @NotNull BillingCycle billingCycle,
-        Set<@NotBlank @Size(max = 100) String> allowedPlanCodes,
-        Set<@NotBlank @Size(max = 100) String> blockedPlanCodes,
-        Set<@NotBlank @Size(max = 100) String> dependencyCodes,
-        Set<@NotBlank @Size(max = 100) String> exclusionCodes,
+        @Size(max = 100) Set<@NotBlank @Size(max = 100) String> allowedPlanCodes,
+        @Size(max = 100) Set<@NotBlank @Size(max = 100) String> blockedPlanCodes,
+        @Size(max = 100) Set<@NotBlank @Size(max = 100) String> dependencyCodes,
+        @Size(max = 100) Set<@NotBlank @Size(max = 100) String> exclusionCodes,
         ProductSalesVisibility salesVisibility
 ) {
     public CreateAddOnRequest(

@@ -145,6 +145,54 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
+    void archivedOwnersRejectNewEditedAndRevisedPriceDrafts() throws Exception {
+        String token = loginAdminAndGetToken();
+        UUID planId = createActivePlan(token);
+        Instant starts = Instant.now().minusSeconds(30);
+        JsonNode editableDraft = createPrice(
+                token, ProductPriceOwnerType.PLAN, planId,
+                new BigDecimal("120.00"), BillingCycle.YEARLY, starts, null);
+        var activeMonthly = productPriceRepository.findAllByPlanId(planId).stream()
+                .filter(price -> price.getStatus()
+                        == com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE)
+                .filter(price -> price.getBillingCycle() == BillingCycle.MONTHLY)
+                .findFirst().orElseThrow();
+        JsonNode paused = pause(token, activeMonthly.getId(), activeMonthly.getVersion());
+
+        var owner = planRepository.findById(planId).orElseThrow();
+        owner.setStatus(PlanStatus.ARCHIVED);
+        planRepository.saveAndFlush(owner);
+
+        mockMvc.perform(post("/api/admin/product-prices")
+                        .header("Authorization", bearer(token))
+                        .param("ownerType", ProductPriceOwnerType.PLAN.name())
+                        .param("ownerId", planId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateProductPriceRequest(
+                                BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                                starts.plusSeconds(1), null))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+
+        mockMvc.perform(put("/api/admin/product-prices/{id}", editableDraft.get("id").asText())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UpdateProductPriceRequest(
+                                new BigDecimal("121.00"), "USD", BillingCycle.YEARLY,
+                                starts, null, editableDraft.get("version").asLong()))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+
+        mockMvc.perform(post("/api/admin/product-prices/{id}/revisions", activeMonthly.getId())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ProductPriceVersionRequest(
+                                paused.get("version").asLong(), "Attempt archived-owner revision"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+    }
+
+    @Test
     void supportsIndependentAnnualPriceLifecycleAndStableConflictCodes() throws Exception {
         String adminToken = loginAdminAndGetToken();
         UUID planId = createActivePlan(adminToken);

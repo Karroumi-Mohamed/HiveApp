@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.domain.repository;
 
 import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -25,6 +26,8 @@ public interface QuotaPackageRepository extends JpaRepository<QuotaPackage, UUID
 
     @EntityGraph(attributePaths = "feature")
     List<QuotaPackage> findAllByOrderByCodeAsc();
+
+    List<QuotaPackage> findAllByOrderByIdAsc(Pageable pageable);
 
     @EntityGraph(attributePaths = "feature")
     Optional<QuotaPackage> findDetailedById(UUID id);
@@ -64,6 +67,29 @@ public interface QuotaPackageRepository extends JpaRepository<QuotaPackage, UUID
     List<Object[]> findLineageSummaries(@Param("lineageIds") Collection<UUID> lineageIds);
 
     long countBySourceQuotaPackage_Id(UUID quotaPackageId);
+
+    @Query("""
+            select target.id, count(distinct item.id)
+            from Plan target, QuotaPackage item
+            where target.id in :targetIds
+              and locate(concat(concat('"', target.code), '"'),
+                         cast(item.allowedPlanCodes as string)) > 0
+            group by target.id
+            """)
+    List<Object[]> countPlanReferences(@Param("targetIds") Collection<UUID> targetIds);
+
+    @Query("""
+            select target.id, count(distinct item.id)
+            from AddOn target, QuotaPackage item
+            where target.id in :targetIds
+              and item.status in :statuses
+              and locate(concat(concat('"', target.code), '"'),
+                         cast(item.allowedAddOnCodes as string)) > 0
+            group by target.id
+            """)
+    List<Object[]> countAddOnReferencesByStatusIn(
+            @Param("targetIds") Collection<UUID> targetIds,
+            @Param("statuses") Collection<QuotaPackageStatus> statuses);
 
     @EntityGraph(attributePaths = "feature")
     List<QuotaPackage> findAllByIdInOrderByNameAscIdAsc(Collection<UUID> ids);

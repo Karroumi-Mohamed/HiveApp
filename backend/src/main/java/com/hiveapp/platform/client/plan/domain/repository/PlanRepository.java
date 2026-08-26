@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -17,11 +19,15 @@ public interface PlanRepository extends JpaRepository<Plan, UUID>, JpaSpecificat
 
     List<Plan> findAllByCodeInOrderByIdAsc(Collection<String> codes);
 
+    List<Plan> findAllByOrderByIdAsc(Pageable pageable);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select plan from Plan plan where plan.code in :codes order by plan.id")
     List<Plan> findAllByCodeInForUpdate(@Param("codes") Collection<String> codes);
 
     long countByStatus(PlanStatus status);
+
+    Slice<Plan> findAllByStatus(PlanStatus status, Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select plan from Plan plan where plan.id = :planId")
@@ -47,6 +53,14 @@ public interface PlanRepository extends JpaRepository<Plan, UUID>, JpaSpecificat
     List<Plan> findLineageForUpdate(@Param("lineageId") UUID lineageId);
 
     long countBySourcePlan_Id(UUID planId);
+
+    @Query("""
+            select source.id, count(revision.id)
+            from Plan source, Plan revision
+            where source.id in :sourceIds and revision.sourcePlan.id = source.id
+            group by source.id
+            """)
+    List<Object[]> countSourceReferences(@Param("sourceIds") Collection<UUID> sourceIds);
 
     @Query("select coalesce(max(plan.revisionNumber), 0) from Plan plan where plan.lineageId = :lineageId")
     int findMaximumRevisionNumber(@Param("lineageId") UUID lineageId);

@@ -16,6 +16,7 @@ import com.hiveapp.platform.client.plan.service.ProductPriceResolver;
 import com.hiveapp.shared.audit.AuditTrail;
 import com.hiveapp.shared.audit.domain.AuditLogRepository;
 import com.hiveapp.shared.exception.InvalidStateException;
+import com.hiveapp.shared.exception.StaleResourceVersionException;
 import com.hiveapp.shared.money.Money;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -86,6 +87,30 @@ class ProductPriceAdminServiceImplTest {
         order.verify(productPriceRepository).findByIdForUpdate(priceId);
     }
 
+    @Test
+    void reviseChecksTheAuthoritativeLockedPriceVersionAfterOwnerLock() {
+        UUID ownerId = UUID.randomUUID();
+        UUID priceId = UUID.randomUUID();
+        Plan owner = plan(ownerId, PlanStatus.ACTIVE);
+        ProductPrice staleHint = publishedPrice(priceId, owner, 0L);
+        ProductPrice authoritative = publishedPrice(priceId, owner, 1L);
+
+        when(productPriceRepository.findById(priceId)).thenReturn(Optional.of(staleHint));
+        when(planRepository.findByIdForUpdate(ownerId)).thenReturn(Optional.of(owner));
+        when(productPriceRepository.findByIdForUpdate(priceId))
+                .thenReturn(Optional.of(authoritative));
+
+        assertThatThrownBy(() -> service.revise(priceId, 0L, "Revise reviewed price"))
+                .isInstanceOf(StaleResourceVersionException.class);
+
+        verify(productPriceRepository, never()).saveAndFlush(org.mockito.ArgumentMatchers.any());
+        InOrder order = inOrder(productPriceRepository, planRepository, entityManager);
+        order.verify(productPriceRepository).findById(priceId);
+        order.verify(planRepository).findByIdForUpdate(ownerId);
+        order.verify(entityManager).clear();
+        order.verify(productPriceRepository).findByIdForUpdate(priceId);
+    }
+
     private Plan plan(UUID id, PlanStatus status) {
         Plan plan = new Plan();
         ReflectionTestUtils.setField(plan, "id", id);
@@ -98,6 +123,14 @@ class ProductPriceAdminServiceImplTest {
                 owner, Money.of(new BigDecimal("9.9900"), "USD"), BillingCycle.MONTHLY,
                 Instant.parse("2026-08-26T11:59:00Z"), null);
         ReflectionTestUtils.setField(price, "id", id);
+        return price;
+    }
+
+    private ProductPrice publishedPrice(UUID id, Plan owner, long version) {
+        ProductPrice price = price(id, owner);
+        price.activate();
+        price.pause();
+        ReflectionTestUtils.setField(price, "version", version);
         return price;
     }
 }

@@ -164,9 +164,13 @@ public class ProductPriceAdminController {
         if (page < 0 || size < 1 || size > 100) {
             throw new InvalidRequestException("Page must be non-negative and size must be between 1 and 100");
         }
+        if (direction != null
+                && !"asc".equalsIgnoreCase(direction)
+                && !"desc".equalsIgnoreCase(direction)) {
+            throw new InvalidRequestException("Direction must be 'asc' or 'desc'.");
+        }
         Sort.Direction resolvedDirection = "asc".equalsIgnoreCase(direction)
-                ? Sort.Direction.ASC
-                : Sort.Direction.DESC;
+                ? Sort.Direction.ASC : Sort.Direction.DESC;
         String property;
         if (sort == null || sort.isBlank()) {
             property = "createdAt";

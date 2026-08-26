@@ -31,6 +31,8 @@ import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.quota.QuotaLimitMode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,7 +61,10 @@ import java.util.stream.Collectors;
 public class CommercialCatalogResolver {
 
     private static final UUID EMPTY_QUERY_SENTINEL = new UUID(0L, 0L);
+    // Full-catalog callers are not paginated yet. Crossing either safety boundary fails the whole
+    // operation with INVALID_STATE; it must never return a partial catalogue presented as complete.
     private static final int MAX_SCOPED_PRODUCTS = 300;
+    private static final int MAX_CATALOG_PRICES = 1_200;
 
     public enum Audience { CLIENT_CATALOG, AUTHORIZED_OPERATOR }
 
@@ -80,6 +85,14 @@ public class CommercialCatalogResolver {
                         plan.getExtensionPolicy(), plan.getSalesVisibility()))
                 .toList();
         return new CatalogResolution(plans);
+    }
+
+    /** Code-declared half of the Plan feature eligibility predicate, shared with DB-paged choosers. */
+    public Set<String> staticallyEligiblePlanFeatureCodes(Audience audience) {
+        return featureDefinitionCollectorProvider.getObject().collectByCode().values().stream()
+                .filter(definition -> isStaticallyEligiblePlanFeature(definition, audience))
+                .map(FeatureDefinition::code)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     @Transactional(readOnly = true)
@@ -109,6 +122,89 @@ public class CommercialCatalogResolver {
         return resolvePlan(data, plan, audience, requestedTuple,
                 extensionPolicy == null ? plan.getExtensionPolicy() : extensionPolicy,
                 salesVisibility == null ? plan.getSalesVisibility() : salesVisibility);
+    }
+
+    /**
+     * Evaluates a draft/inactive AddOn against a bounded batch of Plans with the same typed
+     * compatibility predicate used by the live catalogue. Only the candidate AddOn's lifecycle
+     * issue is waived; Plan policy, registry eligibility, dependency closure, exclusions,
+     * duplicate paid capabilities, and price tuples remain authoritative.
+     */
+    @Transactional(readOnly = true)
+    public Map<UUID, AddOnActivationResolution> resolveAddOnActivation(
+            UUID addOnId,
+            Collection<Plan> candidatePlans
+    ) {
+        List<Plan> plans = candidatePlans == null ? List.of() : candidatePlans.stream()
+                .distinct()
+                .sorted(Comparator.comparing(Plan::getId))
+                .toList();
+        if (plans.size() > 100) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "AddOn activation validates at most 100 Plans per batch.");
+        }
+        if (plans.isEmpty()) return Map.of();
+
+        AddOn root = addOnRepository.findDetailedById(addOnId)
+                .orElseThrow(() -> new com.hiveapp.shared.exception.ResourceNotFoundException(
+                        "AddOn", "id", addOnId));
+        Map<String, AddOn> addOnsByCode = new LinkedHashMap<>();
+        addOnsByCode.put(root.getCode(), root);
+        Set<String> pending = new LinkedHashSet<>(root.getDependencyCodes());
+        while (!pending.isEmpty()) {
+            if (addOnsByCode.size() + pending.size() > MAX_SCOPED_PRODUCTS) {
+                throw new com.hiveapp.shared.exception.InvalidRequestException(
+                        "The AddOn dependency graph exceeds 300 products.");
+            }
+            List<String> batch = pending.stream()
+                    .filter(code -> !addOnsByCode.containsKey(code))
+                    .sorted()
+                    .toList();
+            pending.clear();
+            if (batch.isEmpty()) break;
+            addOnRepository.findAllByCodeIn(batch).forEach(item -> {
+                addOnsByCode.put(item.getCode(), item);
+                item.getDependencyCodes().stream()
+                        .filter(code -> !addOnsByCode.containsKey(code))
+                        .forEach(pending::add);
+            });
+        }
+
+        List<UUID> planIds = plans.stream().map(Plan::getId).toList();
+        List<PlanFeature> planFeatures = planFeatureRepository.findAllByPlanIds(planIds);
+        List<AddOn> addOns = addOnsByCode.values().stream()
+                .sorted(Comparator.comparing(AddOn::getCode))
+                .toList();
+        List<UUID> addOnIds = addOns.stream().map(AddOn::getId).toList();
+        List<ProductPrice> prices = boundedApplicablePrices(planIds, addOnIds, List.of());
+        Map<PriceOwnerKey, List<ProductPrice>> pricesByOwner = prices.stream()
+                .collect(Collectors.groupingBy(
+                        price -> new PriceOwnerKey(price.getOwnerType(), price.ownerId()),
+                        LinkedHashMap::new, Collectors.toList()));
+        CatalogData data = new CatalogData(
+                plans,
+                plans.stream().collect(Collectors.toMap(Plan::getId, Function.identity())),
+                planFeatures.stream().collect(Collectors.groupingBy(item -> item.getPlan().getId())),
+                addOns,
+                Map.copyOf(addOnsByCode),
+                List.of(),
+                Map.of(),
+                featureDefinitionCollectorProvider.getObject().collectByCode(),
+                Map.copyOf(pricesByOwner));
+
+        Map<UUID, AddOnActivationResolution> results = new LinkedHashMap<>();
+        for (Plan plan : plans) {
+            PlanResolution planResolution = resolvePlan(
+                    data, plan, Audience.AUTHORIZED_OPERATOR, null,
+                    plan.getExtensionPolicy(), plan.getSalesVisibility(), root.getCode());
+            AddOnResolution addOnResolution = planResolution.addOns().stream()
+                    .filter(result -> result.code().equals(root.getCode()))
+                    .findFirst()
+                    .orElseThrow();
+            results.put(plan.getId(), new AddOnActivationResolution(
+                    planResolution, addOnResolution));
+        }
+        return Map.copyOf(results);
     }
 
     @Transactional(readOnly = true)
@@ -370,6 +466,19 @@ public class CommercialCatalogResolver {
             PlanExtensionPolicy extensionPolicy,
             ProductSalesVisibility salesVisibility
     ) {
+        return resolvePlan(data, plan, audience, requestedTuple,
+                extensionPolicy, salesVisibility, null);
+    }
+
+    private PlanResolution resolvePlan(
+            CatalogData data,
+            Plan plan,
+            Audience audience,
+            PriceTuple requestedTuple,
+            PlanExtensionPolicy extensionPolicy,
+            ProductSalesVisibility salesVisibility,
+            String activationRootCode
+    ) {
         List<ExtensionAvailabilityIssue> issues = new ArrayList<>();
         if (!plan.isActive()) {
             issues.add(issue(ExtensionAvailabilityReason.PRODUCT_NOT_ACTIVE,
@@ -382,7 +491,7 @@ public class CommercialCatalogResolver {
         }
         for (PlanFeature item : data.planFeaturesByPlanId().getOrDefault(plan.getId(), List.of())) {
             if (item.getMode() == PlanFeatureMode.INCLUDED) {
-                addFeatureIssues(data, item.getFeature(), issues);
+                addFeatureIssues(data, item.getFeature(), audience, issues);
             }
         }
         List<ProductPrice> planPrices = prices(data, ProductPriceOwnerType.PLAN, plan.getId()).stream()
@@ -394,7 +503,7 @@ public class CommercialCatalogResolver {
         if (requestedTuple != null) tuples = Set.of(requestedTuple);
 
         Map<String, AddOnResolution> addOns = resolveAddOns(
-                data, plan, tuples, audience, extensionPolicy);
+                data, plan, tuples, audience, extensionPolicy, activationRootCode);
         Map<String, QuotaPackageResolution> packages = resolvePackages(
                 data, plan, requestedTuple, audience, null, addOns, extensionPolicy);
         return new PlanResolution(plan, List.copyOf(issues), planPrices,
@@ -411,10 +520,21 @@ public class CommercialCatalogResolver {
             Audience audience,
             PlanExtensionPolicy extensionPolicy
     ) {
+        return resolveAddOns(data, plan, tuples, audience, extensionPolicy, null);
+    }
+
+    private Map<String, AddOnResolution> resolveAddOns(
+            CatalogData data,
+            Plan plan,
+            Set<PriceTuple> tuples,
+            Audience audience,
+            PlanExtensionPolicy extensionPolicy,
+            String activationRootCode
+    ) {
         Map<String, AddOnResolution> memo = new LinkedHashMap<>();
         for (AddOn addOn : data.addOns()) {
             resolveAddOn(data, plan, addOn, tuples, audience, extensionPolicy,
-                    memo, new LinkedHashSet<>());
+                    memo, new LinkedHashSet<>(), activationRootCode);
         }
         return memo;
     }
@@ -429,12 +549,28 @@ public class CommercialCatalogResolver {
             Map<String, AddOnResolution> memo,
             Set<String> stack
     ) {
+        return resolveAddOn(data, plan, addOn, tuples, audience, extensionPolicy,
+                memo, stack, null);
+    }
+
+    private AddOnResolution resolveAddOn(
+            CatalogData data,
+            Plan plan,
+            AddOn addOn,
+            Set<PriceTuple> tuples,
+            Audience audience,
+            PlanExtensionPolicy extensionPolicy,
+            Map<String, AddOnResolution> memo,
+            Set<String> stack,
+            String activationRootCode
+    ) {
         AddOnResolution cached = memo.get(addOn.getCode());
         if (cached != null) return cached;
         List<ExtensionAvailabilityIssue> issues = new ArrayList<>();
         addPlanPolicyIssues(plan, extensionPolicy, addOn.getCode(), addOn.getAllowedPlanCodes(),
                 addOn.getBlockedPlanCodes(), issues);
-        if (addOn.getStatus() != AddOnStatus.ACTIVE) {
+        if (addOn.getStatus() != AddOnStatus.ACTIVE
+                && !addOn.getCode().equals(activationRootCode)) {
             issues.add(issue(ExtensionAvailabilityReason.PRODUCT_NOT_ACTIVE,
                     ExtensionResolutionSource.PRODUCT_LIFECYCLE, addOn.getCode()));
         }
@@ -447,7 +583,7 @@ public class CommercialCatalogResolver {
                 .getOrDefault(plan.getId(), List.of()).stream()
                 .collect(Collectors.toMap(item -> item.getFeature().getCode(), Function.identity()));
         for (AddOnFeature item : addOn.getFeatures()) {
-            addFeatureIssues(data, item.getFeature(), issues);
+            addFeatureIssues(data, item.getFeature(), audience, issues);
             PlanFeature planFeature = planFeatures.get(item.getFeature().getCode());
             if (planFeature == null || planFeature.getMode() != PlanFeatureMode.OPTIONAL_ADD_ON) {
                 issues.add(issue(ExtensionAvailabilityReason.PLAN_FEATURE_NOT_OPTIONAL,
@@ -482,7 +618,8 @@ public class CommercialCatalogResolver {
                     continue;
                 }
                 AddOnResolution dependencyResult = resolveAddOn(
-                        data, plan, dependency, tuples, audience, extensionPolicy, memo, stack);
+                        data, plan, dependency, tuples, audience, extensionPolicy,
+                        memo, stack, activationRootCode);
                 dependencyClosure.add(dependencyCode);
                 dependencyClosure.addAll(dependencyResult.dependencyClosureCodes());
                 if (!dependencyResult.selectable()) {
@@ -577,7 +714,7 @@ public class CommercialCatalogResolver {
                 issues.add(issue(ExtensionAvailabilityReason.DIRECT_ONLY,
                         ExtensionResolutionSource.PRODUCT_VISIBILITY, item.getCode()));
             }
-            addFeatureIssues(data, item.getFeature(), issues);
+            addFeatureIssues(data, item.getFeature(), audience, issues);
 
             boolean unrestrictedOpen = extensionPolicy == PlanExtensionPolicy.OPEN_COMPATIBLE
                     && !hasTargeting;
@@ -785,7 +922,11 @@ public class CommercialCatalogResolver {
     }
 
     private void addFeatureIssues(
-            CatalogData data, Feature feature, List<ExtensionAvailabilityIssue> issues) {
+            CatalogData data,
+            Feature feature,
+            Audience audience,
+            List<ExtensionAvailabilityIssue> issues
+    ) {
         FeatureDefinition definition = data.definitionsByCode().get(feature.getCode());
         if (definition == null) {
             issues.add(issue(ExtensionAvailabilityReason.FEATURE_DEFINITION_MISSING,
@@ -796,8 +937,9 @@ public class CommercialCatalogResolver {
             issues.add(issue(ExtensionAvailabilityReason.FEATURE_NOT_PLAN_ASSIGNABLE,
                     ExtensionResolutionSource.REGISTRY, feature.getCode()));
         }
-        if (!definition.publicCatalogVisible() || !feature.isPublicVisible()
-                || (feature.getStatus() != FeatureStatus.PUBLIC && feature.getStatus() != FeatureStatus.BETA)) {
+        if ((feature.getStatus() != FeatureStatus.PUBLIC && feature.getStatus() != FeatureStatus.BETA)
+                || (audience == Audience.CLIENT_CATALOG
+                    && (!definition.publicCatalogVisible() || !feature.isPublicVisible()))) {
             issues.add(issue(ExtensionAvailabilityReason.FEATURE_NOT_CLIENT_FACING,
                     ExtensionResolutionSource.REGISTRY, feature.getCode()));
         }
@@ -811,12 +953,28 @@ public class CommercialCatalogResolver {
         }
     }
 
+    private boolean isStaticallyEligiblePlanFeature(FeatureDefinition definition, Audience audience) {
+        return definition.planAssignable()
+                && (audience == Audience.AUTHORIZED_OPERATOR || definition.publicCatalogVisible());
+    }
+
     private CatalogData load() {
-        List<Plan> plans = planRepository.findAll();
-        List<PlanFeature> planFeatures = planFeatureRepository.findAllDetailed();
-        List<AddOn> addOns = addOnRepository.findAllByOrderByNameAscRevisionNumberDesc();
-        List<QuotaPackage> packages = quotaPackageRepository.findAllByOrderByCodeAsc();
-        List<ProductPrice> prices = productPriceRepository.findAllApplicable(clock.instant());
+        PageRequest productBound = PageRequest.of(0, MAX_SCOPED_PRODUCTS + 1,
+                Sort.by(Sort.Direction.ASC, "id"));
+        List<Plan> plans = planRepository.findAllByOrderByIdAsc(productBound);
+        List<AddOn> addOnRows = addOnRepository.findAllByOrderByIdAsc(productBound);
+        List<QuotaPackage> packageRows = quotaPackageRepository.findAllByOrderByIdAsc(productBound);
+        requireCatalogProductBound(plans.size(), addOnRows.size(), packageRows.size());
+
+        List<UUID> planIds = plans.stream().map(Plan::getId).toList();
+        List<UUID> addOnIds = addOnRows.stream().map(AddOn::getId).toList();
+        List<UUID> packageIds = packageRows.stream().map(QuotaPackage::getId).toList();
+        List<PlanFeature> planFeatures = planFeatureRepository.findAllByPlanIds(
+                idsOrSentinel(planIds));
+        List<AddOn> addOns = addOnRepository.findAllDetailedByIdIn(idsOrSentinel(addOnIds));
+        List<QuotaPackage> packages = quotaPackageRepository.findAllDetailedByIdIn(
+                idsOrSentinel(packageIds));
+        List<ProductPrice> prices = boundedApplicablePrices(planIds, addOnIds, packageIds);
         Map<String, FeatureDefinition> definitions =
                 featureDefinitionCollectorProvider.getObject().collectByCode();
         Map<UUID, List<PlanFeature>> featuresByPlan = planFeatures.stream()
@@ -899,11 +1057,8 @@ public class CommercialCatalogResolver {
 
         List<UUID> addOnIds = addOns.stream().map(AddOn::getId).toList();
         List<UUID> scopedPackageIds = packages.stream().map(QuotaPackage::getId).toList();
-        List<ProductPrice> prices = productPriceRepository.findAllApplicableForOwners(
-                List.of(planId),
-                addOnIds.isEmpty() ? List.of(EMPTY_QUERY_SENTINEL) : addOnIds,
-                scopedPackageIds.isEmpty() ? List.of(EMPTY_QUERY_SENTINEL) : scopedPackageIds,
-                clock.instant());
+        List<ProductPrice> prices = boundedApplicablePrices(
+                List.of(planId), addOnIds, scopedPackageIds);
         Map<PriceOwnerKey, List<ProductPrice>> pricesByOwner = prices.stream()
                 .collect(Collectors.groupingBy(
                         price -> new PriceOwnerKey(price.getOwnerType(), price.ownerId()),
@@ -914,6 +1069,35 @@ public class CommercialCatalogResolver {
                 List.copyOf(packages), Map.copyOf(packagesByCode),
                 featureDefinitionCollectorProvider.getObject().collectByCode(),
                 Map.copyOf(pricesByOwner));
+    }
+
+    private void requireCatalogProductBound(int plans, int addOns, int packages) {
+        if (plans + addOns + packages > MAX_SCOPED_PRODUCTS) {
+            throw new com.hiveapp.shared.exception.InvalidStateException(
+                    "The commercial catalogue exceeds the supported 300-product operation bound; "
+                            + "use a scoped operation or add catalogue pagination before proceeding.");
+        }
+    }
+
+    private Collection<UUID> idsOrSentinel(Collection<UUID> ids) {
+        return ids.isEmpty() ? List.of(EMPTY_QUERY_SENTINEL) : ids;
+    }
+
+    private List<ProductPrice> boundedApplicablePrices(
+            Collection<UUID> planIds,
+            Collection<UUID> addOnIds,
+            Collection<UUID> quotaPackageIds
+    ) {
+        List<ProductPrice> prices = productPriceRepository.findAllApplicableForOwnersBounded(
+                idsOrSentinel(planIds), idsOrSentinel(addOnIds), idsOrSentinel(quotaPackageIds),
+                clock.instant(), PageRequest.of(0, MAX_CATALOG_PRICES + 1,
+                        Sort.by(Sort.Direction.ASC, "id")));
+        if (prices.size() > MAX_CATALOG_PRICES) {
+            throw new com.hiveapp.shared.exception.InvalidStateException(
+                    "The commercial catalogue exceeds the supported 1200-active-price operation bound; "
+                            + "narrow the operation or add catalogue pagination before proceeding.");
+        }
+        return prices;
     }
 
     private void addPriceIssues(
@@ -977,6 +1161,22 @@ public class CommercialCatalogResolver {
             SelectionResolution proposedSelection,
             boolean selectable
     ) {}
+
+    public record AddOnActivationResolution(
+            PlanResolution plan,
+            AddOnResolution addOn
+    ) {
+        public boolean selectable() {
+            return plan.selectable() && addOn.selectable();
+        }
+
+        public List<ExtensionAvailabilityIssue> issues() {
+            return java.util.stream.Stream.concat(
+                            plan.issues().stream(), addOn.issues().stream())
+                    .distinct()
+                    .toList();
+        }
+    }
 
     public record QuotaPackageCandidateDecision(
             QuotaPackageResolution product,

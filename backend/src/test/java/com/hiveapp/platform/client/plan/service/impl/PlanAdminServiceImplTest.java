@@ -14,6 +14,8 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
+import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
+import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
@@ -32,6 +34,7 @@ import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.platform.client.plan.service.CrossFeatureCommercialAuthorizer;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
@@ -42,6 +45,7 @@ import com.hiveapp.shared.exception.DraftSuccessorExistsException;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.money.Money;
+import com.hiveapp.shared.audit.AuditTrail;
 import org.junit.jupiter.api.BeforeEach;
 import com.hiveapp.platform.client.plan.dto.PlanDto;
 import com.hiveapp.platform.client.plan.dto.AddOnDto;
@@ -88,6 +92,9 @@ class PlanAdminServiceImplTest {
     @Mock private QuotaPackageRepository quotaPackageRepository;
     @Mock private ProductPriceRepository productPriceRepository;
     @Mock private CrossFeatureCommercialAuthorizer crossFeatureCommercialAuthorizer;
+    @Mock private CommercialCatalogResolver commercialCatalogResolver;
+    @Mock private AdminMutationAuthorizer adminMutationAuthorizer;
+    @Mock private AuditTrail auditTrail;
     @Mock private Clock clock;
     @Mock private FeatureRepository featureRepository;
     @Mock private com.hiveapp.platform.client.plan.service.ProductPriceResolver productPriceResolver;
@@ -138,6 +145,26 @@ class PlanAdminServiceImplTest {
     }
 
     @Test
+    void quotaPreviewTemporalFingerprintChangesAtPriceWindowBoundaries() {
+        Plan owner = plan(UUID.randomUUID(), "TEMPORAL_PLAN");
+        Instant starts = Instant.parse("2026-09-01T00:00:00Z");
+        Instant ends = starts.plusSeconds(60);
+        ProductPrice price = ProductPrice.draft(
+                owner, Money.of(BigDecimal.ONE, "USD"), BillingCycle.MONTHLY, starts, ends);
+        ReflectionTestUtils.setField(price, "id", UUID.randomUUID());
+
+        String future = PlanAdminServiceImpl.temporalPriceFingerprint(
+                List.of(price), starts.minusNanos(1));
+        String current = PlanAdminServiceImpl.temporalPriceFingerprint(List.of(price), starts);
+        String expired = PlanAdminServiceImpl.temporalPriceFingerprint(List.of(price), ends);
+
+        assertThat(future).endsWith(":FUTURE");
+        assertThat(current).endsWith(":CURRENT");
+        assertThat(expired).endsWith(":EXPIRED");
+        assertThat(Set.of(future, current, expired)).hasSize(3);
+    }
+
+    @Test
     void createPlanIsAnExplicitEmptyNormalizedDraft() {
         PlanDto created = planAdminService.createPlan(new CreatePlanRequest(
                 "Starter",
@@ -162,7 +189,9 @@ class PlanAdminServiceImplTest {
         PlanFeature sourceFeature = planFeature(sourcePlan, workspace,
                 List.of(new QuotaLimitEntry("members", 3L)));
 
-        when(planRepository.findByIdForUpdate(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
+        when(planRepository.findById(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
+        when(planRepository.findLineageForUpdate(sourcePlan.getLineageId()))
+                .thenReturn(List.of(sourcePlan));
         when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of(sourceFeature));
         when(productPriceRepository.findAllByPlanIdForUpdate(sourcePlanId))
                 .thenReturn(List.of(activePrice(sourcePlan)));
@@ -193,7 +222,7 @@ class PlanAdminServiceImplTest {
         sourcePlan.setRevisionNumber(3);
         PlanFeature includedFeature = planFeature(sourcePlan, feature("platform.workspace"), List.of());
 
-        when(planRepository.findByIdForUpdate(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
+        when(planRepository.findById(sourcePlanId)).thenReturn(Optional.of(sourcePlan));
         when(planRepository.findLineageForUpdate(sourcePlan.getLineageId())).thenReturn(List.of(sourcePlan));
         when(planFeatureRepository.findAllByPlanId(sourcePlanId)).thenReturn(List.of(includedFeature));
         when(productPriceRepository.findAllByPlanIdForUpdate(sourcePlanId))
@@ -391,7 +420,8 @@ class PlanAdminServiceImplTest {
 
     @Test
     void addOnDraftNormalizesIdentityAndCannotActivateWithoutFeatures() {
-        when(planRepository.findByCode("FREE")).thenReturn(Optional.of(plan(UUID.randomUUID(), "FREE")));
+        when(planRepository.findAllByCodeInForUpdate(List.of("FREE")))
+                .thenReturn(List.of(plan(UUID.randomUUID(), "FREE")));
         java.util.concurrent.atomic.AtomicReference<AddOn> savedEntity =
                 new java.util.concurrent.atomic.AtomicReference<>();
         when(addOnRepository.saveAndFlush(any(AddOn.class))).thenAnswer(invocation -> {
@@ -409,7 +439,9 @@ class PlanAdminServiceImplTest {
 
         UUID addOnId = UUID.randomUUID();
         ReflectionTestUtils.setField(savedEntity.get(), "id", addOnId);
-        when(addOnRepository.findByIdForUpdate(addOnId)).thenReturn(Optional.of(savedEntity.get()));
+        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(savedEntity.get()));
+        when(addOnRepository.findLineageForUpdate(savedEntity.get().getLineageId()))
+                .thenReturn(List.of(savedEntity.get()));
         when(productPriceRepository.findAllApplicable(
                 com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON,
                 addOnId, Instant.parse("2026-08-26T00:00:00Z")))
@@ -444,9 +476,10 @@ class PlanAdminServiceImplTest {
         sourceFeature.setFeature(feature);
         sourceFeature.setQuotaConfigs(List.of());
 
-        when(addOnRepository.findByIdForUpdate(sourceId)).thenReturn(Optional.of(source));
+        when(addOnRepository.findById(sourceId)).thenReturn(Optional.of(source));
         when(addOnRepository.findLineageForUpdate(lineageId)).thenReturn(List.of(source));
-        when(planRepository.findByCode("PRO")).thenReturn(Optional.of(plan(UUID.randomUUID(), "PRO")));
+        when(planRepository.findAllByCodeInForUpdate(List.of("PRO")))
+                .thenReturn(List.of(plan(UUID.randomUUID(), "PRO")));
         when(addOnRepository.saveAndFlush(any(AddOn.class))).thenAnswer(invocation -> {
             AddOn saved = invocation.getArgument(0);
             ReflectionTestUtils.setField(saved, "id", UUID.randomUUID());
@@ -494,7 +527,9 @@ class PlanAdminServiceImplTest {
         AddOn archived = new AddOn();
         ReflectionTestUtils.setField(archived, "id", addOnId);
         archived.setStatus(AddOnStatus.ARCHIVED);
-        when(addOnRepository.findByIdForUpdate(addOnId)).thenReturn(Optional.of(archived));
+        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(archived));
+        when(addOnRepository.findLineageForUpdate(archived.getLineageId()))
+                .thenReturn(List.of(archived));
 
         assertThatThrownBy(() -> planAdminService.reviseAddOn(addOnId, 0L))
                 .isInstanceOf(BusinessException.class)
@@ -548,7 +583,7 @@ class PlanAdminServiceImplTest {
         draft.setStatus(AddOnStatus.DRAFT);
         draft.setLineageId(lineageId);
         draft.setRevisionNumber(2);
-        when(addOnRepository.findByIdForUpdate(sourceId)).thenReturn(Optional.of(source));
+        when(addOnRepository.findById(sourceId)).thenReturn(Optional.of(source));
         when(addOnRepository.findLineageForUpdate(lineageId)).thenReturn(List.of(source, draft));
 
         assertThatThrownBy(() -> planAdminService.reviseAddOn(sourceId, 0L))
@@ -558,7 +593,7 @@ class PlanAdminServiceImplTest {
     }
 
     @Test
-    void addOnActivationRequiresOptionalFeatureModeOnAllowedPlan() {
+    void addOnActivationUsesAuthoritativeResolverForExplicitPlanTargets() {
         UUID addOnId = UUID.randomUUID();
         UUID planId = UUID.randomUUID();
         UUID lineageId = UUID.randomUUID();
@@ -581,28 +616,31 @@ class PlanAdminServiceImplTest {
         AddOnFeature addOnFeature = new AddOnFeature();
         addOnFeature.setAddOn(addOn);
         addOnFeature.setFeature(feature);
-        PlanFeature optional = planFeature(plan, feature, List.of());
-        optional.setMode(PlanFeatureMode.OPTIONAL_ADD_ON);
-
-        when(addOnRepository.findByIdForUpdate(addOnId)).thenReturn(Optional.of(addOn));
+        when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(addOn));
         when(addOnFeatureRepository.findAllByAddOnId(addOnId)).thenReturn(List.of(addOnFeature));
-        when(planRepository.findByCode("PRO")).thenReturn(Optional.of(plan));
-        when(planFeatureRepository.findAllByPlanId(planId)).thenReturn(List.of(optional));
+        when(planRepository.findAllByCodeInOrderByIdAsc(List.of("PRO"))).thenReturn(List.of(plan));
         when(addOnRepository.findLineageForUpdate(lineageId)).thenReturn(List.of(previousRevision, addOn));
+        CommercialCatalogResolver.AddOnActivationResolution activationResolution =
+                new CommercialCatalogResolver.AddOnActivationResolution(
+                        new CommercialCatalogResolver.PlanResolution(
+                                plan, List.of(), List.of(), List.of(), List.of(), List.of(),
+                                plan.getExtensionPolicy(), plan.getSalesVisibility()),
+                        new CommercialCatalogResolver.AddOnResolution(
+                                addOn, List.of(), List.of(), Set.of(), Set.of()));
+        when(commercialCatalogResolver.resolveAddOnActivation(addOnId, List.of(plan)))
+                .thenReturn(java.util.Map.of(planId, activationResolution));
         when(addOnRepository.saveAndFlush(addOn)).thenReturn(addOn);
         when(addOnRepository.findDetailedById(addOnId)).thenReturn(Optional.of(addOn));
         when(productPriceRepository.findAllApplicable(
                 com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON,
                 addOnId, Instant.parse("2026-08-26T00:00:00Z")))
                 .thenReturn(List.of(activePrice(addOn)));
-        when(productPriceResolver.availableCatalogPrices()).thenReturn(List.of(
-                activePrice(plan), activePrice(addOn)));
-
         AddOnDto activated = planAdminService.transitionAddOnStatus(
                 addOnId, AddOnStatus.ACTIVE, 0L, null);
 
         assertThat(activated.status()).isEqualTo(AddOnStatus.ACTIVE);
         assertThat(previousRevision.getStatus()).isEqualTo(AddOnStatus.INACTIVE);
+        verify(commercialCatalogResolver).resolveAddOnActivation(addOnId, List.of(plan));
         verify(billingConfigurationValidator).validateAddOnFeature(
                 "platform.company", List.of(), "USD");
     }

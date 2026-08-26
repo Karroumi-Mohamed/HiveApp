@@ -25,8 +25,8 @@ public record CreateQuotaPackageRequest(
         @NotNull BillingCycle billingCycle,
         boolean repeatable,
         @Min(1) int maximumQuantity,
-        Set<@NotBlank @Size(max = 100) String> allowedPlanCodes,
-        Set<@NotBlank @Size(max = 100) String> allowedAddOnCodes,
+        @Size(max = 100) Set<@NotBlank @Size(max = 100) String> allowedPlanCodes,
+        @Size(max = 100) Set<@NotBlank @Size(max = 100) String> allowedAddOnCodes,
         ProductSalesVisibility salesVisibility
 ) {
     public CreateQuotaPackageRequest(

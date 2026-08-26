@@ -23,6 +23,7 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.dto.AddOnChooserItemDto;
 import com.hiveapp.platform.client.plan.dto.AddOnOperationalListItemDto;
 import com.hiveapp.platform.client.plan.dto.PlanChooserItemDto;
@@ -75,6 +76,7 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
     private final AddOnFeatureRepository addOnFeatureRepository;
     private final ProductPriceRepository productPriceRepository;
     private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
     private final Clock clock;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
 
@@ -117,6 +119,16 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
         Map<UUID, Long> affectedSubscriptions = countMap(ids.isEmpty()
                 ? List.of() : subscriptionRepository.countCurrentByPlanIds(
                         ids, AFFECTED_SUBSCRIPTION_STATUSES));
+        Map<UUID, Long> subscriptionHistory = countMap(ids.isEmpty()
+                ? List.of() : subscriptionRepository.countHistoryByPlanIds(ids));
+        Map<UUID, Long> changeReferences = countMap(ids.isEmpty()
+                ? List.of() : subscriptionChangeOperationRepository.countByTargetPlanIds(ids));
+        Map<UUID, Long> addOnReferences = countMap(ids.isEmpty()
+                ? List.of() : addOnRepository.countPlanReferences(ids));
+        Map<UUID, Long> quotaReferences = countMap(ids.isEmpty()
+                ? List.of() : quotaPackageRepository.countPlanReferences(ids));
+        Map<UUID, Long> sourceReferences = countMap(ids.isEmpty()
+                ? List.of() : planRepository.countSourceReferences(ids));
         Map<UUID, LineageSummary> lineageSummaries = lineageSummaries(
                 lineages.isEmpty() ? List.of() : planRepository.findLineageSummaries(lineages));
         ActionPermissionSnapshot permissions = actionPermissions();
@@ -128,6 +140,11 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
                 publishedPrices.getOrDefault(plan.getId(), 0L),
                 subscribers.getOrDefault(plan.getId(), 0L),
                 affectedSubscriptions.getOrDefault(plan.getId(), 0L),
+                subscriptionHistory.getOrDefault(plan.getId(), 0L)
+                        + changeReferences.getOrDefault(plan.getId(), 0L)
+                        + addOnReferences.getOrDefault(plan.getId(), 0L)
+                        + quotaReferences.getOrDefault(plan.getId(), 0L)
+                        + sourceReferences.getOrDefault(plan.getId(), 0L),
                 lineageSummaries.getOrDefault(
                         plan.getLineageId(), new LineageSummary(plan.getRevisionNumber(), 0)),
                 permissions));
@@ -150,11 +167,18 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
                 Set.of(planId), CURRENT_SUBSCRIPTION_STATUSES)).getOrDefault(planId, 0L);
         long affectedSubscriptions = countMap(subscriptionRepository.countCurrentByPlanIds(
                 Set.of(planId), AFFECTED_SUBSCRIPTION_STATUSES)).getOrDefault(planId, 0L);
+        long deletionReferences = countMap(subscriptionRepository.countHistoryByPlanIds(Set.of(planId)))
+                        .getOrDefault(planId, 0L)
+                + countMap(subscriptionChangeOperationRepository.countByTargetPlanIds(Set.of(planId)))
+                        .getOrDefault(planId, 0L)
+                + countMap(addOnRepository.countPlanReferences(Set.of(planId))).getOrDefault(planId, 0L)
+                + countMap(quotaPackageRepository.countPlanReferences(Set.of(planId))).getOrDefault(planId, 0L)
+                + countMap(planRepository.countSourceReferences(Set.of(planId))).getOrDefault(planId, 0L);
         LineageSummary lineage = lineageSummaries(planRepository.findLineageSummaries(
                 Set.of(plan.getLineageId()))).getOrDefault(
                         plan.getLineageId(), new LineageSummary(plan.getRevisionNumber(), 0));
         return toPlanRow(plan, composition, prices, draftPrices, publishedPrices,
-                subscribers, affectedSubscriptions,
+                subscribers, affectedSubscriptions, deletionReferences,
                 lineage, actionPermissions());
     }
 
@@ -569,6 +593,7 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
             long publishedPrices,
             long subscribers,
             long affectedSubscriptions,
+            long deletionReferences,
             LineageSummary lineage,
             ActionPermissionSnapshot permissions
     ) {
@@ -608,7 +633,9 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
         if (applicablePrices == 0 || composition.included() == 0) {
             actions.remove(CommercialProductAction.ACTIVATE);
         }
-        if (publishedPrices > 0) actions.remove(CommercialProductAction.DELETE_DRAFT);
+        if (publishedPrices > 0 || deletionReferences > 0) {
+            actions.remove(CommercialProductAction.DELETE_DRAFT);
+        }
         filterPlanActions(actions, permissions);
         return new PlanOperationalListItemDto(
                 plan.getId(), plan.getCode(), plan.getName(), plan.getStatus(), plan.getLineageId(),
@@ -800,6 +827,9 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
         if (!permissions.has("platform.plans.preview_delete")) {
             actions.remove(CommercialProductAction.DELETE_DRAFT);
         }
+        if (!permissions.has("platform.price_books.delete_draft")) {
+            actions.remove(CommercialProductAction.DELETE_DRAFT);
+        }
         if (!permissions.has("platform.price_books.create")) {
             actions.remove(CommercialProductAction.REVISE);
         }
@@ -827,6 +857,9 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
         if (!permissions.has("platform.price_books.create")) {
             actions.remove(CommercialProductAction.REVISE);
         }
+        if (!permissions.has("platform.price_books.delete_draft")) {
+            actions.remove(CommercialProductAction.DELETE_DRAFT);
+        }
         filterPriceBookActions(actions, permissions, false);
     }
 
@@ -849,6 +882,9 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
         filterPriceBookActions(actions, permissions, true);
         if (!permissions.has("platform.price_books.create")) {
             actions.remove(CommercialProductAction.REVISE);
+        }
+        if (!permissions.has("platform.price_books.delete_draft")) {
+            actions.remove(CommercialProductAction.DELETE_DRAFT);
         }
     }
 

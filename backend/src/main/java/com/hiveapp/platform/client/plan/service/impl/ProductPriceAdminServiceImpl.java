@@ -7,6 +7,7 @@ import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceAction;
+import com.hiveapp.platform.client.plan.domain.constant.ProductPriceAudit;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceReplacementBlocker;
@@ -45,6 +46,8 @@ import com.hiveapp.shared.audit.domain.AuditLogRepository;
 import com.hiveapp.shared.audit.AuditTrail;
 import com.hiveapp.shared.audit.domain.AuditActorSurface;
 import dev.karroumi.permissionizer.PermissionNode;
+import dev.karroumi.permissionizer.Permission;
+import dev.karroumi.permissionizer.PermissionGuard;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -58,6 +61,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -70,8 +74,6 @@ import java.util.UUID;
         guard = PermissionNode.Guard.ON)
 public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
         implements ProductPriceAdminService {
-
-    private static final String AUDIT_RESOURCE_TYPE = "PRODUCT_PRICE_ADMIN";
 
     private final ProductPriceRepository productPriceRepository;
     private final PlanRepository planRepository;
@@ -149,9 +151,11 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
                 ? List.of()
                 : productPriceRepository.findAll(activeOverlapSpecification(activationCandidates));
         Map<UUID, Integer> maximumRevisions = maximumRevisions(prices.getContent());
+        ActionPermissionSnapshot permissions = actionPermissions();
         return prices
                 .map(price -> toDto(price, generalBlockers(price, activePrices),
-                        maximumRevisions.get(price.getLineageId()) == price.getRevisionNumber()));
+                        maximumRevisions.get(price.getLineageId()) == price.getRevisionNumber(),
+                        permissions));
     }
 
     @Override
@@ -173,7 +177,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
                 Sort.by(Sort.Direction.DESC, "occurredAt")
                         .and(Sort.by(Sort.Direction.DESC, "id")));
         Page<AuditLog> logs = auditLogRepository.findAllByResourceTypeAndResourceId(
-                AUDIT_RESOURCE_TYPE, priceId.toString(), bounded);
+                ProductPriceAudit.RESOURCE_TYPE, priceId.toString(), bounded);
         var actorIds = logs.getContent().stream()
                 .map(AuditLog::getActorUserId)
                 .filter(java.util.Objects::nonNull)
@@ -198,11 +202,11 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
         validateTerms(request.billingCycle(), request.effectiveFrom(), request.effectiveUntil());
         Money money = Money.of(request.amount(), request.currencyCode());
         ProductPrice price = switch (ownerType) {
-            case PLAN -> ProductPrice.draft(requirePlan(ownerId, false), money, request.billingCycle(),
-                    request.effectiveFrom(), request.effectiveUntil());
-            case ADD_ON -> ProductPrice.draft(requireAddOn(ownerId, false), money, request.billingCycle(),
-                    request.effectiveFrom(), request.effectiveUntil());
-            case QUOTA_PACKAGE -> ProductPrice.draft(requireQuotaPackage(ownerId, false), money,
+            case PLAN -> ProductPrice.draft(requirePriceDraftOwnerPlan(ownerId), money,
+                    request.billingCycle(), request.effectiveFrom(), request.effectiveUntil());
+            case ADD_ON -> ProductPrice.draft(requirePriceDraftOwnerAddOn(ownerId), money,
+                    request.billingCycle(), request.effectiveFrom(), request.effectiveUntil());
+            case QUOTA_PACKAGE -> ProductPrice.draft(requirePriceDraftOwnerQuotaPackage(ownerId), money,
                     request.billingCycle(), request.effectiveFrom(), request.effectiveUntil());
         };
         return toDto(productPriceRepository.saveAndFlush(price), true);
@@ -212,8 +216,12 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
     @Transactional
     @PermissionNode(key = "update_draft", description = "Edit draft product price terms")
     public ProductPriceDto updateDraft(UUID priceId, UpdateProductPriceRequest request) {
-        ProductPrice price = requirePrice(priceId);
+        ProductPrice hint = requirePrice(priceId);
+        lockOwner(hint.getOwnerType(), hint.ownerId());
+        entityManager.clear();
+        ProductPrice price = requirePriceForUpdate(priceId);
         requireVersion(price, request.version());
+        requireOwnerAllowsPriceDraft(price);
         validateTerms(request.billingCycle(), request.effectiveFrom(), request.effectiveUntil());
         translateState(() -> price.editDraft(Money.of(request.amount(), request.currencyCode()),
                 request.billingCycle(), request.effectiveFrom(), request.effectiveUntil()));
@@ -261,9 +269,12 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
     @PermissionNode(key = "revise", description = "Create a successor draft price revision")
     public ProductPriceDto revise(UUID priceId, long version, String reason) {
         requireReason(reason);
-        ProductPrice source = requirePrice(priceId);
+        ProductPrice hint = requirePrice(priceId);
+        lockOwner(hint.getOwnerType(), hint.ownerId());
+        entityManager.clear();
+        ProductPrice source = requirePriceForUpdate(priceId);
         requireVersion(source, version);
-        lockOwner(source.getOwnerType(), source.ownerId());
+        requireOwnerAllowsPriceDraft(source);
         int maximumRevision = productPriceRepository.findMaximumRevisionNumber(source.getLineageId());
         if (maximumRevision != source.getRevisionNumber()) {
             throw new InvalidStateException("Only the latest price revision can be revised.");
@@ -331,7 +342,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
         productPriceRepository.saveAllAndFlush(List.of(current, successor));
         auditTrail.recordSuccess(
                 "platform.price_books.schedule_replacement",
-                AUDIT_RESOURCE_TYPE,
+                ProductPriceAudit.RESOURCE_TYPE,
                 current.getId(),
                 AuditActorSurface.PLATFORM_ADMIN,
                 adminMutationAuthorizer.currentActorUserId(),
@@ -488,11 +499,13 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
     private ProductPriceDto toDto(ProductPrice price, boolean includeBlockers) {
         boolean latestRevision = productPriceRepository.findMaximumRevisionNumber(price.getLineageId())
                 == price.getRevisionNumber();
-        return toDto(price, includeBlockers ? generalBlockers(price) : List.of(), latestRevision);
+        return toDto(price, includeBlockers ? generalBlockers(price) : List.of(), latestRevision,
+                actionPermissions());
     }
 
     private ProductPriceDto toDto(ProductPrice price, List<ProductPriceBlocker> baseBlockers,
-                                  boolean latestRevision) {
+                                  boolean latestRevision,
+                                  ActionPermissionSnapshot permissions) {
         List<ProductPriceBlocker> blockers = new ArrayList<>(baseBlockers);
         if (!latestRevision) {
             blockers.add(ProductPriceBlocker.SUCCESSOR_ALREADY_EXISTS);
@@ -528,6 +541,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
             }
             case ARCHIVED -> { }
         }
+        actions.removeIf(action -> !permissions.has(permissionFor(action)));
         return new ProductPriceDto(
                 price.getId(), price.getOwnerType(), price.ownerId(), price.ownerCode(), price.ownerName(),
                 price.getAmount(), price.getCurrencyCode(), price.getBillingCycle(), price.getStatus(),
@@ -535,6 +549,23 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
                 price.getRevisionNumber(), price.getSourcePrice() == null ? null : price.getSourcePrice().getId(),
                 price.isCompatibilityDefault(), price.getVersion(), price.getCreatedAt(), price.getUpdatedAt(),
                 List.copyOf(actions), List.copyOf(blockers));
+    }
+
+    private String permissionFor(ProductPriceAction action) {
+        return switch (action) {
+            case EDIT_DRAFT -> "platform.price_books.update_draft";
+            case PREVIEW_ACTIVATION -> "platform.price_books.preview_activation";
+            case ACTIVATE -> "platform.price_books.activate";
+            case PAUSE -> "platform.price_books.pause";
+            case REACTIVATE -> "platform.price_books.reactivate";
+            case REVISE -> "platform.price_books.revise";
+            case ARCHIVE -> "platform.price_books.archive";
+            case DELETE_DRAFT -> "platform.price_books.delete_draft";
+        };
+    }
+
+    private ActionPermissionSnapshot actionPermissions() {
+        return new ActionPermissionSnapshot(adminMutationAuthorizer.currentActorGrantCeiling());
     }
 
     private boolean hasActivationBlocker(List<ProductPriceBlocker> blockers) {
@@ -648,6 +679,43 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
         }
     }
 
+    private Plan requirePriceDraftOwnerPlan(UUID id) {
+        Plan owner = requirePlan(id, true);
+        if (owner.getStatus() == PlanStatus.ARCHIVED) {
+            throw new InvalidStateException("Archived Plans cannot receive new price drafts.");
+        }
+        return owner;
+    }
+
+    private AddOn requirePriceDraftOwnerAddOn(UUID id) {
+        AddOn owner = requireAddOn(id, true);
+        if (owner.getStatus() == AddOnStatus.ARCHIVED) {
+            throw new InvalidStateException("Archived AddOns cannot receive new price drafts.");
+        }
+        return owner;
+    }
+
+    private QuotaPackage requirePriceDraftOwnerQuotaPackage(UUID id) {
+        QuotaPackage owner = requireQuotaPackage(id, true);
+        if (owner.getStatus() == QuotaPackageStatus.ARCHIVED) {
+            throw new InvalidStateException(
+                    "Archived capacity packages cannot receive new price drafts.");
+        }
+        return owner;
+    }
+
+    private void requireOwnerAllowsPriceDraft(ProductPrice price) {
+        boolean archived = switch (price.getOwnerType()) {
+            case PLAN -> price.getPlan().getStatus() == PlanStatus.ARCHIVED;
+            case ADD_ON -> price.getAddOn().getStatus() == AddOnStatus.ARCHIVED;
+            case QUOTA_PACKAGE -> price.getQuotaPackage().getStatus() == QuotaPackageStatus.ARCHIVED;
+        };
+        if (archived) {
+            throw new InvalidStateException(
+                    "Archived commercial products cannot create or edit price revisions.");
+        }
+    }
+
     private Plan requirePlan(UUID id, boolean lock) {
         return (lock ? planRepository.findByIdForUpdate(id) : planRepository.findById(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", id));
@@ -743,6 +811,20 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
             return action.get();
         } catch (IllegalStateException exception) {
             throw new InvalidStateException(exception.getMessage());
+        }
+    }
+
+    private static final class ActionPermissionSnapshot {
+        private final AdminMutationAuthorizer.GrantCeiling ceiling;
+        private final Map<String, Boolean> decisions = new HashMap<>();
+
+        private ActionPermissionSnapshot(AdminMutationAuthorizer.GrantCeiling ceiling) {
+            this.ceiling = ceiling;
+        }
+
+        private boolean has(String permissionCode) {
+            return decisions.computeIfAbsent(permissionCode,
+                    code -> ceiling.allows(code) && PermissionGuard.has(new Permission(code)));
         }
     }
 }

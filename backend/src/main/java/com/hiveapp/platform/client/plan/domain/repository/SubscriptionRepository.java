@@ -83,6 +83,14 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
             @Param("planIds") Collection<UUID> planIds,
             @Param("statuses") Collection<SubscriptionStatus> statuses);
 
+    @Query("""
+            select subscription.plan.id, count(subscription)
+            from Subscription subscription
+            where subscription.plan.id in :planIds
+            group by subscription.plan.id
+            """)
+    List<Object[]> countHistoryByPlanIds(@Param("planIds") Collection<UUID> planIds);
+
     default Optional<Subscription> findActiveByAccountId(UUID accountId) {
         return findTopByAccountIdAndStatusOrderByCreatedAtDesc(accountId, SubscriptionStatus.ACTIVE);
     }
