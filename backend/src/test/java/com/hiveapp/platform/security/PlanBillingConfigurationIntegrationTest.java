@@ -224,22 +224,27 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
 
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
                         Set.of("platform.plans"), List.of()))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
                 .andExpect(jsonPath("$.message")
-                        .value("One or more selected AddOns do not exist."));
+                        .value("The requested commercial selection is unavailable."))
+                .andExpect(jsonPath("$.details[0]")
+                        .value("PRODUCT_NOT_FOUND:PRODUCT_LIFECYCLE"));
 
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
                         Set.of("platform.unknown"), List.of()))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message")
-                        .value("One or more selected AddOns do not exist."));
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
+                .andExpect(jsonPath("$.details[0]")
+                        .value("PRODUCT_NOT_FOUND:PRODUCT_LIFECYCLE"));
 
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
                         Set.of(),
                         List.of(new QuotaPackageSelection("MISSING_PACKAGE", 1))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message")
-                        .value("One or more selected quota packages do not exist."));
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
+                .andExpect(jsonPath("$.details[0]")
+                        .value("PRODUCT_NOT_FOUND:PRODUCT_LIFECYCLE"));
 
         updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
                         Set.of(),

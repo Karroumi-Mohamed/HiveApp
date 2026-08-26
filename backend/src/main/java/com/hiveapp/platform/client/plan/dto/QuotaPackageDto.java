@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.shared.money.ExactDecimal;
 
@@ -24,5 +25,20 @@ public record QuotaPackageDto(
         QuotaPackageStatus status,
         long definitionVersion,
         Set<String> allowedPlanCodes,
-        Set<String> allowedAddOnCodes
-) {}
+        Set<String> allowedAddOnCodes,
+        ProductSalesVisibility salesVisibility,
+        long version
+) {
+    public QuotaPackageDto(
+            UUID id, String code, String name, String description, String featureCode,
+            String resource, long capacityPerUnit, BigDecimal price, String currencyCode,
+            BillingCycle billingCycle, boolean repeatable, int maximumQuantity,
+            QuotaPackageStatus status, long definitionVersion, Set<String> allowedPlanCodes,
+            Set<String> allowedAddOnCodes
+    ) {
+        this(id, code, name, description, featureCode, resource, capacityPerUnit, price,
+                currencyCode, billingCycle, repeatable, maximumQuantity, status,
+                definitionVersion, allowedPlanCodes, allowedAddOnCodes,
+                ProductSalesVisibility.PUBLIC, 0L);
+    }
+}

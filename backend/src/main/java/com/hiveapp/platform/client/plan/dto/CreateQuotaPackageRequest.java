@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.util.Set;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 
 public record CreateQuotaPackageRequest(
         @NotBlank @Size(max = 160) String name,
@@ -25,5 +26,17 @@ public record CreateQuotaPackageRequest(
         boolean repeatable,
         @Min(1) int maximumQuantity,
         Set<@NotBlank @Size(max = 100) String> allowedPlanCodes,
-        Set<@NotBlank @Size(max = 100) String> allowedAddOnCodes
-) {}
+        Set<@NotBlank @Size(max = 100) String> allowedAddOnCodes,
+        ProductSalesVisibility salesVisibility
+) {
+    public CreateQuotaPackageRequest(
+            String name, String description, String featureCode, String resource,
+            long capacityPerUnit, BigDecimal price, String currencyCode, BillingCycle billingCycle,
+            boolean repeatable, int maximumQuantity, Set<String> allowedPlanCodes,
+            Set<String> allowedAddOnCodes
+    ) {
+        this(name, description, featureCode, resource, capacityPerUnit, price, currencyCode,
+                billingCycle, repeatable, maximumQuantity, allowedPlanCodes, allowedAddOnCodes,
+                ProductSalesVisibility.PUBLIC);
+    }
+}

@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.domain.entity;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.money.Money;
@@ -72,6 +73,10 @@ public class QuotaPackage extends BaseEntity {
     @Column(nullable = false, length = 20)
     private QuotaPackageStatus status = QuotaPackageStatus.DRAFT;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sales_visibility", nullable = false, length = 20)
+    private ProductSalesVisibility salesVisibility = ProductSalesVisibility.PUBLIC;
+
     @Column(name = "definition_version", nullable = false)
     private long definitionVersion = 1;
 
@@ -120,5 +125,8 @@ public class QuotaPackage extends BaseEntity {
         setMoney(normalized);
         allowedPlanCodes = new LinkedHashSet<>(allowedPlanCodes == null ? Set.of() : allowedPlanCodes);
         allowedAddOnCodes = new LinkedHashSet<>(allowedAddOnCodes == null ? Set.of() : allowedAddOnCodes);
+        if (salesVisibility == null) {
+            throw new IllegalStateException("Quota package sales visibility is required");
+        }
     }
 }

@@ -1,7 +1,8 @@
 package com.hiveapp.platform.client.plan.api;
 
-import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.dto.PlanDto;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
+import com.hiveapp.platform.client.plan.service.PlanAdminReadModels;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,17 +15,15 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PlanController {
 
-    private final PlanRepository planRepository;
+    private final CommercialCatalogResolver commercialCatalogResolver;
+    private final PlanAdminReadModels readModels;
 
     @GetMapping
     public List<PlanDto> listActivePlans() {
-        return planRepository.findAll().stream()
-                .filter(p -> p.isActive())
-                .map(p -> new PlanDto(p.getId(), p.getCode(), p.getName(),
-                        p.getDescription(), p.getPrice(), p.getCurrencyCode(), p.getBillingCycle(), p.getStatus(),
-                        p.getLineageId(), p.getRevisionNumber(),
-                        p.getSourcePlan() != null ? p.getSourcePlan().getId() : null,
-                        p.getCreationReason()))
+        return commercialCatalogResolver.resolveCatalog(
+                        CommercialCatalogResolver.Audience.CLIENT_CATALOG).plans().stream()
+                .filter(CommercialCatalogResolver.PlanResolution::clientVisible)
+                .map(result -> readModels.toDto(result.plan()))
                 .toList();
     }
 }

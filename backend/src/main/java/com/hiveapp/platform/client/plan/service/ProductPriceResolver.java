@@ -57,6 +57,32 @@ public class ProductPriceResolver {
         return productPriceRepository.findAllApplicable(clock.instant());
     }
 
+    /** Resolves an exact tuple from an already-loaded catalogue without issuing another query. */
+    public ProductPrice resolveFromCatalog(
+            List<ProductPrice> catalogue,
+            ProductPriceOwnerType ownerType,
+            UUID ownerId,
+            String currencyCode,
+            BillingCycle billingCycle
+    ) {
+        validateCycle(billingCycle);
+        String normalizedCurrency = Money.normalizeCurrencyCode(currencyCode);
+        List<ProductPrice> matches = catalogue.stream()
+                .filter(price -> price.getOwnerType() == ownerType)
+                .filter(price -> ownerId.equals(price.ownerId()))
+                .filter(price -> normalizedCurrency.equals(price.getCurrencyCode()))
+                .filter(price -> billingCycle == price.getBillingCycle())
+                .toList();
+        if (matches.isEmpty()) {
+            throw new InvalidStateException("No active applicable " + billingCycle
+                    + " price exists for this product revision in " + normalizedCurrency + ".");
+        }
+        if (matches.size() > 1) {
+            throw new InvalidStateException("Multiple active applicable prices exist for the same product tuple.");
+        }
+        return matches.getFirst();
+    }
+
     @Transactional(readOnly = true)
     public boolean hasActiveOverlap(ProductPrice candidate) {
         if (candidate.getId() == null) {

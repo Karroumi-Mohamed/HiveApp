@@ -9,6 +9,7 @@ import com.hiveapp.platform.client.plan.domain.constant.PlanCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
+import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionCheckoutStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
@@ -18,6 +19,7 @@ import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
@@ -49,7 +51,10 @@ import com.hiveapp.platform.client.plan.dto.AddOnDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 import com.hiveapp.platform.client.plan.service.PlanAdminReadModels;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
+import com.hiveapp.platform.client.plan.service.ProductPriceResolver;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
+import com.hiveapp.platform.registry.definition.CommercialAvailabilityFeature;
 import com.hiveapp.platform.registry.definition.PlansFeature;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
 import com.hiveapp.shared.exception.BusinessException;
@@ -102,6 +107,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final QuotaPackageRepository quotaPackageRepository;
     private final com.hiveapp.platform.client.plan.service.ProductPriceCompatibilityService
             productPriceCompatibilityService;
+    private final ProductPriceResolver productPriceResolver;
 
     @Override
     @PermissionNode(key = "overview", description = "View commercial operations overview")
@@ -180,7 +186,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 historicalSubscribers,
                 currentRecurringPrice.amount(),
                 currentRecurringPrice.currencyCode(),
-                warnings(plan, planFeatures, currentSubscribers, historicalSubscribers)
+                warnings(plan, planFeatures, currentSubscribers, historicalSubscribers),
+                plan.getExtensionPolicy(), plan.getSalesVisibility(), plan.getVersion()
         );
     }
 
@@ -201,8 +208,23 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new ForbiddenException(
                     "Composing a plan at creation requires the assign-feature permission.");
         }
+        var extensionPolicy = request.extensionPolicy() == null
+                ? com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy.OPEN_COMPATIBLE
+                : request.extensionPolicy();
+        var salesVisibility = request.salesVisibility() == null
+                ? com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility.PUBLIC
+                : request.salesVisibility();
+        if (extensionPolicy
+                != com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy.OPEN_COMPATIBLE
+                || salesVisibility
+                != com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility.PUBLIC) {
+            requireCommercialAvailabilityPermission(
+                    "update_plan_policy", "set a non-default Plan availability policy at creation");
+        }
         Plan plan = saveNewPlan(code, request.name(), request.description(), price, request.billingCycle(),
                 null, UUID.randomUUID(), 1, PlanCreationReason.CREATED);
+        plan.setExtensionPolicy(extensionPolicy);
+        plan.setSalesVisibility(salesVisibility);
         // Same transaction as the plan itself: one invalid feature rolls everything back, so no
         // partial draft can survive that differs from what the operator reviewed.
         for (AssignPlanFeatureRequest featureRequest : features) {
@@ -463,6 +485,15 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 request.name(), "ADD_ON", candidate -> addOnRepository.findByCode(candidate).isPresent());
         AddOn addOn = new AddOn();
         addOn.setCode(code);
+        var salesVisibility = request.salesVisibility() == null
+                ? com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility.PUBLIC
+                : request.salesVisibility();
+        if (salesVisibility
+                != com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility.PUBLIC) {
+            requireCommercialAvailabilityPermission(
+                    "update_add_on_visibility", "set direct-only AddOn visibility at creation");
+        }
+        addOn.setSalesVisibility(salesVisibility);
         applyAddOnBasics(addOn, request.name(), request.description(), request.price(),
                 request.currencyCode(), request.billingCycle(), request.allowedPlanCodes(),
                 request.blockedPlanCodes(), request.dependencyCodes(), request.exclusionCodes());
@@ -504,6 +535,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         revision.setRevisionNumber(nextRevision);
         revision.setSourceAddOn(source);
         revision.setCreationReason(AddOnCreationReason.REVISED);
+        revision.setSalesVisibility(source.getSalesVisibility());
 
         AddOn savedRevision;
         try {
@@ -567,7 +599,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new BusinessException("An AddOn draft must be published or deleted.");
         }
         if (targetStatus == AddOnStatus.ACTIVE) {
-            validateAddOnActivation(addOn);
+            // The compatibility default is part of the exact price book. Create it first so
+            // activation validates ProductPrice tuples, not the mutable legacy projection.
+            // A validation failure rolls the row back with this transaction.
+            productPriceCompatibilityService.ensurePublishedDefault(addOn);
+            validateAddOnActivation(addOn, productPriceResolver.availableCatalogPrices());
             List<AddOn> lineage = addOnRepository.findLineageForUpdate(addOn.getLineageId());
             List<AddOn> previouslyActive = lineage.stream()
                     .filter(candidate -> !candidate.getId().equals(addOn.getId()))
@@ -580,9 +616,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         }
         addOn.setStatus(targetStatus);
         addOnRepository.saveAndFlush(addOn);
-        if (targetStatus == AddOnStatus.ACTIVE) {
-            productPriceCompatibilityService.ensurePublishedDefault(addOn);
-        }
         return readModels.toDto(addOnRepository.findDetailedById(addOnId).orElseThrow());
     }
 
@@ -686,6 +719,15 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 request.name(), "QUOTA_PACKAGE", candidate -> quotaPackageRepository.findByCode(candidate).isPresent());
         QuotaPackage item = new QuotaPackage();
         item.setCode(code);
+        var salesVisibility = request.salesVisibility() == null
+                ? com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility.PUBLIC
+                : request.salesVisibility();
+        if (salesVisibility
+                != com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility.PUBLIC) {
+            requireCommercialAvailabilityPermission(
+                    "update_quota_visibility", "set direct-only quota-package visibility at creation");
+        }
+        item.setSalesVisibility(salesVisibility);
         applyQuotaPackageBasics(
                 item, request.name(), request.description(), request.featureCode(), request.resource(),
                 request.capacityPerUnit(), request.price(), request.currencyCode(), request.billingCycle(),
@@ -731,13 +773,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new BusinessException("A draft quota package must be activated or archived.");
         }
         if (targetStatus == QuotaPackageStatus.ACTIVE) {
-            validateQuotaPackageActivation(item);
+            productPriceCompatibilityService.ensurePublishedDefault(item);
+            validateQuotaPackageActivation(item, productPriceResolver.availableCatalogPrices());
         }
         item.setStatus(targetStatus);
         quotaPackageRepository.saveAndFlush(item);
-        if (targetStatus == QuotaPackageStatus.ACTIVE) {
-            productPriceCompatibilityService.ensurePublishedDefault(item);
-        }
         return readModels.toDto(quotaPackageRepository.findDetailedById(quotaPackageId).orElseThrow());
     }
 
@@ -793,6 +833,10 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         plan.setLineageId(lineageId);
         plan.setRevisionNumber(revisionNumber);
         plan.setCreationReason(creationReason);
+        if (source != null) {
+            plan.setExtensionPolicy(source.getExtensionPolicy());
+            plan.setSalesVisibility(source.getSalesVisibility());
+        }
         try {
             return planRepository.saveAndFlush(plan);
         } catch (DataIntegrityViolationException exception) {
@@ -954,18 +998,25 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         item.setAllowedAddOnCodes(addOns);
     }
 
-    private void validateQuotaPackageActivation(QuotaPackage item) {
-        if (item.getAllowedPlanCodes().isEmpty() && item.getAllowedAddOnCodes().isEmpty()) {
-            throw new BusinessException("A quota package must be attached to at least one Plan or AddOn.");
+    private void validateQuotaPackageActivation(
+            QuotaPackage item,
+            List<ProductPrice> catalogPrices
+    ) {
+        // Empty targeting is the OPEN_COMPATIBLE default: the central catalogue resolver still
+        // requires an exact already-entitled finite quota before the package can be selected.
+        // Non-empty Plan/AddOn targets only narrow that mandatory compatibility set.
+        Set<CommercialCatalogResolver.PriceTuple> packageTuples = priceTuples(
+                catalogPrices, ProductPriceOwnerType.QUOTA_PACKAGE, item.getId());
+        if (packageTuples.isEmpty()) {
+            throw new BusinessException("A quota package requires at least one active price before activation.");
         }
         for (String planCode : item.getAllowedPlanCodes()) {
             Plan plan = planRepository.findByCode(planCode)
                     .orElseThrow(() -> new BusinessException("Allowed Plan no longer exists: " + planCode));
-            if (!plan.isActive()
-                    || !item.getCurrencyCode().equals(plan.getCurrencyCode())
-                    || item.getBillingCycle() != plan.getBillingCycle()) {
+            if (!plan.isActive() || java.util.Collections.disjoint(
+                    packageTuples, priceTuples(catalogPrices, ProductPriceOwnerType.PLAN, plan.getId()))) {
                 throw new BusinessException(
-                        "Plan " + planCode + " is not active or uses incompatible currency/billing cycle.");
+                        "Plan " + planCode + " is not active or has no compatible active price tuple.");
             }
             PlanFeature owner = planFeatureRepository
                     .findByPlanIdAndFeature_Code(plan.getId(), item.getFeature().getCode())
@@ -982,11 +1033,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         for (String addOnCode : item.getAllowedAddOnCodes()) {
             AddOn addOn = addOnRepository.findByCode(addOnCode)
                     .orElseThrow(() -> new BusinessException("Allowed AddOn no longer exists: " + addOnCode));
-            if (!addOn.isActive()
-                    || !item.getCurrencyCode().equals(addOn.getCurrencyCode())
-                    || item.getBillingCycle() != addOn.getBillingCycle()) {
+            Set<CommercialCatalogResolver.PriceTuple> addOnTuples = compatibleAddOnPriceTuples(
+                    addOn, catalogPrices, new LinkedHashSet<>());
+            if (!addOn.isActive() || java.util.Collections.disjoint(packageTuples, addOnTuples)) {
                 throw new BusinessException(
-                        "AddOn " + addOnCode + " is not active or uses incompatible currency/billing cycle.");
+                        "AddOn " + addOnCode + " is not active or has no compatible active price tuple.");
             }
             AddOnFeature owner = addOnFeatureRepository
                     .findByAddOnIdAndFeature_Code(addOn.getId(), item.getFeature().getCode())
@@ -1069,72 +1120,107 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         addOn.setExclusionCodes(exclusions);
     }
 
-    private void validateAddOnActivation(AddOn addOn) {
+    private void validateAddOnActivation(AddOn addOn, List<ProductPrice> catalogPrices) {
         List<AddOnFeature> features = addOnFeatureRepository.findAllByAddOnId(addOn.getId());
         if (features.isEmpty()) {
             throw new BusinessException("An AddOn requires at least one feature before activation.");
-        }
-        for (String dependencyCode : addOn.getDependencyCodes()) {
-            AddOn dependency = addOnRepository.findByCode(dependencyCode)
-                    .orElseThrow(() -> new BusinessException("Missing AddOn dependency " + dependencyCode + "."));
-            if (!dependency.isActive()) {
-                throw new BusinessException("AddOn dependency " + dependencyCode + " must be ACTIVE.");
-            }
         }
         for (AddOnFeature feature : features) {
             billingConfigurationValidator.validateAddOnFeature(
                     feature.getFeature().getCode(), feature.getQuotaConfigs(), addOn.getCurrencyCode());
         }
-        List<Plan> availablePlans = addOn.getAllowedPlanCodes().isEmpty()
-                ? planRepository.findAll().stream()
-                        .filter(Plan::isActive)
-                        .filter(plan -> !addOn.getBlockedPlanCodes().contains(plan.getCode()))
-                        .filter(plan -> addOn.getCurrencyCode().equals(plan.getCurrencyCode()))
-                        .filter(plan -> addOn.getBillingCycle() == plan.getBillingCycle())
-                        .toList()
-                : addOn.getAllowedPlanCodes().stream()
-                        .map(planCode -> planRepository.findByCode(planCode)
-                                .orElseThrow(() -> new BusinessException(
-                                        "Allowed Plan no longer exists: " + planCode)))
-                        .toList();
-        if (availablePlans.isEmpty()) {
-            throw new BusinessException("An AddOn must be available to at least one active compatible Plan.");
-        }
-        for (Plan plan : availablePlans) {
-            if (!plan.isActive()
-                    || !addOn.getCurrencyCode().equals(plan.getCurrencyCode())
-                    || addOn.getBillingCycle() != plan.getBillingCycle()) {
+        if (addOn.getAllowedPlanCodes().isEmpty()) {
+            List<Plan> candidates = planRepository.findAll().stream()
+                    .filter(Plan::isActive)
+                    .filter(plan -> !addOn.getBlockedPlanCodes().contains(plan.getCode()))
+                    .toList();
+            boolean compatible = candidates.stream().anyMatch(plan -> {
+                try {
+                    requireAddOnAvailableOnPlan(addOn, plan, catalogPrices, new LinkedHashSet<>(), true);
+                    return true;
+                } catch (BusinessException ignored) {
+                    return false;
+                }
+            });
+            if (!compatible) {
                 throw new BusinessException(
-                        "Plan " + plan.getCode() + " is not active or uses incompatible currency/billing cycle.");
+                        "An AddOn must be available to at least one active Plan with a shared active price tuple.");
             }
-            requirePlanSupportsAddOn(plan, features);
-            requireDependenciesAvailableOnPlan(addOn, plan, new LinkedHashSet<>());
+            return;
+        }
+        for (String planCode : addOn.getAllowedPlanCodes()) {
+            Plan plan = planRepository.findByCode(planCode)
+                    .orElseThrow(() -> new BusinessException("Allowed Plan no longer exists: " + planCode));
+            requireAddOnAvailableOnPlan(addOn, plan, catalogPrices, new LinkedHashSet<>(), true);
         }
     }
 
-    private void requireDependenciesAvailableOnPlan(AddOn addOn, Plan plan, Set<String> visited) {
+    private Set<CommercialCatalogResolver.PriceTuple> requireAddOnAvailableOnPlan(
+            AddOn addOn,
+            Plan plan,
+            List<ProductPrice> catalogPrices,
+            Set<String> visited,
+            boolean root
+    ) {
         if (!visited.add(addOn.getCode())) {
             throw new BusinessException("Cyclic AddOn dependency detected at " + addOn.getCode() + ".");
         }
+        boolean allowed = addOn.getAllowedPlanCodes().isEmpty()
+                || addOn.getAllowedPlanCodes().contains(plan.getCode());
+        if (!plan.isActive() || (!root && !addOn.isActive()) || !allowed
+                || addOn.getBlockedPlanCodes().contains(plan.getCode())) {
+            throw new BusinessException("AddOn " + addOn.getCode()
+                    + " is not available for Plan " + plan.getCode() + ".");
+        }
+        requirePlanSupportsAddOn(plan, addOnFeatureRepository.findAllByAddOnId(addOn.getId()));
+        Set<CommercialCatalogResolver.PriceTuple> supported = new LinkedHashSet<>(priceTuples(
+                catalogPrices, ProductPriceOwnerType.ADD_ON, addOn.getId()));
+        supported.retainAll(priceTuples(catalogPrices, ProductPriceOwnerType.PLAN, plan.getId()));
         for (String dependencyCode : addOn.getDependencyCodes()) {
             AddOn dependency = addOnRepository.findByCode(dependencyCode)
                     .orElseThrow(() -> new BusinessException("Missing AddOn dependency " + dependencyCode + "."));
-            boolean allowed = dependency.getAllowedPlanCodes().isEmpty()
-                    || dependency.getAllowedPlanCodes().contains(plan.getCode());
-            if (!dependency.isActive()
-                    || !allowed
-                    || dependency.getBlockedPlanCodes().contains(plan.getCode())
-                    || !dependency.getCurrencyCode().equals(plan.getCurrencyCode())
-                    || dependency.getBillingCycle() != plan.getBillingCycle()) {
-                throw new BusinessException(
-                        "AddOn dependency " + dependencyCode + " is not available for Plan "
-                                + plan.getCode() + ".");
-            }
-            requirePlanSupportsAddOn(
-                    plan, addOnFeatureRepository.findAllByAddOnId(dependency.getId()));
-            requireDependenciesAvailableOnPlan(dependency, plan, visited);
+            supported.retainAll(requireAddOnAvailableOnPlan(
+                    dependency, plan, catalogPrices, visited, false));
         }
         visited.remove(addOn.getCode());
+        if (supported.isEmpty()) {
+            throw new BusinessException("AddOn " + addOn.getCode() + " and Plan " + plan.getCode()
+                    + " have no shared active price tuple across their dependency closure.");
+        }
+        return Set.copyOf(supported);
+    }
+
+    private Set<CommercialCatalogResolver.PriceTuple> compatibleAddOnPriceTuples(
+            AddOn addOn,
+            List<ProductPrice> catalogPrices,
+            Set<String> visited
+    ) {
+        if (!visited.add(addOn.getCode())) {
+            throw new BusinessException("Cyclic AddOn dependency detected at " + addOn.getCode() + ".");
+        }
+        if (!addOn.isActive()) {
+            throw new BusinessException("AddOn dependency " + addOn.getCode() + " must be ACTIVE.");
+        }
+        Set<CommercialCatalogResolver.PriceTuple> supported = new LinkedHashSet<>(priceTuples(
+                catalogPrices, ProductPriceOwnerType.ADD_ON, addOn.getId()));
+        for (String dependencyCode : addOn.getDependencyCodes()) {
+            AddOn dependency = addOnRepository.findByCode(dependencyCode)
+                    .orElseThrow(() -> new BusinessException("Missing AddOn dependency " + dependencyCode + "."));
+            supported.retainAll(compatibleAddOnPriceTuples(dependency, catalogPrices, visited));
+        }
+        visited.remove(addOn.getCode());
+        return Set.copyOf(supported);
+    }
+
+    private Set<CommercialCatalogResolver.PriceTuple> priceTuples(
+            List<ProductPrice> catalogPrices,
+            ProductPriceOwnerType ownerType,
+            UUID ownerId
+    ) {
+        return catalogPrices.stream()
+                .filter(price -> price.getOwnerType() == ownerType && ownerId.equals(price.ownerId()))
+                .map(CommercialCatalogResolver.PriceTuple::from)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     }
 
     private void requirePlanSupportsAddOn(Plan plan, List<AddOnFeature> features) {
@@ -1173,6 +1259,13 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         Set<String> union = new LinkedHashSet<>(left);
         union.addAll(right);
         return union;
+    }
+
+    private void requireCommercialAvailabilityPermission(String node, String operation) {
+        String permissionCode = CommercialAvailabilityFeature.CODE + "." + node;
+        if (!adminMutationAuthorizer.currentActorGrantCeiling().allows(permissionCode)) {
+            throw new ForbiddenException(operation + " requires " + permissionCode + ".");
+        }
     }
 
     private Money validatePlanBasics(

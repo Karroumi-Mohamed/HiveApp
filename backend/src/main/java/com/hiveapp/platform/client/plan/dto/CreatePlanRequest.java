@@ -12,6 +12,8 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.util.List;
+import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 
 public record CreatePlanRequest(
         @NotBlank @Size(max = 160) String name,
@@ -24,7 +26,9 @@ public record CreatePlanRequest(
          * feature rolls the whole creation back, so the draft that exists is always exactly the
          * draft the operator approved.
          */
-        @Valid @Size(max = 100) List<AssignPlanFeatureRequest> features
+        @Valid @Size(max = 100) List<AssignPlanFeatureRequest> features,
+        PlanExtensionPolicy extensionPolicy,
+        ProductSalesVisibility salesVisibility
 ) {
     /** Convenience for callers that create a bare plan without composition. */
     public CreatePlanRequest(
@@ -33,6 +37,14 @@ public record CreatePlanRequest(
             BigDecimal price,
             String currencyCode,
             BillingCycle billingCycle) {
-        this(name, description, price, currencyCode, billingCycle, List.of());
+        this(name, description, price, currencyCode, billingCycle, List.of(),
+                PlanExtensionPolicy.OPEN_COMPATIBLE, ProductSalesVisibility.PUBLIC);
+    }
+
+    public CreatePlanRequest(
+            String name, String description, BigDecimal price, String currencyCode,
+            BillingCycle billingCycle, List<AssignPlanFeatureRequest> features) {
+        this(name, description, price, currencyCode, billingCycle, features,
+                PlanExtensionPolicy.OPEN_COMPATIBLE, ProductSalesVisibility.PUBLIC);
     }
 }

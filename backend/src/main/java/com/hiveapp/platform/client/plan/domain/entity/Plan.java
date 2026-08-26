@@ -3,6 +3,8 @@ package com.hiveapp.platform.client.plan.domain.entity;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
+import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.money.Money;
 import jakarta.persistence.*;
@@ -37,6 +39,14 @@ public class Plan extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private PlanStatus status = PlanStatus.DRAFT;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "extension_policy", nullable = false, length = 24)
+    private PlanExtensionPolicy extensionPolicy = PlanExtensionPolicy.OPEN_COMPATIBLE;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sales_visibility", nullable = false, length = 20)
+    private ProductSalesVisibility salesVisibility = ProductSalesVisibility.PUBLIC;
 
     @Column(name = "lineage_id", nullable = false, updatable = false)
     private java.util.UUID lineageId = java.util.UUID.randomUUID();
@@ -78,6 +88,9 @@ public class Plan extends BaseEntity {
         }
         if (lineageId == null || revisionNumber < 1 || creationReason == null) {
             throw new IllegalStateException("Plan lineage identity is required");
+        }
+        if (extensionPolicy == null || salesVisibility == null) {
+            throw new IllegalStateException("Plan commercial availability is required");
         }
     }
 }

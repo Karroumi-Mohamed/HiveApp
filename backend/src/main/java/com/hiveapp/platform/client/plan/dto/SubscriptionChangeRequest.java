@@ -9,7 +9,7 @@ import java.util.Set;
 
 public record SubscriptionChangeRequest(
         @NotBlank String targetPlanCode,
-        Set<String> addOnCodes,
+        Set<@NotBlank String> addOnCodes,
         @Valid List<QuotaPackageSelection> quotaPackages,
         SubscriptionChangeTiming timing,
         @Valid ProductPriceSelectionRequest planPriceSelection

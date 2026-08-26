@@ -15,6 +15,7 @@ import java.util.UUID;
 
 public interface AddOnRepository extends JpaRepository<AddOn, UUID> {
     Optional<AddOn> findByCode(String code);
+    @EntityGraph(attributePaths = {"features", "features.feature"})
     List<AddOn> findAllByCodeIn(Collection<String> codes);
 
     @EntityGraph(attributePaths = {"features", "features.feature"})
@@ -26,6 +27,11 @@ public interface AddOnRepository extends JpaRepository<AddOn, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select addOn from AddOn addOn where addOn.id = :addOnId")
     Optional<AddOn> findByIdForUpdate(@Param("addOnId") UUID addOnId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"features", "features.feature"})
+    @Query("select distinct addOn from AddOn addOn where addOn.code in :codes order by addOn.id")
+    List<AddOn> findAllByCodeInForUpdate(@Param("codes") Collection<String> codes);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select addOn from AddOn addOn where addOn.lineageId = :lineageId order by addOn.revisionNumber")
