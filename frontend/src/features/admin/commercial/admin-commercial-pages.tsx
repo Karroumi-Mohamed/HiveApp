@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { ProductPricePanel } from "@/features/admin/price-books/product-price-panel";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
@@ -812,6 +813,7 @@ export function AdminAddOnsPage() {
             />
           </section>
         </div>
+        <ProductPricePanel ownerId={selected.id} ownerType="ADD_ON" />
         <section className="overflow-hidden rounded-xl border bg-card">
           <div className="flex items-center justify-between border-b p-4">
             <div>
@@ -1250,6 +1252,7 @@ export function AdminQuotaPackagesPage() {
             </dl>
           </section>
         </div>
+        <ProductPricePanel ownerId={selected.id} ownerType="QUOTA_PACKAGE" />
         {session.can(adminPermissions.quotaPackagesTransition) ? (
           <section className="rounded-xl border bg-card p-5">
             <h2 className="text-sm font-semibold">Cycle de vie</h2>

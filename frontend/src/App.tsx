@@ -24,6 +24,9 @@ import { AdminOperatorsPage } from "@/features/admin/operators/admin-operators-p
 import { AdminOverviewPage } from "@/features/admin/overview/admin-overview-page";
 import { AdminPlanCreatePage } from "@/features/admin/plans/admin-plan-create-page";
 import { AdminPlansPage } from "@/features/admin/plans/admin-plans-page";
+import { AdminProductPriceCreatePage } from "@/features/admin/price-books/admin-product-price-create-page";
+import { AdminProductPriceDetailPage } from "@/features/admin/price-books/admin-product-price-detail-page";
+import { AdminProductPricesPage } from "@/features/admin/price-books/admin-product-prices-page";
 import { AdminFeaturesPage } from "@/features/admin/registry/admin-features-page";
 import { AdminRoleDetailPage } from "@/features/admin/roles/admin-role-detail-page";
 import { AdminRolesPage } from "@/features/admin/roles/admin-roles-page";
@@ -179,6 +182,30 @@ const router = createBrowserRouter([
         element: (
           <AdminReadPermissionGate allOf={[adminPermissions.quotaPackagesReadDetail]}>
             <AdminQuotaPackagesPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "price-books",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.priceBooksList]}>
+            <AdminProductPricesPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "price-books/new",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.priceBooksCreate]}>
+            <AdminProductPriceCreatePage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "price-books/:priceId/:tab?",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.priceBooksRead]}>
+            <AdminProductPriceDetailPage />
           </AdminReadPermissionGate>
         ),
       },

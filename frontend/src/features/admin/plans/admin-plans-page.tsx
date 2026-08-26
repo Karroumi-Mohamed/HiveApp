@@ -51,7 +51,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { PlanSchema } from "@/features/admin/plans/admin-plan-schema";
-
 import {
   addOnAvailabilityLabel,
   cycleText,
@@ -62,6 +61,7 @@ import {
   statusText,
 } from "@/features/admin/plans/plan-presentation";
 import { quotaLinesOf } from "@/features/admin/plans/plan-schema-model";
+import { ProductPricePanel } from "@/features/admin/price-books/product-price-panel";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
@@ -1084,6 +1084,9 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
           ...(session.can(adminPermissions.plansListSubscribers)
             ? [{ label: "Abonnés", to: `/admin/plans/${id}/subscribers`, count: data.currentSubscriberCount }]
             : []),
+          ...(session.can(adminPermissions.priceBooksList)
+            ? [{ label: "Tarifs", to: `/admin/plans/${id}/prices` }]
+            : []),
           { label: "Cycle de vie", to: `/admin/plans/${id}/lifecycle` },
         ]}
       />
@@ -1093,6 +1096,8 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
         <PlanSchema plan={data} />
       ) : tab === "subscribers" && session.can(adminPermissions.plansListSubscribers) ? (
         <PlanSubscribers plan={data} />
+      ) : tab === "prices" && session.can(adminPermissions.priceBooksList) ? (
+        <ProductPricePanel ownerId={data.id} ownerType="PLAN" />
       ) : tab === "lifecycle" ? (
         <div className="space-y-6">
           {session.can(adminPermissions.plansTransition) ? (

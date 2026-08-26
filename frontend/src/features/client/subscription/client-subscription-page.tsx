@@ -3,7 +3,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { clientApi } from "@/api/client-api";
-import type { ClientPlanCatalog, SubscriptionChangePreview } from "@/api/contracts";
+import type { ClientPlanCatalog, SubscriptionChangeInput, SubscriptionChangePreview } from "@/api/contracts";
 import { clientPermissions } from "@/auth/permissions";
 import { useClientSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -16,6 +16,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  currentCatalogPrice,
+  defaultCatalogPrice,
+  initialCatalogPlanCode,
+  matchingCatalogPrice,
+  pruneCommercialSelection,
+  sameStringSet,
+} from "@/features/commercial/catalog-price-rules";
 import {
   clientCommercialKeys,
   commercialQueryEnabled,
@@ -154,8 +162,13 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
   const session = useClientSession();
   const queryClient = useQueryClient();
   const current = catalog.currentSubscription;
-  const [planCode, setPlanCode] = useState(current?.planCode ?? catalog.plans[0]?.code ?? "");
+  const [planCode, setPlanCode] = useState(() => initialCatalogPlanCode(catalog.plans, current?.planCode));
   const plan = catalog.plans.find((item) => item.code === planCode);
+  const initialPrice = plan ? currentCatalogPrice(plan.prices, current) : null;
+  const [planPriceId, setPlanPriceId] = useState(initialPrice?.priceEntryId ?? "");
+  const selectedPlanPrice = plan
+    ? (plan.prices.find((item) => item.priceEntryId === planPriceId) ?? defaultCatalogPrice(plan.prices))
+    : null;
   const [addOns, setAddOns] = useState<string[]>(current?.addOnCodes ?? []);
   const [quantities, setQuantities] = useState<Record<string, number>>(
     Object.fromEntries((current?.quotaPackages ?? []).map((item) => [item.packageCode, item.quantity])),
@@ -166,27 +179,78 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
   useEffect(() => {
     setAddOns(current?.addOnCodes ?? []);
     setQuantities(Object.fromEntries((current?.quotaPackages ?? []).map((item) => [item.packageCode, item.quantity])));
-  }, [current]);
-  const request = useMemo(
-    () => ({
-      targetPlanCode: planCode,
-      addOnCodes: addOns,
-      quotaPackages: Object.entries(quantities)
-        .filter(([, quantity]) => quantity > 0)
-        .map(([packageCode, quantity]) => ({ packageCode, quantity })),
-      timing,
-    }),
-    [planCode, addOns, quantities, timing],
+  }, [current?.addOnCodes, current?.quotaPackages]);
+  useEffect(() => {
+    if (!plan) return;
+    const nextPrice = defaultCatalogPrice(plan.prices, selectedPlanPrice);
+    if (nextPrice && nextPrice.priceEntryId !== planPriceId) setPlanPriceId(nextPrice.priceEntryId);
+  }, [plan, planPriceId, selectedPlanPrice]);
+
+  const compatibleAddOns = useMemo(
+    () => plan?.addOns.filter((item) => matchingCatalogPrice(item.prices, selectedPlanPrice)) ?? [],
+    [plan, selectedPlanPrice],
+  );
+  const compatibleQuotaPackages = useMemo(
+    () =>
+      plan?.quotaPackages.filter(
+        (item) =>
+          matchingCatalogPrice(item.prices, selectedPlanPrice) &&
+          (item.allowedPlanCodes.includes(plan.code) || item.allowedAddOnCodes.some((code) => addOns.includes(code))),
+      ) ?? [],
+    [addOns, plan, selectedPlanPrice],
+  );
+  useEffect(() => {
+    if (!plan) return;
+    setAddOns((currentItems) => {
+      const next = pruneCommercialSelection(currentItems, plan.addOns, selectedPlanPrice);
+      return sameStringSet(currentItems, next) ? currentItems : next;
+    });
+    const compatiblePackageCodes = new Set(compatibleQuotaPackages.map((item) => item.code));
+    setQuantities((currentItems) => {
+      const next = Object.fromEntries(
+        Object.entries(currentItems).filter(([code, quantity]) => compatiblePackageCodes.has(code) && quantity > 0),
+      );
+      const same =
+        Object.keys(currentItems).length === Object.keys(next).length &&
+        Object.entries(next).every(([code, quantity]) => currentItems[code] === quantity);
+      return same ? currentItems : next;
+    });
+  }, [compatibleQuotaPackages, plan, selectedPlanPrice]);
+
+  const request = useMemo<SubscriptionChangeInput | null>(
+    () =>
+      selectedPlanPrice
+        ? {
+            targetPlanCode: planCode,
+            addOnCodes: addOns,
+            quotaPackages: Object.entries(quantities)
+              .filter(([, quantity]) => quantity > 0)
+              .map(([packageCode, quantity]) => ({ packageCode, quantity })),
+            timing,
+            planPriceSelection: {
+              priceEntryId: selectedPlanPrice.priceEntryId,
+              currencyCode: selectedPlanPrice.currencyCode,
+              billingCycle: selectedPlanPrice.billingCycle,
+            },
+          }
+        : null,
+    [planCode, addOns, quantities, timing, selectedPlanPrice],
   );
   const previewMutation = useMutation({
-    mutationFn: () => clientApi.previewSubscriptionChange(request),
+    mutationFn: () => {
+      if (!request) throw new Error("Aucun tarif disponible");
+      return clientApi.previewSubscriptionChange(request);
+    },
     onSuccess: (data) => {
       setPreview(data);
       setPreviewOpen(true);
     },
   });
   const apply = useMutation({
-    mutationFn: () => clientApi.applySubscriptionChange(request),
+    mutationFn: () => {
+      if (!request) throw new Error("Aucun tarif disponible");
+      return clientApi.applySubscriptionChange(request);
+    },
     onSuccess: () => {
       void invalidateClientCommercial(queryClient);
       setPreviewOpen(false);
@@ -197,32 +261,77 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
   return (
     <div className="grid gap-6 xl:grid-cols-[0.72fr_1.28fr]">
       <aside className="space-y-2">
-        {catalog.plans.map((item) => (
-          <button
-            className={`w-full rounded-xl border p-4 text-start transition-colors ${item.code === planCode ? "border-primary bg-primary/5" : "bg-card hover:border-foreground/20"}`}
-            key={item.code}
-            onClick={() => setPlanCode(item.code)}
-            type="button"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="font-semibold">{item.name}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{item.billingCycle}</p>
+        {catalog.plans.map((item) => {
+          const startingPrice = defaultCatalogPrice(item.prices);
+          return (
+            <button
+              className={`w-full rounded-xl border p-4 text-start transition-colors ${item.code === planCode ? "border-primary bg-primary/5" : "bg-card hover:border-foreground/20"}`}
+              disabled={!item.prices.length}
+              key={item.code}
+              onClick={() => {
+                const nextPrice = defaultCatalogPrice(item.prices);
+                setPlanCode(item.code);
+                setPlanPriceId(nextPrice?.priceEntryId ?? "");
+                setAddOns(item.current ? (current?.addOnCodes ?? []) : []);
+                setQuantities(
+                  item.current
+                    ? Object.fromEntries(
+                        (current?.quotaPackages ?? []).map((entry) => [entry.packageCode, entry.quantity]),
+                      )
+                    : {},
+                );
+                setPreview(null);
+              }}
+              type="button"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold">{item.name}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {item.prices.length
+                      ? `${item.prices.length} option${item.prices.length > 1 ? "s" : ""} tarifaire${item.prices.length > 1 ? "s" : ""}`
+                      : "Indisponible"}
+                  </p>
+                </div>
+                {item.current ? <StatusBadge tone="success">Actuel</StatusBadge> : null}
               </div>
-              {item.current ? <StatusBadge tone="success">Actuel</StatusBadge> : null}
-            </div>
-            <p className="mt-4 text-lg font-semibold">{money(item.basePrice, item.currencyCode)}</p>
-          </button>
-        ))}
+              {startingPrice ? (
+                <p className="mt-4 text-lg font-semibold">
+                  <span className="me-1 text-xs font-normal text-muted-foreground">À partir de</span>
+                  {money(startingPrice.amount, startingPrice.currencyCode)}
+                </p>
+              ) : null}
+            </button>
+          );
+        })}
       </aside>
       <div className="space-y-6">
         <section className="rounded-xl border bg-card p-5">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold">{plan.name}</h2>
               {plan.description ? <p className="mt-2 text-sm text-muted-foreground">{plan.description}</p> : null}
             </div>
-            <p className="text-lg font-semibold">{money(plan.basePrice, plan.currencyCode)}</p>
+            {selectedPlanPrice ? (
+              <div className="w-full space-y-2 sm:w-64">
+                <Label>Facturation</Label>
+                <Select onValueChange={setPlanPriceId} value={selectedPlanPrice.priceEntryId}>
+                  <SelectTrigger aria-label="Tarif du forfait">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {plan.prices.map((item) => (
+                      <SelectItem key={item.priceEntryId} value={item.priceEntryId}>
+                        {item.billingCycle === "MONTHLY" ? "Mensuel" : "Annuel"} ·{" "}
+                        {money(item.amount, item.currencyCode)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <p className="text-sm text-destructive">Aucun tarif actif</p>
+            )}
           </div>
           <div className="mt-6 columns-1 gap-x-8 sm:columns-2">
             {plan.features.map((feature) => (
@@ -238,53 +347,61 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             ))}
           </div>
         </section>
-        {plan.addOns.length ? (
+        {compatibleAddOns.length ? (
           <section className="rounded-xl border bg-card p-5">
             <h2 className="text-sm font-semibold">Add-ons disponibles</h2>
             <div className="mt-4 divide-y rounded-lg border">
-              {plan.addOns.map((item) => (
-                <div className="flex items-start gap-3 p-4" key={item.code}>
-                  <Checkbox
-                    checked={addOns.includes(item.code)}
-                    id={`client-addon-${item.code}`}
-                    onCheckedChange={(checked) =>
-                      setAddOns((currentItems) =>
-                        checked
-                          ? [...new Set([...currentItems, item.code])]
-                          : currentItems.filter((code) => code !== item.code),
-                      )
-                    }
-                  />
-                  <Label className="min-w-0 flex-1 font-normal" htmlFor={`client-addon-${item.code}`}>
-                    <span className="block text-sm font-medium">{item.name}</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {money(item.price, item.currencyCode)} · {item.description}
-                    </span>
-                  </Label>
-                </div>
-              ))}
+              {compatibleAddOns.map((item) => {
+                const itemPrice = matchingCatalogPrice(item.prices, selectedPlanPrice);
+                return (
+                  <div className="flex items-start gap-3 p-4" key={item.code}>
+                    <Checkbox
+                      checked={addOns.includes(item.code)}
+                      id={`client-addon-${item.code}`}
+                      onCheckedChange={(checked) =>
+                        setAddOns((currentItems) =>
+                          checked
+                            ? [...new Set([...currentItems, item.code])]
+                            : currentItems.filter((code) => code !== item.code),
+                        )
+                      }
+                    />
+                    <Label className="min-w-0 flex-1 font-normal" htmlFor={`client-addon-${item.code}`}>
+                      <span className="block text-sm font-medium">{item.name}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {itemPrice ? money(itemPrice.amount, itemPrice.currencyCode) : "Indisponible"}
+                        {item.description ? ` · ${item.description}` : ""}
+                      </span>
+                    </Label>
+                  </div>
+                );
+              })}
             </div>
           </section>
         ) : null}
-        {plan.quotaPackages.length ? (
+        {compatibleQuotaPackages.length ? (
           <section className="rounded-xl border bg-card p-5">
             <h2 className="text-sm font-semibold">Capacités supplémentaires</h2>
             <div className="mt-4 divide-y rounded-lg border">
-              {plan.quotaPackages.map((item) => (
-                <div className="flex items-center justify-between gap-4 p-4" key={item.code}>
-                  <div>
-                    <p className="text-sm font-medium">{item.name}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      +{item.capacityPerUnit} {item.resource} · {money(item.price, item.currencyCode)} par unité
-                    </p>
+              {compatibleQuotaPackages.map((item) => {
+                const itemPrice = matchingCatalogPrice(item.prices, selectedPlanPrice);
+                return (
+                  <div className="flex items-center justify-between gap-4 p-4" key={item.code}>
+                    <div>
+                      <p className="text-sm font-medium">{item.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        +{item.capacityPerUnit} {item.resource} ·{" "}
+                        {itemPrice ? money(itemPrice.amount, itemPrice.currencyCode) : "Indisponible"} par unité
+                      </p>
+                    </div>
+                    <QuantityControl
+                      maximum={item.maximumQuantity}
+                      onChange={(value) => setQuantities((currentItems) => ({ ...currentItems, [item.code]: value }))}
+                      value={quantities[item.code] ?? 0}
+                    />
                   </div>
-                  <QuantityControl
-                    maximum={item.maximumQuantity}
-                    onChange={(value) => setQuantities((currentItems) => ({ ...currentItems, [item.code]: value }))}
-                    value={quantities[item.code] ?? 0}
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         ) : null}
@@ -302,7 +419,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             </Select>
           </div>
           {session.can(clientPermissions.subscriptionPreview) ? (
-            <Button disabled={previewMutation.isPending} onClick={() => previewMutation.mutate()}>
+            <Button disabled={!request || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
               {previewMutation.isPending ? (
                 "Calcul…"
               ) : (

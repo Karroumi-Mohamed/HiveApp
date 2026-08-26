@@ -199,6 +199,128 @@ export type CommercialOverview = {
 };
 
 export type BillingCycle = "MONTHLY" | "YEARLY" | "FOREVER";
+export type ProductPriceBillingCycle = Exclude<BillingCycle, "FOREVER">;
+export type ProductPriceOwnerType = "PLAN" | "ADD_ON" | "QUOTA_PACKAGE";
+export type ProductPriceStatus = "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
+export type ProductPriceAction =
+  | "EDIT_DRAFT"
+  | "PREVIEW_ACTIVATION"
+  | "ACTIVATE"
+  | "PAUSE"
+  | "REACTIVATE"
+  | "REVISE"
+  | "ARCHIVE"
+  | "DELETE_DRAFT";
+export type ProductPriceBlocker =
+  | "OWNER_NOT_ACTIVE"
+  | "EFFECTIVE_WINDOW_EXPIRED"
+  | "ACTIVE_WINDOW_OVERLAP"
+  | "SUCCESSOR_ALREADY_EXISTS"
+  | "WRONG_LIFECYCLE_STATE"
+  | "ACTIVE_MUST_BE_PAUSED"
+  | "ARCHIVED_TERMINAL";
+export type ProductPriceReplacementBlocker =
+  | "CURRENT_NOT_ACTIVE"
+  | "SUCCESSOR_NOT_DRAFT"
+  | "SUCCESSOR_NOT_DIRECT_REVISION"
+  | "COMMERCIAL_TUPLE_MISMATCH"
+  | "CUTOFF_NOT_FUTURE"
+  | "CURRENT_DOES_NOT_COVER_CUTOFF"
+  | "OWNER_NOT_ACTIVE"
+  | "OTHER_ACTIVE_WINDOW_OVERLAP";
+
+export type ProductPrice = {
+  id: UUID;
+  productType: ProductPriceOwnerType;
+  productId: UUID;
+  productCode: string;
+  productName: string;
+  amount: number;
+  currencyCode: string;
+  billingCycle: ProductPriceBillingCycle;
+  status: ProductPriceStatus;
+  effectiveFrom: Instant;
+  effectiveUntil: Instant | null;
+  lineageId: UUID;
+  revisionNumber: number;
+  sourcePriceId: UUID | null;
+  compatibilityDefault: boolean;
+  version: number;
+  createdAt: Instant;
+  updatedAt: Instant;
+  availableActions: ProductPriceAction[];
+  blockers: ProductPriceBlocker[];
+};
+
+export type ProductPriceInput = {
+  amount: number;
+  currencyCode: string;
+  billingCycle: ProductPriceBillingCycle;
+  effectiveFrom: Instant;
+  effectiveUntil: Instant | null;
+};
+
+export type ProductPriceActivationPreview = {
+  priceEntryId: UUID;
+  activatable: boolean;
+  blockers: ProductPriceBlocker[];
+};
+
+export type ProductPriceReplacementPreview = {
+  currentPriceId: UUID;
+  currentVersion: number;
+  successorPriceId: UUID;
+  successorVersion: number;
+  cutoff: Instant;
+  schedulable: boolean;
+  blockers: ProductPriceReplacementBlocker[];
+};
+
+export type ProductPriceReplacementResult = {
+  previousPrice: ProductPrice;
+  successorPrice: ProductPrice;
+  cutoff: Instant;
+  existingResult: boolean;
+};
+
+export type ProductPriceHistoryEntry = {
+  id: UUID;
+  occurredAt: Instant;
+  actorUserId: UUID | null;
+  actorEmail: string | null;
+  action: string;
+  outcome: "SUCCEEDED" | "FAILED";
+  failureType: string | null;
+  reason: string | null;
+};
+
+export type CatalogPrice = {
+  priceEntryId: UUID;
+  amount: number;
+  currencyCode: string;
+  billingCycle: ProductPriceBillingCycle;
+  effectiveFrom: Instant;
+  effectiveUntil: Instant | null;
+};
+
+export type ProductPriceSelection = {
+  priceEntryId: UUID;
+  currencyCode: string;
+  billingCycle: ProductPriceBillingCycle;
+};
+
+export type AssignablePlanPrice = {
+  planId: UUID;
+  planCode: string;
+  planName: string;
+  planRevisionNumber: number;
+  priceEntryId: UUID;
+  amount: number;
+  currencyCode: string;
+  billingCycle: ProductPriceBillingCycle;
+  effectiveFrom: Instant;
+  effectiveUntil: Instant | null;
+};
 export type PlanStatus = "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
 export type SubscriptionStatus = "TRIALING" | "ACTIVE" | "PAST_DUE" | "SUSPENDED" | "CANCELLED" | "EXPIRED";
 export type PlanFeatureMode = "INCLUDED" | "OPTIONAL_ADD_ON" | "BLOCKED_FOR_PLAN";
@@ -686,6 +808,8 @@ export type ClientPlanCatalog = {
     status: SubscriptionStatus;
     currentPrice: number;
     currentPriceCurrencyCode: string;
+    planPriceEntryId: UUID | null;
+    billingCycle: ProductPriceBillingCycle | null;
     currentPeriodStart: Instant;
     currentPeriodEnd: Instant;
     cancelAtPeriodEnd: boolean;
@@ -725,6 +849,7 @@ export type ClientPlanCatalog = {
       dependencyCodes: string[];
       exclusionCodes: string[];
       features: unknown[];
+      prices: CatalogPrice[];
     }>;
     quotaPackages: Array<{
       code: string;
@@ -741,7 +866,9 @@ export type ClientPlanCatalog = {
       maximumQuantity: number;
       allowedPlanCodes: string[];
       allowedAddOnCodes: string[];
+      prices: CatalogPrice[];
     }>;
+    prices: CatalogPrice[];
   }>;
 };
 
@@ -780,6 +907,7 @@ export type SubscriptionChangeInput = {
   addOnCodes: string[];
   quotaPackages: QuotaPackageSelection[];
   timing: "IMMEDIATE" | "AT_RENEWAL";
+  planPriceSelection: ProductPriceSelection;
 };
 
 export type Subscription = {

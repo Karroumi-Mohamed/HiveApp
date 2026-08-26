@@ -14,6 +14,7 @@ import type {
   AdminUser,
   AdminUserCreation,
   AssignAddOnFeatureInput,
+  AssignablePlanPrice,
   AssignPlanFeatureInput,
   AuthResponse,
   BulkOperationResult,
@@ -32,6 +33,16 @@ import type {
   PlanFeature,
   PlanSubscriber,
   PlanSubscriberOwnerLookup,
+  ProductPrice,
+  ProductPriceActivationPreview,
+  ProductPriceBillingCycle,
+  ProductPriceHistoryEntry,
+  ProductPriceInput,
+  ProductPriceOwnerType,
+  ProductPriceReplacementPreview,
+  ProductPriceReplacementResult,
+  ProductPriceSelection,
+  ProductPriceStatus,
   QuotaPackage,
   QuotaPackageInput,
   RegistryFeature,
@@ -223,17 +234,96 @@ export const adminApi = {
   deleteQuotaPackage: (id: UUID) => admin<void>(`/quota-packages/${id}`, { method: "DELETE" }),
   transitionQuotaPackage: (id: UUID, status: string) =>
     admin<QuotaPackage>(`/quota-packages/${id}/status`, { method: "PATCH", query: { status } }),
+  productPrices: (query: {
+    search?: string;
+    ownerType?: ProductPriceOwnerType;
+    ownerId?: UUID;
+    status?: ProductPriceStatus;
+    currencyCode?: string;
+    billingCycle?: ProductPriceBillingCycle;
+    page?: number;
+    size?: number;
+    sort?: string;
+    direction?: string;
+  }) => admin<PageResponse<ProductPrice>>("/product-prices", { query }),
+  productPrice: (id: UUID) => admin<ProductPrice>(`/product-prices/${id}`),
+  productPriceHistory: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<ProductPriceHistoryEntry>>(`/product-prices/${id}/history`, { query: { page, size } }),
+  createProductPrice: (ownerType: ProductPriceOwnerType, ownerId: UUID, input: ProductPriceInput) =>
+    admin<ProductPrice>("/product-prices", {
+      method: "POST",
+      query: { ownerType, ownerId },
+      body: jsonBody(input),
+    }),
+  updateProductPrice: (id: UUID, input: ProductPriceInput & { version: number }) =>
+    admin<ProductPrice>(`/product-prices/${id}`, { method: "PUT", body: jsonBody(input) }),
+  previewProductPriceActivation: (id: UUID) =>
+    admin<ProductPriceActivationPreview>(`/product-prices/${id}/activation-preview`),
+  activateProductPrice: (id: UUID, version: number, reason: string) =>
+    admin<ProductPrice>(`/product-prices/${id}/activate`, {
+      method: "POST",
+      body: jsonBody({ version, reason }),
+    }),
+  pauseProductPrice: (id: UUID, version: number, reason: string) =>
+    admin<ProductPrice>(`/product-prices/${id}/pause`, { method: "POST", body: jsonBody({ version, reason }) }),
+  reactivateProductPrice: (id: UUID, version: number, reason: string) =>
+    admin<ProductPrice>(`/product-prices/${id}/reactivate`, {
+      method: "POST",
+      body: jsonBody({ version, reason }),
+    }),
+  reviseProductPrice: (id: UUID, version: number, reason: string) =>
+    admin<ProductPrice>(`/product-prices/${id}/revisions`, {
+      method: "POST",
+      body: jsonBody({ version, reason }),
+    }),
+  previewProductPriceReplacement: (
+    successorId: UUID,
+    input: { currentPriceId: UUID; currentVersion: number; successorVersion: number },
+  ) =>
+    admin<ProductPriceReplacementPreview>(`/product-prices/${successorId}/replacement-preview`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  scheduleProductPriceReplacement: (
+    successorId: UUID,
+    input: { currentPriceId: UUID; currentVersion: number; successorVersion: number; reason: string },
+  ) =>
+    admin<ProductPriceReplacementResult>(`/product-prices/${successorId}/schedule-replacement`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  archiveProductPrice: (id: UUID, version: number, reason: string) =>
+    admin<ProductPrice>(`/product-prices/${id}/archive`, {
+      method: "POST",
+      body: jsonBody({ version, reason }),
+    }),
+  deleteProductPrice: (id: UUID, version: number) =>
+    admin<void>(`/product-prices/${id}`, { method: "DELETE", query: { version } }),
   subscription: (accountId: UUID) => admin<AdminSubscription>(`/subscriptions/account/${accountId}`),
   accounts: (query: { query?: string; page?: number; size?: number }) =>
     admin<PageResponse<AccountDirectoryEntry>>("/subscriptions/accounts/search", { query }),
   subscriptionChanges: (accountId: UUID) =>
     admin<SubscriptionChangeOperation[]>(`/subscriptions/account/${accountId}/changes`),
-  createSubscription: (accountId: UUID, planCode: string) =>
-    admin<Subscription>(`/subscriptions/account/${accountId}`, { method: "POST", query: { planCode } }),
-  createTrial: (accountId: UUID, planCode: string, trialDays: number) =>
+  assignablePlanPrices: (query: {
+    search?: string;
+    currencyCode?: string;
+    billingCycle?: ProductPriceBillingCycle;
+    page?: number;
+    size?: number;
+    sort?: "planCode" | "planName" | "amount" | "currencyCode" | "billingCycle" | "effectiveFrom";
+    direction?: "asc" | "desc";
+  }) => admin<PageResponse<AssignablePlanPrice>>("/subscriptions/assignable-plan-prices", { query }),
+  createSubscription: (accountId: UUID, planCode: string, priceSelection: ProductPriceSelection) =>
+    admin<Subscription>(`/subscriptions/account/${accountId}`, {
+      method: "POST",
+      query: { planCode },
+      body: jsonBody(priceSelection),
+    }),
+  createTrial: (accountId: UUID, planCode: string, trialDays: number, priceSelection: ProductPriceSelection) =>
     admin<Subscription>(`/subscriptions/account/${accountId}/trial`, {
       method: "POST",
       query: { planCode, trialDays },
+      body: jsonBody(priceSelection),
     }),
   updateSubscriptionOverrides: (accountId: UUID, input: SubscriptionOverridesInput) =>
     admin<Subscription>(`/subscriptions/account/${accountId}/overrides`, { method: "PATCH", body: jsonBody(input) }),
