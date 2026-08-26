@@ -120,12 +120,78 @@ class CommercialAvailabilityControlPlaneIntegrationTest
                                     .header("Authorization", bearer(token)))
                     .andExpect(status().isOk())
                     .andReturn().getResponse().getContentAsString();
-            assertThat(objectMapper.readTree(history).get("content")).anySatisfy(entry -> {
+            JsonNode historyDocument = objectMapper.readTree(history);
+            JsonNode historyEntries = historyDocument.get("content");
+            assertThat(historyDocument.get("totalElements").asInt()).isGreaterThanOrEqualTo(2);
+            assertThat(historyEntries).filteredOn(entry ->
+                            "SUCCEEDED".equals(entry.get("outcome").asText())
+                                    && "Close self-service extensions for a controlled rollout"
+                                    .equals(entry.get("reason").asText()))
+                    .hasSize(1);
+            assertThat(historyEntries).filteredOn(entry ->
+                            "SUCCEEDED".equals(entry.get("outcome").asText())
+                                    && "Close self-service extensions for a controlled rollout"
+                                    .equals(entry.get("reason").asText()))
+                    .singleElement().satisfies(entry -> {
                 assertThat(entry.get("action").asText())
-                        .isEqualTo("platform.commercial_availability.update_plan_policy");
+                        .isEqualTo("platform.commercial_availability.plan_availability_changed");
                 assertThat(entry.get("reason").asText())
                         .isEqualTo("Close self-service extensions for a controlled rollout");
+                assertThat(entry.get("actorEmail").asText()).isEqualTo("test-admin@hiveapp.local");
+                assertThat(entry.get("productType").asText()).isEqualTo("PLAN");
+                assertThat(entry.get("productCode").asText()).isEqualTo("FLEX");
+                assertThat(entry.get("previousExtensionPolicy").asText())
+                        .isEqualTo("OPEN_COMPATIBLE");
+                assertThat(entry.get("resultingExtensionPolicy").asText()).isEqualTo("CLOSED");
+                assertThat(entry.get("previousSalesVisibility").asText()).isEqualTo("PUBLIC");
+                assertThat(entry.get("resultingSalesVisibility").asText()).isEqualTo("PUBLIC");
             });
+            assertThat(historyEntries).filteredOn(entry ->
+                            "FAILED".equals(entry.get("outcome").asText())
+                                    && "Close self-service extensions for a controlled rollout"
+                                    .equals(entry.get("reason").asText()))
+                    .singleElement().satisfies(entry -> {
+                assertThat(entry.get("outcome").asText()).isEqualTo("FAILED");
+                assertThat(entry.get("action").asText())
+                        .isEqualTo("platform.commercial_availability.update_plan_policy");
+                assertThat(entry.get("productType").asText()).isEqualTo("PLAN");
+                assertThat(entry.get("productCode").asText()).isEqualTo("FLEX");
+                assertThat(entry.get("resultingExtensionPolicy").asText()).isEqualTo("CLOSED");
+            });
+
+            String firstPage = mockMvc.perform(
+                            get("/api/admin/commercial-products/{id}/availability-history", flex.getId())
+                                    .param("page", "0").param("size", "1")
+                                    .header("Authorization", bearer(token)))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            String secondPage = mockMvc.perform(
+                            get("/api/admin/commercial-products/{id}/availability-history", flex.getId())
+                                    .param("page", "1").param("size", "1")
+                                    .header("Authorization", bearer(token)))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            String firstPageId = objectMapper.readTree(firstPage)
+                    .path("content").get(0).path("id").asText();
+            String secondPageId = objectMapper.readTree(secondPage)
+                    .path("content").get(0).path("id").asText();
+            assertThat(firstPageId).isEqualTo(historyEntries.get(0).path("id").asText());
+            assertThat(secondPageId).isEqualTo(historyEntries.get(1).path("id").asText());
+            assertThat(firstPageId).isNotEqualTo(secondPageId);
+            mockMvc.perform(get(
+                                    "/api/admin/commercial-products/{id}/availability-history",
+                                    flex.getId())
+                            .param("size", "101")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+            mockMvc.perform(get(
+                                    "/api/admin/commercial-products/{id}/availability-history",
+                                    flex.getId())
+                            .param("page", "-1")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         } finally {
             resetVisibility();
         }
@@ -372,6 +438,41 @@ class CommercialAvailabilityControlPlaneIntegrationTest
             managed.setStatus(PlanStatus.ACTIVE);
             planRepository.saveAndFlush(managed);
         }
+    }
+
+    @Test
+    void compatibilityInspectionHonorsSafeSortsAndRejectsUnboundedOrUnknownOnes() throws Exception {
+        String token = loginAdminAndGetToken();
+        var flex = planRepository.findByCode("FLEX").orElseThrow();
+
+        String body = mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", flex.getId())
+                        .param("sort", "name,desc")
+                        .param("size", "100")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<String> names = new java.util.ArrayList<>();
+        objectMapper.readTree(body).get("content").forEach(item -> names.add(item.get("name").asText()));
+        assertThat(names).hasSizeGreaterThan(1);
+        assertThat(names).isSortedAccordingTo(String.CASE_INSENSITIVE_ORDER.reversed());
+
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", flex.getId())
+                        .param("size", "101")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", flex.getId())
+                        .param("page", "-1")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", flex.getId())
+                        .param("sort", "status,asc")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     private JsonNode planPreview(

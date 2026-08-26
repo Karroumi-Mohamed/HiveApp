@@ -66,6 +66,8 @@ import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.quota.QuotaLimitMode;
 import dev.karroumi.permissionizer.PermissionNode;
+import dev.karroumi.permissionizer.Permission;
+import dev.karroumi.permissionizer.PermissionGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -1263,7 +1265,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     private void requireCommercialAvailabilityPermission(String node, String operation) {
         String permissionCode = CommercialAvailabilityFeature.CODE + "." + node;
-        if (!adminMutationAuthorizer.currentActorGrantCeiling().allows(permissionCode)) {
+        // This is a cross-feature mutation hidden behind a plans.* entry point. A role ceiling
+        // check alone would bypass Permissionizer's mandatory runtime veto for the commercial
+        // availability feature. Evaluate the complete policy chain just as the dedicated
+        // availability service endpoint does.
+        if (!PermissionGuard.has(new Permission(permissionCode))) {
             throw new ForbiddenException(operation + " requires " + permissionCode + ".");
         }
     }

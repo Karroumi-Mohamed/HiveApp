@@ -15,6 +15,7 @@ import com.hiveapp.platform.client.plan.dto.ProductVisibilityPreviewRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 import com.hiveapp.platform.client.plan.service.CommercialAvailabilityService;
 import com.hiveapp.shared.api.PageResponse;
+import com.hiveapp.shared.exception.InvalidRequestException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -46,8 +47,14 @@ public class CommercialAvailabilityAdminController {
             @RequestParam(required = false) Boolean available,
             @RequestParam(required = false) String currencyCode,
             @RequestParam(required = false) BillingCycle billingCycle,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
             @PageableDefault(size = 20, sort = "code", direction = Sort.Direction.ASC) Pageable pageable
     ) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new InvalidRequestException(
+                    "Compatibility page must be non-negative with a size between 1 and 100.");
+        }
         return PageResponse.from(service.inspect(
                 planId, search, type, available, currencyCode, billingCycle, pageable));
     }
@@ -103,8 +110,16 @@ public class CommercialAvailabilityAdminController {
     @GetMapping("/commercial-products/{productId}/availability-history")
     public PageResponse<CommercialAvailabilityHistoryEntryDto> history(
             @PathVariable UUID productId,
-            @PageableDefault(size = 20, sort = "occurredAt", direction = Sort.Direction.DESC) Pageable pageable
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
     ) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new InvalidRequestException(
+                    "History page must be non-negative with a size between 1 and 100.");
+        }
+        Pageable pageable = org.springframework.data.domain.PageRequest.of(
+                page, size, Sort.by(Sort.Direction.DESC, "occurredAt")
+                        .and(Sort.by(Sort.Direction.DESC, "id")));
         return PageResponse.from(service.history(productId, pageable));
     }
 }
