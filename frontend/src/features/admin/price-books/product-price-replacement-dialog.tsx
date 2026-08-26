@@ -24,10 +24,11 @@ import {
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
+import { formatExactMoney } from "@/lib/exact-decimal";
 import { productPriceReplacementBlocker } from "./product-price-rules";
 
 function money(price: ProductPrice) {
-  return new Intl.NumberFormat("fr-MA", { style: "currency", currency: price.currencyCode }).format(price.amount);
+  return formatExactMoney(price.amount, price.currencyCode);
 }
 
 function dateTime(value: string) {

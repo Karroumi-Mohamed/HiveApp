@@ -25,6 +25,7 @@ import {
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
+import { commercialAmount } from "@/lib/exact-decimal";
 import {
   canUseProductPriceAction,
   instantFromLocalValue,
@@ -90,7 +91,7 @@ export function EditProductPriceDialog({ price, trigger }: { price: ProductPrice
   const update = useMutation({
     mutationFn: () =>
       adminApi.updateProductPrice(price.id, {
-        amount: Number(fields.amount),
+        amount: commercialAmount(fields.amount),
         currencyCode: fields.currencyCode.trim().toUpperCase(),
         billingCycle: fields.billingCycle,
         effectiveFrom: instantFromLocalValue(fields.effectiveFrom),

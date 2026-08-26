@@ -4,7 +4,7 @@ import { cloneElement, type FormEvent, isValidElement, useEffect, useId, useMemo
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { AddOn, BillingCycle, Plan, QuotaLimit, QuotaPackage } from "@/api/contracts";
+import type { AddOn, BillingCycle, ExactDecimal, Plan, QuotaLimit, QuotaPackage } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -32,6 +32,7 @@ import {
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
+import { commercialAmount, formatExactMoney, isCommercialAmount } from "@/lib/exact-decimal";
 import {
   type AddOnPlanCompatibilityIssue,
   addOnLifecycleActions,
@@ -39,8 +40,7 @@ import {
   addOnStatusLabel,
 } from "./add-on-lifecycle";
 
-const price = (value: number, currency: string) =>
-  new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(value);
+const price = (value: ExactDecimal, currency: string) => formatExactMoney(value, currency);
 
 const cycleLabel = (cycle: BillingCycle) =>
   cycle === "MONTHLY" ? "mensuel" : cycle === "YEARLY" ? "annuel" : "permanent";
@@ -343,7 +343,7 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
   const input = {
     name,
     description,
-    price: Number(amount),
+    price: commercialAmount(amount),
     currencyCode: currency,
     billingCycle: cycle,
     allowedPlanCodes: allowed,
@@ -375,7 +375,7 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
           className="grid gap-4 sm:grid-cols-2"
           onSubmit={(event: FormEvent) => {
             event.preventDefault();
-            if (formBlocker) return;
+            if (formBlocker || !isCommercialAmount(amount)) return;
             save.mutate();
           }}
         >
@@ -388,13 +388,7 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
             </Field>
           </div>
           <Field label="Prix">
-            <Input
-              min="0"
-              onChange={(event) => setAmount(event.target.value)}
-              step="0.01"
-              type="number"
-              value={amount}
-            />
+            <Input inputMode="decimal" onChange={(event) => setAmount(event.target.value)} value={amount} />
           </Field>
           <Field label="Devise">
             <Input
@@ -482,7 +476,7 @@ function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.ReactNode }
             <Button onClick={() => setOpen(false)} type="button" variant="outline">
               Annuler
             </Button>
-            <Button disabled={save.isPending || Boolean(formBlocker)} type="submit">
+            <Button disabled={save.isPending || Boolean(formBlocker) || !isCommercialAmount(amount)} type="submit">
               Enregistrer
             </Button>
           </div>
@@ -994,7 +988,7 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
     featureCode,
     resource,
     capacityPerUnit: Number(capacity),
-    price: Number(amount),
+    price: commercialAmount(amount),
     currencyCode: currency,
     billingCycle: cycle,
     repeatable,
@@ -1026,6 +1020,7 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
           className="grid gap-4 sm:grid-cols-2"
           onSubmit={(event: FormEvent) => {
             event.preventDefault();
+            if (!isCommercialAmount(amount)) return;
             save.mutate();
           }}
         >
@@ -1078,13 +1073,7 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
             <Input min="1" onChange={(event) => setMaximum(event.target.value)} type="number" value={maximum} />
           </Field>
           <Field label="Prix">
-            <Input
-              min="0"
-              onChange={(event) => setAmount(event.target.value)}
-              step="0.01"
-              type="number"
-              value={amount}
-            />
+            <Input inputMode="decimal" onChange={(event) => setAmount(event.target.value)} value={amount} />
           </Field>
           <Field label="Devise">
             <Input maxLength={3} onChange={(event) => setCurrency(event.target.value.toUpperCase())} value={currency} />
@@ -1128,7 +1117,7 @@ function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.Reac
             <Button onClick={() => setOpen(false)} type="button" variant="outline">
               Annuler
             </Button>
-            <Button disabled={save.isPending} type="submit">
+            <Button disabled={save.isPending || !isCommercialAmount(amount)} type="submit">
               Enregistrer
             </Button>
           </div>

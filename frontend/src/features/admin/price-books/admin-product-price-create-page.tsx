@@ -17,6 +17,7 @@ import {
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
+import { commercialAmount, formatExactMoney, isCommercialAmount } from "@/lib/exact-decimal";
 import {
   instantFromLocalValue,
   localDateTimeValue,
@@ -84,9 +85,8 @@ function quotaOption(item: QuotaPackage): ProductOption {
 }
 
 function money(amount: string, currency: string) {
-  const value = Number(amount);
-  if (!Number.isFinite(value) || !/^[A-Z]{3}$/.test(currency)) return `${amount || "—"} ${currency}`;
-  return new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(value);
+  if (!isCommercialAmount(amount) || !/^[A-Z]{3}$/.test(currency)) return `${amount || "—"} ${currency}`;
+  return formatExactMoney(commercialAmount(amount), currency);
 }
 
 export function AdminProductPriceCreatePage() {
@@ -163,7 +163,7 @@ export function AdminProductPriceCreatePage() {
   const create = useMutation({
     mutationFn: () =>
       adminApi.createProductPrice(ownerType, ownerId, {
-        amount: Number(fields.amount),
+        amount: commercialAmount(fields.amount),
         currencyCode: fields.currencyCode.trim().toUpperCase(),
         billingCycle: fields.billingCycle,
         effectiveFrom: instantFromLocalValue(fields.effectiveFrom),

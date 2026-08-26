@@ -33,10 +33,7 @@ export function ProductPriceTermsForm({
           aria-invalid={Boolean(errors.amount)}
           id="price-book-amount"
           inputMode="decimal"
-          min="0"
           onChange={(event) => set("amount", event.target.value)}
-          step="0.0001"
-          type="number"
           value={fields.amount}
         />
         <div id="price-book-amount-error">

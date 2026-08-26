@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   adminOverviewSurfacePermissions,
   adminPermissions,
+  adminPriceBookDetailSurfacePermissions,
   adminProfileCan,
   clientPermissions,
   clientProfileCan,
@@ -44,6 +45,13 @@ describe("session permission bypasses", () => {
       adminPermissions.accessOverview,
       adminPermissions.plansOverview,
       adminPermissions.registrySync,
+    ]);
+  });
+
+  test("price history remains reachable without price-detail access", () => {
+    expect(adminPriceBookDetailSurfacePermissions).toEqual([
+      adminPermissions.priceBooksRead,
+      adminPermissions.priceBooksReadHistory,
     ]);
   });
 });

@@ -9,7 +9,7 @@ const plan = (overrides: Partial<Plan> = {}): Plan => ({
   code: "FREE",
   name: "Free Plan",
   description: "Base",
-  price: 0,
+  price: "0",
   currencyCode: "USD",
   billingCycle: "MONTHLY",
   status: "ACTIVE",

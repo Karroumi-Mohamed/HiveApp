@@ -1,4 +1,5 @@
 import type { CatalogPrice } from "@/api/contracts";
+import { compareExactDecimals } from "@/lib/exact-decimal";
 
 export function initialCatalogPlanCode<T extends { code: string }>(
   plans: readonly T[],
@@ -14,7 +15,7 @@ export function defaultCatalogPrice(prices: readonly CatalogPrice[], preferred?:
     [...prices].sort((left, right) => {
       if (left.billingCycle !== right.billingCycle) return left.billingCycle === "MONTHLY" ? -1 : 1;
       if (left.currencyCode !== right.currencyCode) return left.currencyCode.localeCompare(right.currencyCode);
-      return left.amount - right.amount;
+      return compareExactDecimals(left.amount, right.amount);
     })[0] ?? null
   );
 }

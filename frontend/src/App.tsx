@@ -3,6 +3,7 @@ import { AppProviders } from "@/app/providers";
 import {
   adminOverviewSurfacePermissions,
   adminPermissions,
+  adminPriceBookDetailSurfacePermissions,
   clientSubscriptionSurfacePermissions,
 } from "@/auth/permissions";
 import { AdminReadPermissionGate, ClientReadPermissionGate } from "@/components/patterns/permission-gate";
@@ -204,7 +205,7 @@ const router = createBrowserRouter([
       {
         path: "price-books/:priceId/:tab?",
         element: (
-          <AdminReadPermissionGate allOf={[adminPermissions.priceBooksRead]}>
+          <AdminReadPermissionGate anyOf={adminPriceBookDetailSurfacePermissions}>
             <AdminProductPriceDetailPage />
           </AdminReadPermissionGate>
         ),

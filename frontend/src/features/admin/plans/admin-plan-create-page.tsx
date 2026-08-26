@@ -28,6 +28,7 @@ import {
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
+import { commercialAmount, isCommercialAmount } from "@/lib/exact-decimal";
 
 type StagedFeature = AssignPlanFeatureInput;
 
@@ -109,7 +110,7 @@ export function AdminPlanCreatePage() {
       const input = {
         name: fields.name,
         description: fields.description,
-        price: Number(fields.price),
+        price: commercialAmount(fields.price),
         currencyCode: fields.currencyCode.toUpperCase(),
         billingCycle: fields.billingCycle,
       };
@@ -163,11 +164,7 @@ export function AdminPlanCreatePage() {
   }
 
   const identityReady = fields.name.trim().length > 0;
-  const pricingReady =
-    fields.price.trim() !== "" &&
-    Number.isFinite(Number(fields.price)) &&
-    Number(fields.price) >= 0 &&
-    /^[A-Z]{3}$/.test(fields.currencyCode);
+  const pricingReady = isCommercialAmount(fields.price) && /^[A-Z]{3}$/.test(fields.currencyCode);
   const stepReady = step === 1 ? identityReady : step === 2 ? pricingReady : true;
 
   return (
@@ -506,7 +503,7 @@ export function AdminPlanCreatePage() {
                 <dt className="text-muted-foreground">Ce que le client paie</dt>
                 <dd className="font-medium tabular-nums">
                   {money(
-                    Number(fields.price) || 0,
+                    isCommercialAmount(fields.price) ? commercialAmount(fields.price) : "0",
                     /^[A-Z]{3}$/.test(fields.currencyCode) ? fields.currencyCode : "MAD",
                   )}{" "}
                   / {cycleText[fields.billingCycle]}
@@ -555,7 +552,10 @@ export function AdminPlanCreatePage() {
                 {fields.description || "Aucune description."}
               </p>
               <p className="mt-4 text-2xl font-semibold tabular-nums">
-                {money(Number(fields.price) || 0, /^[A-Z]{3}$/.test(fields.currencyCode) ? fields.currencyCode : "MAD")}
+                {money(
+                  isCommercialAmount(fields.price) ? commercialAmount(fields.price) : "0",
+                  /^[A-Z]{3}$/.test(fields.currencyCode) ? fields.currencyCode : "MAD",
+                )}
                 <span className="ms-1.5 text-sm font-normal text-muted-foreground">
                   / {cycleText[fields.billingCycle]}
                 </span>

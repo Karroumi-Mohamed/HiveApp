@@ -10,9 +10,9 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { adminApi } from "@/api/admin-api";
-import type { ProductPrice, ProductPriceAction, ProductPriceHistoryEntry } from "@/api/contracts";
+import type { ProductPrice, ProductPriceAction } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -22,6 +22,7 @@ import { SectionTabs } from "@/components/patterns/section-tabs";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
+import { formatExactMoney } from "@/lib/exact-decimal";
 import {
   DeleteProductPriceDialog,
   EditProductPriceDialog,
@@ -35,13 +36,13 @@ import {
   productPriceActionReason,
   productPriceBlocker,
   productPriceCycle,
+  productPriceHistoryLabel,
   productPriceOwner,
+  productPriceOwnerReadPermission,
   productPriceStatus,
 } from "./product-price-rules";
 
-function money(amount: number, currency: string) {
-  return new Intl.NumberFormat("fr-MA", { style: "currency", currency }).format(amount);
-}
+const money = formatExactMoney;
 
 function dateTime(value: string | null) {
   return value
@@ -239,23 +240,6 @@ function Lifecycle({ price }: { price: ProductPrice }) {
   );
 }
 
-const historyAction: Record<string, string> = {
-  CREATE_DRAFT: "Brouillon créé",
-  UPDATE_DRAFT: "Conditions modifiées",
-  ACTIVATE: "Tarif mis en vente",
-  PAUSE: "Vente suspendue",
-  REACTIVATE: "Tarif remis en vente",
-  REVISE: "Révision créée",
-  SCHEDULE_REPLACEMENT: "Remplacement programmé",
-  ARCHIVE: "Tarif archivé",
-  DELETE_DRAFT: "Brouillon supprimé",
-};
-
-function historyLabel(entry: ProductPriceHistoryEntry) {
-  const action = entry.action.split(".").at(-1) ?? entry.action;
-  return historyAction[action] ?? action.replaceAll("_", " ").toLocaleLowerCase("fr");
-}
-
 function History({ priceId }: { priceId: string }) {
   const session = useAdminSession();
   const [params, setParams] = useSearchParams();
@@ -275,7 +259,7 @@ function History({ priceId }: { priceId: string }) {
         {history.data.content.map((entry) => (
           <li className="grid gap-2 p-4 sm:grid-cols-[1fr_auto] sm:items-start" key={entry.id}>
             <div>
-              <p className="text-sm font-medium">{historyLabel(entry)}</p>
+              <p className="text-sm font-medium">{productPriceHistoryLabel(entry.action)}</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {entry.outcome === "SUCCEEDED"
                   ? "Réussi"
@@ -309,12 +293,29 @@ export function AdminProductPriceDetailPage() {
   const session = useAdminSession();
   const { priceId, tab } = useParams();
   const id = priceId ?? "";
+  const canRead = session.can(adminPermissions.priceBooksRead);
+  const canReadHistory = session.can(adminPermissions.priceBooksReadHistory);
   const price = useQuery({
     queryKey: adminCommercialKeys.priceBooks.detail(id),
     queryFn: () => adminApi.productPrice(id),
     enabled: commercialQueryEnabled(session.can, adminPermissions.priceBooksRead, Boolean(id)),
   });
-  if (!session.can(adminPermissions.priceBooksRead)) return <PermissionState />;
+  if (!canRead && !canReadHistory) return <PermissionState />;
+  if (!canRead) {
+    if (tab !== "history") return <Navigate replace to={`/admin/price-books/${id}/history`} />;
+    return (
+      <div className="space-y-6">
+        <Button asChild className="-ms-2" size="sm" variant="ghost">
+          <Link to={session.can(adminPermissions.priceBooksList) ? "/admin/price-books" : "/admin"}>
+            <ArrowLeftIcon className="rtl:rotate-180" />
+            {session.can(adminPermissions.priceBooksList) ? "Grille tarifaire" : "Administration"}
+          </Link>
+        </Button>
+        <PageHeader title="Historique du tarif" />
+        <History priceId={id} />
+      </div>
+    );
+  }
   if (price.isLoading) return <LoadingState />;
   if (price.isError || !price.data) return <ErrorState retry={() => void price.refetch()} title="Tarif introuvable" />;
   const data = price.data;
@@ -390,9 +391,11 @@ export function AdminProductPriceDetailPage() {
             <p className="text-xs text-muted-foreground">Produit lié</p>
             <p className="mt-1 text-lg font-semibold">{data.productName}</p>
             <p className="mt-1 text-sm text-muted-foreground">{productPriceOwner[data.productType]}</p>
-            <Button asChild className="mt-5" size="sm" variant="outline">
-              <Link to={productLink(data)}>Ouvrir la révision du produit</Link>
-            </Button>
+            {session.can(productPriceOwnerReadPermission(data.productType)) ? (
+              <Button asChild className="mt-5" size="sm" variant="outline">
+                <Link to={productLink(data)}>Ouvrir la révision du produit</Link>
+              </Button>
+            ) : null}
           </section>
           {data.blockers.length ? (
             <section className="rounded-xl border border-warning/30 bg-warning/5 p-5 lg:col-span-2">
