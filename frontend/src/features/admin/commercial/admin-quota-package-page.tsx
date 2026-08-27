@@ -324,7 +324,7 @@ export function AdminQuotaPackagesPage() {
     enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesReadDetail, Boolean(packageId)),
   });
   const operations = useQuery({
-    queryKey: ["admin", "commercial", "quota", packageId, "operations"],
+    queryKey: adminCommercialKeys.quotaPackages.operations(packageId ?? ""),
     queryFn: () => adminApi.quotaPackageOperations(packageId ?? ""),
     enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesReadOperations, Boolean(packageId)),
   });
@@ -473,11 +473,13 @@ export function AdminQuotaPackagesPage() {
         ) : null}
         {tab === "revisions" &&
         (session.can(adminPermissions.quotaPackagesCompare) || session.can(adminPermissions.quotaPackagesRevise)) ? (
-          <QuotaRevisionPanel product={selected} />
+          <QuotaRevisionPanel key={selected.id} product={selected} />
         ) : null}
         {tab === "history" ? (
           <div className="space-y-6">
-            {session.can(adminPermissions.quotaPackagesHistory) ? <QuotaHistoryPanel productId={selected.id} /> : null}
+            {session.can(adminPermissions.quotaPackagesHistory) ? (
+              <QuotaHistoryPanel key={selected.id} productId={selected.id} />
+            ) : null}
             {session.can(adminPermissions.commercialReadHistory) ? (
               <CommercialAvailabilityHistory productId={selected.id} />
             ) : null}

@@ -14,6 +14,7 @@ import {
   isProductPriceReplacementDraft,
   productPriceActionReason,
   productPriceActivationReady,
+  productPriceActivationReviewReady,
   productPriceHistoryLabel,
   productPriceOwnerReadPermission,
   resolveSortingUpdate,
@@ -52,6 +53,17 @@ describe("product price lifecycle actions", () => {
     ).toBeTrue();
     expect(canUseProductPriceAction(draft, "PAUSE", () => true)).toBeFalse();
     expect(canUseProductPriceAction(draft, "ACTIVATE", () => false)).toBeFalse();
+
+    const inactive = { availableActions: ["PREVIEW_ACTIVATION", "REACTIVATE"] } as Pick<
+      ProductPrice,
+      "availableActions"
+    >;
+    expect(
+      canUseProductPriceAction(inactive, "REACTIVATE", (value) => value === adminPermissions.priceBooksActivate),
+    ).toBeFalse();
+    expect(
+      canUseProductPriceAction(inactive, "REACTIVATE", (value) => value === adminPermissions.priceBooksReactivate),
+    ).toBeTrue();
   });
 
   test("explains permission and backend blockers separately", () => {
@@ -79,10 +91,49 @@ describe("product price lifecycle actions", () => {
       activatable: true,
       blockers: [],
     };
-    expect(productPriceActivationReady({ id: "price-1", version: 4 }, reviewed)).toBeTrue();
-    expect(productPriceActivationReady({ id: "price-1", version: 5 }, reviewed)).toBeFalse();
-    expect(productPriceActivationReady({ id: "price-2", version: 4 }, reviewed)).toBeFalse();
-    expect(productPriceActivationReady({ id: "price-1", version: 4 }, { ...reviewed, previewToken: "" })).toBeFalse();
+    const reviewedAt = Date.parse("2026-08-27T05:01:00Z");
+    expect(productPriceActivationReady({ id: "price-1", version: 4 }, reviewed, reviewedAt)).toBeTrue();
+    expect(productPriceActivationReady({ id: "price-1", version: 5 }, reviewed, reviewedAt)).toBeFalse();
+    expect(productPriceActivationReady({ id: "price-2", version: 4 }, reviewed, reviewedAt)).toBeFalse();
+    expect(
+      productPriceActivationReady({ id: "price-1", version: 4 }, { ...reviewed, previewToken: "" }, reviewedAt),
+    ).toBeFalse();
+    expect(
+      productPriceActivationReady({ id: "price-1", version: 4 }, reviewed, Date.parse(reviewed.expiresAt)),
+    ).toBeFalse();
+    expect(
+      productPriceActivationReady(
+        { id: "price-1", version: 4 },
+        { ...reviewed, expiresAt: "not-an-instant" },
+        reviewedAt,
+      ),
+    ).toBeFalse();
+  });
+
+  test("retained evidence cannot be submitted while refreshing or after refresh failed", () => {
+    const reviewed: ProductPriceActivationPreview = {
+      priceEntryId: "price-1",
+      expectedVersion: 4,
+      catalogRevision: 12,
+      registryVersion: "registry-v1",
+      evaluatedAt: "2026-08-27T05:00:00Z",
+      expiresAt: "2026-08-27T05:05:00Z",
+      previewToken: "signed-evidence",
+      activatable: true,
+      blockers: [],
+    };
+    const priceIdentity = { id: "price-1", version: 4 };
+    const now = Date.parse("2026-08-27T05:01:00Z");
+
+    expect(
+      productPriceActivationReviewReady(priceIdentity, { data: reviewed, isFetching: true, isError: false }, now),
+    ).toBeFalse();
+    expect(
+      productPriceActivationReviewReady(priceIdentity, { data: reviewed, isFetching: false, isError: true }, now),
+    ).toBeFalse();
+    expect(
+      productPriceActivationReviewReady(priceIdentity, { data: reviewed, isFetching: false, isError: false }, now),
+    ).toBeTrue();
   });
 });
 

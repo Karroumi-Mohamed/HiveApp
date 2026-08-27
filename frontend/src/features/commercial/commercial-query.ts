@@ -43,13 +43,21 @@ export const adminCommercialKeys = {
     all: () => quotaPackagesRoot,
     list: (filters?: Readonly<Record<string, unknown>>) => [...quotaPackagesRoot, "list", filters ?? {}] as const,
     detail: (packageId: string) => [...quotaPackagesRoot, "detail", packageId] as const,
+    operations: (packageId: string) => [...quotaPackagesRoot, "detail", packageId, "operations"] as const,
+    revisions: (lineageId: string, page: number) =>
+      [...quotaPackagesRoot, "lineage", lineageId, "revisions", page] as const,
+    comparison: (packageId: string, candidateId: string) =>
+      [...quotaPackagesRoot, "detail", packageId, "comparison", candidateId] as const,
+    history: (packageId: string, page: number) => [...quotaPackagesRoot, "detail", packageId, "history", page] as const,
   },
   priceBooks: {
     all: () => priceBooksRoot,
     list: (filters: Readonly<Record<string, unknown>>) => [...priceBooksRoot, "list", filters] as const,
     detail: (priceId: string) => [...priceBooksRoot, "detail", priceId] as const,
     history: (priceId: string, page: number) => [...priceBooksRoot, "detail", priceId, "history", page] as const,
-    activationPreview: (priceId: string) => [...priceBooksRoot, "detail", priceId, "activation-preview"] as const,
+    activationPreviews: (priceId: string) => [...priceBooksRoot, "detail", priceId, "activation-preview"] as const,
+    activationPreview: (priceId: string, version: number) =>
+      [...priceBooksRoot, "detail", priceId, "activation-preview", version] as const,
     replacementPreview: (successorId: string, currentVersion: number, successorVersion: number) =>
       [...priceBooksRoot, "detail", successorId, "replacement-preview", currentVersion, successorVersion] as const,
     owner: (ownerType: string, ownerId: string) => [...priceBooksRoot, "owner", ownerType, ownerId] as const,

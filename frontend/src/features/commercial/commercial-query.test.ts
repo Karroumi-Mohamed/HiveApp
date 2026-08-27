@@ -82,6 +82,21 @@ describe("commercial query keys and invalidation", () => {
     expect(queryClient.getQueryState(clientCatalog)?.isInvalidated).toBeTrue();
   });
 
+  test("quota mutations invalidate paged revisions, comparisons, history and operations", async () => {
+    const queryClient = new QueryClient();
+    const operations = adminCommercialKeys.quotaPackages.operations("quota-1");
+    const revisions = adminCommercialKeys.quotaPackages.revisions("lineage-1", 3);
+    const comparison = adminCommercialKeys.quotaPackages.comparison("quota-1", "quota-2");
+    const history = adminCommercialKeys.quotaPackages.history("quota-1", 2);
+    for (const queryKey of [operations, revisions, comparison, history]) queryClient.setQueryData(queryKey, {});
+
+    await invalidateAdminCommercial(queryClient, adminCommercialKeys.quotaPackages.all());
+
+    for (const queryKey of [operations, revisions, comparison, history]) {
+      expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBeTrue();
+    }
+  });
+
   test("subscription entitlement mutations also invalidate plan detail and subscriber reads", async () => {
     const queryClient = new QueryClient();
     const overview = adminCommercialKeys.overview();
