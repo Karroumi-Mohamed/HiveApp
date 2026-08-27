@@ -513,6 +513,10 @@ export type PlanDeletionPreview = {
   planId: UUID;
   planName: string;
   expectedVersion: number;
+  catalogRevision: number;
+  registryVersion: string;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
   previewToken: string;
   deletable: boolean;
   ownedFeatureCount: number;
@@ -636,6 +640,10 @@ export type PlanAvailabilityPreview = {
   planId: UUID;
   planCode: string;
   expectedVersion: number;
+  catalogRevision: number;
+  registryVersion: string;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
   currentExtensionPolicy: PlanExtensionPolicy;
   targetExtensionPolicy: PlanExtensionPolicy;
   currentSalesVisibility: ProductSalesVisibility;
@@ -659,6 +667,10 @@ export type ProductVisibilityPreview = {
   productId: UUID;
   productCode: string;
   expectedVersion: number;
+  catalogRevision: number;
+  registryVersion: string;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
   currentSalesVisibility: ProductSalesVisibility;
   targetSalesVisibility: ProductSalesVisibility;
   compatiblePlanCount: number;
@@ -701,6 +713,10 @@ export type QuotaPackagePriceDraft = {
 export type QuotaPackageActivationPreview = {
   quotaPackageId: UUID;
   expectedVersion: number;
+  catalogRevision: number;
+  registryVersion: string;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
   previewToken: string;
   activatable: boolean;
   blockers: string[];
@@ -732,6 +748,7 @@ export type PlanActivationPreview = {
   planId: UUID;
   expectedVersion: number;
   catalogRevision: number;
+  registryVersion: string;
   evaluatedAt: Instant;
   expiresAt: Instant;
   previewToken: string;
@@ -746,6 +763,7 @@ export type AddOnActivationPreview = {
   addOnId: UUID;
   expectedVersion: number;
   catalogRevision: number;
+  registryVersion: string;
   evaluatedAt: Instant;
   expiresAt: Instant;
   previewToken: string;
@@ -1211,6 +1229,13 @@ export type ClientPlanCatalog = {
 };
 
 export type SubscriptionChangePreview = {
+  subscriptionId: UUID;
+  expectedSubscriptionVersion: number;
+  catalogRevision: number;
+  registryVersion: string;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
+  previewToken: string;
   currentPlanCode: string;
   targetPlanCode: string;
   currentPrice: ExactDecimal;
@@ -1246,6 +1271,11 @@ export type SubscriptionChangeInput = {
   quotaPackages: QuotaPackageSelection[];
   timing: "IMMEDIATE" | "AT_RENEWAL";
   planPriceSelection: ProductPriceSelection;
+};
+
+export type SubscriptionChangeApplyInput = {
+  selection: SubscriptionChangeInput;
+  previewToken: string;
 };
 
 export type Subscription = {

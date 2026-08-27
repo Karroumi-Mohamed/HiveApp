@@ -19,6 +19,7 @@ import type {
   Role,
   RoleImpact,
   Subscription,
+  SubscriptionChangeApplyInput,
   SubscriptionChangeApplyResponse,
   SubscriptionChangeInput,
   SubscriptionChangeOperation,
@@ -197,7 +198,7 @@ export const clientApi = {
   planCatalog: () => client<ClientPlanCatalog>("/api/v1/subscriptions/catalog"),
   previewSubscriptionChange: (input: SubscriptionChangeInput) =>
     client<SubscriptionChangePreview>("/api/v1/subscriptions/preview", { method: "POST", body: jsonBody(input) }),
-  applySubscriptionChange: (input: SubscriptionChangeInput) =>
+  applySubscriptionChange: (input: SubscriptionChangeApplyInput) =>
     client<SubscriptionChangeApplyResponse>("/api/v1/subscriptions/apply", {
       method: "POST",
       body: jsonBody(input),

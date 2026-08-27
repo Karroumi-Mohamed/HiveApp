@@ -288,8 +288,8 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
   });
   const apply = useMutation({
     mutationFn: () => {
-      if (!request) throw new Error("Aucun tarif disponible");
-      return clientApi.applySubscriptionChange(request);
+      if (!request || !preview) throw new Error("Prévisualisez le changement avant de l’appliquer");
+      return clientApi.applySubscriptionChange({ selection: request, previewToken: preview.previewToken });
     },
     onSuccess: () => {
       void invalidateClientCommercial(queryClient);
