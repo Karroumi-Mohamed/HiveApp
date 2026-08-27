@@ -971,6 +971,45 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void subscriptionAccountTableChooserAndHydrationHaveSeparatePermissionNodes() throws Exception {
+        String clientToken = registerClientAndGetToken();
+        LimitedAdmin tableReader = createLimitedAdmin("platform.subscriptions.search_accounts");
+        LimitedAdmin chooser = createLimitedAdmin("platform.subscriptions.choose_accounts");
+        LimitedAdmin resolver = createLimitedAdmin("platform.subscriptions.resolve_account_choices");
+
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/search"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/search")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/search")
+                        .header("Authorization", bearer(tableReader.token())))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/chooser")
+                        .header("Authorization", bearer(tableReader.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/chooser")
+                        .header("Authorization", bearer(chooser.token())))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/search")
+                        .header("Authorization", bearer(chooser.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/chooser/selected")
+                        .header("Authorization", bearer(chooser.token()))
+                        .param("ids", UUID.randomUUID().toString()))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/chooser/selected")
+                        .header("Authorization", bearer(resolver.token()))
+                        .param("ids", UUID.randomUUID().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
     void scheduledReplacementPreviewAndExecutionUseSeparatePermissionNodes() throws Exception {
         UUID currentId = UUID.randomUUID();
         UUID successorId = UUID.randomUUID();

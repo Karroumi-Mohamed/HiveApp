@@ -195,6 +195,27 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
     }
 
     @Test
+    void subscriptionAccountOperationalPageStatementCountDoesNotGrowWithRows() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        registerClientAndGetToken();
+        registerClientAndGetToken();
+        registerClientAndGetToken();
+        registerClientAndGetToken();
+
+        long oneRow = statementsFor(() -> operationalPage(
+                adminToken, "/api/admin/subscriptions/accounts/search", 1));
+        long fullPage = statementsFor(() -> operationalPage(
+                adminToken, "/api/admin/subscriptions/accounts/search", 100));
+
+        assertThat(operationalPage(
+                adminToken, "/api/admin/subscriptions/accounts/search", 100).size())
+                .isGreaterThan(1);
+        assertThat(Math.abs(fullPage - oneRow))
+                .as("the account table must bulk-load latest subscriptions and plans")
+                .isLessThanOrEqualTo(1L);
+    }
+
+    @Test
     void commercialProductOperationalPagesUseConstantStatementCounts() throws Exception {
         String adminToken = loginAdminAndGetToken();
         assertConstantOperationalPage(adminToken, "/api/admin/plans");

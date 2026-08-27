@@ -1,7 +1,10 @@
 package com.hiveapp.platform.admin.service.impl;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
+import com.hiveapp.platform.admin.dto.LatestSubscriptionSummary;
+import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
 import com.hiveapp.platform.admin.service.AdminSubscriptionService;
+import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.service.AccountDirectoryService;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
@@ -38,16 +41,25 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.time.Clock;
+import java.time.Instant;
+import java.util.Collection;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 @Service
 @RequiredArgsConstructor
 @PermissionNode(key = SubscriptionsFeature.KEY, description = "Client Subscription Management", guard = PermissionNode.Guard.ON)
 public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService implements AdminSubscriptionService {
+
+    private static final int MAX_ACCOUNT_SEARCH_LENGTH = 160;
 
     private static final Set<SubscriptionStatus> OPERATIONAL_SUBSCRIPTION_STATUSES = Set.of(
             SubscriptionStatus.ACTIVE,
@@ -71,8 +83,156 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     @Override
     @PermissionNode(key = "search_accounts", description = "Search accounts for subscription operations")
     @Transactional(readOnly = true)
-    public Page<AccountDirectoryEntryDto> searchAccounts(String query, Pageable pageable) {
-        return accountDirectoryService.search(query, pageable);
+    public Page<SubscriptionAccountOperationalListItemDto> searchAccounts(
+            String query,
+            Boolean accountActive,
+            SubscriptionStatus subscriptionStatus,
+            Boolean hasSubscription,
+            Pageable pageable
+    ) {
+        if (Boolean.FALSE.equals(hasSubscription) && subscriptionStatus != null) {
+            throw new InvalidRequestException(
+                    "subscriptionStatus cannot be combined with hasSubscription=false.");
+        }
+        String normalizedQuery = normalizeAccountSearch(query);
+        Page<Account> accounts = accountRepository.findAll(
+                accountOperationsSpecification(
+                        normalizedQuery, accountActive, subscriptionStatus, hasSubscription),
+                pageable);
+        if (accounts.isEmpty()) {
+            return accounts.map(account -> toAccountOperationsRow(account, null));
+        }
+        Set<UUID> accountIds = accounts.getContent().stream()
+                .map(Account::getId)
+                .collect(Collectors.toSet());
+        Map<UUID, Subscription> latestByAccount = subscriptionRepository.findAll(
+                        latestSubscriptionSpecification(accountIds),
+                        Sort.by(Sort.Direction.ASC, "account.id")
+                                .and(Sort.by(Sort.Direction.ASC, "id"))).stream()
+                .collect(Collectors.toMap(
+                        subscription -> subscription.getAccount().getId(),
+                        subscription -> subscription));
+        return accounts.map(account ->
+                toAccountOperationsRow(account, latestByAccount.get(account.getId())));
+    }
+
+    @Override
+    @PermissionNode(key = "choose_accounts",
+            description = "Choose bounded accounts for subscription operations")
+    @Transactional(readOnly = true)
+    public Page<AccountDirectoryEntryDto> chooseAccounts(
+            String query, Boolean active, Pageable pageable) {
+        return accountDirectoryService.search(query, active, pageable);
+    }
+
+    @Override
+    @PermissionNode(key = "resolve_account_choices",
+            description = "Resolve exact selected accounts for subscription operations")
+    @Transactional(readOnly = true)
+    public List<AccountDirectoryEntryDto> resolveAccountChoices(Collection<UUID> ids) {
+        return accountDirectoryService.resolve(ids);
+    }
+
+    private Specification<Account> accountOperationsSpecification(
+            String query,
+            Boolean accountActive,
+            SubscriptionStatus subscriptionStatus,
+            Boolean hasSubscription
+    ) {
+        return (root, criteriaQuery, cb) -> {
+            var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            if (query != null) {
+                String pattern = "%" + query.toLowerCase(Locale.ROOT) + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("name")), pattern),
+                        cb.like(cb.lower(root.get("slug")), pattern),
+                        cb.like(cb.lower(root.get("owner").get("email")), pattern)));
+            }
+            if (accountActive != null) {
+                predicates.add(cb.equal(root.get("isActive"), accountActive));
+            }
+            if (hasSubscription != null) {
+                var anySubscription = criteriaQuery.subquery(Integer.class);
+                var subscription = anySubscription.from(Subscription.class);
+                anySubscription.select(cb.literal(1))
+                        .where(cb.equal(subscription.get("account"), root));
+                predicates.add(hasSubscription
+                        ? cb.exists(anySubscription)
+                        : cb.not(cb.exists(anySubscription)));
+            }
+            if (subscriptionStatus != null) {
+                var matchingLatest = criteriaQuery.subquery(Integer.class);
+                var candidate = matchingLatest.from(Subscription.class);
+                var newer = matchingLatest.subquery(Integer.class);
+                var newerSubscription = newer.from(Subscription.class);
+                newer.select(cb.literal(1)).where(
+                        cb.equal(newerSubscription.get("account"), root),
+                        newerThan(cb, newerSubscription, candidate));
+                matchingLatest.select(cb.literal(1)).where(
+                        cb.equal(candidate.get("account"), root),
+                        cb.equal(candidate.get("status"), subscriptionStatus),
+                        cb.not(cb.exists(newer)));
+                predicates.add(cb.exists(matchingLatest));
+            }
+            return cb.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
+        };
+    }
+
+    private Specification<Subscription> latestSubscriptionSpecification(Set<UUID> accountIds) {
+        return (candidate, criteriaQuery, cb) -> {
+            var newer = criteriaQuery.subquery(Integer.class);
+            var newerSubscription = newer.from(Subscription.class);
+            newer.select(cb.literal(1)).where(
+                    cb.equal(newerSubscription.get("account"), candidate.get("account")),
+                    newerThan(cb, newerSubscription, candidate));
+            return cb.and(
+                    candidate.get("account").get("id").in(accountIds),
+                    cb.not(cb.exists(newer)));
+        };
+    }
+
+    private jakarta.persistence.criteria.Predicate newerThan(
+            jakarta.persistence.criteria.CriteriaBuilder cb,
+            jakarta.persistence.criteria.Root<Subscription> newer,
+            jakarta.persistence.criteria.Root<Subscription> candidate
+    ) {
+        var newerCreatedAt = newer.<Instant>get("createdAt");
+        var candidateCreatedAt = candidate.<Instant>get("createdAt");
+        return cb.or(
+                cb.greaterThan(newerCreatedAt, candidateCreatedAt),
+                cb.and(
+                        cb.equal(newerCreatedAt, candidateCreatedAt),
+                        cb.greaterThan(newer.<UUID>get("id"), candidate.<UUID>get("id"))));
+    }
+
+    private SubscriptionAccountOperationalListItemDto toAccountOperationsRow(
+            Account account, Subscription latest) {
+        return new SubscriptionAccountOperationalListItemDto(
+                account.getId(), account.getName(), account.getSlug(),
+                account.getOwner().getEmail(), account.isActive(), account.getCreatedAt(),
+                latest == null ? null : toLatestSubscriptionSummary(latest));
+    }
+
+    private LatestSubscriptionSummary toLatestSubscriptionSummary(Subscription subscription) {
+        var snapshot = subscription.getEntitlementSnapshot();
+        var plan = subscription.getPlan();
+        return new LatestSubscriptionSummary(
+                subscription.getId(), subscription.getStatus(), plan.getId(), plan.getCode(),
+                plan.getName(), plan.getRevisionNumber(), snapshot.billingCycle(),
+                subscription.getCurrentPeriodEnd(), subscription.isCancelAtPeriodEnd(),
+                subscription.getCurrentPrice(), subscription.getCurrentPriceCurrencyCode());
+    }
+
+    private String normalizeAccountSearch(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.length() > MAX_ACCOUNT_SEARCH_LENGTH) {
+            throw new InvalidRequestException(
+                    "Account search must not exceed " + MAX_ACCOUNT_SEARCH_LENGTH + " characters.");
+        }
+        return normalized;
     }
 
     @Override
