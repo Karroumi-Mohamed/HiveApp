@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.plan.service;
 
+import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentStatus;
@@ -8,6 +9,8 @@ import com.hiveapp.platform.client.plan.dto.CommercialSegmentViews;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 public interface CommercialSegmentAdminService {
@@ -41,4 +44,6 @@ public interface CommercialSegmentAdminService {
     CommercialSegmentViews.Owner owner(UUID segmentId);
     CommercialSegmentViews.Detail reassignOwner(
             UUID segmentId, CommercialSegmentRequests.ReassignOwner request);
+    Page<AccountDirectoryEntryDto> chooseAccounts(String query, Boolean active, Pageable pageable);
+    List<AccountDirectoryEntryDto> resolveAccountChoices(Collection<UUID> ids);
 }

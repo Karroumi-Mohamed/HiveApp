@@ -6,6 +6,8 @@ import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
+import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
+import com.hiveapp.platform.client.account.service.AccountDirectoryService;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentAction;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentBlocker;
@@ -93,6 +95,7 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
     private final CommercialSegmentActivationRepository activationRepository;
     private final CommercialPolicyRepository policyRepository;
     private final AccountRepository accountRepository;
+    private final AccountDirectoryService accountDirectoryService;
     private final PlanRepository planRepository;
     private final AddOnRepository addOnRepository;
     private final QuotaPackageRepository quotaPackageRepository;
@@ -487,6 +490,31 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
         translateState(() -> segment.reassignDraftOwner(owner));
         segmentRepository.saveAndFlush(segment);
         return toDetail(requireSegment(segmentId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "choose_accounts", description = "Choose safe explicit Segment Accounts")
+    public Page<AccountDirectoryEntryDto> chooseAccounts(
+            String query,
+            Boolean active,
+            Pageable pageable
+    ) {
+        return accountDirectoryService.search(query, active, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "resolve_account_choices",
+            description = "Resolve selected explicit Segment Accounts by id")
+    public List<AccountDirectoryEntryDto> resolveAccountChoices(java.util.Collection<UUID> ids) {
+        if (ids == null || ids.isEmpty() || ids.size() > 100
+                || ids.stream().anyMatch(Objects::isNull)
+                || new LinkedHashSet<>(ids).size() != ids.size()) {
+            throw new InvalidRequestException(
+                    "Account choice resolution requires 1 to 100 unique non-null ids.");
+        }
+        return accountDirectoryService.resolve(ids);
     }
 
     private void applyDefinition(

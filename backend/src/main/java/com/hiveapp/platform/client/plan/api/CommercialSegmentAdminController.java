@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.plan.api;
 
+import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentStatus;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -196,6 +198,20 @@ public class CommercialSegmentAdminController {
             @PathVariable UUID segmentId,
             @Valid @RequestBody CommercialSegmentRequests.ReassignOwner request) {
         return service.reassignOwner(segmentId, request);
+    }
+
+    @GetMapping("/account-choices")
+    public PageResponse<AccountDirectoryEntryDto> chooseAccounts(
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) Boolean active,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return PageResponse.from(service.chooseAccounts(query, active, bounded(page, size)));
+    }
+
+    @GetMapping("/account-choices/selected")
+    public List<AccountDirectoryEntryDto> resolveAccountChoices(@RequestParam List<UUID> ids) {
+        return service.resolveAccountChoices(ids);
     }
 
     private PageRequest bounded(int page, int size) {

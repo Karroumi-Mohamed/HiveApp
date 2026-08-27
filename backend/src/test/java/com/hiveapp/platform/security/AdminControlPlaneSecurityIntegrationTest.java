@@ -1260,6 +1260,50 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void segmentAccountChooserAndSelectedHydrationUseIndependentPermissionNodes() throws Exception {
+        String clientToken = registerClientAndGetToken();
+        LimitedAdmin detailReader = createLimitedAdmin("platform.segments.read_detail");
+        LimitedAdmin chooser = createLimitedAdmin("platform.segments.choose_accounts");
+        LimitedAdmin resolver = createLimitedAdmin("platform.segments.resolve_account_choices");
+
+        mockMvc.perform(get("/api/admin/segments/account-choices"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/admin/segments/account-choices")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/segments/account-choices")
+                        .header("Authorization", bearer(detailReader.token())))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/admin/segments/account-choices")
+                        .header("Authorization", bearer(chooser.token()))
+                        .param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.content[0].ownerEmail").doesNotExist());
+        mockMvc.perform(get("/api/admin/segments/account-choices/selected")
+                        .header("Authorization", bearer(chooser.token()))
+                        .param("ids", UUID.randomUUID().toString()))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/admin/segments/account-choices/selected")
+                        .header("Authorization", bearer(resolver.token()))
+                        .param("ids", UUID.randomUUID().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+        UUID duplicate = UUID.randomUUID();
+        mockMvc.perform(get("/api/admin/segments/account-choices/selected")
+                        .header("Authorization", bearer(resolver.token()))
+                        .param("ids", duplicate.toString(), duplicate.toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(get("/api/admin/segments/account-choices")
+                        .header("Authorization", bearer(resolver.token())))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void segmentLifecycleMutationLeavesAndHistoryAreIndependentlyEnforced() throws Exception {
         UUID missing = UUID.randomUUID();
         LimitedAdmin unrelated = createLimitedAdmin("platform.segments.read_detail");
