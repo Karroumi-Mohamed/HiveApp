@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
@@ -44,15 +45,18 @@ public class SubscriptionController {
 
     @PostMapping("/preview")
     public SubscriptionChangePreviewResponse preview(@Valid @RequestBody SubscriptionChangeRequest request) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionService.previewChange(accountId, request);
+        var context = HiveAppContextHolder.getContext();
+        return subscriptionService.previewChange(
+                context.currentAccountId(), context.actorUserId(), request);
     }
 
     @PostMapping("/apply")
     @ResponseStatus(HttpStatus.CREATED)
-    public SubscriptionChangeApplyResponse apply(@Valid @RequestBody SubscriptionChangeRequest request) {
+    public SubscriptionChangeApplyResponse apply(
+            @Valid @RequestBody SubscriptionChangeApplyRequest request) {
         var context = HiveAppContextHolder.getContext();
-        return subscriptionService.applyChange(context.currentAccountId(), context.actorUserId(), request);
+        return subscriptionService.applyChange(
+                context.currentAccountId(), context.actorUserId(), request);
     }
 
     @GetMapping("/changes")

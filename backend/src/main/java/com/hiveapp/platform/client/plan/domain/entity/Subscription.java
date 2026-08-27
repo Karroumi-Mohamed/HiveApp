@@ -23,6 +23,10 @@ import java.util.UUID;
 @Getter @Setter
 public class Subscription extends BaseEntity {
 
+    @Version
+    @Column(nullable = false)
+    private long version;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "account_id", nullable = false)
     private Account account;

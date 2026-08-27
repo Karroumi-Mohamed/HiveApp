@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
 public class CommercialSelectionFinalizer {
 
     private final RegistryCatalogVersionService registryCatalogVersionService;
+    private final CommercialCatalogVersionService commercialCatalogVersionService;
     private final PlanRepository planRepository;
     private final AddOnRepository addOnRepository;
     private final QuotaPackageRepository quotaPackageRepository;
@@ -56,6 +57,10 @@ public class CommercialSelectionFinalizer {
             CommercialCatalogResolver.RetainedSelection retained,
             SubscriptionEntitlementSnapshot currentSnapshot
     ) {
+        // Keep the catalogue revision stable through the final resolver pass and the caller's
+        // transaction commit. Exact product-row locks alone do not cover unselected dependencies
+        // or availability policy changes that can still alter the resolved selection.
+        commercialCatalogVersionService.lockForMutation();
         registryCatalogVersionService.lockForMutation();
         var plan = planRepository.findByCodeForUpdate(planCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "code", planCode));

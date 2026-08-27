@@ -43,6 +43,7 @@ import com.hiveapp.platform.client.plan.service.PlanActivationAssessor;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.DraftSuccessorExistsException;
@@ -104,6 +105,7 @@ class PlanAdminServiceImplTest {
     @Mock private FeatureRepository featureRepository;
     @Mock private com.hiveapp.platform.client.plan.service.ProductPriceResolver productPriceResolver;
     @Mock private com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService commercialCatalogVersionService;
+    @Mock private RegistryCatalogVersionService registryCatalogVersionService;
     @Mock private com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService previewTokenService;
     @Mock private PlanActivationAssessor planActivationAssessor;
     @Mock private AddOnActivationAssessor addOnActivationAssessor;
@@ -124,6 +126,27 @@ class PlanAdminServiceImplTest {
                 .thenReturn(1);
         org.mockito.Mockito.lenient().when(commercialCatalogVersionService.currentRevision())
                 .thenReturn(1L);
+        org.mockito.Mockito.lenient().when(registryCatalogVersionService.currentVersion())
+                .thenReturn("registry:1");
+        org.mockito.Mockito.lenient().when(adminMutationAuthorizer.currentActorUserId())
+                .thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        org.mockito.Mockito.lenient().when(commercialCatalogVersionService.readConsistently(
+                        org.mockito.ArgumentMatchers.<java.util.function.LongFunction<Object>>any()))
+                .thenAnswer(invocation -> invocation
+                        .<java.util.function.LongFunction<Object>>getArgument(0).apply(1L));
+        org.mockito.Mockito.lenient().when(commercialCatalogVersionService.readConsistently(
+                        org.mockito.ArgumentMatchers.<java.util.function.LongFunction<Object>>any(),
+                        org.mockito.ArgumentMatchers.<java.util.function.Supplier<? extends RuntimeException>>any()))
+                .thenAnswer(invocation -> invocation
+                        .<java.util.function.LongFunction<Object>>getArgument(0).apply(1L));
+        Instant evaluatedAt = Instant.parse("2026-08-26T00:00:00Z");
+        org.mockito.Mockito.lenient().when(previewTokenService.issue(
+                        any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(),
+                        org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyString(), any()))
+                .thenReturn(new com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService.IssuedEvidence(
+                        "preview-token", evaluatedAt, evaluatedAt.plusSeconds(300)));
     }
 
     @Test

@@ -87,6 +87,7 @@ import com.hiveapp.platform.client.plan.service.CrossFeatureCommercialAuthorizer
 import com.hiveapp.platform.client.plan.service.PlanAdminReadModels;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.platform.registry.definition.CommercialAvailabilityFeature;
 import com.hiveapp.platform.registry.definition.PlansFeature;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
@@ -166,6 +167,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final CommercialCatalogVersionService commercialCatalogVersionService;
+    private final RegistryCatalogVersionService registryCatalogVersionService;
     private final CommercialPreviewTokenService previewTokenService;
     private final PlanActivationAssessor planActivationAssessor;
     private final AddOnActivationAssessor addOnActivationAssessor;
@@ -472,6 +474,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (targetStatus == PlanStatus.ACTIVE) {
             requireActivationToken(activationPreviewToken, "Plan");
             long catalogRevision = commercialCatalogVersionService.currentRevision();
+            String registryVersion = registryCatalogVersionService.currentVersion();
             UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
             var assessment = planActivationAssessor.assess(plan, clock.instant());
             previewTokenService.requireValid(
@@ -481,6 +484,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                     plan.getVersion(),
                     actorUserId,
                     catalogRevision,
+                    registryVersion,
                     assessment.fingerprint());
             if (!assessment.blockers().isEmpty()) {
                 throw new OperationBlockedException(
@@ -499,6 +503,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             description = "Preview exact Plan activation blockers and commercial impact")
     public PlanActivationPreviewDto previewPlanActivation(UUID planId) {
         UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        String registryVersion = registryCatalogVersionService.currentVersion();
         return commercialCatalogVersionService.readConsistently(catalogRevision -> {
             Plan plan = requirePlan(planId);
             Instant evaluatedAt = clock.instant();
@@ -509,10 +514,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                     plan.getVersion(),
                     actorUserId,
                     catalogRevision,
+                    registryVersion,
                     assessment.fingerprint(),
                     evaluatedAt);
             return new PlanActivationPreviewDto(
-                    plan.getId(), plan.getVersion(), catalogRevision,
+                    plan.getId(), plan.getVersion(), catalogRevision, registryVersion,
                     evidence.evaluatedAt(), evidence.expiresAt(), evidence.token(),
                     assessment.blockers().isEmpty(), assessment.blockers(),
                     assessment.includedFeatureCount(), assessment.optionalAddOnFeatureCount(),
@@ -524,7 +530,20 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @Transactional(readOnly = true)
     @PermissionNode(key = "preview_delete", description = "Preview plan deletion impact and blockers")
     public PlanDeletionPreview previewPlanDeletion(UUID planId) {
-        return buildDeletionPreview(requirePlan(planId));
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        return commercialCatalogVersionService.readConsistently(catalogRevision -> {
+            Plan plan = requirePlan(planId);
+            PlanDeletionAssessment assessment = assessDeletion(
+                    plan, productPriceRepository.findAllByPlanId(planId));
+            Instant evaluatedAt = clock.instant();
+            var evidence = previewTokenService.issue(
+                    CommercialPreviewKind.PLAN_DELETION,
+                    plan.getId(), plan.getVersion(), actorUserId, catalogRevision,
+                    registryVersion, assessment.fingerprint(), evaluatedAt);
+            return toDeletionPreview(
+                    plan, assessment, catalogRevision, registryVersion, evidence);
+        });
     }
 
     @Override
@@ -538,18 +557,21 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         Plan plan = planRepository.findByIdForUpdate(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         List<ProductPrice> prices = productPriceRepository.findAllByPlanIdForUpdate(planId);
-        PlanDeletionPreview preview = buildDeletionPreview(plan, prices);
-        if (request.expectedVersion() != preview.expectedVersion()
-                || !request.previewToken().equals(preview.previewToken())) {
-            throw new StaleResourceVersionException(
-                    "Plan deletion preview is stale; request a fresh preview.");
-        }
+        long catalogRevision = commercialCatalogVersionService.currentRevision();
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        PlanDeletionAssessment assessment = assessDeletion(plan, prices);
+        if (request.expectedVersion() != plan.getVersion()) throw staleDeletionPreview();
+        previewTokenService.requireValid(
+                request.previewToken(), CommercialPreviewKind.PLAN_DELETION,
+                plan.getId(), plan.getVersion(), actorUserId, catalogRevision,
+                registryVersion, assessment.fingerprint(), this::staleDeletionPreview);
         if (!plan.getName().equals(request.confirmationName())) {
             throw new InvalidRequestException("Plan name confirmation does not match.");
         }
-        if (!preview.deletable()) {
+        if (!assessment.blockers().isEmpty()) {
             throw new OperationBlockedException(
-                    "The Plan draft cannot be deleted.", preview.blockers());
+                    "The Plan draft cannot be deleted.", assessment.blockers());
         }
         planFeatureRepository.deleteAll(planFeatureRepository.findAllByPlanId(planId));
         if (!prices.isEmpty()) {
@@ -935,6 +957,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (targetStatus == AddOnStatus.ACTIVE) {
             requireActivationToken(activationPreviewToken, "AddOn");
             long catalogRevision = commercialCatalogVersionService.currentRevision();
+            String registryVersion = registryCatalogVersionService.currentVersion();
             UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
             var assessment = addOnActivationAssessor.assess(
                     addOn, lockedLineage, clock.instant());
@@ -945,6 +968,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                     addOn.getRowVersion(),
                     actorUserId,
                     catalogRevision,
+                    registryVersion,
                     assessment.fingerprint());
             if (!assessment.blockers().isEmpty()) {
                 throw new OperationBlockedException(
@@ -971,6 +995,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             description = "Preview exact AddOn activation blockers and compatible Plan impact")
     public AddOnActivationPreviewDto previewAddOnActivation(UUID addOnId) {
         UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        String registryVersion = registryCatalogVersionService.currentVersion();
         return commercialCatalogVersionService.readConsistently(catalogRevision -> {
             AddOn addOn = requireAddOn(addOnId);
             List<AddOn> lineage = addOnRepository.findAllByLineageId(addOn.getLineageId());
@@ -982,10 +1007,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                     addOn.getRowVersion(),
                     actorUserId,
                     catalogRevision,
+                    registryVersion,
                     assessment.fingerprint(),
                     evaluatedAt);
             return new AddOnActivationPreviewDto(
-                    addOn.getId(), addOn.getRowVersion(), catalogRevision,
+                    addOn.getId(), addOn.getRowVersion(), catalogRevision, registryVersion,
                     evidence.evaluatedAt(), evidence.expiresAt(), evidence.token(),
                     assessment.blockers().isEmpty(), assessment.blockers(),
                     assessment.featureCount(), assessment.evaluatedPlanCount(),
@@ -1342,6 +1368,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             description = "Preview exact package and price blockers before publication")
     public QuotaPackageActivationPreviewDto previewQuotaPackageActivation(UUID quotaPackageId) {
         UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        String registryVersion = registryCatalogVersionService.currentVersion();
         return commercialCatalogVersionService.readConsistently(catalogRevision -> {
             QuotaPackage item = requireDetailedQuotaPackage(quotaPackageId);
             List<QuotaPackage> lineage = quotaPackageRepository
@@ -1353,9 +1380,10 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             var evidence = previewTokenService.issue(
                     CommercialPreviewKind.QUOTA_PACKAGE_ACTIVATION,
                     item.getId(), item.getRowVersion(), actorUserId, catalogRevision,
+                    registryVersion,
                     assessment.fingerprint(), evaluatedAt);
             return new QuotaPackageActivationPreviewDto(
-                    item.getId(), item.getRowVersion(), catalogRevision,
+                    item.getId(), item.getRowVersion(), catalogRevision, registryVersion,
                     evidence.evaluatedAt(), evidence.expiresAt(), evidence.token(),
                     assessment.blockers().isEmpty(), assessment.blockers(),
                     assessment.reviewedPrices(), assessment.packagesToDeactivate());
@@ -1523,6 +1551,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         List<ProductPrice> prices = productPriceRepository
                 .findAllByQuotaPackageIdForUpdate(item.getId());
         long catalogRevision = commercialCatalogVersionService.currentRevision();
+        String registryVersion = registryCatalogVersionService.currentVersion();
         UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
         Instant evaluatedAt = clock.instant();
         var assessment = quotaPackageActivationAssessor.assessForMutation(
@@ -1534,6 +1563,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 item.getRowVersion(),
                 actorUserId,
                 catalogRevision,
+                registryVersion,
                 assessment.fingerprint());
         if (!assessment.blockers().isEmpty()) {
             throw new OperationBlockedException(
@@ -2255,11 +2285,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         return money;
     }
 
-    private PlanDeletionPreview buildDeletionPreview(Plan plan) {
-        return buildDeletionPreview(plan, productPriceRepository.findAllByPlanId(plan.getId()));
-    }
-
-    private PlanDeletionPreview buildDeletionPreview(
+    private PlanDeletionAssessment assessDeletion(
             Plan plan,
             List<ProductPrice> prices
     ) {
@@ -2315,20 +2341,46 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 Long.toString(quotaPackageReferences),
                 Long.toString(lineageReferences),
                 priceState);
-        return new PlanDeletionPreview(
-                planId,
-                plan.getName(),
-                plan.getVersion(),
-                sha256(state),
-                blockers.isEmpty(),
+        return new PlanDeletionAssessment(
                 ownedFeatureCount,
                 subscriptionHistory,
                 changeOperationReferences,
                 addOnReferences,
                 quotaPackageReferences,
-                lineageReferences,
-                List.copyOf(blockers));
+                lineageReferences, List.copyOf(blockers), sha256(state));
     }
+
+    private PlanDeletionPreview toDeletionPreview(
+            Plan plan,
+            PlanDeletionAssessment assessment,
+            long catalogRevision,
+            String registryVersion,
+            CommercialPreviewTokenService.IssuedEvidence evidence
+    ) {
+        return new PlanDeletionPreview(
+                plan.getId(), plan.getName(), plan.getVersion(), catalogRevision,
+                registryVersion, evidence.evaluatedAt(), evidence.expiresAt(), evidence.token(),
+                assessment.blockers().isEmpty(), assessment.ownedFeatureCount(),
+                assessment.subscriptionHistoryCount(), assessment.changeOperationReferenceCount(),
+                assessment.addOnReferenceCount(), assessment.quotaPackageReferenceCount(),
+                assessment.lineageReferenceCount(), assessment.blockers());
+    }
+
+    private StaleResourceVersionException staleDeletionPreview() {
+        return new StaleResourceVersionException(
+                "Plan deletion preview is stale; request a fresh preview.");
+    }
+
+    private record PlanDeletionAssessment(
+            int ownedFeatureCount,
+            long subscriptionHistoryCount,
+            long changeOperationReferenceCount,
+            long addOnReferenceCount,
+            long quotaPackageReferenceCount,
+            long lineageReferenceCount,
+            List<String> blockers,
+            String fingerprint
+    ) {}
 
     private long countRows(List<Object[]> rows, UUID id) {
         return rows.stream()

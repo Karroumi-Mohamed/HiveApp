@@ -10,6 +10,7 @@ public record AddOnActivationPreviewDto(
         UUID addOnId,
         long expectedVersion,
         long catalogRevision,
+        String registryVersion,
         Instant evaluatedAt,
         Instant expiresAt,
         String previewToken,

@@ -21,10 +21,13 @@ import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.service.BillingCalculator;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.platform.client.plan.service.CommercialSelectionFinalizer;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
+import com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
@@ -42,6 +45,7 @@ import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.OperationBlockedException;
@@ -58,6 +62,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -79,6 +85,9 @@ import static org.mockito.ArgumentMatchers.nullable;
 @ExtendWith(MockitoExtension.class)
 class SubscriptionServiceImplTest {
 
+    private static final UUID ACTOR_ID = UUID.fromString("00000000-0000-0000-0000-000000000111");
+    private static final Instant NOW = Instant.parse("2026-08-27T00:00:00Z");
+
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private PlanRepository planRepository;
     @Mock private PlanFeatureRepository planFeatureRepository;
@@ -99,12 +108,33 @@ class SubscriptionServiceImplTest {
     @Mock private com.hiveapp.platform.client.plan.service.ProductPriceResolver productPriceResolver;
     @Mock private CommercialCatalogResolver commercialCatalogResolver;
     @Mock private CommercialSelectionFinalizer commercialSelectionFinalizer;
+    @Mock private CommercialCatalogVersionService commercialCatalogVersionService;
+    @Mock private RegistryCatalogVersionService registryCatalogVersionService;
+    @Mock private CommercialPreviewTokenService commercialPreviewTokenService;
+    @Mock private Clock clock;
 
     @InjectMocks
     private SubscriptionServiceImpl subscriptionService;
 
     @BeforeEach
     void defaultPriceResolution() {
+        lenient().when(registryCatalogVersionService.currentVersion()).thenReturn("registry:1");
+        lenient().when(commercialCatalogVersionService.currentRevision()).thenReturn(1L);
+        lenient().when(commercialCatalogVersionService.readConsistently(
+                        org.mockito.ArgumentMatchers.<java.util.function.LongFunction<Object>>any()))
+                .thenAnswer(invocation -> invocation
+                        .<java.util.function.LongFunction<Object>>getArgument(0).apply(1L));
+        lenient().when(clock.instant()).thenReturn(NOW);
+        lenient().when(commercialPreviewTokenService.issue(
+                        any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(),
+                        org.mockito.ArgumentMatchers.anyLong(), any(), any(), any()))
+                .thenReturn(new CommercialPreviewTokenService.IssuedEvidence(
+                        "preview-token", NOW, NOW.plusSeconds(300)));
+        lenient().when(commercialPreviewTokenService.requireValid(
+                        any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(),
+                        org.mockito.ArgumentMatchers.anyLong(), any(), any(), any()))
+                .thenReturn(new CommercialPreviewTokenService.VerifiedEvidence(
+                        NOW, NOW.plusSeconds(300)));
         lenient().when(productPriceResolver.resolvePlan(
                         any(Plan.class), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class)))
                 .thenAnswer(invocation -> {
@@ -224,7 +254,8 @@ class SubscriptionServiceImplTest {
                         plan, Set.of(), List.of(selection), ExtensionAvailabilityReason.INVALID_QUANTITY));
 
         assertThatThrownBy(() -> subscriptionService.previewChange(
-                accountId, new SubscriptionChangeRequest("PRO", Set.of(), List.of(selection))))
+                accountId, ACTOR_ID,
+                new SubscriptionChangeRequest("PRO", Set.of(), List.of(selection))))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessage("The requested commercial selection is unavailable.");
     }
@@ -356,6 +387,7 @@ class SubscriptionServiceImplTest {
 
         assertThatThrownBy(() -> subscriptionService.previewChange(
                 accountId,
+                ACTOR_ID,
                 new SubscriptionChangeRequest("PRO", Set.of("MISSING_ADDON"), List.of())))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessage("The requested commercial selection is unavailable.");
@@ -400,6 +432,7 @@ class SubscriptionServiceImplTest {
 
         var preview = subscriptionService.previewChange(
                 accountId,
+                ACTOR_ID,
                 new SubscriptionChangeRequest("PRO", Set.of(), List.of()));
 
         assertThat(preview.immediateAllowed()).isFalse();
@@ -433,7 +466,8 @@ class SubscriptionServiceImplTest {
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.TEN, "USD"));
 
         var preview = subscriptionService.previewChange(
-                accountId, new SubscriptionChangeRequest("FREE", Set.of("EXTRA_MEMBERS"), List.of()));
+                accountId, ACTOR_ID,
+                new SubscriptionChangeRequest("FREE", Set.of("EXTRA_MEMBERS"), List.of()));
 
         assertThat(preview.immediateAllowed()).isTrue();
         assertThat(preview.addOnCodes()).containsExactly("EXTRA_MEMBERS");
@@ -527,7 +561,9 @@ class SubscriptionServiceImplTest {
         var response = subscriptionService.applyChange(
                 accountId,
                 actorUserId,
-                new SubscriptionChangeRequest("PRO", Set.of(), List.of()));
+                new SubscriptionChangeApplyRequest(
+                        new SubscriptionChangeRequest("PRO", Set.of(), List.of()),
+                        "preview-token"));
 
         assertThat(current.getStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
         assertThat(response.subscription().plan().code()).isEqualTo("FREE");

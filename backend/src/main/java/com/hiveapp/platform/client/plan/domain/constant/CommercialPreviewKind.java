@@ -7,5 +7,10 @@ package com.hiveapp.platform.client.plan.domain.constant;
 public enum CommercialPreviewKind {
     PLAN_ACTIVATION,
     ADD_ON_ACTIVATION,
-    QUOTA_PACKAGE_ACTIVATION
+    QUOTA_PACKAGE_ACTIVATION,
+    PLAN_DELETION,
+    PLAN_AVAILABILITY,
+    ADD_ON_VISIBILITY,
+    QUOTA_PACKAGE_VISIBILITY,
+    SUBSCRIPTION_CHANGE
 }

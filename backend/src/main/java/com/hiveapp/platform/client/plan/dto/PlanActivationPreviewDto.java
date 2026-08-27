@@ -10,6 +10,7 @@ public record PlanActivationPreviewDto(
         UUID planId,
         long expectedVersion,
         long catalogRevision,
+        String registryVersion,
         Instant evaluatedAt,
         Instant expiresAt,
         String previewToken,

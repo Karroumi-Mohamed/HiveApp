@@ -711,11 +711,13 @@ class CommercialAvailabilityControlPlaneIntegrationTest
         MvcResult result = mockMvc.perform(post("/api/v1/subscriptions/apply")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "selection", request,
+                                "previewToken", "invalid-preview-evidence"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"))
                 .andExpect(jsonPath("$.message")
-                        .value("The requested commercial selection is unavailable."))
+                        .value("Subscription-change preview is stale. Review the selection again and retry."))
                 .andReturn();
         JsonNode error = objectMapper.readTree(result.getResponse().getContentAsString());
         return new ErrorIdentity(

@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.service;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
@@ -26,9 +27,10 @@ public interface SubscriptionService {
      */
     SubscriptionDto getMySubscription(UUID accountId);
     ClientPlanCatalogResponse catalog(UUID accountId);
-    SubscriptionChangePreviewResponse previewChange(UUID accountId, SubscriptionChangeRequest request);
-    SubscriptionChangeApplyResponse applyChange(
+    SubscriptionChangePreviewResponse previewChange(
             UUID accountId, UUID actorUserId, SubscriptionChangeRequest request);
+    SubscriptionChangeApplyResponse applyChange(
+            UUID accountId, UUID actorUserId, SubscriptionChangeApplyRequest request);
     List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId);
     SubscriptionChangeOperationDto cancelPendingChange(UUID accountId, UUID operationId);
     Subscription createSubscription(UUID accountId, String planCode);

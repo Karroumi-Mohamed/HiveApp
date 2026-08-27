@@ -657,14 +657,19 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
         LimitedAdmin complete = createLimitedAdmin(
                 "platform.plans.delete",
+                "platform.plans.preview_delete",
                 "platform.price_books.delete_draft");
+        JsonNode completePreview = responseJson(mockMvc.perform(
+                        get("/api/admin/plans/{id}/deletion-preview", planId)
+                                .header("Authorization", bearer(complete.token())))
+                .andExpect(status().isOk()));
         mockMvc.perform(delete("/api/admin/plans/{id}", planId)
                         .header("Authorization", bearer(complete.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new DeletePlanRequest(
                                 created.get("name").asText(),
-                                preview.get("expectedVersion").asLong(),
-                                preview.get("previewToken").asText()))))
+                                completePreview.get("expectedVersion").asLong(),
+                                completePreview.get("previewToken").asText()))))
                 .andExpect(status().isNoContent());
         assertThat(planRepository.findById(planId)).isEmpty();
         assertThat(productPriceRepository.findAllByPlanId(planId)).isEmpty();

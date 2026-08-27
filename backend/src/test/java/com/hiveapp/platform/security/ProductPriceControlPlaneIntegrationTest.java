@@ -351,10 +351,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 new ProductPriceSelectionRequest(
                         planPrice.getId(), "USD", BillingCycle.YEARLY));
 
-        mockMvc.perform(post("/api/v1/subscriptions/apply")
-                        .header("Authorization", bearer(clientToken))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+        applySubscriptionChange(clientToken, request)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.operation.status").value("APPLIED"))
                 .andExpect(jsonPath("$.preview.previewPrice").value("0.00"));
@@ -450,10 +447,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 new ProductPriceSelectionRequest(
                         annualPrice.getId(), "USD", BillingCycle.YEARLY));
 
-        mockMvc.perform(post("/api/v1/subscriptions/apply")
-                        .header("Authorization", bearer(clientToken))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+        applySubscriptionChange(clientToken, request)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.operation.status").value("APPLIED"));
 
@@ -926,6 +920,25 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(response);
+    }
+
+    private org.springframework.test.web.servlet.ResultActions applySubscriptionChange(
+            String token,
+            SubscriptionChangeRequest request
+    ) throws Exception {
+        String previewResponse = mockMvc.perform(post("/api/v1/subscriptions/preview")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String previewToken = objectMapper.readTree(previewResponse).get("previewToken").asText();
+        return mockMvc.perform(post("/api/v1/subscriptions/apply")
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(java.util.Map.of(
+                        "selection", request,
+                        "previewToken", previewToken))));
     }
 
     private UUID currentAccountId(String token) throws Exception {

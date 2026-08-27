@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.service.impl;
 
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.domain.constant.RetainedEntitlementState;
@@ -18,6 +19,7 @@ import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
@@ -41,15 +43,19 @@ import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeActivationService;
 import com.hiveapp.platform.client.plan.service.ProductPriceResolver;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
+import com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService;
 import com.hiveapp.platform.client.plan.service.CommercialSelectionFinalizer;
 import com.hiveapp.platform.registry.definition.ClientSubscriptionFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.platform.registry.definition.service.ClientWorkspaceFeatureService;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
+import com.hiveapp.shared.exception.StaleResourceVersionException;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.quota.QuotaLimitMode;
@@ -60,7 +66,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -93,6 +105,10 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final ProductPriceResolver productPriceResolver;
     private final CommercialCatalogResolver commercialCatalogResolver;
     private final CommercialSelectionFinalizer commercialSelectionFinalizer;
+    private final CommercialCatalogVersionService commercialCatalogVersionService;
+    private final RegistryCatalogVersionService registryCatalogVersionService;
+    private final CommercialPreviewTokenService previewTokenService;
+    private final Clock clock;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -234,20 +250,24 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "preview", description = "Preview a subscription change")
-    public SubscriptionChangePreviewResponse previewChange(UUID accountId, SubscriptionChangeRequest request) {
-        Subscription current = getSubscription(accountId);
-        ClientPlanSelection target = requireClientPlanSelection(
-                request.targetPlanCode(), request.planPriceSelection());
-        Plan targetPlan = target.plan();
-        ProductPrice planPrice = target.price();
-        requireSameSubscriptionCurrency(current, planPrice);
-        ChangeSelection selection = validateSelection(targetPlan, request,
-                CommercialCatalogResolver.PriceTuple.from(planPrice),
-                CommercialCatalogResolver.Audience.CLIENT_CATALOG,
-                retainedSelection(current.getEntitlementSnapshot(), targetPlan, request));
-        SubscriptionEntitlementSnapshot targetSnapshot = targetSnapshot(
-                current, targetPlan, selection, planPrice, request.planPriceSelection());
-        return buildPreview(accountId, current, targetPlan, targetSnapshot, selection);
+    public SubscriptionChangePreviewResponse previewChange(
+            UUID accountId,
+            UUID actorUserId,
+            SubscriptionChangeRequest request
+    ) {
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        return commercialCatalogVersionService.readConsistently(catalogRevision -> {
+            SubscriptionChangeAssessment assessment = assessSubscriptionChangePreview(
+                    accountId, request);
+            Instant evaluatedAt = clock.instant();
+            var evidence = previewTokenService.issue(
+                    CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                    assessment.current().getId(), assessment.current().getVersion(), actorUserId,
+                    catalogRevision, registryVersion, assessment.fingerprint(), evaluatedAt);
+            return assessment.toResponse(
+                    catalogRevision, registryVersion, evidence.evaluatedAt(),
+                    evidence.expiresAt(), evidence.token());
+        });
     }
 
     @Override
@@ -256,33 +276,37 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     public SubscriptionChangeApplyResponse applyChange(
             UUID accountId,
             UUID actorUserId,
-            SubscriptionChangeRequest request
+            SubscriptionChangeApplyRequest applyRequest
     ) {
         accountRepository.findByIdForSubscriptionUpdate(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
-        Subscription current = getSubscription(accountId);
-        // Preserve the ordinary client privacy boundary before the lock-taking finalizer performs
-        // exact price work. Hidden and unknown guessed Plans still fail identically.
-        requireClientPlanSelection(request.targetPlanCode(), request.planPriceSelection());
-        Set<String> requestedAddOns = normalizeAddOnCodes(request.addOnCodes());
-        List<QuotaPackageSelection> requestedPackages = normalizeQuotaPackages(request.quotaPackages());
-        CommercialCatalogResolver.RetainedSelection retained = retainedSelection(
-                current.getEntitlementSnapshot(), current.getPlan(), request);
-        var finalized = commercialSelectionFinalizer.finalizeSelection(
-                request.targetPlanCode(), request.planPriceSelection(), requestedAddOns, requestedPackages,
-                CommercialCatalogResolver.Audience.CLIENT_CATALOG, retained,
-                current.getEntitlementSnapshot());
-        requireResolvedSelection(finalized.resolution(), CommercialCatalogResolver.Audience.CLIENT_CATALOG);
-        // The finalizer clears the persistence context before the exact price lock pass.
-        current = getSubscription(accountId);
-        Plan targetPlan = finalized.plan();
-        ProductPrice selectedPlanPrice = finalized.planPrice();
-        requireSameSubscriptionCurrency(current, selectedPlanPrice);
-        ChangeSelection selection = new ChangeSelection(requestedAddOns, requestedPackages);
-        var targetSnapshot = finalized.snapshot();
-        SubscriptionChangePreviewResponse preview = buildPreview(
-                accountId, current, targetPlan, targetSnapshot, selection);
-        if (request.effectiveTiming() == SubscriptionChangeTiming.IMMEDIATE && !preview.immediateAllowed()) {
+        SubscriptionChangeRequest request = applyRequest.selection();
+        long catalogRevision = commercialCatalogVersionService.currentRevision();
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        SubscriptionChangeAssessment assessment;
+        try {
+            assessment = assessSubscriptionChangeForApply(accountId, request);
+        } catch (InvalidRequestException | InvalidStateException | ResourceNotFoundException
+                 | StaleResourceVersionException exception) {
+            // Once evidence is supplied, a changed or no-longer-selectable commercial input is
+            // a stale review—not a new validation outcome that may leak catalogue changes.
+            throw staleSubscriptionPreview();
+        }
+        commercialCatalogVersionService.requireCurrent(catalogRevision);
+        var verified = previewTokenService.requireValid(
+                applyRequest.previewToken(), CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                assessment.current().getId(), assessment.current().getVersion(), actorUserId,
+                catalogRevision, registryVersion, assessment.fingerprint(),
+                this::staleSubscriptionPreview);
+        Subscription current = assessment.current();
+        Plan targetPlan = assessment.targetPlan();
+        ChangeSelection selection = assessment.selection();
+        SubscriptionEntitlementSnapshot targetSnapshot = assessment.targetSnapshot();
+        SubscriptionChangePreviewResponse preview = assessment.toResponse(
+                catalogRevision, registryVersion, verified.evaluatedAt(), verified.expiresAt(),
+                applyRequest.previewToken());
+        if (request.effectiveTiming() == SubscriptionChangeTiming.IMMEDIATE
+                && !preview.immediateAllowed()) {
             throw new InvalidStateException("Subscription change cannot be applied until conflicts are resolved.");
         }
         if (isNoOp(current, targetSnapshot, selection)) {
@@ -739,30 +763,158 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return billingCalculator.calculateMoney(preview);
     }
 
-    private SubscriptionChangePreviewResponse buildPreview(
+    private SubscriptionChangeAssessment assessSubscriptionChangePreview(
+            UUID accountId,
+            SubscriptionChangeRequest request
+    ) {
+        Subscription current = getSubscription(accountId);
+        ClientPlanSelection target = requireClientPlanSelection(
+                request.targetPlanCode(), request.planPriceSelection());
+        requireSameSubscriptionCurrency(current, target.price());
+        ChangeSelection selection = validateSelection(
+                target.plan(), request, CommercialCatalogResolver.PriceTuple.from(target.price()),
+                CommercialCatalogResolver.Audience.CLIENT_CATALOG,
+                retainedSelection(current.getEntitlementSnapshot(), target.plan(), request));
+        SubscriptionEntitlementSnapshot targetSnapshot = targetSnapshot(
+                current, target.plan(), selection, target.price(), request.planPriceSelection());
+        return assessResolvedChange(
+                accountId, current, target.plan(), targetSnapshot, selection,
+                request.effectiveTiming());
+    }
+
+    private SubscriptionChangeAssessment assessSubscriptionChangeForApply(
+            UUID accountId,
+            SubscriptionChangeRequest request
+    ) {
+        Subscription current = getSubscription(accountId);
+        // Preserve the ordinary client privacy boundary before exact lock-taking selection.
+        ClientPlanSelection preliminary = requireClientPlanSelection(
+                request.targetPlanCode(), request.planPriceSelection());
+        requireSameSubscriptionCurrency(current, preliminary.price());
+        Set<String> requestedAddOns = normalizeAddOnCodes(request.addOnCodes());
+        List<QuotaPackageSelection> requestedPackages = normalizeQuotaPackages(request.quotaPackages());
+        CommercialCatalogResolver.RetainedSelection retained = retainedSelection(
+                current.getEntitlementSnapshot(), preliminary.plan(), request);
+        var finalized = commercialSelectionFinalizer.finalizeSelection(
+                request.targetPlanCode(), request.planPriceSelection(), requestedAddOns,
+                requestedPackages, CommercialCatalogResolver.Audience.CLIENT_CATALOG,
+                retained, current.getEntitlementSnapshot());
+        requireResolvedSelection(
+                finalized.resolution(), CommercialCatalogResolver.Audience.CLIENT_CATALOG);
+
+        // The finalizer clears the persistence context; re-read the subscription while the
+        // Account lock still prevents a competing subscription operation for this tenant.
+        current = getSubscription(accountId);
+        requireSameSubscriptionCurrency(current, finalized.planPrice());
+        ChangeSelection selection = new ChangeSelection(requestedAddOns, requestedPackages);
+        return assessResolvedChange(
+                accountId, current, finalized.plan(), finalized.snapshot(), selection,
+                request.effectiveTiming());
+    }
+
+    private SubscriptionChangeAssessment assessResolvedChange(
             UUID accountId,
             Subscription current,
             Plan targetPlan,
             SubscriptionEntitlementSnapshot targetSnapshot,
-            ChangeSelection selection
+            ChangeSelection selection,
+            SubscriptionChangeTiming timing
     ) {
         List<SubscriptionChangeConflict> conflicts = subscriptionImpactAnalyzer.analyze(
                 accountId, current, targetSnapshot);
         Money price = previewPrice(current, targetPlan, targetSnapshot, selection);
-        return new SubscriptionChangePreviewResponse(
-                current.getPlan().getCode(),
-                targetPlan.getCode(),
-                current.getCurrentPrice(),
-                price.amount(),
-                price.currencyCode(),
-                conflicts.isEmpty(),
-                targetSnapshot.features().stream()
-                        .map(feature -> feature.featureCode())
-                        .collect(Collectors.toCollection(LinkedHashSet::new)),
-                subscriptionImpactAnalyzer.effectiveQuotaLimits(targetSnapshot),
-                selection.addOnCodes(),
-                selection.quotaPackages(),
-                conflicts);
+        Set<String> effectiveFeatureCodes = targetSnapshot.features().stream()
+                .map(feature -> feature.featureCode())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<EffectiveQuotaLimit> effectiveQuotaLimits =
+                subscriptionImpactAnalyzer.effectiveQuotaLimits(targetSnapshot);
+        String fingerprint = subscriptionChangeFingerprint(
+                current, targetPlan, targetSnapshot, selection, timing,
+                price, conflicts, effectiveQuotaLimits);
+        return new SubscriptionChangeAssessment(
+                current, targetPlan, targetSnapshot, selection,
+                current.getCurrentPrice(), price.amount(), price.currencyCode(), conflicts.isEmpty(),
+                Set.copyOf(effectiveFeatureCodes), List.copyOf(effectiveQuotaLimits),
+                List.copyOf(conflicts), fingerprint);
+    }
+
+    private String subscriptionChangeFingerprint(
+            Subscription current,
+            Plan targetPlan,
+            SubscriptionEntitlementSnapshot targetSnapshot,
+            ChangeSelection selection,
+            SubscriptionChangeTiming timing,
+            Money price,
+            List<SubscriptionChangeConflict> conflicts,
+            List<EffectiveQuotaLimit> effectiveQuotaLimits
+    ) {
+        StringBuilder state = new StringBuilder();
+        appendFingerprint(state, "subscription-change");
+        appendFingerprint(state, current.getId());
+        appendFingerprint(state, current.getVersion());
+        appendFingerprint(state, current.getPlan().getId());
+        appendFingerprint(state, current.getStatus());
+        appendFingerprint(state, current.getCurrentPrice());
+        appendFingerprint(state, current.getCurrentPriceCurrencyCode());
+        appendFingerprint(state, timing);
+        appendSnapshotFingerprint(state, current.getEntitlementSnapshot());
+        appendFingerprint(state, targetPlan.getId());
+        appendFingerprint(state, targetPlan.getVersion());
+        appendSnapshotFingerprint(state, targetSnapshot);
+        selection.addOnCodes().stream().sorted()
+                .forEach(code -> appendFingerprint(state, "add-on:" + code));
+        selection.quotaPackages().stream()
+                .sorted(Comparator.comparing(QuotaPackageSelection::packageCode))
+                .forEach(item -> {
+                    appendFingerprint(state, "package:" + item.packageCode());
+                    appendFingerprint(state, item.quantity());
+                });
+        appendFingerprint(state, price.amount().toPlainString());
+        appendFingerprint(state, price.currencyCode());
+        conflicts.stream().map(Object::toString).sorted()
+                .forEach(item -> appendFingerprint(state, "conflict:" + item));
+        effectiveQuotaLimits.stream().map(Object::toString).sorted()
+                .forEach(item -> appendFingerprint(state, "quota:" + item));
+        return sha256(state.toString());
+    }
+
+    private void appendSnapshotFingerprint(
+            StringBuilder state,
+            SubscriptionEntitlementSnapshot snapshot
+    ) {
+        appendFingerprint(state, snapshot.schemaVersion());
+        appendFingerprint(state, snapshot.planCode());
+        appendFingerprint(state, snapshot.planName());
+        appendFingerprint(state, snapshot.planDefinitionVersion());
+        appendFingerprint(state, snapshot.basePrice());
+        appendFingerprint(state, snapshot.currencyCode());
+        appendFingerprint(state, snapshot.billingCycle());
+        appendFingerprint(state, snapshot.planPriceEntryId());
+        snapshot.features().stream().map(Object::toString).sorted()
+                .forEach(item -> appendFingerprint(state, "feature:" + item));
+        snapshot.addOns().stream().map(Object::toString).sorted()
+                .forEach(item -> appendFingerprint(state, "add-on-snapshot:" + item));
+        snapshot.quotaPackages().stream().map(Object::toString).sorted()
+                .forEach(item -> appendFingerprint(state, "package-snapshot:" + item));
+    }
+
+    private void appendFingerprint(StringBuilder state, Object value) {
+        String encoded = value == null ? "<null>" : value.toString();
+        state.append(encoded.length()).append(':').append(encoded).append(';');
+    }
+
+    private String sha256(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    private StaleResourceVersionException staleSubscriptionPreview() {
+        return new StaleResourceVersionException(
+                "Subscription-change preview is stale. Review the selection again and retry.");
     }
 
     private boolean isNoOp(
@@ -979,6 +1131,36 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             Set<String> addOnCodes,
             List<QuotaPackageSelection> quotaPackages
     ) {}
+
+    private record SubscriptionChangeAssessment(
+            Subscription current,
+            Plan targetPlan,
+            SubscriptionEntitlementSnapshot targetSnapshot,
+            ChangeSelection selection,
+            BigDecimal currentPrice,
+            BigDecimal previewPrice,
+            String currencyCode,
+            boolean immediateAllowed,
+            Set<String> effectiveFeatureCodes,
+            List<EffectiveQuotaLimit> effectiveQuotaLimits,
+            List<SubscriptionChangeConflict> conflicts,
+            String fingerprint
+    ) {
+        private SubscriptionChangePreviewResponse toResponse(
+                long catalogRevision,
+                String registryVersion,
+                Instant evaluatedAt,
+                Instant expiresAt,
+                String previewToken
+        ) {
+            return new SubscriptionChangePreviewResponse(
+                    current.getId(), current.getVersion(), catalogRevision, registryVersion,
+                    evaluatedAt, expiresAt, previewToken, current.getPlan().getCode(),
+                    targetPlan.getCode(), currentPrice, previewPrice, currencyCode,
+                    immediateAllowed, effectiveFeatureCodes, effectiveQuotaLimits,
+                    selection.addOnCodes(), selection.quotaPackages(), conflicts);
+        }
+    }
 
     private record ClientPlanSelection(Plan plan, ProductPrice price) {}
 

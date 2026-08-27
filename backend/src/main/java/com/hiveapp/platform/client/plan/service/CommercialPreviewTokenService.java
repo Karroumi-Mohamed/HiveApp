@@ -28,7 +28,7 @@ import java.util.function.Supplier;
 public class CommercialPreviewTokenService {
 
     static final Duration VALIDITY = Duration.ofMinutes(5);
-    private static final String VERSION = "v1";
+    private static final String VERSION = "v2";
     private static final String ALGORITHM = "HmacSHA256";
     private static final byte[] DOMAIN =
             "hiveapp:commercial-preview:v1".getBytes(StandardCharsets.UTF_8);
@@ -42,6 +42,7 @@ public class CommercialPreviewTokenService {
             long expectedVersion,
             UUID actorUserId,
             long catalogRevision,
+            String registryVersion,
             String assessmentFingerprint,
             Instant evaluatedAt
     ) {
@@ -51,23 +52,25 @@ public class CommercialPreviewTokenService {
         }
         Instant expiresAt = issuedAt.plus(VALIDITY);
         String payload = payload(kind, resourceId, expectedVersion, actorUserId,
-                catalogRevision, issuedAt, expiresAt, assessmentFingerprint);
+                catalogRevision, registryVersion, issuedAt, expiresAt, assessmentFingerprint);
         String encodedPayload = encode(payload.getBytes(StandardCharsets.UTF_8));
         String signature = encode(sign(encodedPayload.getBytes(StandardCharsets.US_ASCII)));
         return new IssuedEvidence(encodedPayload + "." + signature, issuedAt, expiresAt);
     }
 
-    public void requireValid(
+    public VerifiedEvidence requireValid(
             String token,
             CommercialPreviewKind expectedKind,
             UUID expectedResourceId,
             long expectedVersion,
             UUID expectedActorUserId,
             long expectedCatalogRevision,
+            String expectedRegistryVersion,
             String expectedAssessmentFingerprint
     ) {
-        requireValid(token, expectedKind, expectedResourceId, expectedVersion,
-                expectedActorUserId, expectedCatalogRevision, expectedAssessmentFingerprint,
+        return requireValid(token, expectedKind, expectedResourceId, expectedVersion,
+                expectedActorUserId, expectedCatalogRevision, expectedRegistryVersion,
+                expectedAssessmentFingerprint,
                 StaleActivationPreviewException::new);
     }
 
@@ -76,13 +79,14 @@ public class CommercialPreviewTokenService {
      * contract. Activation uses {@link StaleActivationPreviewException}; future commercial
      * preview domains can reuse the signer without inheriting activation terminology.
      */
-    public void requireValid(
+    public VerifiedEvidence requireValid(
             String token,
             CommercialPreviewKind expectedKind,
             UUID expectedResourceId,
             long expectedVersion,
             UUID expectedActorUserId,
             long expectedCatalogRevision,
+            String expectedRegistryVersion,
             String expectedAssessmentFingerprint,
             Supplier<? extends RuntimeException> rejection
     ) {
@@ -90,20 +94,22 @@ public class CommercialPreviewTokenService {
             throw new IllegalArgumentException("Commercial preview rejection is required.");
         }
         try {
-            validate(token, expectedKind, expectedResourceId, expectedVersion,
-                    expectedActorUserId, expectedCatalogRevision, expectedAssessmentFingerprint);
+            return validate(token, expectedKind, expectedResourceId, expectedVersion,
+                    expectedActorUserId, expectedCatalogRevision, expectedRegistryVersion,
+                    expectedAssessmentFingerprint);
         } catch (InvalidEvidenceException exception) {
             throw rejection.get();
         }
     }
 
-    private void validate(
+    private VerifiedEvidence validate(
             String token,
             CommercialPreviewKind expectedKind,
             UUID expectedResourceId,
             long expectedVersion,
             UUID expectedActorUserId,
             long expectedCatalogRevision,
+            String expectedRegistryVersion,
             String expectedAssessmentFingerprint
     ) {
         if (token == null || token.isBlank()) throw invalid();
@@ -116,15 +122,16 @@ public class CommercialPreviewTokenService {
 
             String[] claims = new String(Base64.getUrlDecoder().decode(parts[0]),
                     StandardCharsets.UTF_8).split("\\n", -1);
-            if (claims.length != 9 || !VERSION.equals(claims[0])) throw invalid();
+            if (claims.length != 10 || !VERSION.equals(claims[0])) throw invalid();
             CommercialPreviewKind kind = CommercialPreviewKind.valueOf(claims[1]);
             UUID resourceId = UUID.fromString(claims[2]);
             long version = Long.parseLong(claims[3]);
             UUID actorUserId = UUID.fromString(claims[4]);
             long catalogRevision = Long.parseLong(claims[5]);
-            Instant issuedAt = Instant.ofEpochMilli(Long.parseLong(claims[6]));
-            Instant expiresAt = Instant.ofEpochMilli(Long.parseLong(claims[7]));
-            String fingerprint = claims[8];
+            String registryVersion = claims[6];
+            Instant issuedAt = Instant.ofEpochMilli(Long.parseLong(claims[7]));
+            Instant expiresAt = Instant.ofEpochMilli(Long.parseLong(claims[8]));
+            String fingerprint = claims[9];
             Instant now = clock.instant();
 
             if (kind != expectedKind
@@ -132,12 +139,14 @@ public class CommercialPreviewTokenService {
                     || version != expectedVersion
                     || !actorUserId.equals(expectedActorUserId)
                     || catalogRevision != expectedCatalogRevision
+                    || !registryVersion.equals(expectedRegistryVersion)
                     || !fingerprint.equals(expectedAssessmentFingerprint)
                     || expiresAt.toEpochMilli() - issuedAt.toEpochMilli() != VALIDITY.toMillis()
                     || issuedAt.isAfter(now.plusSeconds(30))
                     || !now.isBefore(expiresAt)) {
                 throw invalid();
             }
+            return new VerifiedEvidence(issuedAt, expiresAt);
         } catch (InvalidEvidenceException exception) {
             throw exception;
         } catch (IllegalArgumentException exception) {
@@ -151,12 +160,15 @@ public class CommercialPreviewTokenService {
             long expectedVersion,
             UUID actorUserId,
             long catalogRevision,
+            String registryVersion,
             Instant issuedAt,
             Instant expiresAt,
             String fingerprint
     ) {
         if (kind == null || resourceId == null || actorUserId == null
                 || expectedVersion < 0 || catalogRevision < 0
+                || registryVersion == null || registryVersion.isBlank()
+                || registryVersion.indexOf('\n') >= 0
                 || fingerprint == null || fingerprint.isBlank()
                 || fingerprint.indexOf('\n') >= 0) {
             throw new IllegalArgumentException("Commercial preview evidence is incomplete.");
@@ -168,6 +180,7 @@ public class CommercialPreviewTokenService {
                 Long.toString(expectedVersion),
                 actorUserId.toString(),
                 Long.toString(catalogRevision),
+                registryVersion,
                 Long.toString(issuedAt.toEpochMilli()),
                 Long.toString(expiresAt.toEpochMilli()),
                 fingerprint);
@@ -204,6 +217,8 @@ public class CommercialPreviewTokenService {
     }
 
     public record IssuedEvidence(String token, Instant evaluatedAt, Instant expiresAt) {}
+
+    public record VerifiedEvidence(Instant evaluatedAt, Instant expiresAt) {}
 
     private static final class InvalidEvidenceException extends RuntimeException {
         private InvalidEvidenceException() {

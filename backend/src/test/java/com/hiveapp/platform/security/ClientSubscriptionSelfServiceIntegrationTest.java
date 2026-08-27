@@ -166,6 +166,42 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
     }
 
     @Test
+    void subscriptionReviewEvidenceIsTamperActorAccountAndSelectionBound() throws Exception {
+        String firstClient = registerClientAndGetToken();
+        var reviewed = new SubscriptionChangeRequest("PRO", Set.of(), List.of());
+        String previewResponse = preview(firstClient, reviewed)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String evidence = objectMapper.readTree(previewResponse).get("previewToken").asText();
+
+        int offset = evidence.indexOf('.') + 4;
+        char replacement = evidence.charAt(offset) == 'A' ? 'B' : 'A';
+        String tampered = evidence.substring(0, offset) + replacement + evidence.substring(offset + 1);
+        applyWithToken(firstClient, reviewed, tampered)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
+
+        applyWithToken(firstClient,
+                new SubscriptionChangeRequest("ENTERPRISE", Set.of(), List.of()), evidence)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
+
+        String secondClient = registerClientAndGetToken();
+        applyWithToken(secondClient, reviewed, evidence)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
+
+        mockMvc.perform(get("/api/v1/subscriptions/changes")
+                        .header("Authorization", bearer(firstClient)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+        mockMvc.perform(get("/api/v1/subscriptions/changes")
+                        .header("Authorization", bearer(secondClient)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
     void internalFeatureIsHiddenFromCatalogAndCannotBeSelected() throws Exception {
         String token = registerClientAndGetToken();
         var company = featureRepository.findByCode("platform.company").orElseThrow();
@@ -391,10 +427,24 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
             String token,
             SubscriptionChangeRequest request
     ) throws Exception {
+        String previewResponse = preview(token, request)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String previewToken = objectMapper.readTree(previewResponse).get("previewToken").asText();
+        return applyWithToken(token, request, previewToken);
+    }
+
+    private org.springframework.test.web.servlet.ResultActions applyWithToken(
+            String token,
+            SubscriptionChangeRequest request,
+            String previewToken
+    ) throws Exception {
         return mockMvc.perform(post("/api/v1/subscriptions/apply")
                 .header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)));
+                .content(objectMapper.writeValueAsString(Map.of(
+                        "selection", request,
+                        "previewToken", previewToken))));
     }
 
     private CompletableFuture<Integer> applyAsync(String token, String planCode) {

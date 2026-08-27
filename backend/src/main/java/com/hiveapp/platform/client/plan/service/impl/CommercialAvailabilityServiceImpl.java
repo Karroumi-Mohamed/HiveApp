@@ -9,8 +9,10 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialAvailabilityAction;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialAvailabilityBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialProductType;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.ExtensionAvailabilityReason;
 import com.hiveapp.platform.client.plan.domain.constant.ExtensionResolutionSource;
+import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
@@ -38,10 +40,13 @@ import com.hiveapp.platform.client.plan.service.CommercialAvailabilityService;
 import com.hiveapp.platform.client.plan.service.CommercialAvailabilityAuditContract;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
+import com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService;
 import com.hiveapp.platform.client.plan.service.PlanAdminReadModels;
 import com.hiveapp.platform.registry.definition.CommercialAvailabilityFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.shared.audit.domain.AuditLog;
 import com.hiveapp.shared.audit.AuditTrail;
 import com.hiveapp.shared.audit.domain.AuditActorSurface;
@@ -60,6 +65,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -103,6 +110,10 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     private final ObjectMapper objectMapper;
     private final AuditTrail auditTrail;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
+    private final CommercialCatalogVersionService commercialCatalogVersionService;
+    private final RegistryCatalogVersionService registryCatalogVersionService;
+    private final CommercialPreviewTokenService previewTokenService;
+    private final Clock clock;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -142,8 +153,19 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     @PermissionNode(key = "preview_plan_policy", description = "Preview a Plan availability change")
     public PlanAvailabilityPreviewDto previewPlan(
             UUID planId, PlanAvailabilityPreviewRequest request) {
-        Plan plan = requirePlan(planId);
-        return buildPlanPreview(plan, request.extensionPolicy(), request.salesVisibility());
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        return commercialCatalogVersionService.readConsistently(catalogRevision -> {
+            Plan plan = requirePlan(planId);
+            PlanAvailabilityAssessment assessment = assessPlanAvailability(
+                    plan, request.extensionPolicy(), request.salesVisibility());
+            Instant evaluatedAt = clock.instant();
+            var evidence = previewTokenService.issue(
+                    CommercialPreviewKind.PLAN_AVAILABILITY, plan.getId(), plan.getVersion(),
+                    actorUserId, catalogRevision, registryVersion,
+                    assessment.fingerprint(), evaluatedAt);
+            return assessment.toDto(catalogRevision, registryVersion, evidence);
+        });
     }
 
     @Override
@@ -157,13 +179,16 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
         var previousVisibility = plan.getSalesVisibility();
         requireVersion(plan.getVersion(), request.expectedVersion(), "Plan availability");
         requireReason(request.reason());
-        PlanAvailabilityPreviewDto preview = buildPlanPreview(
+        long catalogRevision = commercialCatalogVersionService.currentRevision();
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        PlanAvailabilityAssessment assessment = assessPlanAvailability(
                 plan, request.extensionPolicy(), request.salesVisibility());
-        if (!preview.previewToken().equals(request.previewToken())) {
-            throw new StaleResourceVersionException(
-                    "Plan availability preview is stale. Reload the preview and retry.");
-        }
-        requireApplicable(preview.applicable(), preview.blockers());
+        previewTokenService.requireValid(
+                request.previewToken(), CommercialPreviewKind.PLAN_AVAILABILITY,
+                plan.getId(), plan.getVersion(), actorUserId, catalogRevision,
+                registryVersion, assessment.fingerprint(), this::staleAvailabilityPreview);
+        requireApplicable(assessment.applicable(), assessment.blockers());
         plan.setExtensionPolicy(request.extensionPolicy());
         plan.setSalesVisibility(request.salesVisibility());
         PlanDto result = readModels.toDto(planRepository.saveAndFlush(plan));
@@ -180,7 +205,19 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     @PermissionNode(key = "preview_add_on_visibility", description = "Preview AddOn sales visibility")
     public ProductVisibilityPreviewDto previewAddOn(
             UUID addOnId, ProductVisibilityPreviewRequest request) {
-        return buildAddOnVisibilityPreview(requireAddOn(addOnId), request.salesVisibility());
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        return commercialCatalogVersionService.readConsistently(catalogRevision -> {
+            AddOn addOn = requireAddOn(addOnId);
+            ProductVisibilityAssessment assessment = assessAddOnVisibility(
+                    addOn, request.salesVisibility());
+            Instant evaluatedAt = clock.instant();
+            var evidence = previewTokenService.issue(
+                    CommercialPreviewKind.ADD_ON_VISIBILITY, addOn.getId(), addOn.getRowVersion(),
+                    actorUserId, catalogRevision, registryVersion,
+                    assessment.fingerprint(), evaluatedAt);
+            return assessment.toDto(catalogRevision, registryVersion, evidence);
+        });
     }
 
     @Override
@@ -193,13 +230,16 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
         var previousVisibility = addOn.getSalesVisibility();
         requireVersion(addOn.getRowVersion(), request.expectedVersion(), "AddOn visibility");
         requireReason(request.reason());
-        ProductVisibilityPreviewDto preview = buildAddOnVisibilityPreview(
+        long catalogRevision = commercialCatalogVersionService.currentRevision();
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        ProductVisibilityAssessment assessment = assessAddOnVisibility(
                 addOn, request.salesVisibility());
-        if (!preview.previewToken().equals(request.previewToken())) {
-            throw new StaleResourceVersionException(
-                    "AddOn visibility preview is stale. Reload the preview and retry.");
-        }
-        requireApplicable(preview.applicable(), preview.blockers());
+        previewTokenService.requireValid(
+                request.previewToken(), CommercialPreviewKind.ADD_ON_VISIBILITY,
+                addOn.getId(), addOn.getRowVersion(), actorUserId, catalogRevision,
+                registryVersion, assessment.fingerprint(), this::staleAvailabilityPreview);
+        requireApplicable(assessment.applicable(), assessment.blockers());
         addOn.setSalesVisibility(request.salesVisibility());
         addOnRepository.saveAndFlush(addOn);
         AddOnDto result = readModels.toDto(addOnRepository.findDetailedById(addOnId).orElseThrow());
@@ -215,7 +255,19 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     @PermissionNode(key = "preview_quota_visibility", description = "Preview quota-package sales visibility")
     public ProductVisibilityPreviewDto previewQuotaPackage(
             UUID quotaPackageId, ProductVisibilityPreviewRequest request) {
-        return buildQuotaVisibilityPreview(requireQuotaPackage(quotaPackageId), request.salesVisibility());
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        return commercialCatalogVersionService.readConsistently(catalogRevision -> {
+            QuotaPackage item = requireQuotaPackage(quotaPackageId);
+            ProductVisibilityAssessment assessment = assessQuotaVisibility(
+                    item, request.salesVisibility());
+            Instant evaluatedAt = clock.instant();
+            var evidence = previewTokenService.issue(
+                    CommercialPreviewKind.QUOTA_PACKAGE_VISIBILITY,
+                    item.getId(), item.getRowVersion(), actorUserId, catalogRevision,
+                    registryVersion, assessment.fingerprint(), evaluatedAt);
+            return assessment.toDto(catalogRevision, registryVersion, evidence);
+        });
     }
 
     @Override
@@ -229,13 +281,16 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
         var previousVisibility = item.getSalesVisibility();
         requireVersion(item.getRowVersion(), request.expectedVersion(), "Quota-package visibility");
         requireReason(request.reason());
-        ProductVisibilityPreviewDto preview = buildQuotaVisibilityPreview(
+        long catalogRevision = commercialCatalogVersionService.currentRevision();
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        ProductVisibilityAssessment assessment = assessQuotaVisibility(
                 item, request.salesVisibility());
-        if (!preview.previewToken().equals(request.previewToken())) {
-            throw new StaleResourceVersionException(
-                    "Quota-package visibility preview is stale. Reload the preview and retry.");
-        }
-        requireApplicable(preview.applicable(), preview.blockers());
+        previewTokenService.requireValid(
+                request.previewToken(), CommercialPreviewKind.QUOTA_PACKAGE_VISIBILITY,
+                item.getId(), item.getRowVersion(), actorUserId, catalogRevision,
+                registryVersion, assessment.fingerprint(), this::staleAvailabilityPreview);
+        requireApplicable(assessment.applicable(), assessment.blockers());
         item.setSalesVisibility(request.salesVisibility());
         quotaPackageRepository.saveAndFlush(item);
         QuotaPackageDto result = readModels.toDto(
@@ -266,9 +321,9 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
                 log, actorEmails.get(log.getActorUserId()), productIdentity));
     }
 
-    private PlanAvailabilityPreviewDto buildPlanPreview(
+    private PlanAvailabilityAssessment assessPlanAvailability(
             Plan plan,
-            com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy targetPolicy,
+            PlanExtensionPolicy targetPolicy,
             ProductSalesVisibility targetVisibility
     ) {
         CommercialCatalogResolver.PlanResolution before = catalogResolver.resolvePlan(
@@ -310,9 +365,9 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
             blockers.add(CommercialAvailabilityBlocker.NO_CHANGE);
         }
         boolean applicable = blockers.isEmpty();
-        return new PlanAvailabilityPreviewDto(
-                plan.getId(), plan.getCode(), plan.getVersion(), plan.getExtensionPolicy(), targetPolicy,
-                plan.getSalesVisibility(), targetVisibility, subscribers, total,
+        return new PlanAvailabilityAssessment(
+                plan.getId(), plan.getCode(), plan.getVersion(), plan.getExtensionPolicy(),
+                targetPolicy, plan.getSalesVisibility(), targetVisibility, subscribers, total,
                 beforeOperator, afterOperator, beforeClient, afterClient, changed.size(),
                 changed.size() > MAX_PREVIEW_CHANGES,
                 changed.stream().limit(MAX_PREVIEW_CHANGES).toList(), applicable,
@@ -321,7 +376,7 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
                 sha256(state));
     }
 
-    private ProductVisibilityPreviewDto buildAddOnVisibilityPreview(
+    private ProductVisibilityAssessment assessAddOnVisibility(
             AddOn addOn, ProductSalesVisibility target) {
         var catalog = catalogResolver.resolveCatalog(
                 CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR);
@@ -344,15 +399,17 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
                 addOn.getStatus() == AddOnStatus.ARCHIVED,
                 addOn.getSalesVisibility(), target);
         boolean applicable = blockers.isEmpty();
-        String token = visibilityToken(CommercialProductType.ADD_ON, addOn.getId(), addOn.getRowVersion(),
+        String fingerprint = visibilityFingerprint(
+                CommercialProductType.ADD_ON, addOn.getId(), addOn.getRowVersion(),
                 target, catalogFingerprint(catalog));
-        return new ProductVisibilityPreviewDto(
+        return new ProductVisibilityAssessment(
                 CommercialProductType.ADD_ON, addOn.getId(), addOn.getCode(), addOn.getRowVersion(),
                 addOn.getSalesVisibility(), target, compatible, before, after, applicable, blockers,
-                applicable ? Set.of(CommercialAvailabilityAction.APPLY_SALES_VISIBILITY) : Set.of(), token);
+                applicable ? Set.of(CommercialAvailabilityAction.APPLY_SALES_VISIBILITY) : Set.of(),
+                fingerprint);
     }
 
-    private ProductVisibilityPreviewDto buildQuotaVisibilityPreview(
+    private ProductVisibilityAssessment assessQuotaVisibility(
             QuotaPackage item, ProductSalesVisibility target) {
         var catalog = catalogResolver.resolveCatalog(
                 CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR);
@@ -375,16 +432,17 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
                 item.getStatus() == QuotaPackageStatus.ARCHIVED,
                 item.getSalesVisibility(), target);
         boolean applicable = blockers.isEmpty();
-        String token = visibilityToken(
+        String fingerprint = visibilityFingerprint(
                 CommercialProductType.QUOTA_PACKAGE, item.getId(), item.getRowVersion(),
                 target, catalogFingerprint(catalog));
-        return new ProductVisibilityPreviewDto(
+        return new ProductVisibilityAssessment(
                 CommercialProductType.QUOTA_PACKAGE, item.getId(), item.getCode(), item.getRowVersion(),
                 item.getSalesVisibility(), target, compatible, before, after, applicable, blockers,
-                applicable ? Set.of(CommercialAvailabilityAction.APPLY_SALES_VISIBILITY) : Set.of(), token);
+                applicable ? Set.of(CommercialAvailabilityAction.APPLY_SALES_VISIBILITY) : Set.of(),
+                fingerprint);
     }
 
-    private String visibilityToken(
+    private String visibilityFingerprint(
             CommercialProductType type, UUID id, long version, ProductSalesVisibility target,
             String catalogFingerprint) {
         return sha256(String.join("|", type.name(), id.toString(), Long.toString(version),
@@ -461,6 +519,11 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
         throw new OperationBlockedException(
                 "Commercial availability cannot be changed.",
                 blockers.stream().map(Enum::name).toList());
+    }
+
+    private StaleResourceVersionException staleAvailabilityPreview() {
+        return new StaleResourceVersionException(
+                "Commercial availability preview is stale. Reload the preview and retry.");
     }
 
     private List<ExtensionAvailabilityIssue> operatorIssues(
@@ -783,6 +846,73 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
             return Enum.valueOf(type, node.textValue());
         } catch (IllegalArgumentException ignored) {
             return null;
+        }
+    }
+
+    private record PlanAvailabilityAssessment(
+            UUID planId,
+            String planCode,
+            long expectedVersion,
+            PlanExtensionPolicy currentExtensionPolicy,
+            PlanExtensionPolicy targetExtensionPolicy,
+            ProductSalesVisibility currentSalesVisibility,
+            ProductSalesVisibility targetSalesVisibility,
+            long affectedSubscriptionCount,
+            int totalExtensions,
+            int operatorSelectableBefore,
+            int operatorSelectableAfter,
+            int clientVisibleBefore,
+            int clientVisibleAfter,
+            int changedCount,
+            boolean changesTruncated,
+            List<ExtensionCompatibilityDto> changedExtensions,
+            boolean applicable,
+            List<CommercialAvailabilityBlocker> blockers,
+            Set<CommercialAvailabilityAction> availableActions,
+            String fingerprint
+    ) {
+        private PlanAvailabilityPreviewDto toDto(
+                long catalogRevision,
+                String registryVersion,
+                CommercialPreviewTokenService.IssuedEvidence evidence
+        ) {
+            return new PlanAvailabilityPreviewDto(
+                    planId, planCode, expectedVersion, catalogRevision, registryVersion,
+                    evidence.evaluatedAt(), evidence.expiresAt(), currentExtensionPolicy,
+                    targetExtensionPolicy, currentSalesVisibility, targetSalesVisibility,
+                    affectedSubscriptionCount, totalExtensions, operatorSelectableBefore,
+                    operatorSelectableAfter, clientVisibleBefore, clientVisibleAfter,
+                    changedCount, changesTruncated, changedExtensions, applicable, blockers,
+                    availableActions, evidence.token());
+        }
+    }
+
+    private record ProductVisibilityAssessment(
+            CommercialProductType productType,
+            UUID productId,
+            String productCode,
+            long expectedVersion,
+            ProductSalesVisibility currentSalesVisibility,
+            ProductSalesVisibility targetSalesVisibility,
+            int compatiblePlanCount,
+            int clientVisiblePlanCountBefore,
+            int clientVisiblePlanCountAfter,
+            boolean applicable,
+            List<CommercialAvailabilityBlocker> blockers,
+            Set<CommercialAvailabilityAction> availableActions,
+            String fingerprint
+    ) {
+        private ProductVisibilityPreviewDto toDto(
+                long catalogRevision,
+                String registryVersion,
+                CommercialPreviewTokenService.IssuedEvidence evidence
+        ) {
+            return new ProductVisibilityPreviewDto(
+                    productType, productId, productCode, expectedVersion,
+                    catalogRevision, registryVersion, evidence.evaluatedAt(), evidence.expiresAt(),
+                    currentSalesVisibility, targetSalesVisibility, compatiblePlanCount,
+                    clientVisiblePlanCountBefore, clientVisiblePlanCountAfter, applicable,
+                    blockers, availableActions, evidence.token());
         }
     }
 

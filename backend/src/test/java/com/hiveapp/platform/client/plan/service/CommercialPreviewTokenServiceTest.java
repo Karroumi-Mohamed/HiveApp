@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CommercialPreviewTokenServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-08-27T10:00:00Z");
+    private static final String REGISTRY = "registry-hash:9";
 
     private JwtProperties properties;
     private CommercialPreviewTokenService service;
@@ -35,28 +36,30 @@ class CommercialPreviewTokenServiceTest {
         UUID actorId = UUID.randomUUID();
         var evidence = service.issue(
                 CommercialPreviewKind.ADD_ON_ACTIVATION,
-                resourceId, 7, actorId, 41, "abc123", NOW);
+                resourceId, 7, actorId, 41, REGISTRY, "abc123", NOW);
 
         assertThat(evidence.evaluatedAt()).isEqualTo(NOW);
         assertThat(evidence.expiresAt()).isEqualTo(NOW.plusSeconds(300));
         assertThat(evidence.token()).contains(".");
         assertThatCode(() -> service.requireValid(
                 evidence.token(), CommercialPreviewKind.ADD_ON_ACTIVATION,
-                resourceId, 7, actorId, 41, "abc123"))
+                resourceId, 7, actorId, 41, REGISTRY, "abc123"))
                 .doesNotThrowAnyException();
 
         assertStale(evidence.token(), CommercialPreviewKind.PLAN_ACTIVATION,
-                resourceId, 7, actorId, 41, "abc123");
+                resourceId, 7, actorId, 41, REGISTRY, "abc123");
         assertStale(evidence.token(), CommercialPreviewKind.ADD_ON_ACTIVATION,
-                UUID.randomUUID(), 7, actorId, 41, "abc123");
+                UUID.randomUUID(), 7, actorId, 41, REGISTRY, "abc123");
         assertStale(evidence.token(), CommercialPreviewKind.ADD_ON_ACTIVATION,
-                resourceId, 8, actorId, 41, "abc123");
+                resourceId, 8, actorId, 41, REGISTRY, "abc123");
         assertStale(evidence.token(), CommercialPreviewKind.ADD_ON_ACTIVATION,
-                resourceId, 7, UUID.randomUUID(), 41, "abc123");
+                resourceId, 7, UUID.randomUUID(), 41, REGISTRY, "abc123");
         assertStale(evidence.token(), CommercialPreviewKind.ADD_ON_ACTIVATION,
-                resourceId, 7, actorId, 42, "abc123");
+                resourceId, 7, actorId, 42, REGISTRY, "abc123");
         assertStale(evidence.token(), CommercialPreviewKind.ADD_ON_ACTIVATION,
-                resourceId, 7, actorId, 41, "changed");
+                resourceId, 7, actorId, 41, "other-registry:1", "abc123");
+        assertStale(evidence.token(), CommercialPreviewKind.ADD_ON_ACTIVATION,
+                resourceId, 7, actorId, 41, REGISTRY, "changed");
     }
 
     @Test
@@ -65,12 +68,12 @@ class CommercialPreviewTokenServiceTest {
         UUID actorId = UUID.randomUUID();
         String token = service.issue(
                 CommercialPreviewKind.QUOTA_PACKAGE_ACTIVATION,
-                resourceId, 2, actorId, 3, "fingerprint", NOW).token();
+                resourceId, 2, actorId, 3, REGISTRY, "fingerprint", NOW).token();
 
         CommercialPreviewTokenService expired = at(NOW.plusSeconds(300));
         assertThatThrownBy(() -> expired.requireValid(
                 token, CommercialPreviewKind.QUOTA_PACKAGE_ACTIVATION,
-                resourceId, 2, actorId, 3, "fingerprint"))
+                resourceId, 2, actorId, 3, REGISTRY, "fingerprint"))
                 .isInstanceOf(StaleActivationPreviewException.class);
 
         int signatureOffset = token.indexOf('.') + 5;
@@ -78,11 +81,11 @@ class CommercialPreviewTokenServiceTest {
         String tampered = token.substring(0, signatureOffset)
                 + replacement + token.substring(signatureOffset + 1);
         assertStale(tampered, CommercialPreviewKind.QUOTA_PACKAGE_ACTIVATION,
-                resourceId, 2, actorId, 3, "fingerprint");
+                resourceId, 2, actorId, 3, REGISTRY, "fingerprint");
         assertStale("not-a-token", CommercialPreviewKind.QUOTA_PACKAGE_ACTIVATION,
-                resourceId, 2, actorId, 3, "fingerprint");
+                resourceId, 2, actorId, 3, REGISTRY, "fingerprint");
         assertStale("", CommercialPreviewKind.QUOTA_PACKAGE_ACTIVATION,
-                resourceId, 2, actorId, 3, "fingerprint");
+                resourceId, 2, actorId, 3, REGISTRY, "fingerprint");
     }
 
     @Test
@@ -91,11 +94,11 @@ class CommercialPreviewTokenServiceTest {
         UUID actorId = UUID.randomUUID();
         String token = service.issue(
                 CommercialPreviewKind.PLAN_ACTIVATION,
-                resourceId, 2, actorId, 3, "fingerprint", NOW).token();
+                resourceId, 2, actorId, 3, REGISTRY, "fingerprint", NOW).token();
 
         assertThatThrownBy(() -> service.requireValid(
                 token, CommercialPreviewKind.PLAN_ACTIVATION,
-                resourceId, 2, actorId, 4, "fingerprint",
+                resourceId, 2, actorId, 4, REGISTRY, "fingerprint",
                 () -> new IllegalStateException("domain-specific stale evidence")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("domain-specific stale evidence");
@@ -113,10 +116,12 @@ class CommercialPreviewTokenServiceTest {
             long version,
             UUID actorId,
             long catalogRevision,
+            String registryVersion,
             String fingerprint
     ) {
         assertThatThrownBy(() -> service.requireValid(
-                token, kind, resourceId, version, actorId, catalogRevision, fingerprint))
+                token, kind, resourceId, version, actorId, catalogRevision,
+                registryVersion, fingerprint))
                 .isInstanceOf(StaleActivationPreviewException.class)
                 .hasMessageContaining("fresh preview");
     }

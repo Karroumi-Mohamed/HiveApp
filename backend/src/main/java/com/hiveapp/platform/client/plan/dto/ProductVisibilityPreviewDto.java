@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.plan.domain.constant.CommercialAvailabilityAc
 import com.hiveapp.platform.client.plan.domain.constant.CommercialAvailabilityBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -14,6 +15,10 @@ public record ProductVisibilityPreviewDto(
         UUID productId,
         String productCode,
         long expectedVersion,
+        long catalogRevision,
+        String registryVersion,
+        Instant evaluatedAt,
+        Instant expiresAt,
         ProductSalesVisibility currentSalesVisibility,
         ProductSalesVisibility targetSalesVisibility,
         int compatiblePlanCount,

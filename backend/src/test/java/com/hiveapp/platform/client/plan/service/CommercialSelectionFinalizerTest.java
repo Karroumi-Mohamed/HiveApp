@@ -38,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,6 +46,7 @@ import static org.mockito.Mockito.when;
 class CommercialSelectionFinalizerTest {
 
     @Mock private RegistryCatalogVersionService registryCatalogVersionService;
+    @Mock private CommercialCatalogVersionService commercialCatalogVersionService;
     @Mock private PlanRepository planRepository;
     @Mock private AddOnRepository addOnRepository;
     @Mock private QuotaPackageRepository quotaPackageRepository;
@@ -87,6 +89,11 @@ class CommercialSelectionFinalizerTest {
                 .isInstanceOf(StaleResourceVersionException.class)
                 .hasMessageContaining("changed while it was being finalized");
 
+        var lockOrder = inOrder(
+                commercialCatalogVersionService, registryCatalogVersionService, planRepository);
+        lockOrder.verify(commercialCatalogVersionService).lockForMutation();
+        lockOrder.verify(registryCatalogVersionService).lockForMutation();
+        lockOrder.verify(planRepository).findByCodeForUpdate("FLEX");
         verify(subscriptionSnapshotFactory, never()).fromResolvedSelection(any(), any(), any(), any());
     }
 
