@@ -1179,6 +1179,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         UUID missingSegmentId = UUID.randomUUID();
         UUID missingActivationId = UUID.randomUUID();
         LimitedAdmin creator = createLimitedAdmin("platform.segments.create");
+        LimitedAdmin counter = createLimitedAdmin("platform.segments.count");
         LimitedAdmin previewer = createLimitedAdmin("platform.segments.preview");
         LimitedAdmin identityReader = createLimitedAdmin(
                 "platform.segments.read_sample_identities",
@@ -1210,6 +1211,12 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         mockMvc.perform(get("/api/admin/segments/{id}/preview", missingSegmentId)
                         .header("Authorization", bearer(previewer.token())))
                 .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/segments/{id}/count", missingSegmentId)
+                        .header("Authorization", bearer(previewer.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/segments/{id}/count", missingSegmentId)
+                        .header("Authorization", bearer(counter.token())))
+                .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/admin/segments/{id}/preview-identities", missingSegmentId)
                         .header("Authorization", bearer(previewer.token())))
                 .andExpect(status().isForbidden());
@@ -1249,6 +1256,50 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/admin/segments/{id}/owner", missingSegmentId)
                         .header("Authorization", bearer(ownerReader.token())))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void segmentLifecycleMutationLeavesAndHistoryAreIndependentlyEnforced() throws Exception {
+        UUID missing = UUID.randomUUID();
+        LimitedAdmin unrelated = createLimitedAdmin("platform.segments.read_detail");
+        LimitedAdmin updater = createLimitedAdmin("platform.segments.update_draft");
+        LimitedAdmin activator = createLimitedAdmin("platform.segments.activate");
+        LimitedAdmin reviser = createLimitedAdmin("platform.segments.revise");
+        LimitedAdmin archiver = createLimitedAdmin("platform.segments.archive");
+        LimitedAdmin deleter = createLimitedAdmin("platform.segments.delete_draft");
+        LimitedAdmin historian = createLimitedAdmin("platform.segments.read_history");
+        LimitedAdmin ownerManager = createLimitedAdmin("platform.segments.reassign_owner");
+        String versionReason = objectMapper.writeValueAsString(
+                new CommercialSegmentRequests.VersionReason(0L, "Permission boundary"));
+        String activation = objectMapper.writeValueAsString(
+                new CommercialSegmentRequests.Activation(0L, "Permission boundary", "signed-evidence"));
+        String update = objectMapper.writeValueAsString(new CommercialSegmentRequests.Update(
+                0L, "Missing Segment", null, CommercialSegmentKind.EXPLICIT_ACCOUNTS,
+                CommercialSegmentSource.MANUAL, "Permission boundary",
+                new CommercialSegmentRequests.Definition(Set.of(UUID.randomUUID()), null)));
+        UUID ownerId = UUID.randomUUID();
+        String owner = objectMapper.writeValueAsString(
+                new CommercialSegmentRequests.ReassignOwner(0L, ownerId, "Permission boundary"));
+
+        assertSegmentMutationPermission("put", missing, update, unrelated, updater,
+                "/api/admin/segments/{id}");
+        assertSegmentMutationPermission("post", missing, activation, unrelated, activator,
+                "/api/admin/segments/{id}/activate");
+        assertSegmentMutationPermission("post", missing, versionReason, unrelated, reviser,
+                "/api/admin/segments/{id}/revisions");
+        assertSegmentMutationPermission("post", missing, versionReason, unrelated, archiver,
+                "/api/admin/segments/{id}/archive");
+        assertSegmentMutationPermission("delete", missing, versionReason, unrelated, deleter,
+                "/api/admin/segments/{id}");
+        assertSegmentMutationPermission("put", missing, owner, unrelated, ownerManager,
+                "/api/admin/segments/{id}/owner");
+
+        mockMvc.perform(get("/api/admin/segments/{id}/history", missing)
+                        .header("Authorization", bearer(unrelated.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/segments/{id}/history", missing)
+                        .header("Authorization", bearer(historian.token())))
                 .andExpect(status().isNotFound());
     }
 
@@ -1766,6 +1817,34 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isActive").value(false));
+    }
+
+    private void assertSegmentMutationPermission(
+            String method,
+            UUID segmentId,
+            String body,
+            LimitedAdmin denied,
+            LimitedAdmin allowed,
+            String path
+    ) throws Exception {
+        var deniedRequest = switch (method) {
+            case "put" -> put(path, segmentId);
+            case "post" -> post(path, segmentId);
+            case "delete" -> delete(path, segmentId);
+            default -> throw new IllegalArgumentException("Unsupported test method " + method);
+        };
+        mockMvc.perform(deniedRequest.header("Authorization", bearer(denied.token()))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        var allowedRequest = switch (method) {
+            case "put" -> put(path, segmentId);
+            case "post" -> post(path, segmentId);
+            case "delete" -> delete(path, segmentId);
+            default -> throw new IllegalArgumentException("Unsupported test method " + method);
+        };
+        mockMvc.perform(allowedRequest.header("Authorization", bearer(allowed.token()))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
     }
 
     private ClientIdentity registerClient() throws Exception {

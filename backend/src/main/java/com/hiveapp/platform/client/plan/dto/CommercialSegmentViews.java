@@ -14,6 +14,7 @@ import com.hiveapp.shared.audit.domain.AuditOutcome;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -37,13 +38,15 @@ public final class CommercialSegmentViews {
             Instant createdAt,
             Instant updatedAt,
             List<CommercialSegmentAction> availableActions,
-            List<CommercialSegmentBlocker> blockers,
+            Map<CommercialSegmentAction, List<CommercialSegmentBlocker>> blockedActions,
             boolean ownerIdentityRestricted,
             boolean audienceIdentityRestricted
     ) {
         public Summary {
             availableActions = List.copyOf(availableActions);
-            blockers = List.copyOf(blockers);
+            blockedActions = blockedActions.entrySet().stream().collect(
+                    java.util.stream.Collectors.toUnmodifiableMap(
+                            Map.Entry::getKey, entry -> List.copyOf(entry.getValue())));
         }
     }
 
@@ -86,6 +89,16 @@ public final class CommercialSegmentViews {
     }
 
     public record ProductHolding(CommercialSegmentProductType type, String code) {}
+
+    /** Cheap count-only evaluation: no identity sample and no activation evidence are produced. */
+    public record Count(
+            UUID segmentId,
+            long criteriaVersion,
+            Instant evaluatedAt,
+            long totalAccounts,
+            int activationAccountLimit,
+            boolean withinActivationLimit
+    ) {}
 
     /** Ordinary preview deliberately carries no Account name, slug, or owner identity. */
     public record AudienceReference(UUID accountId) {}

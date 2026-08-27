@@ -27,6 +27,7 @@ public interface CommercialSegmentAdminService {
     CommercialSegmentViews.Comparison compare(UUID segmentId, UUID comparedSegmentId);
     Page<CommercialSegmentViews.Revision> revisions(UUID segmentId, Pageable pageable);
     Page<CommercialSegmentViews.History> history(UUID segmentId, Pageable pageable);
+    CommercialSegmentViews.Count count(UUID segmentId);
     CommercialSegmentViews.Preview preview(UUID segmentId);
     CommercialSegmentViews.IdentitySample previewIdentities(UUID segmentId);
     CommercialSegmentViews.Detail activate(UUID segmentId, CommercialSegmentRequests.Activation request);

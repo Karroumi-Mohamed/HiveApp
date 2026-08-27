@@ -14,11 +14,13 @@ import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentActiv
 import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentRepository;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentViews;
 import com.hiveapp.shared.exception.InvalidRequestException;
+import com.hiveapp.shared.exception.StaleActivationPreviewException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.persistence.criteria.Join;
@@ -54,14 +56,23 @@ public class CommercialSegmentAudienceResolver {
     private final CommercialSegmentRepository segmentRepository;
     private final CommercialSegmentActivationRepository activationRepository;
 
-    /** Resolves one definition in a bounded pair of database queries (content + count). */
+    /** Count-only evaluation for list/detail workflows; never resolves IDs or mints evidence. */
     @Transactional(readOnly = true)
+    public long count(CommercialSegment segment) {
+        return accountRepository.count(specification(segment));
+    }
+
+    /** Resolves one definition in a bounded pair of database queries (content + count). */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Evaluation evaluate(CommercialSegment segment, Instant evaluatedAt) {
         var page = accountRepository.findAll(specification(segment), PageRequest.of(
                 0, ACTIVATION_ACCOUNT_LIMIT + 1, Sort.by(Sort.Direction.ASC, "id")));
         List<UUID> ids = page.getContent().stream().map(Account::getId).distinct().sorted().toList();
         long total = page.getTotalElements();
         boolean withinLimit = total <= ACTIVATION_ACCOUNT_LIMIT;
+        if (withinLimit && ids.size() != total) {
+            throw new StaleActivationPreviewException();
+        }
         List<UUID> acceptedIds = withinLimit ? ids : List.of();
         return new Evaluation(total, acceptedIds,
                 ids.stream().limit(SAMPLE_LIMIT).toList(),

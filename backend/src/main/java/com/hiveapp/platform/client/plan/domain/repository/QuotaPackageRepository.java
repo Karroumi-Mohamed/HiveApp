@@ -21,6 +21,8 @@ import java.util.UUID;
 public interface QuotaPackageRepository extends JpaRepository<QuotaPackage, UUID>,
         JpaSpecificationExecutor<QuotaPackage> {
     Optional<QuotaPackage> findByCode(String code);
+    @Query("select item.code from QuotaPackage item where item.code in :codes")
+    List<String> findCodesByCodeIn(@Param("codes") Collection<String> codes);
     @EntityGraph(attributePaths = "feature")
     List<QuotaPackage> findAllByCodeIn(Collection<String> codes);
 

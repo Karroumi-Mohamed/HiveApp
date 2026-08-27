@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.domain.constant;
 public enum CommercialSegmentAction {
     EDIT_DRAFT,
     DUPLICATE,
+    COUNT,
     PREVIEW,
     READ_SAMPLE_IDENTITIES,
     ACTIVATE,

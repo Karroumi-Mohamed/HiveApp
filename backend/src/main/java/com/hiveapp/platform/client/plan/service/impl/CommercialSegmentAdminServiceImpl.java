@@ -20,7 +20,9 @@ import com.hiveapp.platform.client.plan.domain.entity.CommercialSegmentProductSe
 import com.hiveapp.platform.client.plan.domain.repository.CommercialPolicyRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentActivationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentRepository;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentRequests;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentViews;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
@@ -50,6 +52,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -91,6 +94,8 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
     private final CommercialPolicyRepository policyRepository;
     private final AccountRepository accountRepository;
     private final PlanRepository planRepository;
+    private final AddOnRepository addOnRepository;
+    private final QuotaPackageRepository quotaPackageRepository;
     private final AdminUserRepository adminUserRepository;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
     private final CommercialSegmentAudienceResolver audienceResolver;
@@ -219,7 +224,9 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
                         "CommercialSegment", "id", segmentId));
         requireVersion(source, request.version());
         int maximum = lineage.stream().mapToInt(CommercialSegment::getRevisionNumber).max().orElse(0);
-        if (source.getRevisionNumber() != maximum) {
+        int maximumMaterial = segmentRepository.findMaximumMaterialRevisionNumber(
+                lineageId, CommercialSegmentStatus.ARCHIVED);
+        if (source.getRevisionNumber() != maximumMaterial) {
             throw new InvalidStateException("Only the latest Segment revision can be revised.");
         }
         if (lineage.stream().anyMatch(item -> item.getStatus() == CommercialSegmentStatus.DRAFT
@@ -280,6 +287,18 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
 
     @Override
     @Transactional(readOnly = true)
+    @PermissionNode(key = "count", description = "Count a Segment audience without identities or evidence")
+    public CommercialSegmentViews.Count count(UUID segmentId) {
+        CommercialSegment segment = requireSegment(segmentId);
+        Instant evaluatedAt = clock.instant();
+        long total = audienceResolver.count(segment);
+        return new CommercialSegmentViews.Count(segment.getId(), segment.getVersion(), evaluatedAt,
+                total, CommercialSegmentAudienceResolver.ACTIVATION_ACCOUNT_LIMIT,
+                total <= CommercialSegmentAudienceResolver.ACTIVATION_ACCOUNT_LIMIT);
+    }
+
+    @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     @PermissionNode(key = "preview", description = "Preview and sign a bounded Segment audience")
     public CommercialSegmentViews.Preview preview(UUID segmentId) {
         CommercialSegment segment = requireSegment(segmentId);
@@ -303,7 +322,7 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     @PermissionNode(key = "read_sample_identities",
             description = "Read sensitive Account identities in a Segment preview")
     public CommercialSegmentViews.IdentitySample previewIdentities(UUID segmentId) {
@@ -315,7 +334,7 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
     }
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     @CommercialCatalogMutation
     @PermissionNode(key = "activate", description = "Activate a reviewed Segment definition")
     public CommercialSegmentViews.Detail activate(
@@ -485,9 +504,8 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             return;
         }
         CommercialSegmentRequests.Criteria criteria = definition.criteria();
-        if (!criteria.currentPlanRevisionIds().isEmpty()
-                && planRepository.findAllById(criteria.currentPlanRevisionIds()).size()
-                != criteria.currentPlanRevisionIds().size()) {
+        var selectedPlanRevisions = planRepository.findAllById(criteria.currentPlanRevisionIds());
+        if (selectedPlanRevisions.size() != criteria.currentPlanRevisionIds().size()) {
             throw new ResourceNotFoundException(
                     "Plan", "ids", criteria.currentPlanRevisionIds());
         }
@@ -497,10 +515,53 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
         if (holdings.size() != criteria.productHoldings().size()) {
             throw new InvalidRequestException("Product holding criteria must be unique after normalization.");
         }
+        validateHoldingReferences(holdings);
+        Set<String> selectedPlanProducts = holdings.stream()
+                .filter(item -> item.getType() == CommercialSegmentProductType.PLAN)
+                .map(CommercialSegmentProductSelection::getCode)
+                .collect(Collectors.toSet());
+        boolean onlyPlanProducts = !holdings.isEmpty()
+                && holdings.stream().allMatch(item -> item.getType() == CommercialSegmentProductType.PLAN);
+        if (!selectedPlanRevisions.isEmpty() && onlyPlanProducts
+                && selectedPlanRevisions.stream().map(item -> item.getCode().toUpperCase(Locale.ROOT))
+                .noneMatch(selectedPlanProducts::contains)) {
+            throw new InvalidRequestException(
+                    "Current Plan revision and Plan product criteria cannot match the same subscription.");
+        }
         translateState(() -> segment.configureCriteria(
                 criteria.currentPlanRevisionIds(), criteria.subscriptionStatuses(),
                 criteria.currencyCodes(), criteria.billingCycles(), criteria.accountCreatedFrom(),
                 criteria.accountCreatedUntil(), holdings));
+    }
+
+    private void validateHoldingReferences(Set<CommercialSegmentProductSelection> holdings) {
+        Map<CommercialSegmentProductType, Set<String>> requested = holdings.stream()
+                .collect(Collectors.groupingBy(CommercialSegmentProductSelection::getType,
+                        () -> new java.util.EnumMap<>(CommercialSegmentProductType.class),
+                        Collectors.mapping(CommercialSegmentProductSelection::getCode,
+                                Collectors.toCollection(LinkedHashSet::new))));
+        validateHoldingCodes(CommercialSegmentProductType.PLAN,
+                requested.getOrDefault(CommercialSegmentProductType.PLAN, Set.of()),
+                planRepository::findCodesByCodeIn);
+        validateHoldingCodes(CommercialSegmentProductType.ADD_ON,
+                requested.getOrDefault(CommercialSegmentProductType.ADD_ON, Set.of()),
+                addOnRepository::findCodesByCodeIn);
+        validateHoldingCodes(CommercialSegmentProductType.QUOTA_PACKAGE,
+                requested.getOrDefault(CommercialSegmentProductType.QUOTA_PACKAGE, Set.of()),
+                quotaPackageRepository::findCodesByCodeIn);
+    }
+
+    private void validateHoldingCodes(
+            CommercialSegmentProductType type,
+            Set<String> requested,
+            java.util.function.Function<java.util.Collection<String>, List<String>> finder
+    ) {
+        if (requested.isEmpty()) return;
+        Set<String> found = new LinkedHashSet<>(finder.apply(requested));
+        requested.stream().filter(code -> !found.contains(code)).sorted().findFirst()
+                .ifPresent(code -> {
+                    throw new ResourceNotFoundException(type.name(), "code", code);
+                });
     }
 
     private void validateRequest(
@@ -563,7 +624,8 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
         Integer latestActivation = activationRepository
                 .findTopBySegment_IdOrderByActivationNumberDesc(segment.getId())
                 .map(CommercialSegmentActivation::getAffectedAccountCount).orElse(null);
-        int maximum = segmentRepository.findMaximumRevisionNumber(segment.getLineageId());
+        int maximum = segmentRepository.findMaximumMaterialRevisionNumber(
+                segment.getLineageId(), CommercialSegmentStatus.ARCHIVED);
         int references = Math.toIntExact(policyRepository.countBySegmentReference(segment.getCode()));
         return new CommercialSegmentViews.Detail(
                 toSummary(segment, explicitCount, latestActivation, maximum, references,
@@ -580,15 +642,17 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             int policyReferences,
             ActionPermissions permissions
     ) {
-        List<CommercialSegmentBlocker> blockers = summaryBlockers(
-                segment, maximumRevision, policyReferences, latestActivationCount != null);
+        Map<CommercialSegmentAction, List<CommercialSegmentBlocker>> blockedActions =
+                blockedActions(segment, maximumRevision, policyReferences,
+                        latestActivationCount != null, permissions);
         List<CommercialSegmentAction> actions = availableActions(
                 segment, maximumRevision == segment.getRevisionNumber(), policyReferences, permissions);
         return new CommercialSegmentViews.Summary(
                 segment.getId(), segment.getCode(), segment.getName(), segment.getStatus(),
                 segment.getKind(), segment.getSource(), configuredCount, latestActivationCount,
                 segment.getLineageId(), segment.getRevisionNumber(), segment.getCreationReason(),
-                segment.getVersion(), segment.getCreatedAt(), segment.getUpdatedAt(), actions, blockers,
+                segment.getVersion(), segment.getCreatedAt(), segment.getUpdatedAt(), actions,
+                blockedActions,
                 true, true);
     }
 
@@ -632,21 +696,52 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
         return List.copyOf(blockers);
     }
 
-    private List<CommercialSegmentBlocker> summaryBlockers(
+    private Map<CommercialSegmentAction, List<CommercialSegmentBlocker>> blockedActions(
             CommercialSegment segment,
             int maximumRevision,
             int policyReferences,
-            boolean hasActivationHistory
+            boolean hasActivationHistory,
+            ActionPermissions permissions
     ) {
-        List<CommercialSegmentBlocker> blockers = new ArrayList<>();
+        Map<CommercialSegmentAction, List<CommercialSegmentBlocker>> blocked =
+                new java.util.EnumMap<>(CommercialSegmentAction.class);
+        if (segment.getStatus() != CommercialSegmentStatus.DRAFT) {
+            block(blocked, CommercialSegmentAction.EDIT_DRAFT, CommercialSegmentBlocker.NOT_DRAFT);
+            block(blocked, CommercialSegmentAction.ACTIVATE, CommercialSegmentBlocker.NOT_DRAFT);
+            block(blocked, CommercialSegmentAction.DELETE_DRAFT, CommercialSegmentBlocker.NOT_DRAFT);
+            block(blocked, CommercialSegmentAction.REASSIGN_OWNER, CommercialSegmentBlocker.NOT_DRAFT);
+        }
+        if (segment.getStatus() != CommercialSegmentStatus.ACTIVE) {
+            block(blocked, CommercialSegmentAction.REVISE, CommercialSegmentBlocker.NOT_ACTIVE);
+        }
         if (maximumRevision > segment.getRevisionNumber()) {
-            blockers.add(CommercialSegmentBlocker.NOT_LATEST_REVISION);
+            block(blocked, CommercialSegmentAction.REVISE,
+                    CommercialSegmentBlocker.NOT_LATEST_REVISION);
         }
-        if (policyReferences > 0) blockers.add(CommercialSegmentBlocker.HAS_POLICY_REFERENCES);
+        if (segment.getStatus() == CommercialSegmentStatus.ARCHIVED) {
+            block(blocked, CommercialSegmentAction.ARCHIVE,
+                    CommercialSegmentBlocker.ALREADY_ARCHIVED);
+        }
+        if (policyReferences > 0) {
+            block(blocked, CommercialSegmentAction.ARCHIVE,
+                    CommercialSegmentBlocker.HAS_POLICY_REFERENCES);
+            block(blocked, CommercialSegmentAction.DELETE_DRAFT,
+                    CommercialSegmentBlocker.HAS_POLICY_REFERENCES);
+        }
         if (hasActivationHistory) {
-            blockers.add(CommercialSegmentBlocker.HAS_ACTIVATION_HISTORY);
+            block(blocked, CommercialSegmentAction.DELETE_DRAFT,
+                    CommercialSegmentBlocker.HAS_ACTIVATION_HISTORY);
         }
-        return List.copyOf(blockers);
+        blocked.entrySet().removeIf(entry -> !permissions.allows(permissionFor(entry.getKey())));
+        return Map.copyOf(blocked);
+    }
+
+    private void block(
+            Map<CommercialSegmentAction, List<CommercialSegmentBlocker>> blocked,
+            CommercialSegmentAction action,
+            CommercialSegmentBlocker blocker
+    ) {
+        blocked.computeIfAbsent(action, ignored -> new ArrayList<>()).add(blocker);
     }
 
     private List<CommercialSegmentAction> availableActions(
@@ -678,6 +773,7 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             if (latestRevision) actions.add(CommercialSegmentAction.REVISE);
             if (policyReferences == 0) actions.add(CommercialSegmentAction.ARCHIVE);
         }
+        actions.add(CommercialSegmentAction.COUNT);
         actions.removeIf(action -> !permissions.allows(permissionFor(action)));
         return List.copyOf(actions);
     }
@@ -686,6 +782,7 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
         return switch (action) {
             case EDIT_DRAFT -> "platform.segments.update_draft";
             case DUPLICATE -> "platform.segments.duplicate";
+            case COUNT -> "platform.segments.count";
             case PREVIEW -> "platform.segments.preview";
             case READ_SAMPLE_IDENTITIES -> "platform.segments.read_sample_identities";
             case ACTIVATE -> "platform.segments.activate";
@@ -720,7 +817,19 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             return segment.getExplicitAccounts().stream().map(Account::getId).sorted()
                     .map(UUID::toString).collect(Collectors.joining(","));
         }
-        return toDefinition(segment).criteria().toString();
+        return String.join("|",
+                segment.getCurrentPlanRevisionIds().stream().sorted().map(UUID::toString)
+                        .collect(Collectors.joining(",")),
+                segment.getSubscriptionStatuses().stream().map(Enum::name).sorted()
+                        .collect(Collectors.joining(",")),
+                segment.getCurrencyCodes().stream().sorted().collect(Collectors.joining(",")),
+                segment.getBillingCycles().stream().map(Enum::name).sorted()
+                        .collect(Collectors.joining(",")),
+                String.valueOf(segment.getAccountCreatedFrom()),
+                String.valueOf(segment.getAccountCreatedUntil()),
+                segment.getProductHoldings().stream()
+                        .map(item -> item.getType().name() + ":" + item.getCode()).sorted()
+                        .collect(Collectors.joining(",")));
     }
 
     private void changed(Set<String> fields, String field, Object left, Object right) {
@@ -734,8 +843,9 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
 
     private Map<UUID, Integer> maximumRevisions(List<CommercialSegment> segments) {
         if (segments.isEmpty()) return Map.of();
-        return segmentRepository.findMaximumRevisionNumbers(segments.stream()
-                        .map(CommercialSegment::getLineageId).collect(Collectors.toSet())).stream()
+        return segmentRepository.findMaximumMaterialRevisionNumbers(segments.stream()
+                        .map(CommercialSegment::getLineageId).collect(Collectors.toSet()),
+                        CommercialSegmentStatus.ARCHIVED).stream()
                 .collect(Collectors.toMap(
                         row -> (UUID) row[0], row -> ((Number) row[1]).intValue()));
     }
@@ -749,8 +859,20 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
     }
 
     private CommercialSegment requireSegment(UUID id) {
-        return segmentRepository.findDetailById(id)
+        CommercialSegment segment = segmentRepository.findDetailById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("CommercialSegment", "id", id));
+        initializeDefinition(segment);
+        return segment;
+    }
+
+    /** Loads each bounded definition collection separately to avoid a six-way Cartesian join. */
+    private void initializeDefinition(CommercialSegment segment) {
+        segment.getExplicitAccounts().size();
+        segment.getCurrentPlanRevisionIds().size();
+        segment.getSubscriptionStatuses().size();
+        segment.getCurrencyCodes().size();
+        segment.getBillingCycles().size();
+        segment.getProductHoldings().size();
     }
 
     private CommercialSegment requireSegmentForUpdate(UUID id) {

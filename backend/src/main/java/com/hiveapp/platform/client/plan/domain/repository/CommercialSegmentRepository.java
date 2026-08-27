@@ -34,10 +34,8 @@ public interface CommercialSegmentRepository extends JpaRepository<CommercialSeg
     @Override
     Page<CommercialSegment> findAll(Specification<CommercialSegment> specification, Pageable pageable);
 
-    @EntityGraph(attributePaths = {"explicitAccounts", "currentPlanRevisionIds",
-            "subscriptionStatuses", "currencyCodes", "billingCycles", "productHoldings",
-            "sourceSegment"})
-    @Query("select distinct segment from CommercialSegment segment where segment.id = :segmentId")
+    @EntityGraph(attributePaths = {"sourceSegment", "owner"})
+    @Query("select segment from CommercialSegment segment where segment.id = :segmentId")
     Optional<CommercialSegment> findDetailById(@Param("segmentId") UUID segmentId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -55,9 +53,25 @@ public interface CommercialSegmentRepository extends JpaRepository<CommercialSeg
             + "where segment.lineageId = :lineageId")
     int findMaximumRevisionNumber(@Param("lineageId") UUID lineageId);
 
+    @Query("select coalesce(max(segment.revisionNumber), 0) from CommercialSegment segment "
+            + "where segment.lineageId = :lineageId and (segment.status <> :archived "
+            + "or exists (select activation.id from CommercialSegmentActivation activation "
+            + "where activation.segment = segment))")
+    int findMaximumMaterialRevisionNumber(
+            @Param("lineageId") UUID lineageId,
+            @Param("archived") CommercialSegmentStatus archived);
+
     @Query("select segment.lineageId, max(segment.revisionNumber) from CommercialSegment segment "
             + "where segment.lineageId in :lineageIds group by segment.lineageId")
     List<Object[]> findMaximumRevisionNumbers(@Param("lineageIds") Collection<UUID> lineageIds);
+
+    @Query("select segment.lineageId, max(segment.revisionNumber) from CommercialSegment segment "
+            + "where segment.lineageId in :lineageIds and (segment.status <> :archived "
+            + "or exists (select activation.id from CommercialSegmentActivation activation "
+            + "where activation.segment = segment)) group by segment.lineageId")
+    List<Object[]> findMaximumMaterialRevisionNumbers(
+            @Param("lineageIds") Collection<UUID> lineageIds,
+            @Param("archived") CommercialSegmentStatus archived);
 
     @Query("select segment from CommercialSegment segment where segment.lineageId = :lineageId "
             + "and segment.status = :status order by segment.revisionNumber desc")

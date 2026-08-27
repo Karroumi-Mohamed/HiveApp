@@ -12,6 +12,8 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
 
@@ -52,30 +54,29 @@ public final class CommercialSegmentRequests {
     }
 
     public record Definition(
-            @Size(max = 2000) Set<UUID> explicitAccountIds,
+            @Size(max = 2000) Set<@NotNull UUID> explicitAccountIds,
             @Valid Criteria criteria
     ) {
         public Definition {
-            explicitAccountIds = explicitAccountIds == null ? Set.of() : Set.copyOf(explicitAccountIds);
+            explicitAccountIds = copy(explicitAccountIds);
         }
     }
 
     /** AND across populated fields, OR within each selected-value set. */
     public record Criteria(
-            @Size(max = 100) Set<UUID> currentPlanRevisionIds,
-            @Size(max = 20) Set<SubscriptionStatus> subscriptionStatuses,
-            @Size(max = 20) Set<@Size(min = 3, max = 3) String> currencyCodes,
-            @Size(max = 10) Set<BillingCycle> billingCycles,
+            @Size(max = 100) Set<@NotNull UUID> currentPlanRevisionIds,
+            @Size(max = 20) Set<@NotNull SubscriptionStatus> subscriptionStatuses,
+            @Size(max = 20) Set<@NotNull @Size(min = 3, max = 3) String> currencyCodes,
+            @Size(max = 10) Set<@NotNull BillingCycle> billingCycles,
             Instant accountCreatedFrom,
             Instant accountCreatedUntil,
-            @Size(max = 100) Set<@Valid ProductHolding> productHoldings
+            @Size(max = 100) Set<@NotNull @Valid ProductHolding> productHoldings
     ) {
         public Criteria {
             currentPlanRevisionIds = copy(currentPlanRevisionIds);
             subscriptionStatuses = copy(subscriptionStatuses);
-            currencyCodes = currencyCodes == null ? Set.of() : currencyCodes.stream()
-                    .map(CommercialSegmentRequests::trim)
-                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            currencyCodes = currencyCodes == null ? Set.of() : immutableCopy(
+                    currencyCodes.stream().map(CommercialSegmentRequests::trim).toList());
             billingCycles = copy(billingCycles);
             productHoldings = copy(productHoldings);
         }
@@ -120,7 +121,12 @@ public final class CommercialSegmentRequests {
     }
 
     private static <T> Set<T> copy(Set<T> values) {
-        return values == null ? Set.of() : Set.copyOf(values);
+        return values == null ? Set.of() : immutableCopy(values);
+    }
+
+    /** Preserve malformed null elements until Bean Validation can return a stable 422 response. */
+    private static <T> Set<T> immutableCopy(java.util.Collection<T> values) {
+        return Collections.unmodifiableSet(new LinkedHashSet<>(values));
     }
 
     private static String trim(String value) {

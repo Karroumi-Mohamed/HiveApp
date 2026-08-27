@@ -18,8 +18,11 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialSegment;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialPolicyActivationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialPolicyRepository;
+import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentActivationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentRepository;
+import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.CommercialPolicyRequests;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentRequests;
@@ -37,6 +40,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
@@ -47,6 +52,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
@@ -69,6 +77,9 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
     @Autowired private SubscriptionRepository subscriptionRepository;
     @Autowired private CommercialSegmentRepository segmentRepository;
     @Autowired private CommercialSegmentActivationRepository segmentActivationRepository;
+    @Autowired private PlanRepository planRepository;
+    @Autowired private AddOnRepository addOnRepository;
+    @Autowired private QuotaPackageRepository quotaPackageRepository;
     @Autowired private CommercialPolicyRepository policyRepository;
     @Autowired private CommercialPolicyActivationRepository policyActivationRepository;
     @Autowired private CommercialSegmentAudienceResolver audienceResolver;
@@ -77,6 +88,7 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
     @Autowired private AdminUserRepository adminUserRepository;
     @Autowired private EntityManagerFactory entityManagerFactory;
     @Autowired private TransactionTemplate transactionTemplate;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     @Test
     void explicitWorkflowSeparatesIdentityAndFreezesReviewedAudience() throws Exception {
@@ -100,6 +112,12 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
         assertThat(preview.get("totalAccounts").asInt()).isEqualTo(2);
         assertThat(preview.get("sample").toString()).contains(first.getId().toString());
         assertThat(preview.get("sample").toString()).doesNotContain(first.getName());
+        mockMvc.perform(get("/api/admin/segments/{id}/count", segmentId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalAccounts").value(2))
+                .andExpect(jsonPath("$.previewToken").doesNotExist())
+                .andExpect(jsonPath("$.sample").doesNotExist());
         mockMvc.perform(get("/api/admin/segments/{id}/preview-identities", segmentId)
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
@@ -108,6 +126,10 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
 
         JsonNode active = activate(token, segmentId, preview, "Approve the exact onboarding audience");
         assertThat(active.at("/summary/status").asText()).isEqualTo("ACTIVE");
+        assertThat(active.at("/summary/availableActions").toString()).contains("ARCHIVE");
+        assertThat(active.at("/summary/blockedActions/DELETE_DRAFT").toString())
+                .contains("NOT_DRAFT", "HAS_ACTIVATION_HISTORY");
+        assertThat(active.at("/summary/blockedActions/ARCHIVE").isMissingNode()).isTrue();
         var activation = segmentActivationRepository
                 .findTopBySegment_IdOrderByActivationNumberDesc(segmentId).orElseThrow();
 
@@ -170,26 +192,30 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                 .orElseThrow();
         UUID planId = matchingSubscription.getPlan().getId();
 
-        replaceHoldings(matching.getId(), "INSIGHTS_PRO", "EXPORT_1000");
-        replaceHoldings(otherProduct.getId(), "AUTOMATION_PRO", "RUNS_1000");
+        replaceHoldings(matching.getId(), "CUSTOM_ROLES", "MEMBERS_5");
+        replaceHoldings(otherProduct.getId(), "ORGANIZATION_TOOLS", "COMPANY_1");
 
         CommercialSegmentRequests.Criteria criteria = new CommercialSegmentRequests.Criteria(
                 Set.of(planId), Set.of(SubscriptionStatus.ACTIVE), Set.of("usd"),
                 Set.of(BillingCycle.MONTHLY), Instant.now().minusSeconds(3600),
                 Instant.now().plusSeconds(3600), Set.of(
-                        holding(CommercialSegmentProductType.ADD_ON, "INSIGHTS_PRO"),
-                        holding(CommercialSegmentProductType.QUOTA_PACKAGE, "NOT_PURCHASED")));
+                        holding(CommercialSegmentProductType.ADD_ON, "CUSTOM_ROLES"),
+                        holding(CommercialSegmentProductType.QUOTA_PACKAGE, "COMPANIES_20")));
         JsonNode segment = createSegment(token, criteriaRequest("Current Insights customers", criteria));
         UUID segmentId = id(segment);
         JsonNode firstPreview = preview(token, segmentId);
         assertThat(firstPreview.get("totalAccounts").asInt()).isOne();
         assertThat(firstPreview.get("sample").toString()).contains(matching.getId().toString())
                 .doesNotContain(otherProduct.getId().toString());
+        JsonNode active = activate(token, segmentId, firstPreview,
+                "Freeze the currently matched product audience");
 
-        replaceHoldings(matching.getId(), "AUTOMATION_PRO", "RUNS_1000");
+        replaceHoldings(matching.getId(), "ORGANIZATION_TOOLS", "COMPANY_1");
         JsonNode secondPreview = preview(token, segmentId);
         assertThat(secondPreview.get("totalAccounts").asInt()).isZero();
         assertThat(secondPreview.get("blockers").toString()).contains("EMPTY_AUDIENCE");
+        assertThat(audienceResolver.resolveFrozenReference(
+                active.at("/summary/code").asText()).accountIds()).containsExactly(matching.getId());
 
         // The plan itself is also a normalized current holding, independent of the typed plan-id field.
         CommercialSegmentRequests.Criteria planProduct = new CommercialSegmentRequests.Criteria(
@@ -211,6 +237,20 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
         assertInvalidCriteria(token, "Historical state", new CommercialSegmentRequests.Criteria(
                 Set.of(), Set.of(SubscriptionStatus.CANCELLED), Set.of(), Set.of(),
                 null, null, Set.of()));
+        UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
+        assertInvalidCriteria(token, "Contradictory product and revision", new CommercialSegmentRequests.Criteria(
+                Set.of(freePlanId), Set.of(), Set.of(), Set.of(), null, null,
+                Set.of(holding(CommercialSegmentProductType.PLAN, "PRO"))));
+        mockMvc.perform(post("/api/admin/segments")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(criteriaRequest(
+                                "Unknown product holding", new CommercialSegmentRequests.Criteria(
+                                        Set.of(), Set.of(), Set.of(), Set.of(), null, null,
+                                        Set.of(holding(CommercialSegmentProductType.ADD_ON,
+                                                "DOES_NOT_EXIST")))))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
         mockMvc.perform(post("/api/admin/segments")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -242,27 +282,37 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
         Account account = registerAccount("segment-evidence");
         JsonNode draft = createSegment(token,
                 explicitRequest("Evidence-bound Segment", Set.of(account.getId())));
+        JsonNode otherDraft = createSegment(token,
+                explicitRequest("Other evidence resource", Set.of(account.getId())));
         UUID segmentId = id(draft);
         JsonNode reviewed = preview(token, segmentId);
+        JsonNode otherReviewed = preview(token, id(otherDraft));
         String signed = reviewed.get("previewToken").asText();
+        assertStale(token, segmentId, reviewed.get("criteriaVersion").asLong(),
+                otherReviewed.get("previewToken").asText());
         String tampered = signed.substring(0, signed.length() - 1)
                 + (signed.endsWith("A") ? "B" : "A");
         assertStale(token, segmentId, reviewed.get("criteriaVersion").asLong(), tampered);
 
-        CommercialSegment segment = segmentRepository.findDetailById(segmentId).orElseThrow();
-        var evaluation = audienceResolver.evaluate(segment, Instant.now());
+        Object[] evidenceInputs = transactionTemplate.execute(ignored -> {
+            CommercialSegment managed = segmentRepository.findDetailById(segmentId).orElseThrow();
+            var evaluation = audienceResolver.evaluate(managed, Instant.now());
+            return new Object[]{managed.getVersion(), evaluation.fingerprint()};
+        });
+        long segmentVersion = (long) evidenceInputs[0];
+        String assessmentFingerprint = (String) evidenceInputs[1];
         long catalogRevision = catalogVersionService.currentRevision();
         UUID actor = adminUserRepository.findByUser_Email(ADMIN_EMAIL).orElseThrow().getUser().getId();
         String crossActor = previewTokenService.issue(
-                CommercialPreviewKind.COMMERCIAL_SEGMENT_ACTIVATION, segmentId, segment.getVersion(),
-                UUID.randomUUID(), catalogRevision, "SEGMENT_CRITERIA_V1", evaluation.fingerprint(),
+                CommercialPreviewKind.COMMERCIAL_SEGMENT_ACTIVATION, segmentId, segmentVersion,
+                UUID.randomUUID(), catalogRevision, "SEGMENT_CRITERIA_V1", assessmentFingerprint,
                 Instant.now()).token();
-        assertStale(token, segmentId, segment.getVersion(), crossActor);
+        assertStale(token, segmentId, segmentVersion, crossActor);
         String crossOperation = previewTokenService.issue(
-                CommercialPreviewKind.COMMERCIAL_POLICY_ACTIVATION, segmentId, segment.getVersion(),
-                actor, catalogRevision, "SEGMENT_CRITERIA_V1", evaluation.fingerprint(),
+                CommercialPreviewKind.COMMERCIAL_POLICY_ACTIVATION, segmentId, segmentVersion,
+                actor, catalogRevision, "SEGMENT_CRITERIA_V1", assessmentFingerprint,
                 Instant.now()).token();
-        assertStale(token, segmentId, segment.getVersion(), crossOperation);
+        assertStale(token, segmentId, segmentVersion, crossOperation);
 
         createSegment(token, explicitRequest(
                 "Unrelated catalogue mutation " + UUID.randomUUID(), Set.of(account.getId())));
@@ -313,6 +363,26 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
         assertThat(segmentRepository.findByLineageIdAndStatus(
                 active.getLineageId(), com.hiveapp.platform.client.plan.domain.constant
                         .CommercialSegmentStatus.DRAFT)).hasSize(1);
+
+        CommercialSegment abandoned = segmentRepository.findByLineageIdAndStatus(
+                active.getLineageId(), com.hiveapp.platform.client.plan.domain.constant
+                        .CommercialSegmentStatus.DRAFT).getFirst();
+        mockMvc.perform(post("/api/admin/segments/{id}/archive", abandoned.getId())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new CommercialSegmentRequests.VersionReason(
+                                        abandoned.getVersion(), "Abandon the unused successor"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.status").value("ARCHIVED"));
+        mockMvc.perform(post("/api/admin/segments/{id}/revisions", segmentId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new CommercialSegmentRequests.VersionReason(
+                                        active.getVersion(), "Replace the abandoned successor"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.summary.revisionNumber").value(3));
     }
 
     @Test
@@ -353,6 +423,12 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                         .content(versionReason(active, "Prepare expanded revision")))
                 .andExpect(status().isCreated()));
         UUID successorId = id(successor);
+        JsonNode unchangedComparison = responseJson(mockMvc.perform(get(
+                                "/api/admin/segments/{id}/compare/{other}", segmentId, successorId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk()));
+        assertThat(unchangedComparison.get("changedFields").toString())
+                .doesNotContain("DEFINITION");
         CommercialSegmentRequests.Update successorUpdate = new CommercialSegmentRequests.Update(
                 successor.at("/summary/version").asLong(), "Expanded policy audience", null,
                 CommercialSegmentKind.EXPLICIT_ACCOUNTS, CommercialSegmentSource.MANUAL,
@@ -465,6 +541,122 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void repeatableReadEvaluationKeepsContentAndCountOnOneMembershipSnapshot() throws Exception {
+        String token = loginAdminAndGetToken();
+        JsonNode typed = createSegment(token, criteriaRequest("Repeatable audience",
+                new CommercialSegmentRequests.Criteria(Set.of(), Set.of(SubscriptionStatus.ACTIVE),
+                        Set.of(), Set.of(), null, null, Set.of())));
+        UUID segmentId = id(typed);
+        JsonNode reviewedBeforeMembershipChange = preview(token, segmentId);
+        CountDownLatch firstEvaluationDone = new CountDownLatch(1);
+        CountDownLatch membershipChanged = new CountDownLatch(1);
+        CompletableFuture<List<Long>> evaluations = CompletableFuture.supplyAsync(() -> {
+            TransactionTemplate repeatable = new TransactionTemplate(transactionManager);
+            repeatable.setReadOnly(true);
+            repeatable.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+            return repeatable.execute(ignored -> {
+                CommercialSegment managed = segmentRepository.findDetailById(segmentId).orElseThrow();
+                long first = audienceResolver.evaluate(managed, Instant.now()).total();
+                firstEvaluationDone.countDown();
+                try {
+                    if (!membershipChanged.await(15, TimeUnit.SECONDS)) {
+                        throw new AssertionError("Timed out waiting for concurrent membership change");
+                    }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new CompletionException(exception);
+                }
+                long second = audienceResolver.evaluate(managed, Instant.now()).total();
+                return List.of(first, second);
+            });
+        });
+        assertThat(firstEvaluationDone.await(15, TimeUnit.SECONDS)).isTrue();
+        registerAccount("seg-repeat-new");
+        membershipChanged.countDown();
+        List<Long> stable = evaluations.join();
+        assertThat(stable.get(1)).isEqualTo(stable.get(0));
+        mockMvc.perform(get("/api/admin/segments/{id}/count", segmentId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalAccounts").value(stable.getFirst() + 1));
+        assertStale(token, segmentId,
+                reviewedBeforeMembershipChange.get("criteriaVersion").asLong(),
+                reviewedBeforeMembershipChange.get("previewToken").asText());
+    }
+
+    @Test
+    void malformedCollectionElementsReturnValidationErrorsBeforeServiceExecution() throws Exception {
+        String token = loginAdminAndGetToken();
+        String explicit = """
+                {"name":"Malformed explicit","kind":"EXPLICIT_ACCOUNTS","source":"MANUAL",
+                 "reason":"Reject null ids","definition":{"explicitAccountIds":[null]}}
+                """;
+        mockMvc.perform(post("/api/admin/segments")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON).content(explicit))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        String criteria = """
+                {"name":"Malformed criteria","kind":"TYPED_CRITERIA","source":"MANUAL",
+                 "reason":"Reject null typed values","definition":{"explicitAccountIds":[],
+                 "criteria":{"subscriptionStatuses":[null],"currencyCodes":[null],
+                 "productHoldings":[null]}}}
+                """;
+        mockMvc.perform(post("/api/admin/segments")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON).content(criteria))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void wideDefinitionsLoadAndValidateWithConstantBoundedQueries() throws Exception {
+        String token = loginAdminAndGetToken();
+        Set<CommercialSegmentRequests.ProductHolding> holdings = new java.util.LinkedHashSet<>();
+        planRepository.findAll().forEach(item -> holdings.add(
+                holding(CommercialSegmentProductType.PLAN, item.getCode())));
+        addOnRepository.findAll().forEach(item -> holdings.add(
+                holding(CommercialSegmentProductType.ADD_ON, item.getCode())));
+        quotaPackageRepository.findAll().forEach(item -> holdings.add(
+                holding(CommercialSegmentProductType.QUOTA_PACKAGE, item.getCode())));
+        Set<String> currencies = IntStream.range(0, 20)
+                .mapToObj(index -> "A" + (char) ('A' + index / 26) + (char) ('A' + index % 26))
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        CommercialSegmentRequests.Criteria wide = new CommercialSegmentRequests.Criteria(
+                planRepository.findAll().stream().map(item -> item.getId()).collect(Collectors.toSet()),
+                Set.of(SubscriptionStatus.TRIALING, SubscriptionStatus.ACTIVE,
+                        SubscriptionStatus.PAST_DUE, SubscriptionStatus.SUSPENDED),
+                currencies, Set.of(BillingCycle.values()), Instant.parse("2020-01-01T00:00:00Z"),
+                Instant.parse("2026-01-01T00:00:00Z"), holdings);
+        JsonNode wideSegment = createSegment(token, criteriaRequest("Maximum-width criteria", wide));
+        JsonNode smallSegment = createSegment(token, criteriaRequest("Small criteria",
+                new CommercialSegmentRequests.Criteria(Set.of(), Set.of(SubscriptionStatus.ACTIVE),
+                        Set.of(), Set.of(), null, null, Set.of())));
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        mockMvc.perform(get("/api/admin/segments/{id}", id(smallSegment))
+                        .header("Authorization", bearer(token))).andExpect(status().isOk());
+        long smallQueries = statistics.getPrepareStatementCount();
+        statistics.clear();
+        mockMvc.perform(get("/api/admin/segments/{id}", id(wideSegment))
+                        .header("Authorization", bearer(token))).andExpect(status().isOk());
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(smallQueries);
+
+        Set<CommercialSegmentRequests.ProductHolding> manyAddOns = addOnRepository.findAll().stream()
+                .map(item -> holding(CommercialSegmentProductType.ADD_ON, item.getCode()))
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        manyAddOns.add(holding(CommercialSegmentProductType.ADD_ON, "DOES_NOT_EXIST"));
+        statistics.clear();
+        postMissingHolding(token, Set.of(holding(
+                CommercialSegmentProductType.ADD_ON, "DOES_NOT_EXIST")));
+        long oneCodeQueries = statistics.getPrepareStatementCount();
+        statistics.clear();
+        postMissingHolding(token, manyAddOns);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(oneCodeQueries);
+    }
+
     private CommercialSegmentRequests.Create explicitRequest(String name, Set<UUID> accountIds) {
         return new CommercialSegmentRequests.Create(name, "Explicit reviewed Account audience",
                 CommercialSegmentKind.EXPLICIT_ACCOUNTS, CommercialSegmentSource.MANUAL,
@@ -525,6 +717,21 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                         .content(objectMapper.writeValueAsString(criteriaRequest(name, criteria))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    private void postMissingHolding(
+            String token,
+            Set<CommercialSegmentRequests.ProductHolding> holdings
+    ) throws Exception {
+        mockMvc.perform(post("/api/admin/segments")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(criteriaRequest(
+                                "Missing holding " + UUID.randomUUID(),
+                                new CommercialSegmentRequests.Criteria(Set.of(), Set.of(), Set.of(),
+                                        Set.of(), null, null, holdings)))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 
     private void assertStale(String token, UUID segmentId, long version, String evidence)

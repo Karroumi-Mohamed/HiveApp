@@ -7,15 +7,18 @@ import com.hiveapp.platform.client.plan.dto.CommercialSegmentRequests;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentViews;
 import com.hiveapp.platform.client.plan.service.CommercialSegmentAdminService;
 import com.hiveapp.shared.api.PageResponse;
+import com.hiveapp.shared.exception.ApiError;
+import com.hiveapp.shared.exception.ErrorCode;
 import com.hiveapp.shared.exception.InvalidRequestException;
-import com.hiveapp.shared.exception.StaleActivationPreviewException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -125,6 +128,11 @@ public class CommercialSegmentAdminController {
         return service.preview(segmentId);
     }
 
+    @GetMapping("/{segmentId}/count")
+    public CommercialSegmentViews.Count count(@PathVariable UUID segmentId) {
+        return service.count(segmentId);
+    }
+
     @GetMapping("/{segmentId}/preview-identities")
     public CommercialSegmentViews.IdentitySample previewIdentities(@PathVariable UUID segmentId) {
         return service.previewIdentities(segmentId);
@@ -134,11 +142,7 @@ public class CommercialSegmentAdminController {
     public CommercialSegmentViews.Detail activate(
             @PathVariable UUID segmentId,
             @Valid @RequestBody CommercialSegmentRequests.Activation request) {
-        try {
-            return service.activate(segmentId, request);
-        } catch (CannotAcquireLockException exception) {
-            throw new StaleActivationPreviewException();
-        }
+        return service.activate(segmentId, request);
     }
 
     @PostMapping("/{segmentId}/archive")
@@ -200,5 +204,12 @@ public class CommercialSegmentAdminController {
                     "Page must be non-negative and size must be between 1 and 100.");
         }
         return PageRequest.of(page, size);
+    }
+
+    @ExceptionHandler(CannotAcquireLockException.class)
+    public ResponseEntity<ApiError> handleLockConflict(CannotAcquireLockException ignored) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiError.of(
+                409, ErrorCode.STALE_RESOURCE_VERSION, "Conflict",
+                "The Segment changed concurrently. Reload it and retry."));
     }
 }
