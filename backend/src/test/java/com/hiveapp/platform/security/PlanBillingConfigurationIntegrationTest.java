@@ -20,7 +20,7 @@ import com.hiveapp.platform.client.plan.dto.PlanDeletionPreview;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
-import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageLifecycleRequest;
@@ -250,13 +250,13 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
-    void adminSubscriptionUpdateRejectsUnknownAndDuplicateQuotaPackages() throws Exception {
+    void adminSubscriptionReviewRejectsUnknownAndDuplicateQuotaPackages() throws Exception {
         String adminToken = loginAdminAndGetToken();
         String clientToken = registerClientAndGetToken();
         UUID accountId = currentAccountId(clientToken);
 
-        updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                        Set.of("platform.plans"), List.of()))
+        previewReviewedAdminSubscriptionChange(adminToken, accountId, new SubscriptionChangeRequest(
+                        "FREE", Set.of("platform.plans"), List.of()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
                 .andExpect(jsonPath("$.message")
@@ -264,23 +264,23 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(jsonPath("$.details[0]")
                         .value("PRODUCT_NOT_FOUND:PRODUCT_LIFECYCLE"));
 
-        updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                        Set.of("platform.unknown"), List.of()))
+        previewReviewedAdminSubscriptionChange(adminToken, accountId, new SubscriptionChangeRequest(
+                        "FREE", Set.of("platform.unknown"), List.of()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
                 .andExpect(jsonPath("$.details[0]")
                         .value("PRODUCT_NOT_FOUND:PRODUCT_LIFECYCLE"));
 
-        updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                        Set.of(),
+        previewReviewedAdminSubscriptionChange(adminToken, accountId, new SubscriptionChangeRequest(
+                        "FREE", Set.of(),
                         List.of(new QuotaPackageSelection("MISSING_PACKAGE", 1))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
                 .andExpect(jsonPath("$.details[0]")
                         .value("PRODUCT_NOT_FOUND:PRODUCT_LIFECYCLE"));
 
-        updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                        Set.of(),
+        previewReviewedAdminSubscriptionChange(adminToken, accountId, new SubscriptionChangeRequest(
+                        "FREE", Set.of(),
                         List.of(
                                 new QuotaPackageSelection("DUPLICATE_PACKAGE", 1),
                                 new QuotaPackageSelection("DUPLICATE_PACKAGE", 1))))
@@ -347,10 +347,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         + packageCode + "')].resource")
                         .value(StaffFeature.MEMBERS));
 
-        updateSubscriptionOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                        Set.of(),
-                        List.of(new QuotaPackageSelection(packageCode, 1))))
-                .andExpect(status().isOk());
+        applyReviewedAdminSubscriptionChange(adminToken, accountId, new SubscriptionChangeRequest(
+                "FREE", Set.of(), List.of(new QuotaPackageSelection(packageCode, 1))));
 
         mockMvc.perform(get("/api/admin/subscriptions/account/{accountId}", accountId)
                         .header("Authorization", bearer(adminToken)))
@@ -700,17 +698,6 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         return mockMvc.perform(put("/api/admin/plans/{planId}/features/{planFeatureId}", planId, planFeatureId)
                 .param("expectedVersion", String.valueOf(
                         planRepository.findById(planId).orElseThrow().getVersion()))
-                .header("Authorization", bearer(adminToken))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)));
-    }
-
-    private org.springframework.test.web.servlet.ResultActions updateSubscriptionOverrides(
-            String adminToken,
-            UUID accountId,
-            UpdateSubscriptionOverridesRequest request
-    ) throws Exception {
-        return mockMvc.perform(patch("/api/admin/subscriptions/account/{accountId}/overrides", accountId)
                 .header("Authorization", bearer(adminToken))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)));

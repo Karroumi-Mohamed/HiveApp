@@ -17,6 +17,7 @@ import com.hiveapp.platform.client.plan.domain.entity.SubscriptionChangeOperatio
 import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
@@ -35,7 +36,6 @@ import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionImpactAnalyzer;
-import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleManager;
 import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeActivationService;
@@ -52,7 +52,6 @@ import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
-import com.hiveapp.shared.exception.OperationBlockedException;
 import com.hiveapp.shared.exception.StaleResourceVersionException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.money.Money;
@@ -79,7 +78,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -95,6 +93,7 @@ class SubscriptionServiceImplTest {
 
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private PlanRepository planRepository;
+    @Mock private ProductPriceRepository productPriceRepository;
     @Mock private PlanFeatureRepository planFeatureRepository;
     @Mock private AddOnRepository addOnRepository;
     @Mock private AccountRepository accountRepository;
@@ -105,7 +104,6 @@ class SubscriptionServiceImplTest {
     @Mock private ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
     @Mock private FeatureDefinitionCollector featureDefinitionCollector;
     @Mock private SubscriptionImpactAnalyzer subscriptionImpactAnalyzer;
-    @Mock private SubscriptionLifecycleManager subscriptionLifecycleManager;
     @Mock private SubscriptionPeriodCalculator subscriptionPeriodCalculator;
     @Mock private SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
     @Mock private SubscriptionCheckoutService subscriptionCheckoutService;
@@ -214,71 +212,6 @@ class SubscriptionServiceImplTest {
     }
 
     @Test
-    void updateOverridesRejectsInvalidConfigurationBeforePersistence() {
-        UUID accountId = UUID.randomUUID();
-        Plan plan = plan("PRO", true);
-        ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
-        Subscription subscription = subscription(plan, SubscriptionStatus.ACTIVE);
-        Account account = new Account();
-        ReflectionTestUtils.setField(account, "id", accountId);
-        subscription.setAccount(account);
-        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
-        when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
-        var blocked = blockedResolution(
-                plan, Set.of("MISSING_ADDON"), List.of(), ExtensionAvailabilityReason.PRODUCT_NOT_FOUND);
-        when(commercialSelectionFinalizer.finalizeSelection(
-                eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
-                eq(Set.of("MISSING_ADDON")), eq(List.of()),
-                eq(CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR),
-                any(CommercialCatalogResolver.RetainedSelection.class), eq(subscription.getEntitlementSnapshot())))
-                .thenReturn(finalized(plan, blocked, subscription.getEntitlementSnapshot()));
-
-        assertThatThrownBy(() -> subscriptionService.updateOverrides(accountId, Set.of("MISSING_ADDON"), List.of()))
-                .isInstanceOf(OperationBlockedException.class)
-                .hasMessage("The requested commercial selection is unavailable.");
-
-        verify(subscriptionOverrideReader, never()).write(org.mockito.ArgumentMatchers.any());
-        verify(subscriptionRepository, never()).save(org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void updateOverridesPersistsValidatedQuotaPackageSelection() {
-        UUID accountId = UUID.randomUUID();
-        Plan plan = plan("PRO", true);
-        ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
-        Subscription subscription = subscription(plan, SubscriptionStatus.ACTIVE);
-        Account account = new Account();
-        ReflectionTestUtils.setField(account, "id", accountId);
-        subscription.setAccount(account);
-        List<QuotaPackageSelection> quotaPackages = List.of(new QuotaPackageSelection("MEMBERS_10", 1));
-        var snapshot = new SubscriptionEntitlementSnapshot(
-                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
-                List.of(new SubscriptionFeatureSnapshot(
-                        StaffFeature.CODE, List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 3L)))),
-                List.of());
-        var currentSnapshot = subscription.getEntitlementSnapshot();
-        when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
-        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
-        var resolved = successfulResolution(plan, Set.of(), quotaPackages);
-        when(commercialSelectionFinalizer.finalizeSelection(
-                eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
-                eq(Set.of()), eq(quotaPackages),
-                eq(CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR),
-                any(CommercialCatalogResolver.RetainedSelection.class), eq(currentSnapshot)))
-                .thenReturn(finalized(plan, resolved, snapshot));
-        when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-        when(billingCalculator.calculateMoney(subscription)).thenReturn(Money.of(new BigDecimal("39.99"), "USD"));
-        when(subscriptionRepository.save(subscription)).thenReturn(subscription);
-
-        Subscription result = subscriptionService.updateOverrides(accountId, Set.of(), quotaPackages);
-
-        assertThat(result.getCustomOverrides().quotaPackages()).containsExactlyElementsOf(quotaPackages);
-        assertThat(result.getCurrentPrice()).isEqualByComparingTo("39.99");
-        verify(subscriptionRepository).save(subscription);
-    }
-
-    @Test
     void previewRejectsQuotaPackageQuantityAboveConfiguredMaximum() {
         UUID accountId = UUID.randomUUID();
         Plan plan = plan("PRO", true);
@@ -300,114 +233,6 @@ class SubscriptionServiceImplTest {
                 new SubscriptionChangeRequest("PRO", Set.of(), List.of(selection))))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessage("The requested commercial selection is unavailable.");
-    }
-
-    @Test
-    void planAssignmentCancelsExistingUsableSubscriptionsBeforeCreatingReplacement() {
-        UUID accountId = UUID.randomUUID();
-        Account account = new Account();
-        Plan free = plan("FREE", true);
-        Plan pro = plan("PRO", true);
-        Subscription active = subscription(free, SubscriptionStatus.ACTIVE);
-        Subscription trialing = subscription(free, SubscriptionStatus.TRIALING);
-        var snapshot = SubscriptionEntitlementSnapshot.empty(
-                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
-
-        when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
-        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
-        var finalized = finalized(pro, successfulResolution(pro, Set.of(), List.of()), snapshot);
-        when(commercialSelectionFinalizer.finalizeSelection(
-                eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
-                eq(Set.of()), eq(List.of()), eq(CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR),
-                eq(CommercialCatalogResolver.RetainedSelection.none()), nullable(SubscriptionEntitlementSnapshot.class)))
-                .thenReturn(finalized);
-        when(subscriptionRepository.findAllByAccountIdAndStatusIn(
-                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
-                .thenReturn(List.of(active, trialing));
-        doAnswer(invocation -> {
-            ((Subscription) invocation.getArgument(0)).setStatus(SubscriptionStatus.CANCELLED);
-            return null;
-        }).when(subscriptionLifecycleManager).closeForReplacement(any(Subscription.class));
-        doAnswer(invocation -> {
-            Subscription value = invocation.getArgument(0);
-            value.setStatus(invocation.getArgument(1));
-            SubscriptionPeriodCalculator.Period valuePeriod = invocation.getArgument(2);
-            value.setCurrentPeriodStart(valuePeriod.startsAt());
-            value.setCurrentPeriodEnd(valuePeriod.endsAt());
-            value.setEntitlementSnapshot(value.getEntitlementSnapshot()
-                    .withEffectivePeriod(valuePeriod.startsAt(), valuePeriod.endsAt()));
-            return null;
-        }).when(subscriptionLifecycleManager).initialize(
-                any(Subscription.class), any(SubscriptionStatus.class),
-                any(SubscriptionPeriodCalculator.Period.class));
-        when(subscriptionOverrideReader.write(org.mockito.ArgumentMatchers.any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-        when(subscriptionSnapshotReader.write(snapshot)).thenReturn(snapshot);
-        when(subscriptionPeriodCalculator.recurring(BillingCycle.MONTHLY))
-                .thenReturn(period());
-        when(subscriptionRepository.saveAndFlush(any(Subscription.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        Subscription result = subscriptionService.createSubscription(accountId, "PRO");
-
-        assertThat(active.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
-        assertThat(trialing.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
-        assertThat(result.getPlan()).isEqualTo(pro);
-        assertThat(result.getStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
-        assertThat(result.getAccount()).isEqualTo(account);
-        assertThat(result.getEntitlementSnapshot().planCode()).isEqualTo("PRO");
-        verify(subscriptionRepository).saveAllAndFlush(List.of(active, trialing));
-    }
-
-    @Test
-    void planAssignmentRejectsInactivePlanBeforeChangingCurrentSubscription() {
-        UUID accountId = UUID.randomUUID();
-        Plan archived = plan("ARCHIVED", false);
-        when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(new Account()));
-        when(commercialSelectionFinalizer.finalizeSelection(
-                eq("ARCHIVED"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
-                eq(Set.of()), eq(List.of()), eq(CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR),
-                eq(CommercialCatalogResolver.RetainedSelection.none()), nullable(SubscriptionEntitlementSnapshot.class)))
-                .thenReturn(finalized(
-                        archived,
-                        blockedPlanResolution(archived, ExtensionAvailabilityReason.PRODUCT_NOT_ACTIVE),
-                        SubscriptionEntitlementSnapshot.empty(
-                                "ARCHIVED", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY)));
-
-        assertThatThrownBy(() -> subscriptionService.createSubscription(accountId, "ARCHIVED"))
-                .isInstanceOf(OperationBlockedException.class)
-                .hasMessageContaining("unavailable");
-
-        verify(subscriptionRepository, never()).findAllByAccountIdAndStatusIn(
-                any(), org.mockito.ArgumentMatchers.anyCollection());
-        verify(subscriptionRepository, never()).saveAndFlush(any(Subscription.class));
-    }
-
-    @Test
-    void planAssignmentRejectsReassigningTheCurrentActivePlan() {
-        UUID accountId = UUID.randomUUID();
-        Plan pro = plan("PRO", true);
-        Account account = new Account();
-        when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
-        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account));
-        when(commercialSelectionFinalizer.finalizeSelection(
-                eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
-                eq(Set.of()), eq(List.of()), eq(CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR),
-                eq(CommercialCatalogResolver.RetainedSelection.none()), nullable(SubscriptionEntitlementSnapshot.class)))
-                .thenReturn(finalized(
-                        pro, successfulResolution(pro, Set.of(), List.of()),
-                        SubscriptionEntitlementSnapshot.empty(
-                                "PRO", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY)));
-        when(subscriptionRepository.findAllByAccountIdAndStatusIn(
-                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
-                .thenReturn(List.of(subscription(pro, SubscriptionStatus.ACTIVE)));
-
-        assertThatThrownBy(() -> subscriptionService.createSubscription(accountId, "PRO"))
-                .isInstanceOf(InvalidStateException.class)
-                .hasMessageContaining("already subscribed");
-
-        verify(subscriptionRepository, never()).saveAllAndFlush(org.mockito.ArgumentMatchers.anyCollection());
-        verify(subscriptionRepository, never()).saveAndFlush(any(Subscription.class));
     }
 
     @Test

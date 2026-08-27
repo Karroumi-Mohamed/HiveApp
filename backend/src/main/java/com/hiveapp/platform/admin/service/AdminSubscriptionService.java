@@ -6,14 +6,11 @@ import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeOperationDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOwnerLookupDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
-import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
-import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
-import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
@@ -26,7 +23,6 @@ import org.springframework.data.domain.Pageable;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -63,11 +59,6 @@ public interface AdminSubscriptionService {
                     Collection<String> selectedAddOnCodes, Pageable pageable);
     AdminSubscriptionDto getSubscription(UUID accountId);
     ClientPlanCatalogResponse changeCatalog(UUID accountId);
-    SubscriptionDto createSubscription(
-            UUID accountId, String planCode, ProductPriceSelectionRequest priceSelection);
-    SubscriptionDto createTrial(
-            UUID accountId, String planCode, int trialDays, ProductPriceSelectionRequest priceSelection);
-    SubscriptionDto updateOverrides(UUID accountId, Set<String> addOnCodes, List<QuotaPackageSelection> quotaPackages);
     Page<AdminSubscriptionChangeOperationDto> listChangeOperations(
             UUID accountId, Pageable pageable);
     SubscriptionChangePreviewResponse previewChange(

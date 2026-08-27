@@ -29,7 +29,6 @@ import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreviewReques
 import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
-import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateProductPriceRequest;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
@@ -538,10 +537,11 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         mockMvc.perform(patch("/api/admin/subscriptions/account/{accountId}/overrides", accountId)
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new UpdateSubscriptionOverridesRequest(
-                                Set.of(addOn.getCode()),
-                                List.of(new QuotaPackageSelection(quotaPackage.getCode(), 1))))))
-                .andExpect(status().isOk());
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "addOnCodes", Set.of(addOn.getCode()),
+                                "quotaPackages", List.of(new QuotaPackageSelection(
+                                        quotaPackage.getCode(), 1))))))
+                .andExpect(status().isNotFound());
 
         var unchanged = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow()
                 .getEntitlementSnapshot();
@@ -584,24 +584,15 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         var monthlyPlanPrice = productPriceRepository.findApplicable(
                 ProductPriceOwnerType.PLAN, free.getId(), "USD", BillingCycle.MONTHLY, Instant.now())
                 .getFirst();
-        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", accountId)
-                        .param("planCode", free.getCode())
-                        .header("Authorization", bearer(adminToken))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ProductPriceSelectionRequest(
-                                monthlyPlanPrice.getId(), "USD", BillingCycle.MONTHLY))))
-                .andExpect(status().isCreated());
+        applyReviewedAdminSubscriptionChange(adminToken, accountId, new SubscriptionChangeRequest(
+                free.getCode(), Set.of(addOn.getCode()),
+                List.of(new QuotaPackageSelection(quotaPackage.getCode(), 1)),
+                SubscriptionChangeTiming.IMMEDIATE,
+                new ProductPriceSelectionRequest(
+                        monthlyPlanPrice.getId(), "USD", BillingCycle.MONTHLY)));
         var before = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow();
-        assertThat(before.getEntitlementSnapshot().billingCycle()).isEqualTo(BillingCycle.MONTHLY);
-        mockMvc.perform(patch("/api/admin/subscriptions/account/{accountId}/overrides", accountId)
-                        .header("Authorization", bearer(adminToken))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new UpdateSubscriptionOverridesRequest(
-                                Set.of(addOn.getCode()),
-                                List.of(new QuotaPackageSelection(quotaPackage.getCode(), 1))))))
-                .andExpect(status().isOk());
-        var monthlySnapshot = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow()
-                .getEntitlementSnapshot();
+        var monthlySnapshot = before.getEntitlementSnapshot();
+        assertThat(monthlySnapshot.billingCycle()).isEqualTo(BillingCycle.MONTHLY);
 
         SubscriptionChangeRequest request = new SubscriptionChangeRequest(
                 free.getCode(), Set.of(addOn.getCode()),
@@ -644,71 +635,48 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
-    void adminCreateAndTrialSnapshotExactAnnualPricesAndRejectWrongOwnerIds() throws Exception {
+    void legacyAdminCreateAndTrialRoutesAreRetiredAndReviewedChangeKeepsExactPrice() throws Exception {
         String adminToken = loginAdminAndGetToken();
         var pro = planRepository.findByCode("PRO").orElseThrow();
-        var enterprise = planRepository.findByCode("ENTERPRISE").orElseThrow();
         Instant starts = Instant.now().minusSeconds(30);
         JsonNode proAnnual = activateNewPrice(adminToken, ProductPriceOwnerType.PLAN, pro.getId(),
-                new BigDecimal("240.00"), "EUR", BillingCycle.YEARLY, starts);
-        JsonNode enterpriseAnnual = activateNewPrice(
-                adminToken, ProductPriceOwnerType.PLAN, enterprise.getId(),
-                new BigDecimal("480.00"), BillingCycle.YEARLY, starts);
+                new BigDecimal("240.00"), "USD", BillingCycle.YEARLY, starts);
         ProductPriceSelectionRequest proSelection = new ProductPriceSelectionRequest(
-                UUID.fromString(proAnnual.get("id").asText()), "EUR", BillingCycle.YEARLY);
+                UUID.fromString(proAnnual.get("id").asText()), "USD", BillingCycle.YEARLY);
 
         String subscriberToken = registerClientAndGetToken();
         UUID subscriberAccountId = currentAccountId(subscriberToken);
+        var before = subscriptionRepository.findActiveByAccountId(subscriberAccountId).orElseThrow();
         mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", subscriberAccountId)
                         .param("planCode", pro.getCode())
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(proSelection)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.currentPrice").value("240.00"));
-        var annualSubscription = subscriptionRepository.findActiveByAccountId(subscriberAccountId).orElseThrow();
-        assertThat(annualSubscription.getEntitlementSnapshot().planPriceEntryId())
-                .isEqualTo(proSelection.priceEntryId());
-        assertThat(annualSubscription.getEntitlementSnapshot().billingCycle())
-                .isEqualTo(BillingCycle.YEARLY);
-        assertThat(annualSubscription.getCurrentPriceCurrencyCode()).isEqualTo("EUR");
-
-        String trialToken = registerClientAndGetToken();
-        UUID trialAccountId = currentAccountId(trialToken);
-        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}/trial", trialAccountId)
+                .andExpect(status().isMethodNotAllowed());
+        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}/trial", subscriberAccountId)
                         .param("planCode", pro.getCode())
                         .param("trialDays", "14")
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(proSelection)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("TRIALING"))
-                .andExpect(jsonPath("$.currentPrice").value("0.00"));
-        var annualTrial = subscriptionRepository.findByAccountIdAndStatus(
-                trialAccountId,
-                com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus.TRIALING).orElseThrow();
-        assertThat(annualTrial.getEntitlementSnapshot().planPriceEntryId())
-                .isEqualTo(proSelection.priceEntryId());
-        assertThat(annualTrial.getEntitlementSnapshot().billingCycle())
-                .isEqualTo(BillingCycle.YEARLY);
-        assertThat(annualTrial.getCurrentPriceCurrencyCode()).isEqualTo("EUR");
+                .andExpect(status().isNotFound());
+        assertThat(subscriptionRepository.findActiveByAccountId(subscriberAccountId).orElseThrow().getId())
+                .isEqualTo(before.getId());
 
-        String protectedToken = registerClientAndGetToken();
-        UUID protectedAccountId = currentAccountId(protectedToken);
-        var protectedBefore = subscriptionRepository.findActiveByAccountId(protectedAccountId).orElseThrow();
-        ProductPriceSelectionRequest wrongOwner = new ProductPriceSelectionRequest(
-                UUID.fromString(enterpriseAnnual.get("id").asText()), "USD", BillingCycle.YEARLY);
-        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", protectedAccountId)
-                        .param("planCode", pro.getCode())
-                        .header("Authorization", bearer(adminToken))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(wrongOwner)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
-        var protectedAfter = subscriptionRepository.findActiveByAccountId(protectedAccountId).orElseThrow();
-        assertThat(protectedAfter.getId()).isEqualTo(protectedBefore.getId());
-        assertThat(protectedAfter.getEntitlementSnapshot()).isEqualTo(protectedBefore.getEntitlementSnapshot());
+        applyReviewedAdminSubscriptionChange(
+                adminToken,
+                subscriberAccountId,
+                new SubscriptionChangeRequest(
+                        pro.getCode(), Set.of(), List.of(), SubscriptionChangeTiming.IMMEDIATE,
+                        proSelection));
+
+        var annualSubscription = subscriptionRepository.findActiveByAccountId(subscriberAccountId).orElseThrow();
+        assertThat(annualSubscription.getId()).isNotEqualTo(before.getId());
+        assertThat(annualSubscription.getEntitlementSnapshot().planPriceEntryId())
+                .isEqualTo(proSelection.priceEntryId());
+        assertThat(annualSubscription.getEntitlementSnapshot().billingCycle())
+                .isEqualTo(BillingCycle.YEARLY);
+        assertThat(annualSubscription.getCurrentPriceCurrencyCode()).isEqualTo("USD");
     }
 
     @Test
