@@ -163,7 +163,7 @@ function PolicyAdjustments({ decisions }: { decisions: readonly ClientCommercial
         {visible.map((decision, index) => (
           <li
             className="flex items-start justify-between gap-4 py-2.5"
-            key={`${decision.effectType}-${decision.productCode ?? decision.featureCode ?? index}`}
+            key={`${decision.effectType}-${decision.outcome}-${decision.productCode ?? decision.quotaResource ?? decision.featureCode ?? index}`}
           >
             <span>{commercialPolicyDecisionText(decision)}</span>
             {decision.evaluatedAmount && decision.evaluatedCurrencyCode ? (
@@ -194,7 +194,9 @@ export function CommercialPolicyConflicts({
       </h4>
       <ul className="mt-2 list-disc space-y-1 ps-5 text-sm">
         {conflicts.map((conflict, index) => (
-          <li key={`${conflict.code}-${conflict.productCode ?? conflict.featureCode ?? index}`}>
+          <li
+            key={`${conflict.code}-${conflict.productCode ?? conflict.quotaResource ?? conflict.featureCode ?? index}`}
+          >
             {commercialPolicyConflictText(conflict)}
           </li>
         ))}

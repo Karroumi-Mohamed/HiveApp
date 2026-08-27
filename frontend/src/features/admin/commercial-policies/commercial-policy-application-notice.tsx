@@ -26,7 +26,7 @@ export function CommercialPolicyApplicationStatus({
   if (executionSupported && !blockers.length) return null;
   return (
     <Alert className="border-warning/30 bg-warning/5">
-      <WarningCircleIcon />
+      <WarningCircleIcon aria-hidden="true" />
       <AlertTitle>
         {executionSupported ? "Application explicite disponible" : "Application aux abonnements indisponible"}
       </AlertTitle>
@@ -37,7 +37,10 @@ export function CommercialPolicyApplicationStatus({
             prévisualisée et confirmée.
           </p>
         ) : (
-          <p>La définition peut être activée, mais ses effets ne sont pas encore appliqués aux abonnements.</p>
+          <p>
+            La prévisualisation et l’application explicites sont indisponibles pour cette définition. Son activation ne
+            modifie toujours aucun abonnement en masse.
+          </p>
         )}
         {blockers.length ? (
           <ul className="mt-2 list-disc ps-4">

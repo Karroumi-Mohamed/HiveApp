@@ -165,3 +165,18 @@ export function effectiveCatalogAddOnCodes<T extends CatalogAddOnLike>(
   }
   return [...effective];
 }
+
+/** Distinguishes a policy offer from a grant whose dependency closure is actually satisfied. */
+export function policyCatalogAddOnGrantState<T extends Pick<CatalogAddOnLike, "code" | "dependencyCodes">>(
+  item: T,
+  effectiveCodes: readonly string[],
+  offered: boolean,
+) {
+  const effective = new Set(effectiveCodes);
+  const accepted = offered && effective.has(item.code);
+  return {
+    offered,
+    accepted,
+    missingDependencyCodes: offered && !accepted ? item.dependencyCodes.filter((code) => !effective.has(code)) : [],
+  } as const;
+}

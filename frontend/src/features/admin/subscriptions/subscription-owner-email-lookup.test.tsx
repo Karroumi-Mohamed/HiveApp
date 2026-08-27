@@ -695,6 +695,54 @@ describe("operator subscription change workbench", () => {
     expect(view.getByRole("button", { name: "Prévisualiser" }).hasAttribute("disabled")).toBeTrue();
   });
 
+  test("shows a conditional policy grant as pending until its dependency is selected", async () => {
+    const source = changeCatalogWithAddOn.plans[0]?.addOns[0];
+    if (!source) throw new Error("Expected the Add-on fixture");
+    const grant = {
+      effectType: "GRANT_ADD_ON" as const,
+      productType: "ADD_ON" as const,
+      productCode: "GIFT_WITH_DEP",
+      featureCode: null,
+      quotaResource: null,
+      quantityDelta: null,
+      outcome: "AVAILABLE" as const,
+      evaluatedAmount: "0.0000",
+      evaluatedCurrencyCode: "MAD",
+      explanation: "Inclusion conditionnelle",
+    };
+    const conditionalCatalog: ClientPlanCatalog = {
+      ...changeCatalog,
+      commercialPolicyDecisions: [grant],
+      plans: changeCatalog.plans.map((plan) => ({
+        ...plan,
+        commercialPolicyDecisions: [grant],
+        addOns: [
+          { ...source, code: "CORE", name: "Module socle" },
+          {
+            ...source,
+            code: "GIFT_WITH_DEP",
+            name: "Assistance conditionnelle",
+            dependencyCodes: ["CORE"],
+            commercialPolicyDecisions: [grant],
+          },
+        ],
+      })),
+    };
+    const { view } = renderAdmin(
+      <AdminSubscriptionChangeWorkbench accountId="account-1" catalog={conditionalCatalog} />,
+      [adminPermissions.subscriptionsPreviewChange],
+    );
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    const conditional = view.getByRole("checkbox", { name: /Assistance conditionnelle/ });
+
+    expect(conditional.getAttribute("aria-checked")).toBe("false");
+    expect(conditional.hasAttribute("disabled")).toBeTrue();
+    expect(view.getByText(/Inclus dès que l’opérateur sélectionne Module socle/)).toBeTruthy();
+    await user.click(view.getByRole("checkbox", { name: /^Module socle/ }));
+    await waitFor(() => expect(conditional.getAttribute("aria-checked")).toBe("true"));
+    expect(view.getAllByText("Inclus par condition commerciale").length).toBeGreaterThan(0);
+  });
+
   test("requires a reason and replaces rejected signed evidence before retrying", async () => {
     let previewCalls = 0;
     const applyBodies: Array<Record<string, unknown>> = [];
@@ -770,7 +818,11 @@ describe("operator subscription change workbench", () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/changes/preview")) {
-        return jsonResponse({ ...preview("policy.review.token"), commercialPolicyEvaluation: evaluation });
+        return jsonResponse({
+          ...preview("policy.review.token"),
+          immediateAllowed: false,
+          commercialPolicyEvaluation: evaluation,
+        });
       }
       throw new Error(`Unexpected request: ${url.pathname}`);
     }) as typeof fetch;
@@ -785,6 +837,7 @@ describe("operator subscription change workbench", () => {
 
     expect(await view.findByRole("heading", { name: "Vérifier le changement" })).toBeTruthy();
     expect(view.getAllByText("Le produit AUDIT n’est pas disponible pour ce compte.").length).toBeGreaterThan(0);
+    expect(view.getByText(/Ce changement ne peut pas être appliqué maintenant/)).toBeTruthy();
     expect(view.getByRole("button", { name: "Appliquer le changement" }).hasAttribute("disabled")).toBeTrue();
     await user.click(view.getByText("Traçabilité commerciale complète"));
     expect(view.getByText("Contrat Acme · révision 4")).toBeTruthy();

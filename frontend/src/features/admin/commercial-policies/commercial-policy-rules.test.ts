@@ -103,6 +103,9 @@ describe("commercial policy mutation errors", () => {
     expect(isPolicyVersionConflict(stale)).toBeTrue();
     expect(policyMutationMessage(stale)).toContain("Rechargez");
     expect(isPolicyVersionConflict(new ApiError(409, "OTHER_CONFLICT", "STALE_RESOURCE_VERSION"))).toBeFalse();
+    expect(policyMutationMessage(new ApiError(500, "HTTP_ERROR", "private provider failure"))).toBe(
+      "L’opération n’a pas pu être exécutée.",
+    );
   });
 });
 

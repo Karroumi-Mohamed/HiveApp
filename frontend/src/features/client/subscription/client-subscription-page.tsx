@@ -30,6 +30,7 @@ import {
   effectiveCatalogAddOnCodes,
   initialCatalogPlanCode,
   matchingCatalogPrice,
+  policyCatalogAddOnGrantState,
   preserveRetainedSelection,
   pruneCommercialSelection,
   sameStringSet,
@@ -137,7 +138,7 @@ function PreviewDialog({
           {preview.conflicts.length ? (
             <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
-                <WarningCircleIcon />
+                <WarningCircleIcon aria-hidden="true" />
                 Conflits à résoudre
               </div>
               <ul className="mt-3 list-disc space-y-1 ps-5 text-sm">
@@ -152,20 +153,24 @@ function PreviewDialog({
           <section>
             <h3 className="text-sm font-semibold">Capacités effectives</h3>
             <div className="mt-3 divide-y rounded-lg border">
-              {preview.effectiveQuotaLimits.map((quota) => (
-                <div
-                  className="flex items-center justify-between gap-4 p-3"
-                  key={`${quota.featureCode}-${quota.resource}`}
-                >
-                  <div>
-                    <p className="text-sm font-medium">{capacityUnitLabel(quota.resource)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {featureNames.get(quota.featureCode) ?? "Fonctionnalité indisponible"}
-                    </p>
+              {preview.effectiveQuotaLimits.length ? (
+                preview.effectiveQuotaLimits.map((quota) => (
+                  <div
+                    className="flex items-center justify-between gap-4 p-3"
+                    key={`${quota.featureCode}-${quota.resource}`}
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{capacityUnitLabel(quota.resource)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {featureNames.get(quota.featureCode) ?? "Fonctionnalité indisponible"}
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums">{quota.effectiveLimit ?? "Illimité"}</span>
                   </div>
-                  <span className="text-sm font-semibold tabular-nums">{quota.effectiveLimit ?? "Illimité"}</span>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="p-3 text-sm text-muted-foreground">Aucune capacité mesurée.</p>
+              )}
             </div>
           </section>
           {!previewReady ? (
@@ -177,6 +182,12 @@ function PreviewDialog({
                 {recalculating ? "Calcul…" : "Recalculer"}
               </Button>
             </div>
+          ) : null}
+          {timing === "IMMEDIATE" && !preview.immediateAllowed ? (
+            <p className="border-s-2 border-warning ps-4 text-sm text-warning" role="alert">
+              Ce changement ne peut pas être appliqué maintenant. Fermez cette vérification et choisissez l’application
+              au renouvellement.
+            </p>
           ) : null}
           {canApply ? (
             <div className="flex justify-end">
@@ -383,11 +394,13 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
           const startingPrice = defaultCatalogPrice(item.prices);
           return (
             <button
+              aria-pressed={item.code === planCode}
               className={`w-full rounded-xl border p-4 text-start transition-colors ${item.code === planCode ? "border-primary bg-primary/5" : "bg-card hover:border-foreground/20"}`}
               disabled={(!item.selectable && !item.current) || !item.prices.length}
               key={item.code}
               onClick={() => {
-                const nextPrice = defaultCatalogPrice(item.prices);
+                const nextPrice =
+                  currentCatalogPrice(item.prices, item.current ? current : null) ?? defaultCatalogPrice(item.prices);
                 setPlanCode(item.code);
                 setPlanPriceId(nextPrice?.priceEntryId ?? "");
                 setAddOns(item.current ? (current?.addOnCodes ?? []) : []);
@@ -417,7 +430,9 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
               </div>
               {startingPrice ? (
                 <p className="mt-4 text-lg font-semibold">
-                  <span className="me-1 text-xs font-normal text-muted-foreground">À partir de</span>
+                  <span className="me-1 text-xs font-normal text-muted-foreground">
+                    {startingPrice.billingCycle === "MONTHLY" ? "Mensuel" : "Annuel"} ·
+                  </span>
                   {money(startingPrice.amount, startingPrice.currencyCode)}
                 </p>
               ) : null}
@@ -473,7 +488,12 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             <div className="mt-4 divide-y rounded-lg border">
               {compatibleAddOns.map((item) => {
                 const itemPrice = matchingCatalogPrice(item.prices, selectedPlanPrice);
-                const policyGranted = isPolicyGrantedProduct(item.commercialPolicyDecisions);
+                const policyGrant = policyCatalogAddOnGrantState(
+                  item,
+                  effectiveAddOns,
+                  isPolicyGrantedProduct(item.commercialPolicyDecisions),
+                );
+                const policyGranted = policyGrant.accepted;
                 const policyBlocked = isPolicyBlockedProduct(item.commercialPolicyDecisions);
                 const retained =
                   plan.current && addOns.includes(item.code) ? retainedAddOnsByCode.get(item.code) : null;
@@ -487,7 +507,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
                     <Checkbox
                       checked={policyGranted || selected}
                       disabled={
-                        policyGranted ||
+                        policyGrant.offered ||
                         policyBlocked ||
                         !item.selectable ||
                         Boolean(retained && !retained.removable) ||
@@ -511,15 +531,25 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
                       <span className="mt-1 block text-xs text-muted-foreground">
                         {policyGranted
                           ? "Inclus"
-                          : retained
-                            ? `${money(retained.unitPrice, retained.currencyCode)} · conditions détenues`
-                            : itemPrice
-                              ? money(itemPrice.amount, itemPrice.currencyCode)
-                              : "Indisponible"}
+                          : policyGrant.offered
+                            ? "Inclusion en attente"
+                            : retained
+                              ? `${money(retained.unitPrice, retained.currencyCode)} · conditions détenues`
+                              : itemPrice
+                                ? money(itemPrice.amount, itemPrice.currencyCode)
+                                : "Indisponible"}
                         {item.description ? ` · ${item.description}` : ""}
                       </span>
                       {policyGranted ? (
                         <PolicyGrantedProductText className="mt-1 block" />
+                      ) : policyGrant.offered ? (
+                        <span className="mt-1 block text-xs text-warning">
+                          Inclus dès que vous sélectionnez{" "}
+                          {policyGrant.missingDependencyCodes
+                            .map((code) => compatibleAddOns.find((candidate) => candidate.code === code)?.name ?? code)
+                            .join(", ")}
+                          .
+                        </span>
                       ) : policyBlocked || !item.selectable ? (
                         <span className="mt-1 block text-xs text-destructive">
                           Indisponible selon vos conditions commerciales

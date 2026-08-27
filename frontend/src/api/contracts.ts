@@ -383,9 +383,7 @@ export type CommercialPolicyBlocker =
   | "FEATURE_NOT_COMMERCIALLY_GRANTABLE"
   | "QUOTA_RESOURCE_NOT_DECLARED"
   | "AUDIENCE_CURRENCY_MISMATCH";
-export type CommercialPolicyExecutionBlocker =
-  | "SUBSCRIPTION_OPERATION_ENGINE_NOT_CONNECTED"
-  | "SCHEDULED_EXECUTION_NOT_AVAILABLE";
+export type CommercialPolicyExecutionBlocker = "SCHEDULED_EXECUTION_NOT_AVAILABLE";
 
 export type CommercialPolicySummary = {
   id: UUID;
