@@ -7,6 +7,7 @@ import {
   defaultCatalogPrice,
   initialCatalogPlanCode,
   matchingCatalogPrice,
+  policyCatalogAddOnGrantState,
   preserveRetainedSelection,
   pruneCommercialSelection,
   updateCatalogAddOnSelection,
@@ -57,6 +58,16 @@ describe("retained commercial selections", () => {
     expect(updateCatalogAddOnSelection(["CORE"], exportAddOn, candidates, true, ["AUDIT"])).toEqual(["CORE", "EXPORT"]);
     expect(catalogAddOnSelectionState(exportAddOn, candidates, ["LEGACY"]).excludedBy?.code).toBe("LEGACY");
     expect(catalogAddOnSelectionState(core, candidates, ["AUDIT"]).requiredBy?.code).toBe("AUDIT");
+    expect(policyCatalogAddOnGrantState(exportAddOn, ["CORE"], true)).toEqual({
+      offered: true,
+      accepted: false,
+      missingDependencyCodes: ["AUDIT"],
+    });
+    expect(policyCatalogAddOnGrantState(exportAddOn, ["CORE", "AUDIT", "EXPORT"], true)).toEqual({
+      offered: true,
+      accepted: true,
+      missingDependencyCodes: [],
+    });
   });
 });
 

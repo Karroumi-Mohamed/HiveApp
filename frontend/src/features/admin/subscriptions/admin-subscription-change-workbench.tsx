@@ -28,6 +28,7 @@ import {
   effectiveCatalogAddOnCodes,
   initialCatalogPlanCode,
   matchingCatalogPrice,
+  policyCatalogAddOnGrantState,
   preserveRetainedSelection,
   pruneCommercialSelection,
   sameStringSet,
@@ -194,6 +195,12 @@ function PreviewDialog({
                   {previewing ? "Calcul…" : "Recalculer"}
                 </Button>
               </div>
+            ) : null}
+            {selection?.timing === "IMMEDIATE" && !preview.immediateAllowed ? (
+              <p className="border-s-2 border-warning ps-4 text-sm text-warning" role="alert">
+                Ce changement ne peut pas être appliqué maintenant. Fermez cette vérification et choisissez
+                l’application au renouvellement.
+              </p>
             ) : null}
 
             {canApply ? (
@@ -535,7 +542,12 @@ export function AdminSubscriptionChangeWorkbench({
             {compatibleAddOns.length ? (
               compatibleAddOns.map((item) => {
                 const price = matchingCatalogPrice(item.prices, selectedPlanPrice);
-                const policyGranted = isPolicyGrantedProduct(item.commercialPolicyDecisions);
+                const policyGrant = policyCatalogAddOnGrantState(
+                  item,
+                  effectiveAddOnCodes,
+                  isPolicyGrantedProduct(item.commercialPolicyDecisions),
+                );
+                const policyGranted = policyGrant.accepted;
                 const policyBlocked = isPolicyBlockedProduct(item.commercialPolicyDecisions);
                 const retained =
                   plan?.current && addOnCodes.includes(item.code) ? retainedAddOnsByCode.get(item.code) : null;
@@ -549,7 +561,7 @@ export function AdminSubscriptionChangeWorkbench({
                     <Checkbox
                       checked={policyGranted || selected}
                       disabled={
-                        policyGranted ||
+                        policyGrant.offered ||
                         policyBlocked ||
                         !item.selectable ||
                         Boolean(retained && !retained.removable) ||
@@ -564,15 +576,25 @@ export function AdminSubscriptionChangeWorkbench({
                         <span className="text-muted-foreground">
                           {policyGranted
                             ? "Inclus"
-                            : retained
-                              ? `${formatExactMoney(retained.unitPrice, retained.currencyCode)} · conditions détenues`
-                              : price
-                                ? formatExactMoney(price.amount, price.currencyCode)
-                                : "Indisponible"}
+                            : policyGrant.offered
+                              ? "Inclusion en attente"
+                              : retained
+                                ? `${formatExactMoney(retained.unitPrice, retained.currencyCode)} · conditions détenues`
+                                : price
+                                  ? formatExactMoney(price.amount, price.currencyCode)
+                                  : "Indisponible"}
                         </span>
                       </span>
                       {policyGranted ? (
                         <PolicyGrantedProductText className="mt-1 block" />
+                      ) : policyGrant.offered ? (
+                        <span className="mt-1 block text-xs text-warning">
+                          Inclus dès que l’opérateur sélectionne{" "}
+                          {policyGrant.missingDependencyCodes
+                            .map((code) => compatibleAddOns.find((candidate) => candidate.code === code)?.name ?? code)
+                            .join(", ")}
+                          .
+                        </span>
                       ) : policyBlocked || !item.selectable ? (
                         <span className="mt-1 block text-xs text-destructive">
                           Indisponible selon les conditions commerciales du compte

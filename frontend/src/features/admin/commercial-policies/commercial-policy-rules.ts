@@ -89,8 +89,6 @@ export const policyBlocker: Record<CommercialPolicyBlocker, string> = {
 };
 
 export const executionBlocker: Record<CommercialPolicyExecutionBlocker, string> = {
-  SUBSCRIPTION_OPERATION_ENGINE_NOT_CONNECTED:
-    "Le moteur qui applique ces effets aux abonnements n’est pas encore connecté.",
   SCHEDULED_EXECUTION_NOT_AVAILABLE: "L’exécution planifiée des effets n’est pas encore disponible.",
 };
 
@@ -423,6 +421,7 @@ export function policyMutationMessage(error: unknown) {
   if (error instanceof ApiError && error.code === "DRAFT_SUCCESSOR_EXISTS") {
     return "Cette lignée possède déjà un brouillon de révision.";
   }
+  if (error instanceof ApiError) return "L’opération n’a pas pu être exécutée.";
   if (!(error instanceof Error)) return "L’opération n’a pas pu être exécutée.";
   return error.message || "L’opération n’a pas pu être exécutée.";
 }

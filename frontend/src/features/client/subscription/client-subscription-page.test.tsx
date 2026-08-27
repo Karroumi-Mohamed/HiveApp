@@ -423,6 +423,112 @@ describe("client subscription operations", () => {
     expect(view.getByRole("button", { name: "Prévisualiser" }).hasAttribute("disabled")).toBeFalse();
   });
 
+  test("restores the exact held price after switching away from the current plan", async () => {
+    const yearlyPrice = {
+      ...price,
+      priceEntryId: "price-yearly",
+      amount: "1000.0000",
+      billingCycle: "YEARLY" as const,
+    };
+    const otherPrice = { ...price, priceEntryId: "basic-monthly", amount: "60.0000" };
+    const pricedCatalog = {
+      ...catalog,
+      currentSubscription: {
+        ...catalog.currentSubscription,
+        currentPrice: "1010.0000",
+        planPriceEntryId: yearlyPrice.priceEntryId,
+        billingCycle: "YEARLY" as const,
+      },
+      plans: [
+        { ...catalog.plans[0], prices: [price, yearlyPrice] },
+        {
+          ...catalog.plans[0],
+          code: "BASIC",
+          name: "Basic",
+          current: false,
+          addOns: [],
+          prices: [otherPrice],
+        },
+      ],
+    };
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/subscriptions/catalog") return jsonResponse(pricedCatalog);
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderClient("/app/subscription?tab=catalog", [
+      clientPermissions.subscriptionCatalog,
+      clientPermissions.subscriptionPreview,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    const pro = await view.findByRole("button", { name: /Pro/ });
+    const basic = view.getByRole("button", { name: /Basic/ });
+
+    expect(pro.getAttribute("aria-pressed")).toBe("true");
+    expect(view.getByRole("combobox", { name: "Tarif du forfait" }).textContent).toContain("Annuel");
+    await user.click(basic);
+    expect(basic.getAttribute("aria-pressed")).toBe("true");
+    await user.click(pro);
+
+    expect(pro.getAttribute("aria-pressed")).toBe("true");
+    expect(view.getByRole("combobox", { name: "Tarif du forfait" }).textContent).toContain("Annuel");
+    expect(view.getByText("Aucun changement sélectionné.")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Prévisualiser" }).hasAttribute("disabled")).toBeTrue();
+    expect(view.container.textContent).not.toContain("À partir de");
+  });
+
+  test("does not present an unresolved policy grant as included or send it as a paid choice", async () => {
+    const conditionalGrant = { ...policyGrant, productCode: "GIFT_WITH_DEP" };
+    const conditionalCatalog = {
+      ...catalog,
+      commercialPolicyDecisions: [conditionalGrant],
+      plans: catalog.plans.map((plan) => ({
+        ...plan,
+        commercialPolicyDecisions: [conditionalGrant],
+        addOns: [
+          ...plan.addOns,
+          {
+            ...addOn("GIFT_WITH_DEP", "Assistance conditionnelle", ["CORE"]),
+            prices: [{ ...price, priceEntryId: "gift-with-dep-price", amount: "0.0000" }],
+            commercialPolicyDecisions: [conditionalGrant],
+          },
+        ],
+      })),
+    };
+    let previewSelection: { addOnCodes?: string[] } | null = null;
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/subscriptions/catalog") return jsonResponse(conditionalCatalog);
+      if (url.pathname === "/api/v1/subscriptions/preview") {
+        previewSelection = JSON.parse(String(init?.body));
+        return jsonResponse(clientPolicyPreview(clientPolicyEvaluation()));
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderClient("/app/subscription?tab=catalog", [
+      clientPermissions.subscriptionCatalog,
+      clientPermissions.subscriptionPreview,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    const conditional = await view.findByRole("checkbox", { name: /Assistance conditionnelle/ });
+
+    expect(conditional.getAttribute("aria-checked")).toBe("false");
+    expect(conditional.hasAttribute("disabled")).toBeTrue();
+    expect(view.getByText(/Inclus dès que vous sélectionnez Module socle/)).toBeTruthy();
+
+    await user.click(view.getByRole("checkbox", { name: /^Module socle/ }));
+    await waitFor(() => expect(conditional.getAttribute("aria-checked")).toBe("true"));
+    expect(view.getAllByText("Inclus par condition commerciale").length).toBeGreaterThan(0);
+
+    await user.click(view.getByRole("button", { name: "Prévisualiser" }));
+    await waitFor(() => expect(previewSelection).not.toBeNull());
+    const submitted = previewSelection as { addOnCodes?: string[] } | null;
+    expect(submitted?.addOnCodes).toContain("CORE");
+    expect(submitted?.addOnCodes).not.toContain("GIFT_WITH_DEP");
+  });
+
   test("locks a zero-price policy grant while still allowing an exact selection to be reviewed", async () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input));
@@ -533,7 +639,8 @@ describe("client subscription operations", () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/subscriptions/catalog") return jsonResponse(policyCatalog);
-      if (url.pathname === "/api/v1/subscriptions/preview") return jsonResponse(clientPolicyPreview(evaluation));
+      if (url.pathname === "/api/v1/subscriptions/preview")
+        return jsonResponse({ ...clientPolicyPreview(evaluation), immediateAllowed: false });
       throw new Error(`Unexpected request: ${url.pathname}`);
     }) as typeof fetch;
 
@@ -549,6 +656,8 @@ describe("client subscription operations", () => {
     expect(await view.findByRole("heading", { name: "Vérifier le changement" })).toBeTruthy();
     expect(view.getByText("Prix récurrent final")).toBeTruthy();
     expect(view.getByText("La fonctionnalité PAYROLL n’est pas disponible pour ce compte.")).toBeTruthy();
+    expect(view.getByText("Aucune capacité mesurée.")).toBeTruthy();
+    expect(view.getByText(/Ce changement ne peut pas être appliqué maintenant/)).toBeTruthy();
     expect(view.getByRole("button", { name: "Confirmer le changement" }).hasAttribute("disabled")).toBeTrue();
     expect(view.container.textContent).not.toContain("server wording");
     expect(view.container.textContent).not.toContain("policy-secret-id");
