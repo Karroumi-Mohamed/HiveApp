@@ -1358,7 +1358,7 @@ export type AdminSubscription = {
   entitlementSnapshot: SubscriptionEntitlementSnapshot | null;
 };
 
-export type AccountDirectoryEntry = { id: UUID; name: string; slug: string; ownerEmail: string; active: boolean };
+export type AccountDirectoryEntry = { id: UUID; name: string; slug: string; active: boolean };
 
 export type SubscriptionAccountListItem = AccountDirectoryEntry & {
   createdAt: Instant;
@@ -1375,6 +1375,11 @@ export type SubscriptionAccountListItem = AccountDirectoryEntry & {
     currentPrice: ExactDecimal;
     currencyCode: string;
   } | null;
+};
+
+export type SubscriptionAccountOwnerLookup = {
+  ownerEmail: string;
+  account: SubscriptionAccountListItem;
 };
 
 export type SubscriptionChangeOperation = {
