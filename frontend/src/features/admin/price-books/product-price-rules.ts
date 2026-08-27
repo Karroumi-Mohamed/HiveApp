@@ -2,6 +2,7 @@ import type { SortingState } from "@tanstack/react-table";
 import type {
   ProductPrice,
   ProductPriceAction,
+  ProductPriceActivationPreview,
   ProductPriceBillingCycle,
   ProductPriceBlocker,
   ProductPriceOwnerType,
@@ -80,6 +81,18 @@ export function canUseProductPriceAction(
   can: (permission: string) => boolean,
 ) {
   return price.availableActions.includes(action) && can(actionPermission[action]);
+}
+
+export function productPriceActivationReady(
+  price: Pick<ProductPrice, "id" | "version">,
+  preview: ProductPriceActivationPreview | undefined,
+) {
+  return Boolean(
+    preview?.activatable &&
+      preview.previewToken &&
+      preview.priceEntryId === price.id &&
+      preview.expectedVersion === price.version,
+  );
 }
 
 export function productPriceActionReason(

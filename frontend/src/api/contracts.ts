@@ -264,8 +264,20 @@ export type ProductPriceInput = {
 
 export type ProductPriceActivationPreview = {
   priceEntryId: UUID;
+  expectedVersion: number;
+  catalogRevision: number;
+  registryVersion: string;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
+  previewToken: string;
   activatable: boolean;
   blockers: ProductPriceBlocker[];
+};
+
+export type ProductPriceActivationRequest = {
+  version: number;
+  reason: string;
+  activationPreviewToken: string;
 };
 
 export type ProductPriceReplacementPreview = {

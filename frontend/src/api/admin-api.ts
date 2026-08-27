@@ -48,6 +48,7 @@ import type {
   PlanSubscriberOwnerLookup,
   ProductPrice,
   ProductPriceActivationPreview,
+  ProductPriceActivationRequest,
   ProductPriceBillingCycle,
   ProductPriceHistoryEntry,
   ProductPriceInput,
@@ -462,17 +463,17 @@ export const adminApi = {
     admin<ProductPrice>(`/product-prices/${id}`, { method: "PUT", body: jsonBody(input) }),
   previewProductPriceActivation: (id: UUID) =>
     admin<ProductPriceActivationPreview>(`/product-prices/${id}/activation-preview`),
-  activateProductPrice: (id: UUID, version: number, reason: string) =>
+  activateProductPrice: (id: UUID, request: ProductPriceActivationRequest) =>
     admin<ProductPrice>(`/product-prices/${id}/activate`, {
       method: "POST",
-      body: jsonBody({ version, reason }),
+      body: jsonBody(request),
     }),
   pauseProductPrice: (id: UUID, version: number, reason: string) =>
     admin<ProductPrice>(`/product-prices/${id}/pause`, { method: "POST", body: jsonBody({ version, reason }) }),
-  reactivateProductPrice: (id: UUID, version: number, reason: string) =>
+  reactivateProductPrice: (id: UUID, request: ProductPriceActivationRequest) =>
     admin<ProductPrice>(`/product-prices/${id}/reactivate`, {
       method: "POST",
-      body: jsonBody({ version, reason }),
+      body: jsonBody(request),
     }),
   reviseProductPrice: (id: UUID, version: number, reason: string) =>
     admin<ProductPrice>(`/product-prices/${id}/revisions`, {

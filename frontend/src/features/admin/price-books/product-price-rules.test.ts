@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { CatalogPrice, ProductPrice } from "@/api/contracts";
+import type { CatalogPrice, ProductPrice, ProductPriceActivationPreview } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import {
   currentCatalogPrice,
@@ -13,6 +13,7 @@ import {
   canUseProductPriceAction,
   isProductPriceReplacementDraft,
   productPriceActionReason,
+  productPriceActivationReady,
   productPriceHistoryLabel,
   productPriceOwnerReadPermission,
   resolveSortingUpdate,
@@ -64,6 +65,24 @@ describe("product price lifecycle actions", () => {
     expect(isProductPriceReplacementDraft({ status: "DRAFT", sourcePriceId: "source" })).toBeTrue();
     expect(isProductPriceReplacementDraft({ status: "DRAFT", sourcePriceId: null })).toBeFalse();
     expect(isProductPriceReplacementDraft({ status: "ACTIVE", sourcePriceId: "source" })).toBeFalse();
+  });
+
+  test("activation requires signed evidence for the exact visible revision", () => {
+    const reviewed: ProductPriceActivationPreview = {
+      priceEntryId: "price-1",
+      expectedVersion: 4,
+      catalogRevision: 12,
+      registryVersion: "registry-v1",
+      evaluatedAt: "2026-08-27T05:00:00Z",
+      expiresAt: "2026-08-27T05:05:00Z",
+      previewToken: "signed-evidence",
+      activatable: true,
+      blockers: [],
+    };
+    expect(productPriceActivationReady({ id: "price-1", version: 4 }, reviewed)).toBeTrue();
+    expect(productPriceActivationReady({ id: "price-1", version: 5 }, reviewed)).toBeFalse();
+    expect(productPriceActivationReady({ id: "price-2", version: 4 }, reviewed)).toBeFalse();
+    expect(productPriceActivationReady({ id: "price-1", version: 4 }, { ...reviewed, previewToken: "" })).toBeFalse();
   });
 });
 

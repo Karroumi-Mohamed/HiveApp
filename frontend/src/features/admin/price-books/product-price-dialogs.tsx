@@ -32,6 +32,7 @@ import {
   localDateTimeValue,
   type ProductPriceDraftErrors,
   type ProductPriceDraftFields,
+  productPriceActivationReady,
   productPriceBlocker,
   validateProductPriceDraft,
 } from "./product-price-rules";
@@ -39,6 +40,9 @@ import { ProductPriceTermsForm } from "./product-price-terms-form";
 
 function mutationMessage(error: unknown) {
   if (error instanceof ApiError) {
+    if (error.code === "STALE_ACTIVATION_PREVIEW") {
+      return "La vérification n’est plus actuelle. Relisez le résultat puis recommencez.";
+    }
     if (error.code === "STALE_RESOURCE_VERSION") return "Le tarif a changé. Les données ont été rechargées.";
     if (error.code === "PRICE_ENTRY_OVERLAP") return "Un tarif actif couvre déjà cette période.";
     return error.message;
@@ -136,7 +140,7 @@ export function EditProductPriceDialog({ price, trigger }: { price: ProductPrice
   );
 }
 
-type ReasonAction = "PAUSE" | "REACTIVATE" | "REVISE" | "ARCHIVE";
+type ReasonAction = "PAUSE" | "REVISE" | "ARCHIVE";
 
 const reasonActionCopy: Record<
   ReasonAction,
@@ -147,11 +151,6 @@ const reasonActionCopy: Record<
     description:
       "Il ne sera plus proposé aux nouvelles ventes. Les abonnements existants gardent leur tarif enregistré.",
     confirm: "Suspendre la vente",
-  },
-  REACTIVATE: {
-    title: "Remettre ce tarif en vente ?",
-    description: "Le serveur vérifiera à nouveau le produit, la période et les chevauchements avant l’activation.",
-    confirm: "Remettre en vente",
   },
   REVISE: {
     title: "Créer une nouvelle révision ?",
@@ -185,7 +184,6 @@ export function ProductPriceReasonDialog({
   const mutation = useMutation({
     mutationFn: () => {
       if (action === "PAUSE") return adminApi.pauseProductPrice(price.id, price.version, reason);
-      if (action === "REACTIVATE") return adminApi.reactivateProductPrice(price.id, price.version, reason);
       if (action === "REVISE") return adminApi.reviseProductPrice(price.id, price.version, reason);
       return adminApi.archiveProductPrice(price.id, price.version, reason);
     },
@@ -247,11 +245,19 @@ export function ProductPriceActivationDialog({ price, trigger }: { price: Produc
     enabled: commercialQueryEnabled(session.can, adminPermissions.priceBooksPreviewActivation, open),
   });
   const action: ProductPriceAction = price.status === "INACTIVE" ? "REACTIVATE" : "ACTIVATE";
+  const previewReady = productPriceActivationReady(price, preview.data);
   const activate = useMutation({
-    mutationFn: () =>
-      action === "REACTIVATE"
-        ? adminApi.reactivateProductPrice(price.id, price.version, reason)
-        : adminApi.activateProductPrice(price.id, price.version, reason),
+    mutationFn: () => {
+      if (!preview.data || !previewReady) throw new Error("Activation preview is not current.");
+      const request = {
+        version: preview.data.expectedVersion,
+        reason,
+        activationPreviewToken: preview.data.previewToken,
+      };
+      return action === "REACTIVATE"
+        ? adminApi.reactivateProductPrice(price.id, request)
+        : adminApi.activateProductPrice(price.id, request);
+    },
     onSuccess: async () => {
       await invalidateAdminCommercial(queryClient, adminCommercialKeys.priceBooks.all());
       setOpen(false);
@@ -316,7 +322,7 @@ export function ProductPriceActivationDialog({ price, trigger }: { price: Produc
           Annuler
         </Button>
         <Button
-          disabled={!preview.data?.activatable || !canActivate || !reason.trim() || activate.isPending}
+          disabled={!previewReady || !canActivate || !reason.trim() || activate.isPending}
           onClick={() => activate.mutate()}
         >
           {activate.isPending ? "Mise en vente…" : "Mettre en vente"}
