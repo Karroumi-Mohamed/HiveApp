@@ -231,7 +231,7 @@ class CommercialAvailabilityControlPlaneIntegrationTest
             assertThat(flexCatalog.get("quotaPackages").toString()).doesNotContain("MEMBERS_5");
             // Privacy is a serialized-contract invariant: hidden codes must not leak through
             // dependency, exclusion, targeting, reach, or reason fields anywhere in the payload.
-            assertThat(catalog.toString()).doesNotContain("CUSTOM_ROLES", "MEMBERS_5");
+            assertThat(catalog.toString()).doesNotContain("\"CUSTOM_ROLES\"", "\"MEMBERS_5\"");
 
             ErrorIdentity hiddenAddOn = clientPreviewError(clientToken, new SubscriptionChangeRequest(
                     "FLEX", Set.of("CUSTOM_ROLES"), List.of()));

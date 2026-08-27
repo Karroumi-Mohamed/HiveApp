@@ -1,7 +1,6 @@
 package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyEffectType;
-import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyProductType;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import lombok.RequiredArgsConstructor;
@@ -50,7 +49,14 @@ public class CommercialPolicySelectionPlanner {
                 .filter(java.util.Objects::nonNull)
                 .filter(candidate -> candidate.effect().getType() == CommercialPolicyEffectType.GRANT_ADD_ON
                         || candidate.effect().getType() == CommercialPolicyEffectType.GRANT_QUOTA_PACKAGE)
-                .sorted(Comparator.comparingInt(candidate -> candidate.effect().getEffectOrder()))
+                // Dependency evaluation must not depend on the author's effect-row order.
+                // AddOn grants are resolved first so a quota-package grant can safely rely on a
+                // separately granted AddOn owner.
+                .sorted(Comparator
+                        .comparingInt((CommercialPolicyEvaluator.Candidate candidate) ->
+                                candidate.effect().getType() == CommercialPolicyEffectType.GRANT_ADD_ON ? 0 : 1)
+                        .thenComparingInt(candidate -> candidate.effect().getEffectOrder())
+                        .thenComparing(candidate -> candidate.effect().getId()))
                 .toList();
         if (grantCandidates.isEmpty()) {
             return new PlannedSelection(base, requestedAddOnCodes, requestedPackageItems,
@@ -68,29 +74,48 @@ public class CommercialPolicySelectionPlanner {
         requestedPackageItems.forEach(item -> effectivePackages.put(item.packageCode(), item.quantity()));
         List<CommercialPolicyEvaluator.Candidate> accepted = new ArrayList<>();
         List<CommercialPolicyEvaluator.Candidate> rejected = new ArrayList<>();
-
-        for (CommercialPolicyEvaluator.Candidate candidate : grantCandidates) {
-            if (candidate.effect().getProductType() == CommercialPolicyProductType.ADD_ON) {
+        List<CommercialPolicyEvaluator.Candidate> pendingAddOnGrants = grantCandidates.stream()
+                .filter(candidate -> candidate.effect().getType() == CommercialPolicyEffectType.GRANT_ADD_ON)
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        Set<String> acceptedGrantedAddOnCodes = new LinkedHashSet<>();
+        boolean progressed;
+        do {
+            progressed = false;
+            var iterator = pendingAddOnGrants.iterator();
+            while (iterator.hasNext()) {
+                CommercialPolicyEvaluator.Candidate candidate = iterator.next();
                 CommercialCatalogResolver.AddOnResolution item =
                         addOnsById.get(candidate.effect().productId());
                 if (item == null || !CommercialPolicySelectionRules.addOnSelectable(
                         item, audience, evaluation)) {
                     rejected.add(candidate);
+                    iterator.remove();
                     continue;
                 }
-                boolean dependenciesSelectable = item.dependencyClosureCodes().stream().allMatch(code -> {
+                boolean dependenciesSatisfied = item.dependencyClosureCodes().stream().allMatch(code -> {
                     CommercialCatalogResolver.AddOnResolution dependency = base.plan().addOns().stream()
                             .filter(result -> result.code().equals(code)).findFirst().orElse(null);
                     return dependency != null && CommercialPolicySelectionRules.addOnSelectable(
-                            dependency, audience, evaluation);
+                            dependency, audience, evaluation)
+                            && (requestedAddOnCodes.contains(code)
+                            || acceptedGrantedAddOnCodes.contains(code));
                 });
-                if (!dependenciesSelectable) {
-                    rejected.add(candidate);
-                    continue;
-                }
+                if (!dependenciesSatisfied) continue;
+
+                // Dependencies are never made billable as an invisible side effect. They must
+                // already be explicitly selected or have their own accepted zero-price grant.
                 effectiveAddOns.addAll(item.dependencyClosureCodes());
                 effectiveAddOns.add(item.code());
+                acceptedGrantedAddOnCodes.add(item.code());
                 accepted.add(candidate);
+                iterator.remove();
+                progressed = true;
+            }
+        } while (progressed && !pendingAddOnGrants.isEmpty());
+        rejected.addAll(pendingAddOnGrants);
+
+        for (CommercialPolicyEvaluator.Candidate candidate : grantCandidates) {
+            if (candidate.effect().getType() != CommercialPolicyEffectType.GRANT_QUOTA_PACKAGE) {
                 continue;
             }
 

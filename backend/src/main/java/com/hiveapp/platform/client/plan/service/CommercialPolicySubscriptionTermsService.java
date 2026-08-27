@@ -161,27 +161,23 @@ public class CommercialPolicySubscriptionTermsService {
         CommercialPolicyEvaluator.WinnerSet winnerSet = evaluation.product(type, id);
         CommercialPolicyEvaluator.Candidate winner = winnerSet.winner();
         if (winner == null) return;
-        if (!recordedEffects.add(winner.effect().getId())) return;
-        if (winner.effect().getType() == CommercialPolicyEffectType.BLOCK_PRODUCT_SELECTION) {
-            decisions.add(winner.decision(
-                    CommercialPolicyDecisionOutcome.BLOCKED_SELECTION, null, null,
-                    "The selected product is blocked by an applicable commercial policy."));
-            conflicts.add(new CommercialPolicyConflict(
-                    "POLICY_PRODUCT_BLOCKED", winner.policy().getId(), winner.effect().getId(),
-                    code, null, null,
-                    "Product " + code + " is blocked for this Account."));
-        } else if (winner.effect().getType() == CommercialPolicyEffectType.ALLOW_PRODUCT_SELECTION) {
-            decisions.add(winner.decision(
-                    CommercialPolicyDecisionOutcome.APPLIED, null, null,
-                    "The policy makes the exact product revision selectable for this Account."));
-        }
-        winnerSet.rejected().forEach(candidate -> {
-            if (recordedEffects.add(candidate.effect().getId())) {
-                decisions.add(candidate.decision(
-                        CommercialPolicyDecisionOutcome.REJECTED_LOWER_PRECEDENCE, null, null,
-                        "A more specific or higher-priority product policy wins."));
+        if (recordedEffects.add(winner.effect().getId())) {
+            if (winner.effect().getType() == CommercialPolicyEffectType.BLOCK_PRODUCT_SELECTION) {
+                decisions.add(winner.decision(
+                        CommercialPolicyDecisionOutcome.BLOCKED_SELECTION, null, null,
+                        "The selected product is blocked by an applicable commercial policy."));
+                conflicts.add(new CommercialPolicyConflict(
+                        "POLICY_PRODUCT_BLOCKED", winner.policy().getId(), winner.effect().getId(),
+                        code, null, null,
+                        "Product " + code + " is blocked for this Account."));
+            } else if (winner.effect().getType() == CommercialPolicyEffectType.ALLOW_PRODUCT_SELECTION) {
+                decisions.add(winner.decision(
+                        CommercialPolicyDecisionOutcome.APPLIED, null, null,
+                        "The policy makes the exact product revision selectable for this Account."));
             }
-        });
+        }
+        recordRejected(winnerSet, decisions, recordedEffects,
+                "A more specific or higher-priority product policy wins.");
     }
 
     private List<SubscriptionFeatureSnapshot> applyQuotaBonuses(
@@ -210,6 +206,8 @@ public class CommercialPolicySubscriptionTermsService {
                             "An additive quota bonus does not alter an unlimited quota."));
                     recordedEffects.add(winner.effect().getId());
                     quotas.add(quota);
+                    recordRejected(winnerSet, decisions, recordedEffects,
+                            "A more specific or higher-priority quota bonus wins.");
                     continue;
                 }
                 try {
@@ -222,18 +220,17 @@ public class CommercialPolicySubscriptionTermsService {
                     recordedEffects.add(winner.effect().getId());
                 } catch (ArithmeticException exception) {
                     quotas.add(quota);
+                    decisions.add(winner.decision(
+                            CommercialPolicyDecisionOutcome.BLOCKED_SELECTION, null, null,
+                            "The quota bonus cannot be represented in the supported integer range."));
+                    recordedEffects.add(winner.effect().getId());
                     conflicts.add(new CommercialPolicyConflict(
                             "POLICY_QUOTA_OVERFLOW", winner.policy().getId(), winner.effect().getId(),
                             null, feature.featureCode(), quota.resource(),
                             "The policy quota bonus exceeds the supported integer range."));
                 }
-                winnerSet.rejected().forEach(candidate -> {
-                    if (recordedEffects.add(candidate.effect().getId())) {
-                        decisions.add(candidate.decision(
-                                CommercialPolicyDecisionOutcome.REJECTED_LOWER_PRECEDENCE, null, null,
-                                "A more specific or higher-priority quota bonus wins."));
-                    }
-                });
+                recordRejected(winnerSet, decisions, recordedEffects,
+                        "A more specific or higher-priority quota bonus wins.");
             }
             features.add(new SubscriptionFeatureSnapshot(feature.featureCode(), List.copyOf(quotas)));
         }
@@ -245,6 +242,8 @@ public class CommercialPolicySubscriptionTermsService {
                 decisions.add(winnerSet.winner().decision(
                         CommercialPolicyDecisionOutcome.REJECTED_INCOMPATIBLE, null, null,
                         "The selected entitlement does not contain the quota resource."));
+                recordRejected(winnerSet, decisions, recordedEffects,
+                        "A more specific or higher-priority quota bonus wins.");
             }
         });
         return List.copyOf(features);
@@ -269,7 +268,24 @@ public class CommercialPolicySubscriptionTermsService {
                     "POLICY_FEATURE_BLOCKED", winner.policy().getId(), winner.effect().getId(),
                     null, feature.featureCode(), null,
                     "Feature " + feature.featureCode() + " is blocked for this Account."));
+            recordRejected(winnerSet, decisions, recordedEffects,
+                    "A more specific or higher-priority Feature restriction wins.");
         }
+    }
+
+    private void recordRejected(
+            CommercialPolicyEvaluator.WinnerSet winnerSet,
+            List<CommercialPolicyDecisionSnapshot> decisions,
+            Set<java.util.UUID> recordedEffects,
+            String explanation
+    ) {
+        winnerSet.rejected().forEach(candidate -> {
+            if (recordedEffects.add(candidate.effect().getId())) {
+                decisions.add(candidate.decision(
+                        CommercialPolicyDecisionOutcome.REJECTED_LOWER_PRECEDENCE,
+                        null, null, explanation));
+            }
+        });
     }
 
     private Money applyFixedPrice(

@@ -489,7 +489,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
-    void exactPlanSelectionResolvesMatchingItemsAndWritesImmutableV2Snapshot() throws Exception {
+    void exactPlanSelectionResolvesMatchingItemsAndWritesImmutableCurrentSnapshot() throws Exception {
         String adminToken = loginAdminAndGetToken();
         var plan = planRepository.findByCode("FLEX").orElseThrow();
         var addOn = addOnRepository.findByCode("ORGANIZATION_TOOLS").orElseThrow();
@@ -519,7 +519,9 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
 
         var subscription = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow();
         var snapshot = subscription.getEntitlementSnapshot();
-        assertThat(snapshot.schemaVersion()).isEqualTo(2);
+        assertThat(snapshot.schemaVersion())
+                .isEqualTo(com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot
+                        .CURRENT_SCHEMA_VERSION);
         assertThat(snapshot.billingCycle()).isEqualTo(BillingCycle.YEARLY);
         assertThat(snapshot.planPriceEntryId()).isEqualTo(planPrice.getId());
         assertThat(snapshot.addOns()).singleElement()

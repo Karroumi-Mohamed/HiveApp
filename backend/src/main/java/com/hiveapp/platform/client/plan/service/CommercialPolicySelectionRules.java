@@ -47,6 +47,17 @@ public final class CommercialPolicySelectionRules {
             CommercialCatalogResolver.Audience audience,
             CommercialPolicyEvaluator.Evaluation evaluation
     ) {
+        return planVisible(resolution, audience, evaluation)
+                && !evaluation.blocksProduct(
+                        CommercialPolicyProductType.PLAN, resolution.plan().getId());
+    }
+
+    /** A policy-blocked product remains explainable in the catalogue but cannot be selected. */
+    public static boolean planVisible(
+            CommercialCatalogResolver.PlanResolution resolution,
+            CommercialCatalogResolver.Audience audience,
+            CommercialPolicyEvaluator.Evaluation evaluation
+    ) {
         CommercialCatalogResolver.PlanResolution adjusted = adjustPlan(resolution, audience, evaluation);
         if (!adjusted.selectable()) return false;
         return audience == CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR
@@ -57,6 +68,16 @@ public final class CommercialPolicySelectionRules {
     }
 
     public static boolean addOnSelectable(
+            CommercialCatalogResolver.AddOnResolution resolution,
+            CommercialCatalogResolver.Audience audience,
+            CommercialPolicyEvaluator.Evaluation evaluation
+    ) {
+        return addOnVisible(resolution, audience, evaluation)
+                && !evaluation.blocksProduct(
+                        CommercialPolicyProductType.ADD_ON, resolution.addOn().getId());
+    }
+
+    public static boolean addOnVisible(
             CommercialCatalogResolver.AddOnResolution resolution,
             CommercialCatalogResolver.Audience audience,
             CommercialPolicyEvaluator.Evaluation evaluation
@@ -74,6 +95,17 @@ public final class CommercialPolicySelectionRules {
     }
 
     public static boolean quotaPackageSelectable(
+            CommercialCatalogResolver.QuotaPackageResolution resolution,
+            CommercialCatalogResolver.Audience audience,
+            CommercialPolicyEvaluator.Evaluation evaluation
+    ) {
+        return quotaPackageVisible(resolution, audience, evaluation)
+                && !evaluation.blocksProduct(
+                        CommercialPolicyProductType.QUOTA_PACKAGE,
+                        resolution.quotaPackage().getId());
+    }
+
+    public static boolean quotaPackageVisible(
             CommercialCatalogResolver.QuotaPackageResolution resolution,
             CommercialCatalogResolver.Audience audience,
             CommercialPolicyEvaluator.Evaluation evaluation

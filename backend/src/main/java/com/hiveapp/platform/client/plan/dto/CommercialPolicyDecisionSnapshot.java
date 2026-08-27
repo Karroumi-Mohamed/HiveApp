@@ -10,8 +10,9 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 /**
- * Immutable, privacy-safe provenance for one policy effect considered during subscription review.
- * It deliberately omits owner, approval, contract, and internal-reason fields.
+ * Immutable internal/admin provenance for one policy effect considered during subscription review.
+ * It omits owner, approval, contract, and internal-reason fields, but still contains targeting
+ * identities and must be projected through {@link ClientCommercialPolicyDecision} on client APIs.
  */
 public record CommercialPolicyDecisionSnapshot(
         UUID policyId,

@@ -33,7 +33,6 @@ import java.util.UUID;
 public class CommercialPolicyActivationAssessor {
 
     private static final List<CommercialPolicyExecutionBlocker> EXECUTION_BLOCKERS = List.of(
-            CommercialPolicyExecutionBlocker.SUBSCRIPTION_OPERATION_ENGINE_NOT_CONNECTED,
             CommercialPolicyExecutionBlocker.SCHEDULED_EXECUTION_NOT_AVAILABLE);
 
     private final CommercialPolicyAudienceResolver audienceResolver;

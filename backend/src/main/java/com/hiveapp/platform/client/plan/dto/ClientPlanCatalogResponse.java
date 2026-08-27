@@ -2,11 +2,11 @@ package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
-import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.constant.RetainedEntitlementState;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.shared.money.ExactDecimal;
 import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.shared.quota.QuotaSlot;
-import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -17,7 +17,7 @@ import java.util.UUID;
 public record ClientPlanCatalogResponse(
         CurrentSubscription currentSubscription,
         List<CatalogPlan> plans,
-        List<CommercialPolicyDecisionSnapshot> commercialPolicyDecisions
+        List<ClientCommercialPolicyDecision> commercialPolicyDecisions
 ) {
     public ClientPlanCatalogResponse {
         plans = plans == null ? List.of() : List.copyOf(plans);
@@ -89,7 +89,7 @@ public record ClientPlanCatalogResponse(
             List<CatalogAddOn> addOns,
             List<CatalogQuotaPackage> quotaPackages,
             List<CatalogPrice> prices,
-            List<CommercialPolicyDecisionSnapshot> commercialPolicyDecisions
+            List<ClientCommercialPolicyDecision> commercialPolicyDecisions
     ) {
         public CatalogPlan(
                 String code, String name, String description, BigDecimal basePrice,
@@ -123,7 +123,7 @@ public record ClientPlanCatalogResponse(
             List<CatalogAddOnFeature> features,
             List<CatalogPrice> prices,
             boolean selectable,
-            List<CommercialPolicyDecisionSnapshot> commercialPolicyDecisions
+            List<ClientCommercialPolicyDecision> commercialPolicyDecisions
     ) {
         public CatalogAddOn(
                 String code, String name, String description, BigDecimal price,
@@ -169,9 +169,9 @@ public record ClientPlanCatalogResponse(
             Set<String> allowedAddOnCodes,
             List<CatalogPrice> prices,
             boolean directlyAvailable,
-            Set<String> requiresAddOnCodes
-            , boolean selectable
-            , List<CommercialPolicyDecisionSnapshot> commercialPolicyDecisions
+            Set<String> requiresAddOnCodes,
+            boolean selectable,
+            List<ClientCommercialPolicyDecision> commercialPolicyDecisions
     ) {
         public CatalogQuotaPackage(
                 String code, String name, String description, long definitionVersion,
