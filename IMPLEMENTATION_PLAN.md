@@ -934,7 +934,7 @@ flowchart TD
 - **Acceptance Criteria**: Sync executes transactionally and writes a sync log row.
 - **Tests**: Concurrency synchronization locks checks.
 - **Future UI Flow**: System status logs.
-- **Execution Status**: Implemented. One ordered startup listener validates a deterministic SHA-256 snapshot, converges the first lock-row insert, serializes writers with a pessimistic database lock, and applies feature plus permission repairs in one transaction. Mid-write failure rolls back both layers and the success report; failure summaries use a separate transaction. Every run records build/hash/timestamps/status/counts/details, and a dedicated Permissionizer-protected platform-admin endpoint returns the latest safe summary.
+- **Execution Status**: Partial. One ordered startup listener validates a deterministic SHA-256 snapshot, converges the first lock-row insert, serializes writers with a pessimistic database lock, and applies feature plus permission repairs in one transaction. Mid-write failure rolls back both layers and the success report; failure summaries use a separate transaction. Every run records build/hash/timestamps/status/counts/details, and a dedicated Permissionizer-protected platform-admin endpoint returns the latest safe summary. Before multi-version production rollout, add a monotonic desired deployment/build generation (or equivalent rollout authority) so an older node that acquires the lock later cannot replace a newer authoritative snapshot.
 
 ---
 
@@ -1740,6 +1740,8 @@ flowchart TD
 - **Tests**: Pagination bounds, validated sorting, search/filter combinations, permission separation, query count, concurrent lifecycle changes, stable error codes, and frontend URL-state/invalidation regressions.
 - **Future UI Flow**: Consistent Plan/Add-on/capacity-package tables and reusable product choosers.
 
+**Execution status — implemented and independently audited 2026-08-27:** Plan, AddOn, and capacity-package operations now expose stable bounded search/filter/sort pages, deterministic ordering, backend actions/blockers/counts, fine-grained permissions, narrow chooser and selected-resolution contracts, and constant-query evidence. Shared responsive URL-backed admin tables use source-owned reasons, scoped caches, mobile alternatives, and explicit loading/empty/error/access-denied states. The subscription Account workbench adds bounded minimum-identity search and deterministic latest-subscription facts without broadening access to client business data.
+
 #### [IMPLEMENT] QUOTA-005 — Published capacity packages have no successor-revision workflow
 
 - **Prerequisites**: COMMERCIAL-001, PRICEBOOK-001.
@@ -1751,6 +1753,10 @@ flowchart TD
 - **Tests**: Concurrent revision creation, latest-only revision, copied definition/policy/prices, published immutability, snapshot isolation, permissions, history, and realistic admin revise flow.
 - **Future UI Flow**: Revise action, source/successor comparison, guided draft editing, activation preview, and history.
 
+**Execution status — implemented and independently audited 2026-08-27:** Capacity packages now have immutable lineage/source/revision identity, a concurrency-safe single draft successor, copied definition/targeting/visibility/attachments/editable price starting point, comparison, lifecycle blockers, history, optimistic concurrency, and snapshot-safe archive/delete behavior. The admin UI supports revise/compare/activation/history flows and paginates revision/history records rather than silently truncating them.
+
+**Phase 9 closure — 2026-08-27:** The operational product catalogues, exact immutable Price books, availability/visibility controls, quota-package revisions, subscription Account directory, client/admin extension surfaces, and reviewed signed mutation evidence are implemented. Signed evidence binds operation/target/version/actor/catalogue/registry/evaluation claims and is reauthorized and recomputed under the documented lock order. Typed Account policies remain Phase 10; Segments/Offers, jobs/renewals, settlement ledgers, and durable analytics remain their stated later phases.
+
 # Phase 10: Typed commercial policies and targeting
 
 ### Batch 10.1: Account policy model and precedence
@@ -1760,6 +1766,8 @@ flowchart TD
 - **Description**: Implement typed versioned policy targets/effects, deterministic precedence, lifecycle, preview, immutable affected-set snapshots, immediate/renewal/scheduled execution, cancel/retry, history, and client effective-term explanations. V1 discounts are fixed-Money or percentage-with-cap reductions of the subscription subtotal, never surcharges or client-provided values, and do not stack. Activated audiences are static snapshots; approved scheduled work executes as `SYSTEM` from immutable evidence, while edits/cancellation require current authority. Policy windows govern new operations and never silently mutate an accepted subscription snapshot.
 - **Tests**: Target isolation, effect validation, priority/restriction precedence, expiry, revision immutability, stale preview, concurrent subscription change, partial result/retry, audit, and client privacy.
 - **Future UI Flow**: Paginated policy table, guided policy builder, target simulator, impact/execution views, Account policy history.
+
+**Execution status — backend foundation implemented and independently audited 2026-08-27; application/UI in progress:** Typed policy revisions, closed effect/target vocabularies, deterministic precedence, bounded operational APIs, immutable activation audiences, separately authorized ownership, signed activation review, concurrency-safe lifecycle, and audit/history are implemented. Activation deliberately performs no subscriber or settlement mutation. The remaining slice integrates winning policy effects and provenance into explicit subscription preview/apply, then delivers and audits the admin workbench; Segment activation stays blocked until Phase 11.
 
 # Phase 11: Segments, campaigns, and offers
 
@@ -1894,9 +1902,9 @@ flowchart TD
 | **BILLING-001** | Checkouts activation | IMPLEMENTED FOR CLIENT ACTIVATION | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Durable non-entitling checkout plus guarded, idempotent confirmation and final recheck |
 | **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED; LEDGER PHASE 13 | IMPLEMENT | Phase 4/13 | Batch 4.1/13.1 | None | Explicit ISO Money foundation, then immutable invoice/payment/credit/refund evidence and lifecycle tests |
 | **PRICEBOOK-001** | Multi-cycle immutable prices | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.1 | BILLING-003 foundation, PLAN-012, QUOTA-004 | Independent monthly/yearly entries, overlap race protection, exact snapshot identity and client checkout tests |
-| **COMMERCIAL-001** | Extension and policy control | PARTIAL — EXTENSION BACKEND IMPLEMENTED/AUDITED; UI + POLICIES PENDING | IMPLEMENT | Phase 9/10 | Batch 9.2/10.1 | PRICEBOOK-001 | Extension/visibility matrix plus typed target/effect precedence, preview, execution and history tests |
-| **COMMERCIAL-002** | Operational product catalogues | CONFIRMED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001 | Bounded search/filter/sort, permissions, query count, backend actions/blockers and shared table contracts |
-| **QUOTA-005** | Capacity-package revisions | CONFIRMED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001, PRICEBOOK-001 | Revision concurrency, copied policy/prices, immutable snapshots, lifecycle/history and admin revise flow |
+| **COMMERCIAL-001** | Extension and policy control | PARTIAL — EXTENSION BACKEND/UI IMPLEMENTED/AUDITED; POLICIES PHASE 10 | IMPLEMENT | Phase 9/10 | Batch 9.2/10.1 | PRICEBOOK-001 | Extension/visibility matrix plus typed target/effect precedence, preview, execution and history tests |
+| **COMMERCIAL-002** | Operational product catalogues | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001 | Bounded search/filter/sort, permissions, query count, backend actions/blockers and shared table contracts |
+| **QUOTA-005** | Capacity-package revisions | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001, PRICEBOOK-001 | Revision concurrency, copied policy/prices, immutable snapshots, lifecycle/history and admin revise flow |
 | **MARKETING-001** | Segments, campaigns and offers | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 11 | Batch 11.1/11.2 | COMMERCIAL-001 | Safe audience snapshots, lifecycle, eligibility privacy, bounded/idempotent redemption and client flow tests |
 | **ANALYTICS-001** | Durable commercial analytics | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 14 | Batch 14.1 | MARKETING-001, BILLING-003 | Time/currency-aware facts, truthful dimensions, stable history and operational drill-down tests |
 | **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
@@ -1999,7 +2007,7 @@ flowchart TD
 | **REGISTRY-006** | Bulk picker query | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-005 | One bulk entitlement resolution per picker |
 | **REGISTRY-007** | Repair metadata | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-003 | Code-owned Feature and Permission metadata repair |
 | **REGISTRY-008** | destructive block | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-006 | Current action-level audience classification |
-| **REGISTRY-009** | Seeding transaction | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-007 | Atomic synchronization, database lock, durable run summary |
+| **REGISTRY-009** | Seeding transaction | PARTIAL — ROLLING-DEPLOYMENT GENERATION GUARD OPEN | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-007 | Atomic synchronization, database lock, durable run summary, monotonic deployment-generation protection |
 | **REGISTRY-010** | Picker DTO | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-008 | Versioned choices/selections and stale-write rejection |
 | **PERM-001** | AspectJ matching | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Target node proxy |
 | **PERM-002** | Startup guard checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | None | Alignment check |
