@@ -11,9 +11,12 @@ import org.springframework.stereotype.Service;
 public class RegistryCatalogVersionService {
 
     private final RegistrySyncLockRepository lockRepository;
+    private final CurrentRegistrySnapshot currentRegistrySnapshot;
 
     public String currentVersion() {
-        return format(currentLock());
+        RegistrySyncLock lock = currentLock();
+        requireLocalSnapshotCurrent(lock);
+        return format(lock);
     }
 
     public void requireCurrent(String suppliedVersion) {
@@ -25,8 +28,11 @@ public class RegistryCatalogVersionService {
     }
 
     public RegistrySyncLock lockForMutation() {
-        return lockRepository.findByLockNameForUpdate(RegistrySynchronizationCoordinator.LOCK_NAME)
+        RegistrySyncLock lock = lockRepository.findByLockNameForUpdate(
+                        RegistrySynchronizationCoordinator.LOCK_NAME)
                 .orElseThrow(() -> new IllegalStateException("Registry synchronization lock is unavailable"));
+        requireLocalSnapshotCurrent(lock);
+        return lock;
     }
 
     public void bump(RegistrySyncLock lock) {
@@ -45,5 +51,26 @@ public class RegistryCatalogVersionService {
             throw new IllegalStateException("Registry catalog has not been synchronized");
         }
         return hash + ":" + lock.getCatalogRevision();
+    }
+
+    /**
+     * A node must never evaluate or mutate a database catalogue synchronized by different code.
+     * Startup synchronization installs the local snapshot only after the database transaction
+     * succeeds, so ordinary runtime calls fail closed until both sides agree.
+     */
+    private void requireLocalSnapshotCurrent(RegistrySyncLock lock) {
+        String localHash = currentRegistrySnapshot.hash();
+        String authoritativeHash = lock.getLastSnapshotHash();
+        if (localHash == null || localHash.isBlank()) {
+            throw new IllegalStateException("The local registry snapshot is not installed");
+        }
+        if (authoritativeHash == null || authoritativeHash.isBlank()) {
+            throw new IllegalStateException("Registry catalog has not been synchronized");
+        }
+        if (!authoritativeHash.equals(localHash)) {
+            throw new InvalidStateException(
+                    "This application node has a stale registry snapshot and cannot serve "
+                            + "registry-dependent operations. Restart or replace the node.");
+        }
     }
 }

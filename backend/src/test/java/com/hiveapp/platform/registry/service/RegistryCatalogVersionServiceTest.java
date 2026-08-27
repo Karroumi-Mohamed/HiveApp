@@ -16,10 +16,13 @@ import static org.mockito.Mockito.when;
 class RegistryCatalogVersionServiceTest {
 
     private final RegistrySyncLockRepository repository = mock(RegistrySyncLockRepository.class);
-    private final RegistryCatalogVersionService service = new RegistryCatalogVersionService(repository);
+    private final CurrentRegistrySnapshot currentSnapshot = mock(CurrentRegistrySnapshot.class);
+    private final RegistryCatalogVersionService service =
+            new RegistryCatalogVersionService(repository, currentSnapshot);
 
     @Test
     void rejectsStaleWritesWithRefreshRequiredMessage() {
+        when(currentSnapshot.hash()).thenReturn("hash");
         when(repository.findByLockName(RegistrySynchronizationCoordinator.LOCK_NAME))
                 .thenReturn(Optional.of(lock("hash", 4)));
 
@@ -37,6 +40,46 @@ class RegistryCatalogVersionServiceTest {
 
         assertThat(lock.getCatalogRevision()).isEqualTo(5);
         verify(repository).save(lock);
+    }
+
+    @Test
+    void rejectsRegistryReadsBeforeTheLocalSnapshotIsInstalled() {
+        when(repository.findByLockName(RegistrySynchronizationCoordinator.LOCK_NAME))
+                .thenReturn(Optional.of(lock("hash", 4)));
+
+        assertThatThrownBy(service::currentVersion)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("local registry snapshot is not installed");
+    }
+
+    @Test
+    void rejectsRegistryReadsAndMutationsFromAStaleApplicationNode() {
+        when(currentSnapshot.hash()).thenReturn("old-hash");
+        RegistrySyncLock lock = lock("new-hash", 5);
+        when(repository.findByLockName(RegistrySynchronizationCoordinator.LOCK_NAME))
+                .thenReturn(Optional.of(lock));
+        when(repository.findByLockNameForUpdate(RegistrySynchronizationCoordinator.LOCK_NAME))
+                .thenReturn(Optional.of(lock));
+
+        assertThatThrownBy(service::currentVersion)
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessageContaining("stale registry snapshot");
+        assertThatThrownBy(service::lockForMutation)
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessageContaining("stale registry snapshot");
+    }
+
+    @Test
+    void returnsVersionAndMutationLockWhenLocalAndAuthoritativeSnapshotsMatch() {
+        when(currentSnapshot.hash()).thenReturn("hash");
+        RegistrySyncLock lock = lock("hash", 7);
+        when(repository.findByLockName(RegistrySynchronizationCoordinator.LOCK_NAME))
+                .thenReturn(Optional.of(lock));
+        when(repository.findByLockNameForUpdate(RegistrySynchronizationCoordinator.LOCK_NAME))
+                .thenReturn(Optional.of(lock));
+
+        assertThat(service.currentVersion()).isEqualTo("hash:7");
+        assertThat(service.lockForMutation()).isSameAs(lock);
     }
 
     private RegistrySyncLock lock(String hash, long revision) {
