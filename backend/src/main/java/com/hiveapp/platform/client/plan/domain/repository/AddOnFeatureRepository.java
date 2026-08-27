@@ -14,6 +14,7 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
 public interface AddOnFeatureRepository extends JpaRepository<AddOnFeature, UUID> {
+    @EntityGraph(attributePaths = "feature")
     List<AddOnFeature> findAllByAddOnId(UUID addOnId);
     Optional<AddOnFeature> findByAddOnIdAndFeature_Code(UUID addOnId, String featureCode);
 

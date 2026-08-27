@@ -615,6 +615,7 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
                     CommercialProductAction.EDIT_DRAFT,
                     CommercialProductAction.MANAGE_COMPOSITION,
                     CommercialProductAction.MANAGE_PRICES,
+                    CommercialProductAction.PREVIEW_ACTIVATION,
                     CommercialProductAction.ACTIVATE,
                     CommercialProductAction.ARCHIVE,
                     CommercialProductAction.DELETE_DRAFT));
@@ -625,13 +626,11 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
             }
             case INACTIVE -> {
                 actions.addAll(Set.of(CommercialProductAction.MANAGE_PRICES,
+                        CommercialProductAction.PREVIEW_ACTIVATION,
                         CommercialProductAction.ACTIVATE, CommercialProductAction.ARCHIVE));
                 addRevisionAction(actions, plan.getRevisionNumber(), lineage);
             }
             case ARCHIVED -> { }
-        }
-        if (applicablePrices == 0 || composition.included() == 0) {
-            actions.remove(CommercialProductAction.ACTIVATE);
         }
         if (publishedPrices > 0 || deletionReferences > 0) {
             actions.remove(CommercialProductAction.DELETE_DRAFT);
@@ -679,6 +678,7 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
                     CommercialProductAction.EDIT_DRAFT,
                     CommercialProductAction.MANAGE_COMPOSITION,
                     CommercialProductAction.MANAGE_PRICES,
+                    CommercialProductAction.PREVIEW_ACTIVATION,
                     CommercialProductAction.ACTIVATE,
                     CommercialProductAction.ARCHIVE,
                     CommercialProductAction.DELETE_DRAFT));
@@ -689,13 +689,11 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
             }
             case INACTIVE -> {
                 actions.addAll(Set.of(CommercialProductAction.MANAGE_PRICES,
+                        CommercialProductAction.PREVIEW_ACTIVATION,
                         CommercialProductAction.ACTIVATE, CommercialProductAction.ARCHIVE));
                 addRevisionAction(actions, addOn.getRevisionNumber(), lineage);
             }
             case ARCHIVED -> { }
-        }
-        if (applicablePrices == 0 || featureCount == 0) {
-            actions.remove(CommercialProductAction.ACTIVATE);
         }
         if (publishedPrices > 0 || addOnReferences > 0 || quotaPackageReferences > 0) {
             actions.remove(CommercialProductAction.DELETE_DRAFT);
@@ -757,9 +755,6 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
             }
             case ARCHIVED -> { }
         }
-        if (applicablePrices == 0 && applicableDraftPrices == 0) {
-            actions.remove(CommercialProductAction.ACTIVATE);
-        }
         if (publishedPrices > 0) actions.remove(CommercialProductAction.DELETE_DRAFT);
         filterQuotaPackageActions(actions, permissions);
         return new QuotaPackageOperationalListItemDto(
@@ -813,6 +808,8 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
         filter(actions, permissions, Map.of(
                 CommercialProductAction.EDIT_DRAFT, "platform.plans.update",
                 CommercialProductAction.MANAGE_PRICES, "platform.price_books.list",
+                CommercialProductAction.PREVIEW_ACTIVATION,
+                        "platform.plans.preview_plan_activation",
                 CommercialProductAction.ACTIVATE, "platform.plans.transition_status",
                 CommercialProductAction.DEACTIVATE, "platform.plans.transition_status",
                 CommercialProductAction.ARCHIVE, "platform.plans.transition_status",
@@ -843,6 +840,8 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
         filter(actions, permissions, Map.of(
                 CommercialProductAction.EDIT_DRAFT, "platform.plans.update_add_on",
                 CommercialProductAction.MANAGE_PRICES, "platform.price_books.list",
+                CommercialProductAction.PREVIEW_ACTIVATION,
+                        "platform.plans.preview_add_on_activation",
                 CommercialProductAction.ACTIVATE, "platform.plans.transition_add_on",
                 CommercialProductAction.DEACTIVATE, "platform.plans.transition_add_on",
                 CommercialProductAction.ARCHIVE, "platform.plans.transition_add_on",

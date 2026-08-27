@@ -7,6 +7,7 @@ import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnCreationReason;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnActivationBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionCheckoutStatus;
@@ -34,8 +35,11 @@ import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
+import com.hiveapp.platform.client.plan.service.AddOnActivationAssessor;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.platform.client.plan.service.CrossFeatureCommercialAuthorizer;
+import com.hiveapp.platform.client.plan.service.QuotaPackageActivationAssessor;
+import com.hiveapp.platform.client.plan.service.PlanActivationAssessor;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
@@ -43,6 +47,7 @@ import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.DraftSuccessorExistsException;
 import com.hiveapp.shared.exception.InvalidRequestException;
+import com.hiveapp.shared.exception.OperationBlockedException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.audit.AuditTrail;
@@ -98,6 +103,11 @@ class PlanAdminServiceImplTest {
     @Mock private Clock clock;
     @Mock private FeatureRepository featureRepository;
     @Mock private com.hiveapp.platform.client.plan.service.ProductPriceResolver productPriceResolver;
+    @Mock private com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService commercialCatalogVersionService;
+    @Mock private com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService previewTokenService;
+    @Mock private PlanActivationAssessor planActivationAssessor;
+    @Mock private AddOnActivationAssessor addOnActivationAssessor;
+    @Mock private QuotaPackageActivationAssessor quotaPackageActivationAssessor;
     // Real projection so these assertions also cover the read model the service now owns.
     @Spy private PlanAdminReadModels readModels = new PlanAdminReadModels();
 
@@ -112,6 +122,8 @@ class PlanAdminServiceImplTest {
         org.mockito.Mockito.lenient().when(planRepository.advanceCompositionVersion(
                         any(), org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn(1);
+        org.mockito.Mockito.lenient().when(commercialCatalogVersionService.currentRevision())
+                .thenReturn(1L);
     }
 
     @Test
@@ -153,10 +165,10 @@ class PlanAdminServiceImplTest {
                 owner, Money.of(BigDecimal.ONE, "USD"), BillingCycle.MONTHLY, starts, ends);
         ReflectionTestUtils.setField(price, "id", UUID.randomUUID());
 
-        String future = PlanAdminServiceImpl.temporalPriceFingerprint(
+        String future = QuotaPackageActivationAssessor.temporalPriceFingerprint(
                 List.of(price), starts.minusNanos(1));
-        String current = PlanAdminServiceImpl.temporalPriceFingerprint(List.of(price), starts);
-        String expired = PlanAdminServiceImpl.temporalPriceFingerprint(List.of(price), ends);
+        String current = QuotaPackageActivationAssessor.temporalPriceFingerprint(List.of(price), starts);
+        String expired = QuotaPackageActivationAssessor.temporalPriceFingerprint(List.of(price), ends);
 
         assertThat(future).endsWith(":FUTURE");
         assertThat(current).endsWith(":CURRENT");
@@ -398,11 +410,16 @@ class PlanAdminServiceImplTest {
         draft.setStatus(PlanStatus.DRAFT);
         when(planRepository.findByIdForUpdate(planId)).thenReturn(Optional.of(draft));
         when(planFeatureRepository.findAllByPlanId(planId)).thenReturn(List.of());
+        var assessment = new PlanActivationAssessor(
+                planFeatureRepository, productPriceRepository, billingConfigurationValidator)
+                .assess(draft, clock.instant());
+        when(planActivationAssessor.assess(draft, clock.instant())).thenReturn(assessment);
 
         assertThatThrownBy(() -> planAdminService.transitionStatus(
-                planId, PlanStatus.ACTIVE, 0L, null))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("A Plan requires at least one included feature before activation.");
+                planId, PlanStatus.ACTIVE, 0L, null, "preview-token"))
+                .isInstanceOf(OperationBlockedException.class)
+                .satisfies(exception -> assertThat(((OperationBlockedException) exception).getDetails())
+                        .contains("NO_INCLUDED_FEATURES"));
     }
 
     @Test
@@ -442,16 +459,17 @@ class PlanAdminServiceImplTest {
         when(addOnRepository.findById(addOnId)).thenReturn(Optional.of(savedEntity.get()));
         when(addOnRepository.findLineageForUpdate(savedEntity.get().getLineageId()))
                 .thenReturn(List.of(savedEntity.get()));
-        when(productPriceRepository.findAllApplicable(
-                com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON,
-                addOnId, Instant.parse("2026-08-26T00:00:00Z")))
-                .thenReturn(List.of(activePrice(savedEntity.get())));
-        when(addOnFeatureRepository.findAllByAddOnId(addOnId)).thenReturn(List.of());
+        when(addOnActivationAssessor.assess(
+                savedEntity.get(), List.of(savedEntity.get()), clock.instant()))
+                .thenReturn(new AddOnActivationAssessor.Assessment(
+                        List.of(AddOnActivationBlocker.NO_FEATURES),
+                        0, 0, 0, List.of(), List.of(), "no-features"));
 
         assertThatThrownBy(() -> planAdminService.transitionAddOnStatus(
-                addOnId, AddOnStatus.ACTIVE, 0L, null))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("An AddOn requires at least one feature before activation.");
+                addOnId, AddOnStatus.ACTIVE, 0L, null, "preview-token"))
+                .isInstanceOf(OperationBlockedException.class)
+                .satisfies(exception -> assertThat(((OperationBlockedException) exception).getDetails())
+                        .contains("NO_FEATURES"));
     }
 
     @Test
@@ -631,12 +649,17 @@ class PlanAdminServiceImplTest {
                 .thenReturn(java.util.Map.of(planId, activationResolution));
         when(addOnRepository.saveAndFlush(addOn)).thenReturn(addOn);
         when(addOnRepository.findDetailedById(addOnId)).thenReturn(Optional.of(addOn));
-        when(productPriceRepository.findAllApplicable(
-                com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON,
-                addOnId, Instant.parse("2026-08-26T00:00:00Z")))
+        when(productPriceRepository.findAllByAddOnId(addOnId))
                 .thenReturn(List.of(activePrice(addOn)));
+        var assessment = new AddOnActivationAssessor(
+                addOnFeatureRepository, productPriceRepository, planRepository, addOnRepository,
+                quotaPackageRepository, billingConfigurationValidator, commercialCatalogResolver)
+                .assess(addOn, List.of(previousRevision, addOn), clock.instant());
+        when(addOnActivationAssessor.assess(
+                addOn, List.of(previousRevision, addOn), clock.instant()))
+                .thenReturn(assessment);
         AddOnDto activated = planAdminService.transitionAddOnStatus(
-                addOnId, AddOnStatus.ACTIVE, 0L, null);
+                addOnId, AddOnStatus.ACTIVE, 0L, null, "preview-token");
 
         assertThat(activated.status()).isEqualTo(AddOnStatus.ACTIVE);
         assertThat(previousRevision.getStatus()).isEqualTo(AddOnStatus.INACTIVE);

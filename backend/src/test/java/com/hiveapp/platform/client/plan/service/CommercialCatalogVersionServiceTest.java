@@ -42,6 +42,17 @@ class CommercialCatalogVersionServiceTest {
     }
 
     @Test
+    void consistentReadCanExposeACallerSpecificStaleContract() {
+        when(repository.findRevision(CommercialCatalogVersionService.LOCK_NAME))
+                .thenReturn(Optional.of(7L), Optional.of(8L));
+
+        assertThatThrownBy(() -> service.readConsistently(
+                revision -> "value",
+                TestPreviewConflict::new))
+                .isInstanceOf(TestPreviewConflict.class);
+    }
+
+    @Test
     void lockAndBumpUseTheSingletonRow() {
         UUID id = UUID.randomUUID();
         CommercialCatalogRevision revision = mock(CommercialCatalogRevision.class);
@@ -55,4 +66,6 @@ class CommercialCatalogVersionServiceTest {
 
         verify(repository).incrementRevision(id);
     }
+
+    private static final class TestPreviewConflict extends RuntimeException {}
 }

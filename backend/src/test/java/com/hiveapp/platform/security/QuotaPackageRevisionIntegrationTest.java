@@ -178,6 +178,11 @@ class QuotaPackageRevisionIntegrationTest extends PlatformShellIntegrationTestSu
 
         JsonNode preview = activationPreview(token, successorId);
         assertThat(preview.get("activatable").asBoolean()).isTrue();
+        assertThat(preview.get("catalogRevision").isIntegralNumber()).isTrue();
+        assertThat(preview.get("evaluatedAt").asText()).isNotBlank();
+        assertThat(preview.get("expiresAt").asText()).isNotBlank();
+        assertThat(preview.get("reviewedPrices").get(0).get("amount").asText())
+                .isEqualTo("8.1200");
         assertThat(preview.get("packagesToDeactivate").get(0).asText())
                 .isEqualTo(sourceId.toString());
         String lifecycleBody = objectMapper.writeValueAsString(Map.of(
@@ -370,7 +375,7 @@ class QuotaPackageRevisionIntegrationTest extends PlatformShellIntegrationTestSu
                                     "reason", "Reject stale composition review",
                                     "activationPreviewToken", preview.get("previewToken").asText()))))
                     .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
+                    .andExpect(jsonPath("$.code").value("STALE_ACTIVATION_PREVIEW"));
 
             assertThat(quotaPackageRepository.findById(packageId).orElseThrow().getStatus())
                     .isEqualTo(QuotaPackageStatus.DRAFT);
@@ -444,7 +449,7 @@ class QuotaPackageRevisionIntegrationTest extends PlatformShellIntegrationTestSu
                 .andExpect(jsonPath("$.blockers",
                         org.hamcrest.Matchers.hasItem("NO_PRICE_STARTING_POINT")))
                 .andExpect(jsonPath("$.availableActions",
-                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("ACTIVATE"))))
+                        org.hamcrest.Matchers.hasItems("PREVIEW_ACTIVATION", "ACTIVATE")))
                 .andExpect(jsonPath("$.availableActions",
                         org.hamcrest.Matchers.hasItem("MANAGE_PRICES")));
     }

@@ -8,6 +8,8 @@ import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageLifecycleAction;
+import com.hiveapp.platform.client.plan.dto.QuotaPackageLifecycleRequest;
 import com.hiveapp.platform.registry.definition.CompanyFeature;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
@@ -284,12 +286,14 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
                                 .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString());
-        mockMvc.perform(patch("/api/admin/quota-packages/{id}/status", id)
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", preview.get("expectedVersion").asText())
-                        .param("reason", "Publish test capacity package")
-                        .param("activationPreviewToken", preview.get("previewToken").asText())
-                        .header("Authorization", bearer(adminToken)))
+        mockMvc.perform(post("/api/admin/quota-packages/{id}/lifecycle", id)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new QuotaPackageLifecycleRequest(
+                                QuotaPackageLifecycleAction.ACTIVATE,
+                                preview.get("expectedVersion").asLong(),
+                                "Publish test capacity package",
+                                preview.get("previewToken").asText()))))
                 .andExpect(status().isOk());
         return created.get("code").asText();
     }

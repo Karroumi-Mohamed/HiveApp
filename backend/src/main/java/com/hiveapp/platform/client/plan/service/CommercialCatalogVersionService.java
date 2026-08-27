@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.UUID;
 import java.util.function.LongFunction;
+import java.util.function.Supplier;
 
 @Service
 @RequiredArgsConstructor
@@ -41,11 +42,22 @@ public class CommercialCatalogVersionService {
      * committing just after the final read is still safe: its newer revision invalidates apply.
      */
     public <T> T readConsistently(LongFunction<T> reader) {
+        return readConsistently(reader, this::stalePreview);
+    }
+
+    /**
+     * Uses the same catalogue fence while allowing a caller-specific stable conflict contract.
+     * Activation previews, for example, must not be confused with an entity-version conflict.
+     */
+    public <T> T readConsistently(
+            LongFunction<T> reader,
+            Supplier<? extends RuntimeException> staleException
+    ) {
         long before = currentRevision();
         T result = reader.apply(before);
         long after = currentRevision();
         if (before != after) {
-            throw stalePreview();
+            throw staleException.get();
         }
         return result;
     }

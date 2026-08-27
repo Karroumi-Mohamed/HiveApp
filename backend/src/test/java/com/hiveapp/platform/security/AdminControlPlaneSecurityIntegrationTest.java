@@ -16,7 +16,11 @@ import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
+import com.hiveapp.platform.client.plan.dto.PlanLifecycleRequest;
+import com.hiveapp.platform.client.plan.dto.AddOnLifecycleRequest;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
+import com.hiveapp.platform.client.plan.domain.constant.PlanLifecycleAction;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnLifecycleAction;
 import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
@@ -159,6 +163,97 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                                         "platform.workspace", PlanFeatureMode.INCLUDED,
                                         java.util.List.of()))))))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void activationPreviewPermissionsAreIndependentAndEvidenceIsActorBound() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        LimitedAdmin previewer = createLimitedAdmin(
+                "platform.plans.preview_plan_activation",
+                "platform.plans.preview_add_on_activation");
+        LimitedAdmin lifecycleOperator = createLimitedAdmin(
+                "platform.plans.transition_status",
+                "platform.plans.transition_add_on");
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+
+        JsonNode plan = objectMapper.readTree(mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(superToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                "Actor-bound Plan " + suffix, null, BigDecimal.ONE, "USD",
+                                BillingCycle.MONTHLY))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString());
+        UUID planId = UUID.fromString(plan.get("id").asText());
+        JsonNode addOn = objectMapper.readTree(mockMvc.perform(post("/api/admin/add-ons")
+                        .header("Authorization", bearer(superToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateAddOnRequest(
+                                "Actor-bound AddOn " + suffix, null, BigDecimal.ONE, "USD",
+                                BillingCycle.MONTHLY, java.util.Set.of("FLEX"), java.util.Set.of(),
+                                java.util.Set.of(), java.util.Set.of()))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString());
+        UUID addOnId = UUID.fromString(addOn.get("id").asText());
+        try {
+            mockMvc.perform(get("/api/admin/plans/{id}/activation-preview", planId)
+                            .header("Authorization", bearer(lifecycleOperator.token())))
+                    .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/admin/add-ons/{id}/activation-preview", addOnId)
+                            .header("Authorization", bearer(lifecycleOperator.token())))
+                    .andExpect(status().isForbidden());
+
+            JsonNode planPreview = objectMapper.readTree(mockMvc.perform(
+                            get("/api/admin/plans/{id}/activation-preview", planId)
+                                    .header("Authorization", bearer(previewer.token())))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString());
+            JsonNode addOnPreview = objectMapper.readTree(mockMvc.perform(
+                            get("/api/admin/add-ons/{id}/activation-preview", addOnId)
+                                    .header("Authorization", bearer(previewer.token())))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString());
+
+            mockMvc.perform(post("/api/admin/plans/{id}/lifecycle", planId)
+                            .header("Authorization", bearer(previewer.token()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new PlanLifecycleRequest(
+                                    PlanLifecycleAction.ACTIVATE,
+                                    planPreview.get("expectedVersion").asLong(), null,
+                                    planPreview.get("previewToken").asText()))))
+                    .andExpect(status().isForbidden());
+            mockMvc.perform(post("/api/admin/plans/{id}/lifecycle", planId)
+                            .header("Authorization", bearer(lifecycleOperator.token()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new PlanLifecycleRequest(
+                                    PlanLifecycleAction.ACTIVATE,
+                                    planPreview.get("expectedVersion").asLong(), null,
+                                    planPreview.get("previewToken").asText()))))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("STALE_ACTIVATION_PREVIEW"));
+            mockMvc.perform(post("/api/admin/add-ons/{id}/lifecycle", addOnId)
+                            .header("Authorization", bearer(lifecycleOperator.token()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new AddOnLifecycleRequest(
+                                    AddOnLifecycleAction.ACTIVATE,
+                                    addOnPreview.get("expectedVersion").asLong(), null,
+                                    addOnPreview.get("previewToken").asText()))))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("STALE_ACTIVATION_PREVIEW"));
+
+            assertThat(planRepository.findById(planId).orElseThrow().getStatus().name())
+                    .isEqualTo("DRAFT");
+            assertThat(addOnRepository.findById(addOnId).orElseThrow().getStatus().name())
+                    .isEqualTo("DRAFT");
+        } finally {
+            productPriceRepository.deleteAllInBatch(productPriceRepository.findAllByPlanId(planId));
+            productPriceRepository.deleteAllInBatch(productPriceRepository.findAllByAddOnId(addOnId));
+            productPriceRepository.flush();
+            addOnRepository.deleteById(addOnId);
+            planRepository.deleteById(planId);
+            addOnRepository.flush();
+            planRepository.flush();
+        }
     }
 
     @Test
@@ -436,12 +531,17 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         QuotaActivationFixture fixture = createQuotaActivationFixture(superToken);
         try {
             LimitedAdmin lifecycleOnly = createLimitedAdmin(
+                    "platform.plans.preview_quota_package_activation",
                     "platform.plans.lifecycle_quota_package");
+            JsonNode lifecycleBody = objectMapper.readTree(fixture.lifecycleBody());
+            ((com.fasterxml.jackson.databind.node.ObjectNode) lifecycleBody).put(
+                    "activationPreviewToken",
+                    fetchQuotaPackageActivationToken(lifecycleOnly.token(), fixture.packageId()));
 
             mockMvc.perform(post("/api/admin/quota-packages/{id}/lifecycle", fixture.packageId())
                             .header("Authorization", bearer(lifecycleOnly.token()))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(fixture.lifecycleBody()))
+                            .content(lifecycleBody.toString()))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"))
                     .andExpect(jsonPath("$.message").value(
