@@ -30,6 +30,11 @@ import {
   writeCommercialListState,
 } from "./commercial-list-state";
 import {
+  type CommercialProductKind,
+  canOpenCommercialProduct,
+  canReviseCommercialProduct,
+} from "./commercial-permission-rules";
+import {
   availabilityLabel,
   BlockerSummary,
   capacityUnitLabel,
@@ -42,6 +47,7 @@ type Row = PlanOperationalItem | AddOnOperationalItem | QuotaPackageOperationalI
 
 const configuration = {
   plan: {
+    productKind: "PLAN" as CommercialProductKind,
     title: "Forfaits",
     singular: "forfait",
     path: "/admin/plans",
@@ -50,6 +56,7 @@ const configuration = {
     defaultSort: "updatedAt",
   },
   "add-on": {
+    productKind: "ADD_ON" as CommercialProductKind,
     title: "Add-ons",
     singular: "add-on",
     path: "/admin/add-ons",
@@ -58,6 +65,7 @@ const configuration = {
     defaultSort: "name",
   },
   quota: {
+    productKind: "QUOTA_PACKAGE" as CommercialProductKind,
     title: "Packs de capacité",
     singular: "pack",
     path: "/admin/quota-packages",
@@ -91,7 +99,7 @@ function targetFacts(row: Row) {
     : "Toutes les offres compatibles";
 }
 
-function MobileCommercialRows({ rows, path }: { rows: Row[]; path: string }) {
+function MobileCommercialRows({ canOpen, rows, path }: { canOpen: boolean; rows: Row[]; path: string }) {
   return (
     <div className="divide-y md:hidden">
       {rows.map((row) => (
@@ -112,11 +120,17 @@ function MobileCommercialRows({ rows, path }: { rows: Row[]; path: string }) {
               </p>
               <BlockerSummary blockers={row.blockers} />
             </div>
-            <Button asChild size="icon-sm" variant="ghost">
-              <Link aria-label={`Ouvrir ${row.name}`} to={`${path}/${row.id}`}>
+            {canOpen ? (
+              <Button asChild size="icon-sm" variant="ghost">
+                <Link aria-label={`Ouvrir ${row.name}`} to={`${path}/${row.id}`}>
+                  <ArrowRightIcon className="rtl:rotate-180" />
+                </Link>
+              </Button>
+            ) : (
+              <Button aria-label={`Ouverture de ${row.name} non autorisée`} disabled size="icon-sm" variant="ghost">
                 <ArrowRightIcon className="rtl:rotate-180" />
-              </Link>
-            </Button>
+              </Button>
+            )}
           </div>
         </article>
       ))}
@@ -127,6 +141,8 @@ function MobileCommercialRows({ rows, path }: { rows: Row[]; path: string }) {
 function CommercialCatalogPage({ kind }: { kind: Kind }) {
   const config = configuration[kind];
   const session = useAdminSession();
+  const canOpen = canOpenCommercialProduct(session.can, config.productKind);
+  const canRevise = canReviseCommercialProduct(session.can, config.productKind);
   const [params, setParams] = useSearchParams();
   const state = readCommercialListState(params, config.defaultSort);
   const deferredSearch = useDeferredValue(state.search);
@@ -214,22 +230,28 @@ function CommercialCatalogPage({ kind }: { kind: Kind }) {
           cell: ({ row }) => (
             <TableActionsCell label={`Actions pour ${row.original.name}`}>
               <RowAction
-                disabled={!row.original.availableActions.includes("REVISE")}
-                disabledLabel="La révision n’est pas disponible dans cet état"
+                disabled={!canRevise || !row.original.availableActions.includes("REVISE")}
+                disabledLabel={!canRevise ? "Révision non autorisée" : "La révision n’est pas disponible dans cet état"}
                 icon={<GitBranchIcon />}
                 label="Ouvrir pour réviser"
-                to={row.original.availableActions.includes("REVISE") ? `${config.path}/${row.original.id}` : undefined}
+                to={
+                  canRevise && row.original.availableActions.includes("REVISE")
+                    ? `${config.path}/${row.original.id}`
+                    : undefined
+                }
               />
               <RowAction
+                disabled={!canOpen}
+                disabledLabel="Consultation du détail non autorisée"
                 icon={<ArrowRightIcon className="rtl:rotate-180" />}
                 label="Ouvrir"
-                to={`${config.path}/${row.original.id}`}
+                to={canOpen ? `${config.path}/${row.original.id}` : undefined}
               />
             </TableActionsCell>
           ),
         }),
       ]),
-    [column, config.path],
+    [canOpen, canRevise, column, config.path],
   );
   const sorting = sortingFromListState(state);
 
@@ -326,7 +348,7 @@ function CommercialCatalogPage({ kind }: { kind: Kind }) {
                 sorting={sorting}
               />
             </div>
-            <MobileCommercialRows path={config.path} rows={data?.content ?? []} />
+            <MobileCommercialRows canOpen={canOpen} path={config.path} rows={data?.content ?? []} />
             <PaginationBar
               onPageChange={(page) => setState({ ...state, page })}
               page={data?.page ?? 0}

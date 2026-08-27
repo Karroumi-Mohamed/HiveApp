@@ -178,11 +178,14 @@ export function ChoiceLoadState({
   loading,
   error,
   onRetry,
+  unavailable,
 }: {
   loading: boolean;
   error: boolean;
   onRetry: () => void;
+  unavailable?: string | null;
 }) {
+  if (unavailable) return <p className="text-xs text-warning">{unavailable}</p>;
   if (loading) return <p className="text-xs text-muted-foreground">Chargement des choix…</p>;
   if (!error) return null;
   return (

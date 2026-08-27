@@ -29,7 +29,7 @@ import { PageHeader } from "@/components/patterns/page-header";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { QuotaEditor } from "@/components/patterns/quota-editor";
 import { ReferenceTagButton } from "@/components/patterns/reference-tag";
-import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
+import { EmptyState, ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { RowAction } from "@/components/patterns/row-action";
 import { SectionTabs } from "@/components/patterns/section-tabs";
 import { StatusBadge } from "@/components/patterns/status-badge";
@@ -1096,7 +1096,9 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
           ...(session.can(adminPermissions.commercialReadHistory)
             ? [{ label: "Historique", to: `/admin/plans/${id}/history` }]
             : []),
-          { label: "Cycle de vie", to: `/admin/plans/${id}/lifecycle` },
+          ...(session.can(adminPermissions.plansTransition)
+            ? [{ label: "Cycle de vie", to: `/admin/plans/${id}/lifecycle` }]
+            : []),
         ]}
       />
       {operations.isError ? (
@@ -1121,7 +1123,7 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
         <CommercialAvailabilityPanel kind="plan" product={data} />
       ) : tab === "history" && session.can(adminPermissions.commercialReadHistory) ? (
         <CommercialAvailabilityHistory productId={data.id} />
-      ) : tab === "lifecycle" ? (
+      ) : tab === "lifecycle" && session.can(adminPermissions.plansTransition) ? (
         <div className="space-y-6">
           {session.can(adminPermissions.plansTransition) ? (
             <section className="rounded-xl border bg-card p-5">
@@ -1170,6 +1172,8 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
             </section>
           ) : null}
         </div>
+      ) : tab ? (
+        <PermissionState />
       ) : (
         <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
           <section className="rounded-xl border bg-card p-5">

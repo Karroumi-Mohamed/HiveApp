@@ -1,17 +1,25 @@
-import { ArrowLeftIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, ArrowRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useDeferredValue, useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
+import { type FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { AdminSubscription, AssignablePlanPrice, SubscriptionChangeOperation } from "@/api/contracts";
+import type {
+  AccountDirectoryEntry,
+  AdminSubscription,
+  AssignablePlanPrice,
+  SubscriptionChangeOperation,
+} from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
+import { createDataColumns, DataTable } from "@/components/patterns/data-table";
 import { PageHeader } from "@/components/patterns/page-header";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
+import { RowAction } from "@/components/patterns/row-action";
 import { StatusBadge } from "@/components/patterns/status-badge";
+import { TableActionsCell, tableActionsColumnMeta } from "@/components/patterns/table-actions-cell";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -559,14 +567,68 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
 export function AdminSubscriptionsPage() {
   const { accountId } = useParams();
   const session = useAdminSession();
-  const [search, setSearch] = useState("");
+  const [params, setParams] = useSearchParams();
+  const search = params.get("q") ?? "";
+  const parsedPage = Number(params.get("page") ?? "0");
+  const page = Number.isInteger(parsedPage) && parsedPage >= 0 ? parsedPage : 0;
   const deferred = useDeferredValue(search);
-  const [page, setPage] = useState(0);
   const accounts = useQuery({
     queryKey: adminCommercialKeys.subscriptions.accounts({ search: deferred, page }),
     queryFn: () => adminApi.accounts({ query: deferred || undefined, page, size: 20 }),
     enabled: commercialQueryEnabled(session.can, adminPermissions.subscriptionsSearch, !accountId),
   });
+  const canOpen = session.can(adminPermissions.subscriptionsRead);
+  const column = useMemo(() => createDataColumns<AccountDirectoryEntry>(), []);
+  const columns = useMemo(
+    () =>
+      column.columns([
+        column.accessor("name", {
+          header: "Compte",
+          cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+        }),
+        column.accessor("ownerEmail", { header: "Propriétaire" }),
+        column.accessor("slug", {
+          header: "Slug",
+          cell: ({ row }) => <code className="text-xs">{row.original.slug}</code>,
+        }),
+        column.accessor("active", {
+          meta: { headerClassName: "w-28", cellClassName: "w-28" },
+          header: "Statut",
+          cell: ({ row }) => (
+            <StatusBadge tone={row.original.active ? "success" : "danger"}>
+              {row.original.active ? "Actif" : "Inactif"}
+            </StatusBadge>
+          ),
+        }),
+        column.display({
+          id: "actions",
+          meta: tableActionsColumnMeta(1),
+          header: "Actions",
+          cell: ({ row }) => (
+            <TableActionsCell label={`Actions pour ${row.original.name}`}>
+              <RowAction
+                disabled={!canOpen}
+                disabledLabel="Consultation de l’abonnement non autorisée"
+                icon={<ArrowRightIcon className="rtl:rotate-180" />}
+                label="Ouvrir"
+                to={canOpen ? `/admin/subscriptions/${row.original.id}` : undefined}
+              />
+            </TableActionsCell>
+          ),
+        }),
+      ]),
+    [canOpen, column],
+  );
+  const updateListState = (next: { search?: string; page?: number }) => {
+    const updated = new URLSearchParams(params);
+    if (next.search !== undefined) {
+      if (next.search) updated.set("q", next.search);
+      else updated.delete("q");
+    }
+    if (next.page !== undefined && next.page > 0) updated.set("page", String(next.page));
+    else if (next.page !== undefined) updated.delete("page");
+    setParams(updated, { replace: true });
+  };
   if (accountId)
     return (
       <div className="space-y-7">
@@ -593,8 +655,7 @@ export function AdminSubscriptionsPage() {
             aria-label="Rechercher des comptes"
             className="max-w-md ps-9"
             onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(0);
+              updateListState({ search: event.target.value, page: 0 });
             }}
             placeholder="Compte, slug ou email du propriétaire…"
             value={search}
@@ -610,42 +671,38 @@ export function AdminSubscriptionsPage() {
           <EmptyState title="Aucun compte" />
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Compte</TableHead>
-                  <TableHead>Propriétaire</TableHead>
-                  <TableHead>Slug</TableHead>
-                  <TableHead>Statut</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {accounts.data.content.map((account) => (
-                  <TableRow key={account.id}>
-                    <TableCell>
-                      {session.can(adminPermissions.subscriptionsRead) ? (
-                        <Link className="font-medium" to={`/admin/subscriptions/${account.id}`}>
-                          {account.name}
-                        </Link>
-                      ) : (
-                        <span className="font-medium">{account.name}</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{account.ownerEmail}</TableCell>
-                    <TableCell>
-                      <code className="text-xs">{account.slug}</code>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge tone={account.active ? "success" : "danger"}>
-                        {account.active ? "Actif" : "Inactif"}
-                      </StatusBadge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <div className="hidden md:block">
+              <DataTable columns={columns} data={accounts.data.content} getRowId={(row) => row.id} />
+            </div>
+            <div className="divide-y md:hidden">
+              {accounts.data.content.map((account) => (
+                <article className="flex items-center justify-between gap-4 p-4" key={account.id}>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{account.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{account.ownerEmail}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{account.active ? "Actif" : "Inactif"}</p>
+                  </div>
+                  {canOpen ? (
+                    <Button asChild size="icon-sm" variant="ghost">
+                      <Link aria-label={`Ouvrir ${account.name}`} to={`/admin/subscriptions/${account.id}`}>
+                        <ArrowRightIcon className="rtl:rotate-180" />
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      aria-label={`Ouverture de ${account.name} non autorisée`}
+                      disabled
+                      size="icon-sm"
+                      variant="ghost"
+                    >
+                      <ArrowRightIcon className="rtl:rotate-180" />
+                    </Button>
+                  )}
+                </article>
+              ))}
+            </div>
             <PaginationBar
-              onPageChange={setPage}
+              onPageChange={(nextPage) => updateListState({ page: nextPage })}
               page={accounts.data.page}
               totalElements={accounts.data.totalElements}
               totalPages={accounts.data.totalPages}

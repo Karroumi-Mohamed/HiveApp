@@ -144,7 +144,7 @@ export function CommercialAvailabilityPanel({ kind, product }: { kind: Kind; pro
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label>Visibilité</Label>
+          <Label htmlFor="commercial-availability-visibility">Visibilité</Label>
           <Select
             onValueChange={(value) => {
               setVisibility(value as ProductSalesVisibility);
@@ -152,7 +152,7 @@ export function CommercialAvailabilityPanel({ kind, product }: { kind: Kind; pro
             }}
             value={visibility}
           >
-            <SelectTrigger>
+            <SelectTrigger id="commercial-availability-visibility">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -163,7 +163,7 @@ export function CommercialAvailabilityPanel({ kind, product }: { kind: Kind; pro
         </div>
         {isPlan ? (
           <div className="space-y-2">
-            <Label>Extensions</Label>
+            <Label htmlFor="commercial-availability-extension-policy">Extensions</Label>
             <Select
               onValueChange={(value) => {
                 setExtensionPolicy(value as PlanExtensionPolicy);
@@ -171,7 +171,7 @@ export function CommercialAvailabilityPanel({ kind, product }: { kind: Kind; pro
               }}
               value={extensionPolicy}
             >
-              <SelectTrigger>
+              <SelectTrigger id="commercial-availability-extension-policy">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
