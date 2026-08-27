@@ -1201,13 +1201,13 @@ Changing either policy on a published product requires a new commercial revision
 
 Commercial policies provide reusable operator tools without hard-coding a business strategy.
 
-- Delivered targets are one Account, explicit Accounts, or subscribers of one Plan revision. Typed Segment targeting becomes available with the Phase 11 resolver. The backend snapshots the affected set for activation and preserves accepted provenance.
+- Delivered targets are one Account, explicit Accounts, subscribers of one Plan revision, or an active exact Segment revision/activation. The backend snapshots the affected set for activation and preserves accepted provenance, including the source Segment activation.
 - Delivered effects are product allow/block, Feature block, fixed recurring subscription price, fixed-Money discount, percentage discount with explicit maximum, finite quota bonus, and bounded AddOn/package grant. Free recurring periods and renewal instructions remain Phase 12.
 - Every policy has source, reason, owner, actor, lifecycle, priority, effective window, expiry or explicit permanence, optional approval/contract reference, preview version, and audit.
 - Direct Account policy outranks Segment policy. At equal priority, restriction wins over grant. Purchased extensions precede commercial adjustments, while platform hard safety ceilings and Account governance restrictions always win.
 - One-Account and explicit Account-set targets have the same direct-target specificity and both outrank Plan-revision and Segment audiences. A Plan-revision audience includes current `TRIALING`, `ACTIVE`, `PAST_DUE`, and `SUSPENDED` subscribers; terminal subscription history is excluded.
 - An active policy is immutable; editing creates a draft revision. Expiry stops future effect and never rewrites historical snapshots, invoices, or operations.
-- Activation approves the exact immutable policy revision and snapshots its Account audience; it does not itself alter subscriptions, entitlements, prices, invoices, or payments. Segment activation remains unavailable until the typed Segment resolver exists.
+- Activation approves the exact immutable policy revision and snapshots its Account audience; it does not itself alter subscriptions, entitlements, prices, invoices, or payments. A Segment-targeted policy requires an active immutable Segment activation. `DRAFT`, `ACTIVE`, and `PAUSED` policy references keep the Segment reusable and therefore block its archive; `ENDED` and `ARCHIVED` policy history does not, because the policy activation already retains the frozen audience and Segment provenance.
 - Time-bounded AddOn and capacity-package grants require an explicit end. Platform hard limits remain non-overridable, and every accepted subscription operation snapshots the exact winning policy revision/effects so later expiry or revision cannot rewrite accepted terms.
 - Policy activation and later Account application are separate. One-Account immediate/at-renewal application is delivered through the signed subscription preview/apply operation, including locked recomputation and accepted-effect provenance. Selected/filtered/scheduled application, per-Account job results, retry, and cancellation cutoff remain Phase 12.
 
@@ -1223,16 +1223,18 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 
 ## MARKETING-FLOW-001 — Safe reusable Account segments
 
-**Status:** `DECIDED — 2026-08-26`
+**Status:** `IMPLEMENTED — INDEPENDENTLY AUDITED 2026-08-27`
 
 - A Segment is either an explicit Account set or typed commercial criteria. It never accepts SQL, scripts, or permission/business-record predicates.
 - Initial criteria may use current Plan, subscription status, currency/cycle, Account creation date, and purchased commercial products.
 - Preview returns a bounded sample, total, criteria version, and evaluation time. Activation snapshots membership for a Campaign execution; later Account changes do not silently rewrite an already scheduled audience.
 - Segment list/detail APIs support pagination, search, lifecycle, duplication, impact preview, safe delete/archive, and history. Sensitive Account identity fields remain separately authorized.
+- Delivered operations include bounded list/search, an explicit-or-criteria builder, preview/count, separately authorized identity resolution, signed activation, immutable revisions, compare/history, owner transfer, and lifecycle control. Commercial Policies may target an exact active Segment activation through a dedicated executable reference chooser.
+- Archiving excludes a Segment from new selection. It is blocked by `DRAFT`, `ACTIVE`, or `PAUSED` policy references, but not by `ENDED` or `ARCHIVED` policy history, whose accepted activation already preserves its own frozen audience and Segment provenance.
 
 ## MARKETING-FLOW-002 — Campaigns, offers, and redemption
 
-**Status:** `DECIDED — 2026-08-26; REOPENS TYPED DISCOUNTS FROM PLAN-FLOW-008`
+**Status:** `DECIDED — 2026-08-26; IMPLEMENTATION CONTRACT REFINED 2026-08-27; REOPENS TYPED DISCOUNTS FROM PLAN-FLOW-008`
 
 - Campaign lifecycle is `DRAFT`, `SCHEDULED`, `ACTIVE`, `PAUSED`, `ENDED`, and terminal `ARCHIVED`.
 - Offers are immutable published revisions containing compatible product selections and typed policy effects, with eligibility/effective windows, overall and per-Account limits, optional normalized code, and explicit acceptance rules.
@@ -1240,6 +1242,12 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - Public offers are visible only to currently eligible Accounts. Targeted offers are visible only to their snapshotted audience. Direct-only products may appear through an authorized targeted offer.
 - Preview explains resulting products, features, quotas, exact itemized price, adjustment, amount due, and timing. Acceptance revalidates under an Account lock and is idempotent.
 - Pausing/ending stops new redemption but never reverses completed changes. Operator application to Accounts uses the same tracked subscription-operation engine and per-Account outcomes.
+- The Campaign owns the audience and every Offer revision inherits it. A public Campaign does not snapshot the whole platform; eligibility is resolved at preview/acceptance time.
+- Offer selection is explicit and opt-in. An Offer is not activated as an always-applicable Commercial Policy and must retain its own immutable redemption/provenance evidence.
+- One compatible Offer discount may win over other discount candidates; an applicable policy fixed price remains the base price, while restrictions and platform hard limits remain vetoes. Offer discounts do not stack.
+- Published customer-facing codes are globally reserved permanently. A redemption reserves global capacity when its subscription operation is created; cancellation or failure before application releases capacity without deleting the historical attempt.
+- The Offer eligibility window controls new acceptance. A temporary discount that later reverts requires an explicit scheduled Phase 12 subscription operation rather than silent expiry mutation.
+- Published Offer revisions are immutable. Retirement is a reversible stop for new redemption; archive is terminal.
 
 ## BILLING-FLOW-001 — Invoice, settlement, credit, and refund ledgers
 
@@ -1477,6 +1485,9 @@ Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
+| 2026-08-27 | Let only reusable/live `DRAFT`, `ACTIVE`, or `PAUSED` policy references block Segment archive; terminal policy history keeps its frozen audience and provenance but releases the Segment | An accepted policy activation is historically independent of the later Segment lifecycle, while a policy that can still be activated or resumed must retain a valid selectable Segment | Segment lifecycle and blockers, policy Segment resolver/activation, retained audience provenance, admin actions and tests |
+| 2026-08-27 | Make Campaign the audience owner and Offers explicit opt-in immutable revisions with their own redemption evidence, never always-applicable active Policies | Offer acceptance, limits, codes, eligibility privacy, and commercial attribution require explicit provenance; representing an Offer as a Policy would silently affect ordinary subscription previews without selection | Campaign audience snapshots, Offer lifecycle/effects/codes, subscription preview/apply, redemption history, client/admin UI and analytics |
+| 2026-08-27 | Use one non-stacking selected Offer discount over other discount candidates, permanently reserve published codes, reserve redemption capacity at operation creation with pre-application release, and keep retirement reversible while archive is terminal | Deterministic pricing, race-safe limits, reusable codes, and operational pause/recovery must remain explainable without rewriting completed history | Offer validation/publication, pricing precedence, redemption concurrency/idempotency, subscription operations, audit and lifecycle UI |
 | 2026-08-27 | Retire direct admin subscription create, trial, and raw-override mutations; require signed reviewed operation evidence for subscriber-affecting admin changes, with internal registration-time FREE provisioning as the sole bootstrap exception | A privileged shortcut can bypass exact product/price/policy review, usage conflicts, concurrency checks, provenance, and history; trial creation must therefore return only as a first-class reviewed Phase 12 operation | Admin subscription API and Permissionizer nodes, Account workbench, registration provisioning, trial/lifecycle operations, audit and frontend flows |
 | 2026-08-27 | Separate commercial-policy approval from subscriber application and freeze each accepted audience/effect provenance | Activating a reusable rule is not consent to rewrite every current subscription; immutable audience snapshots plus explicit reviewed subscription operations preserve operator intent, concurrency safety, and historical terms | Commercial-policy lifecycle/activation, Account audiences, subscription preview/apply, policy explanations, future bulk execution and settlement |
 | 2026-08-27 | Bind reviewed cross-aggregate commercial writes to short-lived signed evidence and revalidate under one lock order | A browser-supplied count or stale preview version cannot prove which registry/catalogue state, actor, target, and result were reviewed; operation-bound evidence plus locked recomputation prevents substitution and TOCTOU writes without turning the token into authorization | Plan/AddOn/package/Price activation, availability and deletion, subscription changes, future policies/offers/bulk operations, audit and frontend confirmation flows |

@@ -3059,18 +3059,18 @@ Operators must request new code for each commercial exception or encode business
 - **Implemented and independently audited 2026-08-27:** immutable typed policy revisions/lifecycle, one-Account/explicit-set/Plan-revision targets, typed price/discount/quota/product effects, deterministic direct-over-broad and restriction-over-grant precedence, fine-grained bounded admin APIs, separate owner identity, signed activation review, immutable audiences, optimistic/concurrent lifecycle, history, and audit. Activation authorizes the reusable definition only and never mutates subscribers or settlement.
 - **Implemented and independently audited 2026-08-27:** active policy evaluation is part of the exact one-Account subscription preview/apply path. Accepted terms persist exact winning policy/effect provenance and expose privacy-separated admin/client explanations. Fixed recurring price, one non-stacking bounded discount, quota bonuses, blocks, and dependency-safe bounded AddOn/package grants are covered by backend and mounted frontend regressions.
 - Retained historical prices/products remain honest after later catalogue changes; signed review evidence is recomputed under locks; unknown internal errors and operator/provider provenance are not leaked to clients.
-- Segment targeting remains `MARKETING-001`; selected/filtered/scheduled job execution, free periods, renewal instructions, retry/progress/cancellation cutoff and lifecycle commands remain `PLAN-011` Phase 12 rather than hidden policy-activation side effects.
+- Safe Segment targeting is complete and independently audited. Campaign, Offer, and redemption control remain `MARKETING-001`; selected/filtered/scheduled job execution, free periods, renewal instructions, retry/progress/cancellation cutoff and lifecycle commands remain `PLAN-011` Phase 12 rather than hidden policy-activation side effects.
 
 ---
 
-### MARKETING-001 — HiveApp has no safe Segment, Campaign, Offer, or redemption model
+### MARKETING-001 — Campaign, Offer, and redemption control remain missing after safe Segments
 
-**Status:** `CONFIRMED — DESIGN DECIDED 2026-08-26`
+**Status:** `PARTIAL — SAFE SEGMENTS IMPLEMENTED AND AUDITED 2026-08-27`
 
 **Evidence**
 
-- No production backend package/entity/controller exists for commercial Segments, Campaigns, Offers, offer codes, eligibility, audience snapshots, redemption, or campaign performance.
-- The frontend has no marketing routes or client offer surface.
+- Safe Segment backend/admin UI now exists with explicit Account or closed typed-criteria audiences, bounded preview/count, immutable signed activation/frozen Accounts, lifecycle/revisions/compare/history/ownership, privacy-separated identity access, and Policy target integration.
+- No production backend aggregate/API exists yet for Campaigns, Offers, offer codes, eligibility/redemption records, Offer provenance, or campaign performance. The frontend has no Campaign/Offer routes or client Offer surface.
 - Current catalogue selection can only choose normal active products at their configured price; there is no typed fixed/percentage adjustment, free period, bonus capacity, bundle, redemption limit, or targeted direct offer.
 
 **Risk**
@@ -3079,10 +3079,31 @@ Business teams cannot run controlled campaigns without developer changes or unsa
 
 **Required fix direction**
 
-- Implement explicit/typed Account Segments with preview and immutable Campaign audience snapshots; never allow SQL/script predicates.
-- Implement Campaign and Offer revision lifecycles, typed compatible effects, windows, overall/per-Account limits, optional normalized unique codes, eligibility preview, pause/end/archive, and history.
+- Reuse exact active Segment activations for Campaign audiences; never re-evaluate a scheduled targeted audience or accept SQL/script predicates.
+- Implement Campaign-owned audiences and Campaign/Offer revision lifecycles, typed compatible effects, windows, overall/per-Account limits, optional permanently reserved normalized codes, eligibility preview, pause/end/retire/archive, and history.
+- Keep Offers explicit and opt-in with immutable redemption provenance; never represent them as always-applicable active Policies. Preserve deterministic non-stacking discount precedence and hard restriction/safety vetoes.
 - Revalidate redemption under the Account lock, make retries idempotent, and materialize accepted effects through the normal subscription-operation/snapshot/billing path.
 - Add operational admin tables/detail/builders/preview/execution analytics and a client eligible-offer/detail/preview/accept/history surface protected by Account authority.
+
+---
+
+### UI-001 — Shared section tabs lack complete keyboard and panel semantics
+
+**Status:** `CONFIRMED — DEFERRED TO PHASE 15 CONSISTENCY PASS`
+
+**Evidence**
+
+- `frontend/src/components/patterns/section-tabs.tsx` renders tab roles but does not provide roving focus with Arrow/Home/End keys or stable `aria-controls`/`tabpanel` associations.
+- The pattern is reused across operational detail pages, so per-page fixes would duplicate behavior and remain inconsistent in RTL.
+
+**Risk**
+
+Keyboard and assistive-technology users cannot navigate or understand the tab/panel relationship consistently, and later pages may copy the incomplete contract.
+
+**Required fix direction**
+
+- Upgrade the shared pattern to one tabbable active tab, Arrow/Home/End navigation with RTL-aware direction, stable tab/panel IDs and `aria-controls`, and an associated `tabpanel` contract.
+- Migrate every consumer through the reusable API and add focused keyboard, RTL, and accessibility tests during the Phase 15 consistency pass.
 
 ---
 

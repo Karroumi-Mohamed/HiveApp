@@ -87,13 +87,14 @@ Price is not a mutable field on a published product definition.
 
 Commercial policies are not permissions and are not arbitrary scripts. They are typed, auditable operations over a bounded target.
 
-Target kinds are deliberately closed rather than user-authored expressions. Through Phase 10, the delivered target kinds are:
+Target kinds are deliberately closed rather than user-authored expressions. Through Phase 11.1, the delivered target kinds are:
 
 - one Account;
 - an explicit set of Accounts;
-- subscribers of a selected Plan revision.
+- subscribers of a selected Plan revision;
+- an exact active Segment revision/activation with an immutable Account audience.
 
-A reusable typed Segment is the Phase 11 extension of this same target contract; it is not represented as delivered by Phase 10.
+A reusable typed Segment is the Phase 11.1 extension of this same target contract. It is implemented and independently audited; Campaign, Offer, and redemption behavior remains Phase 11.2.
 
 Delivered Phase 10 effects are:
 
@@ -123,13 +124,15 @@ V1 deliberately keeps policy execution narrow and explainable:
 
 Segments use typed fields only; they never accept SQL or expression code. V1 supports explicit Accounts and safe criteria based on commercial data such as current Plan, subscription state, currency/cycle, Account creation date, and current product holdings.
 
+Safe Segments are implemented and independently audited as of 2026-08-27. Their signed activation freezes exact Account identities and provenance. An archived Segment cannot be selected for new work. `DRAFT`, `ACTIVE`, and `PAUSED` Commercial Policies that still reference it block archive; `ENDED` and `ARCHIVED` Policy history does not, because accepted Policy activations retain their own frozen audience and source Segment activation.
+
 Campaign lifecycle:
 
 ```text
 DRAFT -> SCHEDULED -> ACTIVE -> PAUSED -> ACTIVE -> ENDED -> ARCHIVED
 ```
 
-An Offer belongs to a Campaign revision and contains one or more typed commercial effects. It has its own eligibility window, redemption limits, per-Account limit, optional code, and acceptance rules.
+An Offer belongs to a Campaign revision and contains one or more typed commercial effects. The Campaign owns the audience and every Offer inherits it; a public Campaign does not snapshot the entire platform. An Offer has its own eligibility window, redemption limits, per-Account limit, optional code, and acceptance rules.
 
 - A public offer appears only to eligible Accounts.
 - A targeted offer is visible only to its snapshotted audience.
@@ -138,6 +141,12 @@ An Offer belongs to a Campaign revision and contains one or more typed commercia
 - Retries are idempotent. One Account cannot redeem beyond the configured limit.
 - Pausing/ending a campaign stops new redemption; it never reverses completed subscription snapshots.
 - An operator may apply an offer to selected Accounts only through the same previewed subscription-operation engine, with reason and per-Account results.
+- Offer selection is explicit and opt-in. An Offer never becomes an always-applicable Commercial Policy and carries its own immutable redemption/provenance evidence.
+- One compatible Offer discount may win over other discount candidates without stacking. An applicable policy fixed price remains the base; restrictions and platform hard limits remain vetoes.
+- Once published, a customer-facing code is globally reserved permanently.
+- Global capacity is reserved when the subscription operation is created. Cancellation or failure before application releases capacity while retaining the historical redemption attempt.
+- The Offer window controls new acceptance. A later discount reversion requires an explicit Phase 12 scheduled operation; expiry never silently rewrites accepted terms.
+- Published Offer revisions are immutable. Retirement reversibly stops new redemption; archive is terminal.
 
 ## 7. Subscription operations
 
@@ -238,4 +247,4 @@ Each slice requires backend and frontend real-life workflow audits before the ne
 
 Existing Accounts retain the exact accepted Plan/AddOn/package revision and Price-book-entry identities, amounts, currency/cycle, and package quantity even if those catalogue items later become paused, inactive, direct-only, or otherwise unavailable for new selection. A retained item remains visible and removable, but cannot be newly selected or increased unless it is currently eligible.
 
-Typed Segments/Campaigns/Offers remain Phase 11; reviewed trial/lifecycle commands, free periods, renewal instructions, selected/filtered/scheduled execution and job retry/progress/cutoff handling remain Phase 12; settlement ledgers remain Phase 13; durable analytics remain Phase 14. None is represented as complete here.
+Typed Segments are complete and independently audited in Phase 11.1. Campaigns, Offers, and redemption remain Phase 11.2; reviewed trial/lifecycle commands, free periods, renewal instructions, selected/filtered/scheduled execution and job retry/progress/cutoff handling remain Phase 12; settlement ledgers remain Phase 13; durable analytics remain Phase 14. None of those remaining capabilities is represented as complete here.
