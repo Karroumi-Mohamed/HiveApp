@@ -49,13 +49,14 @@ export function AdminPlanCreatePage() {
   const [sourceSearch, setSourceSearch] = useState("");
 
   const canListPlans = session.can(adminPermissions.plansList);
+  const canChoosePlans = session.can(adminPermissions.plansChoose);
   const plans = useQuery({
     queryKey: [...adminCommercialKeys.plans.list(), "chooser", sourceSearch],
     queryFn: () => adminApi.planChoices({ search: sourceSearch || undefined, size: 50 }),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansChoose),
   });
   const [sourceId, setSourceId] = useState(params.get("from") ?? "");
-  const visiblePlans = canListPlans ? (plans.data?.content ?? []) : [];
+  const visiblePlans = canChoosePlans ? (plans.data?.content ?? []) : [];
   const sourceQuery = useQuery({
     queryKey: adminCommercialKeys.plans.detail(sourceId),
     queryFn: () => adminApi.plan(sourceId),
@@ -279,8 +280,8 @@ export function AdminPlanCreatePage() {
               Seuls les 50 premiers résultats sont affichés. Affinez la recherche pour retrouver un forfait précis.
             </p>
           ) : null}
-          {canListPlans && plans.isLoading ? <LoadingState rows={2} /> : null}
-          {canListPlans && plans.isError ? <ErrorState retry={() => void plans.refetch()} /> : null}
+          {canChoosePlans && plans.isLoading ? <LoadingState rows={2} /> : null}
+          {canChoosePlans && plans.isError ? <ErrorState retry={() => void plans.refetch()} /> : null}
           {!canUseSelectedMode ? (
             <p className="text-sm text-destructive">
               {duplicatesExisting

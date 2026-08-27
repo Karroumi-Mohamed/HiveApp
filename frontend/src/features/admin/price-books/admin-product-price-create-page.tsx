@@ -13,6 +13,7 @@ import { EmptyState, ErrorState, LoadingState, PermissionState } from "@/compone
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { commercialProductPermission } from "@/features/admin/commercial/commercial-permission-rules";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
@@ -46,7 +47,9 @@ const ownerStatus: Record<string, string> = {
   ARCHIVED: "Archivé",
 };
 
-function productOption(product: CommercialChooserItem): ProductOption {
+function productOption(
+  product: Pick<CommercialChooserItem, "id" | "name" | "revisionNumber" | "status">,
+): ProductOption {
   return {
     id: product.id,
     name: product.name,
@@ -86,17 +89,17 @@ export function AdminProductPriceCreatePage() {
   const plans = useQuery({
     queryKey: ["admin", "commercial", "price-owner-plans", ownerSearch],
     queryFn: () => adminApi.planChoices({ search: ownerSearch || undefined, size: 50 }),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, ownerType === "PLAN"),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansChoose, ownerType === "PLAN"),
   });
   const addOns = useQuery({
     queryKey: ["admin", "commercial", "price-owner-add-ons", ownerSearch],
     queryFn: () => adminApi.addOnChoices({ search: ownerSearch || undefined, size: 50 }),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList, ownerType === "ADD_ON"),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsChoose, ownerType === "ADD_ON"),
   });
   const quotaPackages = useQuery({
     queryKey: ["admin", "commercial", "price-owner-quotas", ownerSearch],
     queryFn: () => adminApi.quotaPackageChoices({ search: ownerSearch || undefined, size: 50 }),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesList, ownerType === "QUOTA_PACKAGE"),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesChoose, ownerType === "QUOTA_PACKAGE"),
   });
   const selectedOwner = useQuery<CommercialChooserItem[]>({
     queryKey: ["admin", "commercial", "price-owner-choice", ownerType, initialOwnerId],
@@ -106,28 +109,20 @@ export function AdminProductPriceCreatePage() {
         : ownerType === "ADD_ON"
           ? adminApi.selectedAddOnChoices([initialOwnerId ?? ""])
           : adminApi.selectedQuotaPackageChoices([initialOwnerId ?? ""]),
-    enabled: Boolean(initialOwnerId && ownerId === initialOwnerId),
+    enabled: Boolean(
+      initialOwnerId && ownerId === initialOwnerId && session.can(commercialProductPermission(ownerType, "resolve")),
+    ),
   });
 
-  const canReadOwner =
-    ownerType === "PLAN"
-      ? session.can(adminPermissions.plansList)
-      : ownerType === "ADD_ON"
-        ? session.can(adminPermissions.addOnsList)
-        : session.can(adminPermissions.quotaPackagesList);
+  const canChooseOwner = session.can(commercialProductPermission(ownerType, "choose"));
+  const canResolveInitialOwner = Boolean(
+    initialOwnerId &&
+      ownerId === initialOwnerId &&
+      (session.can(commercialProductPermission(ownerType, "resolve")) ||
+        session.can(commercialProductPermission(ownerType, "read"))),
+  );
+  const canSelectOwner = canChooseOwner || canResolveInitialOwner;
   const ownerQuery = ownerType === "PLAN" ? plans : ownerType === "ADD_ON" ? addOns : quotaPackages;
-  const options = useMemo(() => {
-    const page =
-      ownerType === "PLAN"
-        ? (plans.data?.content ?? [])
-        : ownerType === "ADD_ON"
-          ? (addOns.data?.content ?? [])
-          : (quotaPackages.data?.content ?? []);
-    return [
-      ...new Map([...page, ...(selectedOwner.data ?? [])].map((item) => [item.id, productOption(item)])).values(),
-    ];
-  }, [addOns.data, ownerType, plans.data, quotaPackages.data, selectedOwner.data]);
-  const owner = options.find((option) => option.id === ownerId);
   const ownerDetails = useQuery<Plan | AddOn | QuotaPackage>({
     queryKey: ["admin", "commercial", "price-owner", ownerType, ownerId],
     queryFn: () =>
@@ -136,14 +131,45 @@ export function AdminProductPriceCreatePage() {
         : ownerType === "ADD_ON"
           ? adminApi.addOn(ownerId)
           : adminApi.quotaPackage(ownerId),
-    enabled: Boolean(ownerId),
+    enabled: Boolean(ownerId && session.can(commercialProductPermission(ownerType, "read"))),
   });
+  const options = useMemo(() => {
+    const page =
+      ownerType === "PLAN"
+        ? (plans.data?.content ?? [])
+        : ownerType === "ADD_ON"
+          ? (addOns.data?.content ?? [])
+          : (quotaPackages.data?.content ?? []);
+    const resolved = [...page, ...(selectedOwner.data ?? [])].map(productOption);
+    if (ownerDetails.data) resolved.push(productOption(ownerDetails.data));
+    return [...new Map(resolved.map((item) => [item.id, item])).values()];
+  }, [addOns.data, ownerDetails.data, ownerType, plans.data, quotaPackages.data, selectedOwner.data]);
+  const owner = options.find((option) => option.id === ownerId);
   const prefilledOwner = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!initialOwnerId || ownerId !== initialOwnerId || owner || ownerQuery.isLoading) return;
+    if (
+      !initialOwnerId ||
+      ownerId !== initialOwnerId ||
+      owner ||
+      ownerQuery.isLoading ||
+      selectedOwner.isLoading ||
+      ownerDetails.isLoading ||
+      (!ownerQuery.isFetched && !selectedOwner.isFetched && !ownerDetails.isFetched)
+    )
+      return;
     setOwnerId("");
-  }, [initialOwnerId, owner, ownerId, ownerQuery.isLoading]);
+  }, [
+    initialOwnerId,
+    owner,
+    ownerDetails.isFetched,
+    ownerDetails.isLoading,
+    ownerId,
+    ownerQuery.isFetched,
+    ownerQuery.isLoading,
+    selectedOwner.isFetched,
+    selectedOwner.isLoading,
+  ]);
   useEffect(() => {
     if (!ownerDetails.data || prefilledOwner.current === ownerDetails.data.id) return;
     prefilledOwner.current = ownerDetails.data.id;
@@ -245,37 +271,47 @@ export function AdminProductPriceCreatePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem disabled={!session.can(adminPermissions.plansList)} value="PLAN">
+                  <SelectItem disabled={!session.can(adminPermissions.plansChoose)} value="PLAN">
                     Forfait
                   </SelectItem>
-                  <SelectItem disabled={!session.can(adminPermissions.addOnsList)} value="ADD_ON">
+                  <SelectItem disabled={!session.can(adminPermissions.addOnsChoose)} value="ADD_ON">
                     Add-on
                   </SelectItem>
-                  <SelectItem disabled={!session.can(adminPermissions.quotaPackagesList)} value="QUOTA_PACKAGE">
+                  <SelectItem disabled={!session.can(adminPermissions.quotaPackagesChoose)} value="QUOTA_PACKAGE">
                     Pack de capacité
                   </SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            {!canReadOwner ? (
-              <PermissionState description="La création nécessite aussi l’accès à la liste du type de produit choisi." />
-            ) : ownerQuery.isLoading ? (
+            {!canSelectOwner ? (
+              <PermissionState description="La création nécessite aussi l’accès au sélecteur du type de produit choisi." />
+            ) : ownerQuery.isLoading || selectedOwner.isLoading || ownerDetails.isLoading ? (
               <LoadingState rows={3} />
-            ) : ownerQuery.isError ? (
-              <ErrorState retry={() => void ownerQuery.refetch()} />
+            ) : ownerQuery.isError || selectedOwner.isError || ownerDetails.isError ? (
+              <ErrorState
+                retry={() => {
+                  if (canChooseOwner) void ownerQuery.refetch();
+                  if (selectedOwner.isError) void selectedOwner.refetch();
+                  if (ownerDetails.isError) void ownerDetails.refetch();
+                }}
+              />
             ) : !options.length ? (
               <EmptyState title={`Aucune révision de ${productPriceOwner[ownerType].toLocaleLowerCase("fr")}`} />
             ) : (
               <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="price-owner-search">
-                  Rechercher
-                </label>
-                <Input
-                  id="price-owner-search"
-                  onChange={(event) => setOwnerSearch(event.target.value)}
-                  placeholder="Nom du produit…"
-                  value={ownerSearch}
-                />
+                {canChooseOwner ? (
+                  <>
+                    <label className="text-sm font-medium" htmlFor="price-owner-search">
+                      Rechercher
+                    </label>
+                    <Input
+                      id="price-owner-search"
+                      onChange={(event) => setOwnerSearch(event.target.value)}
+                      placeholder="Nom du produit…"
+                      value={ownerSearch}
+                    />
+                  </>
+                ) : null}
                 <label className="text-sm font-medium" htmlFor="price-owner-id">
                   Révision exacte
                 </label>

@@ -6,7 +6,7 @@ import { adminApi } from "@/api/admin-api";
 import type { QuotaPackage } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
-import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
+import { ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -70,69 +70,73 @@ export function QuotaRevisionPanel({ product }: { product: QuotaPackage }) {
       });
       navigate(`/admin/quota-packages/${successor.id}/revisions`);
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Révision impossible"),
   });
   const candidates = (revisions.data?.content ?? []).filter((candidate) => candidate.id !== product.id);
+  const canRevise = session.can(adminPermissions.quotaPackagesRevise);
+  const canCompare = session.can(adminPermissions.quotaPackagesCompare);
+  if (!canRevise && !canCompare) return <PermissionState />;
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <section className="rounded-xl border bg-card p-5">
-        <h2 className="text-sm font-semibold">Créer la prochaine révision</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Le pack actuel reste inchangé. La copie commence en brouillon et conserve ses tarifs comme brouillons.
-        </p>
-        <div className="mt-5 space-y-2">
-          <Label htmlFor="quota-revision-reason">Motif</Label>
-          <Textarea
-            id="quota-revision-reason"
-            onChange={(event) => setReason(event.target.value)}
-            placeholder="Pourquoi cette nouvelle révision est-elle nécessaire ?"
-            value={reason}
-          />
-        </div>
-        <Button
-          className="mt-4"
-          disabled={!session.can(adminPermissions.quotaPackagesRevise) || !reason.trim() || revise.isPending}
-          onClick={() => revise.mutate()}
-        >
-          Créer R{product.revisionNumber + 1}
-        </Button>
-      </section>
-      <section className="rounded-xl border bg-card p-5">
-        <h2 className="text-sm font-semibold">Comparer les révisions</h2>
-        <div className="mt-5 space-y-2">
-          <Label>Révision à comparer</Label>
-          <Select onValueChange={setCandidateId} value={candidateId}>
-            <SelectTrigger aria-label="Révision à comparer">
-              <SelectValue placeholder="Choisir une révision" />
-            </SelectTrigger>
-            <SelectContent>
-              {candidates.map((candidate) => (
-                <SelectItem key={candidate.id} value={candidate.id}>
-                  {candidate.name} · R{candidate.revisionNumber}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        {revisions.isError ? <ErrorState retry={() => void revisions.refetch()} /> : null}
-        {comparison.isLoading ? <LoadingState rows={2} /> : null}
-        {comparison.isError ? <ErrorState retry={() => void comparison.refetch()} /> : null}
-        {comparison.data ? (
-          <div className="mt-5 border-t pt-4 text-sm">
-            <p className="font-medium">
-              {comparison.data.directSuccessor ? "Révision suivante directe" : "Révisions de la même lignée"}
-            </p>
-            {comparison.data.changedFields.length ? (
-              <ul className="mt-3 list-disc space-y-1 ps-5 text-muted-foreground">
-                {comparison.data.changedFields.map((field) => (
-                  <li key={field}>{fieldLabel[field] ?? "Configuration commerciale"}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-3 text-muted-foreground">Aucune différence de configuration.</p>
-            )}
+      {canRevise ? (
+        <section className="rounded-xl border bg-card p-5">
+          <h2 className="text-sm font-semibold">Créer la prochaine révision</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Le pack actuel reste inchangé. La copie commence en brouillon et conserve ses tarifs comme brouillons.
+          </p>
+          <div className="mt-5 space-y-2">
+            <Label htmlFor="quota-revision-reason">Motif</Label>
+            <Textarea
+              id="quota-revision-reason"
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Pourquoi cette nouvelle révision est-elle nécessaire ?"
+              value={reason}
+            />
           </div>
-        ) : null}
-      </section>
+          <Button className="mt-4" disabled={!reason.trim() || revise.isPending} onClick={() => revise.mutate()}>
+            Créer R{product.revisionNumber + 1}
+          </Button>
+        </section>
+      ) : null}
+      {canCompare ? (
+        <section className="rounded-xl border bg-card p-5">
+          <h2 className="text-sm font-semibold">Comparer les révisions</h2>
+          <div className="mt-5 space-y-2">
+            <Label>Révision à comparer</Label>
+            <Select onValueChange={setCandidateId} value={candidateId}>
+              <SelectTrigger aria-label="Révision à comparer">
+                <SelectValue placeholder="Choisir une révision" />
+              </SelectTrigger>
+              <SelectContent>
+                {candidates.map((candidate) => (
+                  <SelectItem key={candidate.id} value={candidate.id}>
+                    {candidate.name} · R{candidate.revisionNumber}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {revisions.isError ? <ErrorState retry={() => void revisions.refetch()} /> : null}
+          {comparison.isLoading ? <LoadingState rows={2} /> : null}
+          {comparison.isError ? <ErrorState retry={() => void comparison.refetch()} /> : null}
+          {comparison.data ? (
+            <div className="mt-5 border-t pt-4 text-sm">
+              <p className="font-medium">
+                {comparison.data.directSuccessor ? "Révision suivante directe" : "Révisions de la même lignée"}
+              </p>
+              {comparison.data.changedFields.length ? (
+                <ul className="mt-3 list-disc space-y-1 ps-5 text-muted-foreground">
+                  {comparison.data.changedFields.map((field) => (
+                    <li key={field}>{fieldLabel[field] ?? "Configuration commerciale"}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-muted-foreground">Aucune différence de configuration.</p>
+              )}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -144,6 +148,7 @@ export function QuotaHistoryPanel({ productId }: { productId: string }) {
     queryFn: () => adminApi.quotaPackageHistory(productId, 0, 50),
     enabled: session.can(adminPermissions.quotaPackagesHistory),
   });
+  if (!session.can(adminPermissions.quotaPackagesHistory)) return <PermissionState />;
   if (history.isLoading) return <LoadingState rows={4} />;
   if (history.isError) return <ErrorState retry={() => void history.refetch()} />;
   if (!history.data?.content.length)

@@ -9,7 +9,7 @@ import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
 import { QuotaEditor } from "@/components/patterns/quota-editor";
-import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
+import { EmptyState, ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { SectionTabs } from "@/components/patterns/section-tabs";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
@@ -90,12 +90,12 @@ export function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.Reac
   const planOptions = useQuery({
     queryKey: ["admin", "commercial", "plan-choices", planSearch],
     queryFn: () => adminApi.planChoices({ search: planSearch || undefined, size: 50 }),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, open),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansChoose, open),
   });
   const addOnOptions = useQuery({
     queryKey: ["admin", "commercial", "add-on-choices", addOnSearch],
     queryFn: () => adminApi.addOnChoices({ search: addOnSearch || undefined, size: 50 }),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList, open),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsChoose, open),
   });
   const [name, setName] = useState(item?.name ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
@@ -106,15 +106,22 @@ export function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.Reac
   const [blocked, setBlocked] = useState<string[]>(item?.blockedPlanCodes ?? []);
   const [dependencies, setDependencies] = useState<string[]>(item?.dependencyCodes ?? []);
   const [exclusions, setExclusions] = useState<string[]>(item?.exclusionCodes ?? []);
+  const canChoosePlans = session.can(adminPermissions.plansChoose);
+  const canResolvePlanCodes = session.can(adminPermissions.plansResolveChoiceCodes);
+  const canChooseAddOns = session.can(adminPermissions.addOnsChoose);
+  const canResolveAddOnCodes = session.can(adminPermissions.addOnsResolveChoiceCodes);
   const selectedPlans = useQuery({
     queryKey: ["admin", "commercial", "plan-choices", "selected", ...allowed, ...blocked],
     queryFn: () => adminApi.selectedPlanCodeChoices([...new Set([...allowed, ...blocked])]),
-    enabled: open && Boolean(allowed.length || blocked.length),
+    enabled: open && session.can(adminPermissions.plansResolveChoiceCodes) && Boolean(allowed.length || blocked.length),
   });
   const selectedAddOns = useQuery({
     queryKey: ["admin", "commercial", "add-on-choices", "selected", ...dependencies, ...exclusions],
     queryFn: () => adminApi.selectedAddOnCodeChoices([...new Set([...dependencies, ...exclusions])]),
-    enabled: open && Boolean(dependencies.length || exclusions.length),
+    enabled:
+      open &&
+      session.can(adminPermissions.addOnsResolveChoiceCodes) &&
+      Boolean(dependencies.length || exclusions.length),
   });
   const planChoices = mergeCommercialChoices(planOptions.data?.content ?? [], selectedPlans.data ?? []);
   const addOnChoices = mergeCommercialChoices(addOnOptions.data?.content ?? [], selectedAddOns.data ?? []);
@@ -221,6 +228,13 @@ export function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.Reac
                 void planOptions.refetch();
                 void selectedPlans.refetch();
               }}
+              unavailable={
+                !canChoosePlans
+                  ? "Votre rôle ne permet pas de rechercher des forfaits."
+                  : (allowed.length || blocked.length) && !canResolvePlanCodes
+                    ? "Votre rôle ne permet pas d’afficher les forfaits déjà enregistrés."
+                    : null
+              }
             />
           </div>
           <ChoiceList
@@ -265,6 +279,13 @@ export function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.Reac
                 void addOnOptions.refetch();
                 void selectedAddOns.refetch();
               }}
+              unavailable={
+                !canChooseAddOns
+                  ? "Votre rôle ne permet pas de rechercher des add-ons."
+                  : (dependencies.length || exclusions.length) && !canResolveAddOnCodes
+                    ? "Votre rôle ne permet pas d’afficher les relations déjà enregistrées."
+                    : null
+              }
             />
           </div>
           <ChoiceList
@@ -436,7 +457,10 @@ export function AdminAddOnsPage() {
         ...(detail.data?.blockedPlanCodes ?? []),
       ]),
     enabled: Boolean(
-      addOnId && detail.data && (detail.data.allowedPlanCodes.length || detail.data.blockedPlanCodes.length),
+      session.can(adminPermissions.plansResolveChoiceCodes) &&
+        addOnId &&
+        detail.data &&
+        (detail.data.allowedPlanCodes.length || detail.data.blockedPlanCodes.length),
     ),
   });
   const referencedAddOns = useQuery({
@@ -455,7 +479,10 @@ export function AdminAddOnsPage() {
         ...(detail.data?.exclusionCodes ?? []),
       ]),
     enabled: Boolean(
-      addOnId && detail.data && (detail.data.dependencyCodes.length || detail.data.exclusionCodes.length),
+      session.can(adminPermissions.addOnsResolveChoiceCodes) &&
+        addOnId &&
+        detail.data &&
+        (detail.data.dependencyCodes.length || detail.data.exclusionCodes.length),
     ),
   });
   const registry = useQuery({
@@ -464,10 +491,18 @@ export function AdminAddOnsPage() {
     enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog, Boolean(addOnId)),
   });
   const selected = detail.data;
+  const inaccessibleTab =
+    (tab === "prices" && !session.can(adminPermissions.priceBooksList)) ||
+    (tab === "availability" && !session.can(adminPermissions.commercialPreviewAddOnVisibility)) ||
+    (tab === "history" && !session.can(adminPermissions.commercialReadHistory));
   const hasAction = (action: CommercialProductAction) => operations.data?.availableActions.includes(action) ?? false;
   const readableRegistry = canReadRegistryCatalog ? (registry.data ?? []) : [];
   const planNames = new Map((referencedPlans.data ?? []).map((plan) => [plan.code, plan.name]));
   const addOnNames = new Map((referencedAddOns.data ?? []).map((item) => [item.code, item.name]));
+  const planName = (code: string) =>
+    session.can(adminPermissions.plansResolveChoiceCodes) ? (planNames.get(code) ?? "Forfait introuvable") : "Masqué";
+  const addOnName = (code: string) =>
+    session.can(adminPermissions.addOnsResolveChoiceCodes) ? (addOnNames.get(code) ?? "Add-on introuvable") : "Masqué";
   const featureNames = new Map(
     readableRegistry.flatMap((module) => module.features).map((feature) => [feature.code, feature.displayName]),
   );
@@ -583,9 +618,15 @@ export function AdminAddOnsPage() {
           tabs={[
             { label: "Synthèse", to: `/admin/add-ons/${selected.id}`, end: true },
             { label: "Composition", to: `/admin/add-ons/${selected.id}/composition`, count: selected.features.length },
-            { label: "Tarifs", to: `/admin/add-ons/${selected.id}/prices` },
-            { label: "Disponibilité", to: `/admin/add-ons/${selected.id}/availability` },
-            { label: "Historique", to: `/admin/add-ons/${selected.id}/history` },
+            ...(session.can(adminPermissions.priceBooksList)
+              ? [{ label: "Tarifs", to: `/admin/add-ons/${selected.id}/prices` }]
+              : []),
+            ...(session.can(adminPermissions.commercialPreviewAddOnVisibility)
+              ? [{ label: "Disponibilité", to: `/admin/add-ons/${selected.id}/availability` }]
+              : []),
+            ...(session.can(adminPermissions.commercialReadHistory)
+              ? [{ label: "Historique", to: `/admin/add-ons/${selected.id}/history` }]
+              : []),
           ]}
         />
         {operations.isError ? (
@@ -596,6 +637,7 @@ export function AdminAddOnsPage() {
             </button>
           </p>
         ) : null}
+        {inaccessibleTab ? <PermissionState /> : null}
         {tab === "overview" ? (
           <div className="grid gap-5 lg:grid-cols-2">
             <section className="rounded-xl border bg-card p-5">
@@ -611,28 +653,22 @@ export function AdminAddOnsPage() {
             </section>
             <section className="rounded-xl border bg-card p-5">
               <h2 className="text-sm font-semibold">Compatibilité</h2>
-              <ReferenceSet
-                label="Forfaits autorisés"
-                values={selected.allowedPlanCodes.map((code) => planNames.get(code) ?? "Forfait indisponible")}
-              />
-              <ReferenceSet
-                label="Forfaits bloqués"
-                values={selected.blockedPlanCodes.map((code) => planNames.get(code) ?? "Forfait indisponible")}
-              />
-              <ReferenceSet
-                label="Dépendances"
-                values={selected.dependencyCodes.map((code) => addOnNames.get(code) ?? "Add-on indisponible")}
-              />
-              <ReferenceSet
-                label="Exclusions"
-                values={selected.exclusionCodes.map((code) => addOnNames.get(code) ?? "Add-on indisponible")}
-              />
+              <ReferenceSet label="Forfaits autorisés" values={selected.allowedPlanCodes.map(planName)} />
+              <ReferenceSet label="Forfaits bloqués" values={selected.blockedPlanCodes.map(planName)} />
+              <ReferenceSet label="Dépendances" values={selected.dependencyCodes.map(addOnName)} />
+              <ReferenceSet label="Exclusions" values={selected.exclusionCodes.map(addOnName)} />
             </section>
           </div>
         ) : null}
-        {tab === "prices" ? <ProductPricePanel ownerId={selected.id} ownerType="ADD_ON" /> : null}
-        {tab === "availability" ? <CommercialAvailabilityPanel kind="add-on" product={selected} /> : null}
-        {tab === "history" ? <CommercialAvailabilityHistory productId={selected.id} /> : null}
+        {tab === "prices" && session.can(adminPermissions.priceBooksList) ? (
+          <ProductPricePanel ownerId={selected.id} ownerType="ADD_ON" />
+        ) : null}
+        {tab === "availability" && session.can(adminPermissions.commercialPreviewAddOnVisibility) ? (
+          <CommercialAvailabilityPanel kind="add-on" product={selected} />
+        ) : null}
+        {tab === "history" && session.can(adminPermissions.commercialReadHistory) ? (
+          <CommercialAvailabilityHistory productId={selected.id} />
+        ) : null}
         {tab === "composition" ? (
           <section className="overflow-hidden rounded-xl border bg-card">
             <div className="flex items-center justify-between border-b p-4">

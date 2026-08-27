@@ -8,7 +8,7 @@ import type { BillingCycle, CommercialProductAction, ExactDecimal, QuotaPackage 
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
-import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
+import { ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { SectionTabs } from "@/components/patterns/section-tabs";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
@@ -57,12 +57,12 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
   const planOptions = useQuery({
     queryKey: ["admin", "commercial", "quota-plan-choices", planSearch],
     queryFn: () => adminApi.planChoices({ search: planSearch || undefined, size: 50 }),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, open),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansChoose, open),
   });
   const addOnOptions = useQuery({
     queryKey: ["admin", "commercial", "quota-add-on-choices", addOnSearch],
     queryFn: () => adminApi.addOnChoices({ search: addOnSearch || undefined, size: 50 }),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList, open),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsChoose, open),
   });
   const registry = useQuery({
     queryKey: adminCommercialKeys.registry.featureCatalog("PLAN_ASSIGNABLE"),
@@ -81,15 +81,19 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
   const [maximum, setMaximum] = useState(String(item?.maximumQuantity ?? 1));
   const [plans, setPlans] = useState<string[]>(item?.allowedPlanCodes ?? []);
   const [addons, setAddons] = useState<string[]>(item?.allowedAddOnCodes ?? []);
+  const canChoosePlans = session.can(adminPermissions.plansChoose);
+  const canResolvePlanCodes = session.can(adminPermissions.plansResolveChoiceCodes);
+  const canChooseAddOns = session.can(adminPermissions.addOnsChoose);
+  const canResolveAddOnCodes = session.can(adminPermissions.addOnsResolveChoiceCodes);
   const selectedPlans = useQuery({
     queryKey: ["admin", "commercial", "quota-plan-choices", "selected", ...plans],
     queryFn: () => adminApi.selectedPlanCodeChoices(plans),
-    enabled: open && Boolean(plans.length),
+    enabled: open && session.can(adminPermissions.plansResolveChoiceCodes) && Boolean(plans.length),
   });
   const selectedAddOns = useQuery({
     queryKey: ["admin", "commercial", "quota-add-on-choices", "selected", ...addons],
     queryFn: () => adminApi.selectedAddOnCodeChoices(addons),
-    enabled: open && Boolean(addons.length),
+    enabled: open && session.can(adminPermissions.addOnsResolveChoiceCodes) && Boolean(addons.length),
   });
   const planChoices = mergeCommercialChoices(planOptions.data?.content ?? [], selectedPlans.data ?? []);
   const addOnChoices = mergeCommercialChoices(addOnOptions.data?.content ?? [], selectedAddOns.data ?? []);
@@ -235,6 +239,13 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
                 void planOptions.refetch();
                 void selectedPlans.refetch();
               }}
+              unavailable={
+                !canChoosePlans
+                  ? "Votre rôle ne permet pas de rechercher des forfaits."
+                  : plans.length && !canResolvePlanCodes
+                    ? "Votre rôle ne permet pas d’afficher les forfaits déjà enregistrés."
+                    : null
+              }
             />
           </div>
           <ChoiceList
@@ -266,6 +277,13 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
                 void addOnOptions.refetch();
                 void selectedAddOns.refetch();
               }}
+              unavailable={
+                !canChooseAddOns
+                  ? "Votre rôle ne permet pas de rechercher des add-ons."
+                  : addons.length && !canResolveAddOnCodes
+                    ? "Votre rôle ne permet pas d’afficher les add-ons déjà enregistrés."
+                    : null
+              }
             />
           </div>
           <ChoiceList
@@ -316,6 +334,16 @@ export function AdminQuotaPackagesPage() {
     enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog),
   });
   const selected = detail.data;
+  const inaccessibleTab =
+    (tab === "prices" && !session.can(adminPermissions.priceBooksList)) ||
+    (tab === "availability" && !session.can(adminPermissions.commercialPreviewQuotaVisibility)) ||
+    (tab === "revisions" &&
+      !session.can(adminPermissions.quotaPackagesCompare) &&
+      !session.can(adminPermissions.quotaPackagesRevise)) ||
+    (tab === "history" &&
+      !session.can(adminPermissions.quotaPackagesHistory) &&
+      !session.can(adminPermissions.commercialReadHistory)) ||
+    (tab === "lifecycle" && !session.can(adminPermissions.quotaPackagesTransition));
   const hasAction = (action: CommercialProductAction) => operations.data?.availableActions.includes(action) ?? false;
   const registryFeatures = (canReadRegistryCatalog ? (registry.data ?? []) : []).flatMap((module) => module.features);
   const featureNames = new Map(registryFeatures.map((feature) => [feature.code, feature.displayName]));
@@ -374,11 +402,22 @@ export function AdminQuotaPackagesPage() {
           ariaLabel="Sections du pack"
           tabs={[
             { label: "Synthèse", to: `/admin/quota-packages/${selected.id}`, end: true },
-            { label: "Tarifs", to: `/admin/quota-packages/${selected.id}/prices` },
-            { label: "Disponibilité", to: `/admin/quota-packages/${selected.id}/availability` },
-            { label: "Révisions", to: `/admin/quota-packages/${selected.id}/revisions` },
-            { label: "Historique", to: `/admin/quota-packages/${selected.id}/history` },
-            { label: "Cycle de vie", to: `/admin/quota-packages/${selected.id}/lifecycle` },
+            ...(session.can(adminPermissions.priceBooksList)
+              ? [{ label: "Tarifs", to: `/admin/quota-packages/${selected.id}/prices` }]
+              : []),
+            ...(session.can(adminPermissions.commercialPreviewQuotaVisibility)
+              ? [{ label: "Disponibilité", to: `/admin/quota-packages/${selected.id}/availability` }]
+              : []),
+            ...(session.can(adminPermissions.quotaPackagesCompare) || session.can(adminPermissions.quotaPackagesRevise)
+              ? [{ label: "Révisions", to: `/admin/quota-packages/${selected.id}/revisions` }]
+              : []),
+            ...(session.can(adminPermissions.quotaPackagesHistory) ||
+            session.can(adminPermissions.commercialReadHistory)
+              ? [{ label: "Historique", to: `/admin/quota-packages/${selected.id}/history` }]
+              : []),
+            ...(session.can(adminPermissions.quotaPackagesTransition)
+              ? [{ label: "Cycle de vie", to: `/admin/quota-packages/${selected.id}/lifecycle` }]
+              : []),
           ]}
         />
         {operations.isError ? (
@@ -389,15 +428,27 @@ export function AdminQuotaPackagesPage() {
             </button>
           </p>
         ) : null}
+        {inaccessibleTab ? <PermissionState /> : null}
         {tab === "overview" ? (
           <div className="grid gap-5 lg:grid-cols-2">
             <section className="rounded-xl border bg-card p-5">
               <h2 className="text-sm font-semibold">Capacité</h2>
               <dl className="mt-5 space-y-4 text-sm">
-                <Pair label="Fonctionnalité" value={featureNames.get(selected.featureCode) ?? "Indisponible"} />
+                <Pair
+                  label="Fonctionnalité"
+                  value={
+                    canReadRegistryCatalog
+                      ? (featureNames.get(selected.featureCode) ?? "Fonctionnalité introuvable")
+                      : "Masquée"
+                  }
+                />
                 <Pair
                   label="Ressource"
-                  value={resourceUnits.get(`${selected.featureCode}:${selected.resource}`) ?? "Indisponible"}
+                  value={
+                    canReadRegistryCatalog
+                      ? (resourceUnits.get(`${selected.featureCode}:${selected.resource}`) ?? "Ressource introuvable")
+                      : "Masquée"
+                  }
                 />
                 <Pair label="Par unité" value={selected.capacityPerUnit} />
                 <Pair label="Maximum" value={selected.maximumQuantity} />
@@ -414,13 +465,22 @@ export function AdminQuotaPackagesPage() {
             </section>
           </div>
         ) : null}
-        {tab === "prices" ? <ProductPricePanel ownerId={selected.id} ownerType="QUOTA_PACKAGE" /> : null}
-        {tab === "availability" ? <CommercialAvailabilityPanel kind="quota" product={selected} /> : null}
-        {tab === "revisions" ? <QuotaRevisionPanel product={selected} /> : null}
+        {tab === "prices" && session.can(adminPermissions.priceBooksList) ? (
+          <ProductPricePanel ownerId={selected.id} ownerType="QUOTA_PACKAGE" />
+        ) : null}
+        {tab === "availability" && session.can(adminPermissions.commercialPreviewQuotaVisibility) ? (
+          <CommercialAvailabilityPanel kind="quota" product={selected} />
+        ) : null}
+        {tab === "revisions" &&
+        (session.can(adminPermissions.quotaPackagesCompare) || session.can(adminPermissions.quotaPackagesRevise)) ? (
+          <QuotaRevisionPanel product={selected} />
+        ) : null}
         {tab === "history" ? (
           <div className="space-y-6">
-            <QuotaHistoryPanel productId={selected.id} />
-            <CommercialAvailabilityHistory productId={selected.id} />
+            {session.can(adminPermissions.quotaPackagesHistory) ? <QuotaHistoryPanel productId={selected.id} /> : null}
+            {session.can(adminPermissions.commercialReadHistory) ? (
+              <CommercialAvailabilityHistory productId={selected.id} />
+            ) : null}
           </div>
         ) : null}
         {tab === "lifecycle" &&
