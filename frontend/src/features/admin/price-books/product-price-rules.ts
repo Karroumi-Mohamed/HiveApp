@@ -86,13 +86,32 @@ export function canUseProductPriceAction(
 export function productPriceActivationReady(
   price: Pick<ProductPrice, "id" | "version">,
   preview: ProductPriceActivationPreview | undefined,
+  now = Date.now(),
 ) {
+  const expiresAt = preview ? Date.parse(preview.expiresAt) : Number.NaN;
   return Boolean(
     preview?.activatable &&
       preview.previewToken &&
       preview.priceEntryId === price.id &&
-      preview.expectedVersion === price.version,
+      preview.expectedVersion === price.version &&
+      Number.isFinite(expiresAt) &&
+      expiresAt > now,
   );
+}
+
+export type ProductPriceActivationReviewState = Readonly<{
+  data: ProductPriceActivationPreview | undefined;
+  isFetching: boolean;
+  isError: boolean;
+}>;
+
+/** Retained query data is not reviewed evidence while it is refreshing or after refresh failed. */
+export function productPriceActivationReviewReady(
+  price: Pick<ProductPrice, "id" | "version">,
+  review: ProductPriceActivationReviewState,
+  now = Date.now(),
+) {
+  return !review.isFetching && !review.isError && productPriceActivationReady(price, review.data, now);
 }
 
 export function productPriceActionReason(

@@ -33,6 +33,7 @@ import {
   type ProductPriceDraftErrors,
   type ProductPriceDraftFields,
   productPriceActivationReady,
+  productPriceActivationReviewReady,
   productPriceBlocker,
   validateProductPriceDraft,
 } from "./product-price-rules";
@@ -239,19 +240,52 @@ export function ProductPriceActivationDialog({ price, trigger }: { price: Produc
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [evidenceClock, setEvidenceClock] = useState(() => Date.now());
+  const activationPreviewKey = adminCommercialKeys.priceBooks.activationPreview(price.id, price.version);
+  const changeOpen = (next: boolean) => {
+    setOpen(next);
+    if (next) {
+      setEvidenceClock(Date.now());
+      return;
+    }
+    setReason("");
+    queryClient.removeQueries({ queryKey: adminCommercialKeys.priceBooks.activationPreviews(price.id) });
+  };
   const preview = useQuery({
-    queryKey: adminCommercialKeys.priceBooks.activationPreview(price.id),
+    queryKey: activationPreviewKey,
     queryFn: () => adminApi.previewProductPriceActivation(price.id),
     enabled: commercialQueryEnabled(session.can, adminPermissions.priceBooksPreviewActivation, open),
+    staleTime: 0,
   });
+  const previewExpiresAt = preview.data?.expiresAt;
   const action: ProductPriceAction = price.status === "INACTIVE" ? "REACTIVATE" : "ACTIVATE";
-  const previewReady = productPriceActivationReady(price, preview.data);
+  const previewReady = productPriceActivationReviewReady(
+    price,
+    { data: preview.data, isFetching: preview.isFetching, isError: preview.isError },
+    evidenceClock,
+  );
+  useEffect(() => {
+    if (!open || !previewExpiresAt) return;
+    const expiresAt = Date.parse(previewExpiresAt);
+    if (!Number.isFinite(expiresAt)) return;
+    const timer = window.setTimeout(() => setEvidenceClock(Date.now()), Math.max(0, expiresAt - Date.now() + 1));
+    return () => window.clearTimeout(timer);
+  }, [open, previewExpiresAt]);
   const activate = useMutation({
     mutationFn: () => {
-      if (!preview.data || !previewReady) throw new Error("Activation preview is not current.");
+      if (
+        !preview.data ||
+        !productPriceActivationReviewReady(
+          price,
+          { data: preview.data, isFetching: preview.isFetching, isError: preview.isError },
+          Date.now(),
+        )
+      ) {
+        throw new Error("Activation preview is not current.");
+      }
       const request = {
         version: preview.data.expectedVersion,
-        reason,
+        reason: reason.trim(),
         activationPreviewToken: preview.data.previewToken,
       };
       return action === "REACTIVATE"
@@ -259,23 +293,29 @@ export function ProductPriceActivationDialog({ price, trigger }: { price: Produc
         : adminApi.activateProductPrice(price.id, request);
     },
     onSuccess: async () => {
+      changeOpen(false);
       await invalidateAdminCommercial(queryClient, adminCommercialKeys.priceBooks.all());
-      setOpen(false);
-      setReason("");
       toast.success("Tarif mis en vente");
     },
     onError: async (error) => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: adminCommercialKeys.priceBooks.detail(price.id) }),
+        queryClient.invalidateQueries({ queryKey: adminCommercialKeys.priceBooks.detail(price.id), exact: true }),
         preview.refetch(),
       ]);
+      setEvidenceClock(Date.now());
       toast.error(mutationMessage(error));
     },
   });
   const canActivate = canUseProductPriceAction(price, action, session.can);
+  const retainedPreviewIsStale = Boolean(
+    preview.data &&
+      !preview.isFetching &&
+      !preview.isError &&
+      !productPriceActivationReady(price, preview.data, evidenceClock),
+  );
 
   return (
-    <PriceDialog onOpenChange={setOpen} open={open} trigger={trigger}>
+    <PriceDialog onOpenChange={changeOpen} open={open} trigger={trigger}>
       <DialogHeader>
         <DialogTitle>
           {action === "ACTIVATE" ? "Mettre ce tarif en vente ?" : "Remettre ce tarif en vente ?"}
@@ -284,48 +324,68 @@ export function ProductPriceActivationDialog({ price, trigger }: { price: Produc
           Cette opération ne modifie jamais les conditions déjà enregistrées dans les abonnements existants.
         </DialogDescription>
       </DialogHeader>
-      {preview.isLoading ? (
-        <p className="py-4 text-sm text-muted-foreground">Vérification serveur…</p>
-      ) : preview.isError ? (
-        <div className="rounded-lg border border-destructive/30 p-4 text-sm">
-          <p>La prévisualisation n’a pas pu être chargée.</p>
-          <Button className="mt-3" onClick={() => void preview.refetch()} size="sm" variant="outline">
-            Réessayer
-          </Button>
-        </div>
-      ) : preview.data?.blockers.length ? (
-        <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
-          <p className="text-sm font-medium">Mise en vente bloquée</p>
-          <ul className="mt-2 list-disc space-y-1 ps-5 text-sm text-muted-foreground">
-            {preview.data.blockers.map((blocker: ProductPriceBlocker) => (
-              <li key={blocker}>{productPriceBlocker[blocker]}</li>
-            ))}
-          </ul>
-        </div>
-      ) : preview.data?.activatable ? (
-        <p className="rounded-lg border border-success/30 bg-success/5 p-4 text-sm">
-          Aucun chevauchement : ce tarif peut être mis en vente.
-        </p>
-      ) : null}
+      <div aria-live="polite">
+        {preview.isFetching ? (
+          <p className="py-4 text-sm text-muted-foreground" role="status">
+            Vérification serveur…
+          </p>
+        ) : preview.isError ? (
+          <div className="rounded-lg border border-destructive/30 p-4 text-sm" role="alert">
+            <p>La prévisualisation n’a pas pu être chargée.</p>
+            <Button className="mt-3" onClick={() => void preview.refetch()} size="sm" variant="outline">
+              Réessayer
+            </Button>
+          </div>
+        ) : retainedPreviewIsStale ? (
+          <div className="rounded-lg border border-warning/30 bg-warning/5 p-4 text-sm" role="status">
+            <p>La vérification a expiré ou le tarif affiché a changé.</p>
+            <Button className="mt-3" onClick={() => void preview.refetch()} size="sm" variant="outline">
+              Recalculer
+            </Button>
+          </div>
+        ) : preview.data?.blockers.length ? (
+          <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
+            <p className="text-sm font-medium">Mise en vente bloquée</p>
+            <ul className="mt-2 list-disc space-y-1 ps-5 text-sm text-muted-foreground">
+              {preview.data.blockers.map((blocker: ProductPriceBlocker) => (
+                <li key={blocker}>{productPriceBlocker[blocker]}</li>
+              ))}
+            </ul>
+          </div>
+        ) : preview.data?.activatable ? (
+          <p className="rounded-lg border border-success/30 bg-success/5 p-4 text-sm" role="status">
+            Aucun chevauchement : ce tarif peut être mis en vente.
+          </p>
+        ) : null}
+      </div>
       <div className="space-y-2">
         <Label htmlFor="price-activation-reason">Motif de l’opération</Label>
         <Textarea
           id="price-activation-reason"
           maxLength={500}
+          name="activation-reason"
           onChange={(event) => setReason(event.target.value)}
+          placeholder="Décision, contexte ou référence interne…"
           rows={4}
+          autoComplete="off"
           value={reason}
         />
       </div>
       <DialogFooter>
-        <Button onClick={() => setOpen(false)} variant="outline">
+        <Button onClick={() => changeOpen(false)} variant="outline">
           Annuler
         </Button>
         <Button
           disabled={!previewReady || !canActivate || !reason.trim() || activate.isPending}
           onClick={() => activate.mutate()}
         >
-          {activate.isPending ? "Mise en vente…" : "Mettre en vente"}
+          {activate.isPending
+            ? action === "REACTIVATE"
+              ? "Remise en vente…"
+              : "Mise en vente…"
+            : action === "REACTIVATE"
+              ? "Remettre en vente"
+              : "Mettre en vente"}
         </Button>
       </DialogFooter>
     </PriceDialog>
