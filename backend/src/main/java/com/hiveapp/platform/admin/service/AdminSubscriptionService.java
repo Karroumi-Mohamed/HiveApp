@@ -1,10 +1,14 @@
 package com.hiveapp.platform.admin.service;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
+import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeApplyRequest;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOwnerLookupDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
@@ -14,6 +18,7 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
+import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 
 import java.util.Collection;
 import java.util.List;
@@ -56,12 +61,19 @@ public interface AdminSubscriptionService {
                     UUID accountId, String search, String featureCode, String resource,
                     Collection<String> selectedAddOnCodes, Pageable pageable);
     AdminSubscriptionDto getSubscription(UUID accountId);
+    ClientPlanCatalogResponse changeCatalog(UUID accountId);
     SubscriptionDto createSubscription(
             UUID accountId, String planCode, ProductPriceSelectionRequest priceSelection);
     SubscriptionDto createTrial(
             UUID accountId, String planCode, int trialDays, ProductPriceSelectionRequest priceSelection);
     SubscriptionDto updateOverrides(UUID accountId, Set<String> addOnCodes, List<QuotaPackageSelection> quotaPackages);
     List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId);
+    SubscriptionChangePreviewResponse previewChange(
+            UUID accountId, UUID actorUserId, SubscriptionChangeRequest request);
+    SubscriptionChangeApplyResponse applyChange(
+            UUID accountId, UUID actorUserId, AdminSubscriptionChangeApplyRequest request);
+    SubscriptionChangeOperationDto cancelChange(
+            UUID accountId, UUID operationId, String reason);
     SubscriptionCheckoutDto confirmCheckoutManually(
             UUID checkoutId, UUID actorUserId, String reference, String reason);
 }

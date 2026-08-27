@@ -104,6 +104,23 @@ class CommercialPreviewTokenServiceTest {
                 .hasMessage("domain-specific stale evidence");
     }
 
+    @Test
+    void subscriptionChangeEvidenceCannotCrossClientAndAdminSurfaces() {
+        UUID subscriptionId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        String clientToken = service.issue(
+                CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                subscriptionId, 4, actorId, 12, REGISTRY, "same-state", NOW).token();
+        String adminToken = service.issue(
+                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE,
+                subscriptionId, 4, actorId, 12, REGISTRY, "same-state", NOW).token();
+
+        assertStale(clientToken, CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE,
+                subscriptionId, 4, actorId, 12, REGISTRY, "same-state");
+        assertStale(adminToken, CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                subscriptionId, 4, actorId, 12, REGISTRY, "same-state");
+    }
+
     private CommercialPreviewTokenService at(Instant instant) {
         return new CommercialPreviewTokenService(
                 properties, Clock.fixed(instant, ZoneOffset.UTC));

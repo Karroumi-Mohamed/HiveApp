@@ -1,6 +1,7 @@
 package com.hiveapp.platform.admin.service.impl;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
+import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeApplyRequest;
 import com.hiveapp.platform.admin.dto.LatestSubscriptionSummary;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOwnerLookupDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
@@ -12,6 +13,9 @@ import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
@@ -30,6 +34,7 @@ import com.hiveapp.platform.client.plan.service.SubscriptionOverrideChoiceServic
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
+import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.money.Money;
@@ -433,6 +438,14 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     }
 
     @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "choose_change_options",
+            description = "Choose operator-authorized subscription change options")
+    public ClientPlanCatalogResponse changeCatalog(UUID accountId) {
+        return subscriptionService.catalogAsOperator(accountId);
+    }
+
+    @Override
     @Transactional
     @PermissionNode(key = "create", description = "Manually assign an exact priced plan to account")
     public SubscriptionDto createSubscription(
@@ -472,7 +485,41 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     @Override
     @PermissionNode(key = "read_changes", description = "View account subscription changes and checkouts")
     public List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId) {
-        return subscriptionService.listChangeOperations(accountId);
+        return subscriptionService.listChangeOperationsAsOperator(accountId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "preview_change", description = "Preview an Account subscription change")
+    public SubscriptionChangePreviewResponse previewChange(
+            UUID accountId,
+            UUID actorUserId,
+            SubscriptionChangeRequest request
+    ) {
+        return subscriptionService.previewChangeAsOperator(accountId, actorUserId, request);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "apply_change", description = "Apply a reviewed Account subscription change")
+    public SubscriptionChangeApplyResponse applyChange(
+            UUID accountId,
+            UUID actorUserId,
+            AdminSubscriptionChangeApplyRequest request
+    ) {
+        return subscriptionService.applyChangeAsOperator(
+                accountId, actorUserId, request.reviewedSelection());
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "cancel_change", description = "Cancel an outstanding Account subscription change")
+    public SubscriptionChangeOperationDto cancelChange(
+            UUID accountId,
+            UUID operationId,
+            String reason
+    ) {
+        return subscriptionService.cancelPendingChangeAsOperator(accountId, operationId);
     }
 
     @Override

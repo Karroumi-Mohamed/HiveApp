@@ -1,6 +1,8 @@
 package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
+import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeApplyRequest;
+import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeCancelRequest;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOwnerLookupDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
 import com.hiveapp.platform.admin.dto.ManualCheckoutConfirmationRequest;
@@ -9,6 +11,9 @@ import com.hiveapp.platform.admin.service.AdminSubscriptionService;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
@@ -19,6 +24,7 @@ import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
+import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.shared.security.HiveAppUserDetails;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -140,6 +146,11 @@ public class SubscriptionAdminController {
         return adminSubscriptionService.getSubscription(accountId);
     }
 
+    @GetMapping("/account/{accountId}/change-catalog")
+    public ClientPlanCatalogResponse changeCatalog(@PathVariable UUID accountId) {
+        return adminSubscriptionService.changeCatalog(accountId);
+    }
+
     @GetMapping("/account/{accountId}/override-choices/add-ons")
     public SubscriptionOverrideChoicePage<SubscriptionAddOnOverrideChoiceDto> addOnOverrideChoices(
             @PathVariable UUID accountId,
@@ -206,15 +217,50 @@ public class SubscriptionAdminController {
         return adminSubscriptionService.listChangeOperations(accountId);
     }
 
+    @PostMapping("/account/{accountId}/changes/preview")
+    public SubscriptionChangePreviewResponse previewChange(
+            @PathVariable UUID accountId,
+            @Valid @RequestBody SubscriptionChangeRequest request,
+            Authentication authentication
+    ) {
+        return adminSubscriptionService.previewChange(
+                accountId, actorUserId(authentication), request);
+    }
+
+    @PostMapping("/account/{accountId}/changes/apply")
+    @ResponseStatus(HttpStatus.CREATED)
+    public SubscriptionChangeApplyResponse applyChange(
+            @PathVariable UUID accountId,
+            @Valid @RequestBody AdminSubscriptionChangeApplyRequest request,
+            Authentication authentication
+    ) {
+        return adminSubscriptionService.applyChange(
+                accountId, actorUserId(authentication), request);
+    }
+
+    @PostMapping("/account/{accountId}/changes/{operationId}/cancel")
+    public SubscriptionChangeOperationDto cancelChange(
+            @PathVariable UUID accountId,
+            @PathVariable UUID operationId,
+            @Valid @RequestBody AdminSubscriptionChangeCancelRequest request
+    ) {
+        return adminSubscriptionService.cancelChange(
+                accountId, operationId, request.reason());
+    }
+
     @PostMapping("/checkouts/{checkoutId}/confirm-manual")
     public SubscriptionCheckoutDto confirmCheckoutManually(
             @PathVariable UUID checkoutId,
             @Valid @RequestBody ManualCheckoutConfirmationRequest request,
             Authentication authentication
     ) {
-        UUID actorUserId = ((HiveAppUserDetails) authentication.getPrincipal()).getUserId();
+        UUID actorUserId = actorUserId(authentication);
         return adminSubscriptionService.confirmCheckoutManually(
                 checkoutId, actorUserId, request.reference(), request.reason());
+    }
+
+    private UUID actorUserId(Authentication authentication) {
+        return ((HiveAppUserDetails) authentication.getPrincipal()).getUserId();
     }
 
     @PatchMapping("/account/{accountId}/overrides")

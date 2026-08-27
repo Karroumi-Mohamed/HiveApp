@@ -27,12 +27,24 @@ public interface SubscriptionService {
      */
     SubscriptionDto getMySubscription(UUID accountId);
     ClientPlanCatalogResponse catalog(UUID accountId);
+    /** Internal operator catalogue; its caller must carry the platform-admin authorization guard. */
+    ClientPlanCatalogResponse catalogAsOperator(UUID accountId);
     SubscriptionChangePreviewResponse previewChange(
+            UUID accountId, UUID actorUserId, SubscriptionChangeRequest request);
+    /** Internal operator surface; its caller must carry the platform-admin authorization guard. */
+    SubscriptionChangePreviewResponse previewChangeAsOperator(
             UUID accountId, UUID actorUserId, SubscriptionChangeRequest request);
     SubscriptionChangeApplyResponse applyChange(
             UUID accountId, UUID actorUserId, SubscriptionChangeApplyRequest request);
+    /** Internal operator surface; its caller must carry the platform-admin authorization guard. */
+    SubscriptionChangeApplyResponse applyChangeAsOperator(
+            UUID accountId, UUID actorUserId, SubscriptionChangeApplyRequest request);
     List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId);
+    /** Internal operator surface; its caller must carry the platform-admin authorization guard. */
+    List<SubscriptionChangeOperationDto> listChangeOperationsAsOperator(UUID accountId);
     SubscriptionChangeOperationDto cancelPendingChange(UUID accountId, UUID operationId);
+    /** Internal operator surface; its caller must carry the platform-admin authorization guard. */
+    SubscriptionChangeOperationDto cancelPendingChangeAsOperator(UUID accountId, UUID operationId);
     Subscription createSubscription(UUID accountId, String planCode);
     Subscription createSubscription(
             UUID accountId, String planCode, ProductPriceSelectionRequest priceSelection);

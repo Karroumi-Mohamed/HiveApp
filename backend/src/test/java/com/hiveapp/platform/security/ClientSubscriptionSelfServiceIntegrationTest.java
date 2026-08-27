@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
@@ -112,6 +113,49 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                         assertThat(price.path("amount").isTextual()).isTrue());
             });
         });
+    }
+
+    @Test
+    void operatorChangeCatalogCanSelectDirectOnlyPlansWithoutExposingThemToClients() throws Exception {
+        String clientToken = registerClientAndGetToken();
+        UUID accountId = currentAccountId(clientToken);
+        String adminToken = loginAdminAndGetToken();
+        var pro = planRepository.findByCode("PRO").orElseThrow();
+        ProductSalesVisibility original = pro.getSalesVisibility();
+
+        try {
+            pro.setSalesVisibility(ProductSalesVisibility.DIRECT_ONLY);
+            planRepository.saveAndFlush(pro);
+
+            mockMvc.perform(get("/api/v1/subscriptions/catalog")
+                            .header("Authorization", bearer(clientToken)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.plans[?(@.code == 'PRO')]").isEmpty());
+            preview(clientToken, new SubscriptionChangeRequest("PRO", Set.of(), List.of()))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value(
+                            "The requested commercial selection is unavailable."));
+
+            mockMvc.perform(get(
+                                    "/api/admin/subscriptions/account/{accountId}/change-catalog",
+                                    accountId)
+                            .header("Authorization", bearer(adminToken)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.plans[?(@.code == 'PRO')].selectable").value(true));
+            mockMvc.perform(post(
+                                    "/api/admin/subscriptions/account/{accountId}/changes/preview",
+                                    accountId)
+                            .header("Authorization", bearer(adminToken))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new SubscriptionChangeRequest(
+                                    "PRO", Set.of(), List.of(), SubscriptionChangeTiming.AT_RENEWAL))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.targetPlanCode").value("PRO"));
+        } finally {
+            var restored = planRepository.findByCode("PRO").orElseThrow();
+            restored.setSalesVisibility(original);
+            planRepository.saveAndFlush(restored);
+        }
     }
 
     @Test
@@ -371,6 +415,77 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
 
         mockMvc.perform(get("/api/v1/subscriptions/me")
                         .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plan.code").value("FREE"));
+    }
+
+    @Test
+    void adminCanReviewApplyAndCancelAnAccountChangeWithExplicitReasons() throws Exception {
+        String clientToken = registerClientAndGetToken();
+        UUID accountId = currentAccountId(clientToken);
+        String adminToken = loginAdminAndGetToken();
+        var selection = new SubscriptionChangeRequest(
+                "PRO", Set.of(), List.of(), SubscriptionChangeTiming.AT_RENEWAL);
+
+        String previewBody = mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{accountId}/changes/preview", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(selection)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentPlanCode").value("FREE"))
+                .andExpect(jsonPath("$.targetPlanCode").value("PRO"))
+                .andExpect(jsonPath("$.previewToken").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+        String previewToken = objectMapper.readTree(previewBody).get("previewToken").asText();
+
+        var reviewedChange = Map.of(
+                "selection", selection,
+                "previewToken", previewToken,
+                "reason", "Customer contract approved by the commercial operator");
+        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}/changes/apply", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "selection", selection,
+                                "previewToken", previewToken))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        String applyBody = mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{accountId}/changes/apply", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(reviewedChange)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.subscription.plan.code").value("FREE"))
+                .andExpect(jsonPath("$.operation.timing").value("AT_RENEWAL"))
+                .andExpect(jsonPath("$.operation.status").value("AWAITING_CONFIRMATION"))
+                .andReturn().getResponse().getContentAsString();
+        UUID operationId = UUID.fromString(
+                objectMapper.readTree(applyBody).path("operation").path("id").asText());
+
+        mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{accountId}/changes/{operationId}/cancel",
+                                accountId, operationId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{accountId}/changes/{operationId}/cancel",
+                                accountId, operationId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Customer withdrew the approved change\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.checkout.status").value("CANCELLED"));
+
+        mockMvc.perform(get("/api/v1/subscriptions/me")
+                        .header("Authorization", bearer(clientToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plan.code").value("FREE"));
     }

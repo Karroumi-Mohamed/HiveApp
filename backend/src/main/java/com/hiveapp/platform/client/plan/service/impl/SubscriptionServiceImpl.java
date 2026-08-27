@@ -122,6 +122,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
      */
     @Override
     @Transactional(readOnly = true)
+    @PermissionNode(key = "internal_subscription", guard = PermissionNode.Guard.OFF)
     public Subscription getSubscription(UUID accountId) {
         return requireUsableSubscription(accountId);
     }
@@ -148,13 +149,27 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @Transactional(readOnly = true)
     @PermissionNode(key = "catalog", description = "View subscription plan catalog")
     public ClientPlanCatalogResponse catalog(UUID accountId) {
+        return catalogInternal(accountId, CommercialCatalogResolver.Audience.CLIENT_CATALOG);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "internal_operator_catalog", guard = PermissionNode.Guard.OFF)
+    public ClientPlanCatalogResponse catalogAsOperator(UUID accountId) {
+        return catalogInternal(accountId, CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR);
+    }
+
+    private ClientPlanCatalogResponse catalogInternal(
+            UUID accountId,
+            CommercialCatalogResolver.Audience audience
+    ) {
         Subscription current = getSubscription(accountId);
         SubscriptionOverrides currentOverrides = subscriptionOverrideReader.read(current.getCustomOverrides());
         Map<String, FeatureDefinition> definitions = featureDefinitionCollectorProvider.getObject().collectByCode();
         Map<String, Long> usage = usageByQuotaSlot(accountId, definitions);
         UUID currentPlanId = current.getPlan().getId();
         CommercialCatalogResolver.CatalogResolution catalog = commercialCatalogResolver
-                .resolveCatalog(CommercialCatalogResolver.Audience.CLIENT_CATALOG);
+                .resolveCatalog(audience);
         CommercialCatalogResolver.PlanResolution currentResolution = catalog.plans().stream()
                 .filter(result -> result.plan().getId().equals(currentPlanId))
                 .findFirst().orElseThrow(() -> new InvalidStateException(
@@ -163,14 +178,15 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 // A held direct-only or retired exact revision remains readable as the
                 // Account's current product, but is never exposed to another Account and
                 // cannot be selected again through self service.
-                .filter(result -> result.clientVisible()
+                .filter(result -> selectableForAudience(result, audience)
                         || result.plan().getId().equals(currentPlanId))
                 .sorted(Comparator.comparing(
                                 (CommercialCatalogResolver.PlanResolution result) -> result.plan().getPrice(),
                                 Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(result -> result.plan().getCode()))
                 .map(result -> toCatalogPlan(
-                        result, current, definitions, usage, result.clientVisible()))
+                        result, current, definitions, usage, audience,
+                        selectableForAudience(result, audience)))
                 .toList();
         SubscriptionEntitlementSnapshot currentSnapshot = current.getEntitlementSnapshot();
 
@@ -188,14 +204,15 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         current.isCancelAtPeriodEnd(),
                         currentOverrides.addOnCodes(),
                         currentOverrides.quotaPackages(),
-                        retainedAddOns(currentSnapshot, currentResolution),
-                        retainedQuotaPackages(currentSnapshot, currentResolution)),
+                        retainedAddOns(currentSnapshot, currentResolution, audience),
+                        retainedQuotaPackages(currentSnapshot, currentResolution, audience)),
                 plans);
     }
 
     private List<ClientPlanCatalogResponse.RetainedAddOn> retainedAddOns(
             SubscriptionEntitlementSnapshot snapshot,
-            CommercialCatalogResolver.PlanResolution currentResolution
+            CommercialCatalogResolver.PlanResolution currentResolution,
+            CommercialCatalogResolver.Audience audience
     ) {
         Map<String, CommercialCatalogResolver.AddOnResolution> currentByCode =
                 currentResolution.addOns().stream().collect(Collectors.toMap(
@@ -204,8 +221,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .sorted(Comparator.comparing(com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot::code))
                 .map(held -> {
                     CommercialCatalogResolver.AddOnResolution current = currentByCode.get(held.code());
-                    boolean selectable = currentResolution.clientVisible()
-                            && current != null && current.clientVisible();
+                    boolean selectable = selectableForAudience(currentResolution, audience)
+                            && current != null && selectableForAudience(current, audience);
                     RetainedEntitlementState state = selectable
                             ? RetainedEntitlementState.SELECTABLE
                             : current == null
@@ -221,7 +238,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     private List<ClientPlanCatalogResponse.RetainedQuotaPackage> retainedQuotaPackages(
             SubscriptionEntitlementSnapshot snapshot,
-            CommercialCatalogResolver.PlanResolution currentResolution
+            CommercialCatalogResolver.PlanResolution currentResolution,
+            CommercialCatalogResolver.Audience audience
     ) {
         Map<String, CommercialCatalogResolver.QuotaPackageResolution> currentByCode =
                 currentResolution.quotaPackages().stream().collect(Collectors.toMap(
@@ -231,8 +249,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot::code))
                 .map(held -> {
                     CommercialCatalogResolver.QuotaPackageResolution current = currentByCode.get(held.code());
-                    boolean selectable = currentResolution.clientVisible()
-                            && current != null && current.clientVisible();
+                    boolean selectable = selectableForAudience(currentResolution, audience)
+                            && current != null && selectableForAudience(current, audience);
                     RetainedEntitlementState state = selectable
                             ? RetainedEntitlementState.SELECTABLE
                             : current == null
@@ -255,13 +273,40 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             UUID actorUserId,
             SubscriptionChangeRequest request
     ) {
+        return previewChangeInternal(
+                accountId, actorUserId, request,
+                CommercialCatalogResolver.Audience.CLIENT_CATALOG,
+                CommercialPreviewKind.SUBSCRIPTION_CHANGE);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "internal_operator_preview", guard = PermissionNode.Guard.OFF)
+    public SubscriptionChangePreviewResponse previewChangeAsOperator(
+            UUID accountId,
+            UUID actorUserId,
+            SubscriptionChangeRequest request
+    ) {
+        return previewChangeInternal(
+                accountId, actorUserId, request,
+                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
+                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE);
+    }
+
+    private SubscriptionChangePreviewResponse previewChangeInternal(
+            UUID accountId,
+            UUID actorUserId,
+            SubscriptionChangeRequest request,
+            CommercialCatalogResolver.Audience audience,
+            CommercialPreviewKind previewKind
+    ) {
         String registryVersion = registryCatalogVersionService.currentVersion();
         return commercialCatalogVersionService.readConsistently(catalogRevision -> {
             SubscriptionChangeAssessment assessment = assessSubscriptionChangePreview(
-                    accountId, request);
+                    accountId, request, audience);
             Instant evaluatedAt = clock.instant();
             var evidence = previewTokenService.issue(
-                    CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                    previewKind,
                     assessment.current().getId(), assessment.current().getVersion(), actorUserId,
                     catalogRevision, registryVersion, assessment.fingerprint(), evaluatedAt);
             return assessment.toResponse(
@@ -278,6 +323,33 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             UUID actorUserId,
             SubscriptionChangeApplyRequest applyRequest
     ) {
+        return applyChangeInternal(
+                accountId, actorUserId, applyRequest,
+                CommercialCatalogResolver.Audience.CLIENT_CATALOG,
+                CommercialPreviewKind.SUBSCRIPTION_CHANGE);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "internal_operator_apply", guard = PermissionNode.Guard.OFF)
+    public SubscriptionChangeApplyResponse applyChangeAsOperator(
+            UUID accountId,
+            UUID actorUserId,
+            SubscriptionChangeApplyRequest applyRequest
+    ) {
+        return applyChangeInternal(
+                accountId, actorUserId, applyRequest,
+                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
+                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE);
+    }
+
+    private SubscriptionChangeApplyResponse applyChangeInternal(
+            UUID accountId,
+            UUID actorUserId,
+            SubscriptionChangeApplyRequest applyRequest,
+            CommercialCatalogResolver.Audience audience,
+            CommercialPreviewKind previewKind
+    ) {
         accountRepository.findByIdForSubscriptionUpdate(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
         SubscriptionChangeRequest request = applyRequest.selection();
@@ -285,7 +357,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         String registryVersion = registryCatalogVersionService.currentVersion();
         SubscriptionChangeAssessment assessment;
         try {
-            assessment = assessSubscriptionChangeForApply(accountId, request);
+            assessment = assessSubscriptionChangeForApply(accountId, request, audience);
         } catch (InvalidRequestException | InvalidStateException | ResourceNotFoundException
                  | StaleResourceVersionException exception) {
             // Once evidence is supplied, a changed or no-longer-selectable commercial input is
@@ -302,7 +374,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             throw staleSubscriptionPreview();
         }
         var verified = previewTokenService.requireValid(
-                applyRequest.previewToken(), CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                applyRequest.previewToken(), previewKind,
                 assessment.current().getId(), assessment.current().getVersion(), actorUserId,
                 catalogRevision, registryVersion, assessment.fingerprint(),
                 this::staleSubscriptionPreview);
@@ -365,9 +437,32 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     }
 
     @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "internal_operator_changes", guard = PermissionNode.Guard.OFF)
+    public List<SubscriptionChangeOperationDto> listChangeOperationsAsOperator(UUID accountId) {
+        return subscriptionChangeOperationRepository.findAllByAccountIdOrderByCreatedAtDesc(accountId).stream()
+                .map(this::toOperationDto)
+                .toList();
+    }
+
+    @Override
     @Transactional
     @PermissionNode(key = "cancel_change", description = "Cancel a pending renewal subscription change")
     public SubscriptionChangeOperationDto cancelPendingChange(UUID accountId, UUID operationId) {
+        return cancelPendingChangeInternal(accountId, operationId);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "internal_operator_cancel", guard = PermissionNode.Guard.OFF)
+    public SubscriptionChangeOperationDto cancelPendingChangeAsOperator(
+            UUID accountId,
+            UUID operationId
+    ) {
+        return cancelPendingChangeInternal(accountId, operationId);
+    }
+
+    private SubscriptionChangeOperationDto cancelPendingChangeInternal(UUID accountId, UUID operationId) {
         SubscriptionChangeOperation operation = subscriptionChangeOperationRepository
                 .findByIdAndAccountId(operationId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("SubscriptionChangeOperation", "id", operationId));
@@ -382,12 +477,14 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     @Override
     @Transactional
+    @PermissionNode(key = "internal_create_default", guard = PermissionNode.Guard.OFF)
     public Subscription createSubscription(UUID accountId, String planCode) {
         return createSubscription(accountId, planCode, null);
     }
 
     @Override
     @Transactional
+    @PermissionNode(key = "internal_create_priced", guard = PermissionNode.Guard.OFF)
     public Subscription createSubscription(
             UUID accountId,
             String planCode,
@@ -434,12 +531,14 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     @Override
     @Transactional
+    @PermissionNode(key = "internal_trial_default", guard = PermissionNode.Guard.OFF)
     public Subscription createTrial(UUID accountId, String planCode, int trialDays) {
         return createTrial(accountId, planCode, trialDays, null);
     }
 
     @Override
     @Transactional
+    @PermissionNode(key = "internal_trial_priced", guard = PermissionNode.Guard.OFF)
     public Subscription createTrial(
             UUID accountId,
             String planCode,
@@ -477,6 +576,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     @Override
     @Transactional
+    @PermissionNode(key = "internal_overrides", guard = PermissionNode.Guard.OFF)
     public Subscription updateOverrides(UUID accountId,
                                         Set<String> addOnCodes,
                                         List<QuotaPackageSelection> quotaPackages) {
@@ -516,6 +616,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             Subscription current,
             Map<String, FeatureDefinition> definitions,
             Map<String, Long> usage,
+            CommercialCatalogResolver.Audience audience,
             boolean selectable
     ) {
         Plan plan = result.plan();
@@ -525,12 +626,12 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .map(planFeature -> toCatalogFeature(planFeature, definitions.get(planFeature.getFeature().getCode()), usage))
                 .toList();
         Set<String> visibleAddOnCodes = selectable ? result.addOns().stream()
-                .filter(CommercialCatalogResolver.AddOnResolution::clientVisible)
+                .filter(item -> selectableForAudience(item, audience))
                 .map(CommercialCatalogResolver.AddOnResolution::code)
                 .collect(Collectors.toUnmodifiableSet()) : Set.of();
         var addOns = (selectable ? result.addOns().stream() : java.util.stream.Stream
                 .<CommercialCatalogResolver.AddOnResolution>empty())
-                .filter(CommercialCatalogResolver.AddOnResolution::clientVisible)
+                .filter(item -> selectableForAudience(item, audience))
                 .map(addOnResult -> {
                     AddOn addOn = addOnResult.addOn();
                     return new ClientPlanCatalogResponse.CatalogAddOn(
@@ -549,7 +650,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .toList();
         var quotaPackages = (selectable ? result.quotaPackages().stream() : java.util.stream.Stream
                 .<CommercialCatalogResolver.QuotaPackageResolution>empty())
-                .filter(CommercialCatalogResolver.QuotaPackageResolution::clientVisible)
+                .filter(item -> selectableForAudience(item, audience))
                 .map(packageResult -> {
                     QuotaPackage item = packageResult.quotaPackage();
                     return new ClientPlanCatalogResponse.CatalogQuotaPackage(
@@ -576,6 +677,33 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 addOns,
                 quotaPackages,
                 selectable ? toCatalogPrices(result.prices()) : List.of());
+    }
+
+    private boolean selectableForAudience(
+            CommercialCatalogResolver.PlanResolution resolution,
+            CommercialCatalogResolver.Audience audience
+    ) {
+        return audience == CommercialCatalogResolver.Audience.CLIENT_CATALOG
+                ? resolution.clientVisible()
+                : resolution.selectable();
+    }
+
+    private boolean selectableForAudience(
+            CommercialCatalogResolver.AddOnResolution resolution,
+            CommercialCatalogResolver.Audience audience
+    ) {
+        return audience == CommercialCatalogResolver.Audience.CLIENT_CATALOG
+                ? resolution.clientVisible()
+                : resolution.selectable();
+    }
+
+    private boolean selectableForAudience(
+            CommercialCatalogResolver.QuotaPackageResolution resolution,
+            CommercialCatalogResolver.Audience audience
+    ) {
+        return audience == CommercialCatalogResolver.Audience.CLIENT_CATALOG
+                ? resolution.clientVisible()
+                : resolution.selectable();
     }
 
     private ClientPlanCatalogResponse.CatalogFeature toCatalogFeature(
@@ -773,31 +901,33 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     private SubscriptionChangeAssessment assessSubscriptionChangePreview(
             UUID accountId,
-            SubscriptionChangeRequest request
+            SubscriptionChangeRequest request,
+            CommercialCatalogResolver.Audience audience
     ) {
         Subscription current = getSubscription(accountId);
-        ClientPlanSelection target = requireClientPlanSelection(
-                request.targetPlanCode(), request.planPriceSelection());
+        ClientPlanSelection target = requirePlanSelection(
+                request.targetPlanCode(), request.planPriceSelection(), audience);
         requireSameSubscriptionCurrency(current, target.price());
         ChangeSelection selection = validateSelection(
                 target.plan(), request, CommercialCatalogResolver.PriceTuple.from(target.price()),
-                CommercialCatalogResolver.Audience.CLIENT_CATALOG,
+                audience,
                 retainedSelection(current.getEntitlementSnapshot(), target.plan(), request));
         SubscriptionEntitlementSnapshot targetSnapshot = targetSnapshot(
                 current, target.plan(), selection, target.price(), request.planPriceSelection());
         return assessResolvedChange(
                 accountId, current, target.plan(), targetSnapshot, selection,
-                request.effectiveTiming());
+                request.effectiveTiming(), audience);
     }
 
     private SubscriptionChangeAssessment assessSubscriptionChangeForApply(
             UUID accountId,
-            SubscriptionChangeRequest request
+            SubscriptionChangeRequest request,
+            CommercialCatalogResolver.Audience audience
     ) {
         Subscription current = getSubscription(accountId);
         // Preserve the ordinary client privacy boundary before exact lock-taking selection.
-        ClientPlanSelection preliminary = requireClientPlanSelection(
-                request.targetPlanCode(), request.planPriceSelection());
+        ClientPlanSelection preliminary = requirePlanSelection(
+                request.targetPlanCode(), request.planPriceSelection(), audience);
         requireSameSubscriptionCurrency(current, preliminary.price());
         Set<String> requestedAddOns = normalizeAddOnCodes(request.addOnCodes());
         List<QuotaPackageSelection> requestedPackages = normalizeQuotaPackages(request.quotaPackages());
@@ -805,10 +935,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 current.getEntitlementSnapshot(), preliminary.plan(), request);
         var finalized = commercialSelectionFinalizer.finalizeSelection(
                 request.targetPlanCode(), request.planPriceSelection(), requestedAddOns,
-                requestedPackages, CommercialCatalogResolver.Audience.CLIENT_CATALOG,
+                requestedPackages, audience,
                 retained, current.getEntitlementSnapshot());
-        requireResolvedSelection(
-                finalized.resolution(), CommercialCatalogResolver.Audience.CLIENT_CATALOG);
+        requireResolvedSelection(finalized.resolution(), audience);
 
         // The finalizer clears the persistence context; re-read the subscription while the
         // Account lock still prevents a competing subscription operation for this tenant.
@@ -817,7 +946,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         ChangeSelection selection = new ChangeSelection(requestedAddOns, requestedPackages);
         return assessResolvedChange(
                 accountId, current, finalized.plan(), finalized.snapshot(), selection,
-                request.effectiveTiming());
+                request.effectiveTiming(), audience);
     }
 
     private SubscriptionChangeAssessment assessResolvedChange(
@@ -826,7 +955,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             Plan targetPlan,
             SubscriptionEntitlementSnapshot targetSnapshot,
             ChangeSelection selection,
-            SubscriptionChangeTiming timing
+            SubscriptionChangeTiming timing,
+            CommercialCatalogResolver.Audience audience
     ) {
         List<SubscriptionChangeConflict> conflicts = subscriptionImpactAnalyzer.analyze(
                 accountId, current, targetSnapshot);
@@ -838,7 +968,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 subscriptionImpactAnalyzer.effectiveQuotaLimits(targetSnapshot);
         String fingerprint = subscriptionChangeFingerprint(
                 current, targetPlan, targetSnapshot, selection, timing,
-                price, conflicts, effectiveQuotaLimits);
+                price, conflicts, effectiveQuotaLimits, audience);
         return new SubscriptionChangeAssessment(
                 current, targetPlan, targetSnapshot, selection,
                 current.getCurrentPrice(), price.amount(), price.currencyCode(), conflicts.isEmpty(),
@@ -854,10 +984,12 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             SubscriptionChangeTiming timing,
             Money price,
             List<SubscriptionChangeConflict> conflicts,
-            List<EffectiveQuotaLimit> effectiveQuotaLimits
+            List<EffectiveQuotaLimit> effectiveQuotaLimits,
+            CommercialCatalogResolver.Audience audience
     ) {
         StringBuilder state = new StringBuilder();
         appendFingerprint(state, "subscription-change");
+        appendFingerprint(state, audience);
         appendFingerprint(state, current.getId());
         appendFingerprint(state, current.getVersion());
         appendFingerprint(state, current.getPlan().getId());
@@ -1020,24 +1152,34 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return plan;
     }
 
-    private ClientPlanSelection requireClientPlanSelection(
+    private ClientPlanSelection requirePlanSelection(
             String planCode,
-            ProductPriceSelectionRequest requestedPrice
+            ProductPriceSelectionRequest requestedPrice,
+            CommercialCatalogResolver.Audience audience
     ) {
         if (planCode == null || planCode.isBlank()) {
-            throw unavailableClientSelection();
+            throw unavailableSelection(audience);
         }
         CommercialCatalogResolver.PlanResolution resolution = commercialCatalogResolver
-                .resolveCatalog(CommercialCatalogResolver.Audience.CLIENT_CATALOG)
+                .resolveCatalog(audience)
                 .plans().stream()
-                .filter(CommercialCatalogResolver.PlanResolution::clientVisible)
+                .filter(candidate -> selectableForAudience(candidate, audience))
                 .filter(candidate -> candidate.plan().getCode().equals(planCode))
                 .findFirst()
-                .orElseThrow(this::unavailableClientSelection);
-        // Only after the Plan is known to be client-visible may exact price lookup return its
-        // normal owner/tuple errors. Hidden and unknown Plans fail identically before this point.
+                .orElseThrow(() -> unavailableSelection(audience));
+        // Only after the Plan is known to be selectable for this audience may exact price lookup
+        // return its normal owner/tuple errors. Client-hidden and unknown Plans fail identically.
         return new ClientPlanSelection(
                 resolution.plan(), productPriceResolver.resolvePlan(resolution.plan(), requestedPrice));
+    }
+
+    private InvalidRequestException unavailableSelection(
+            CommercialCatalogResolver.Audience audience
+    ) {
+        return audience == CommercialCatalogResolver.Audience.CLIENT_CATALOG
+                ? unavailableClientSelection()
+                : new InvalidRequestException(
+                        "The requested commercial selection is unavailable for operator assignment.");
     }
 
     private InvalidRequestException unavailableClientSelection() {

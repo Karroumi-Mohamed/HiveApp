@@ -1030,6 +1030,76 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void subscriptionChangeReviewApplyAndCancelUseSeparatePermissionNodes() throws Exception {
+        UUID missingAccountId = UUID.randomUUID();
+        UUID missingOperationId = UUID.randomUUID();
+        LimitedAdmin previewer = createLimitedAdmin("platform.subscriptions.preview_change");
+        LimitedAdmin applier = createLimitedAdmin("platform.subscriptions.apply_change");
+        LimitedAdmin canceller = createLimitedAdmin("platform.subscriptions.cancel_change");
+        LimitedAdmin optionChooser = createLimitedAdmin(
+                "platform.subscriptions.choose_change_options");
+        String selection = """
+                {"targetPlanCode":"PRO","addOnCodes":[],"quotaPackages":[],"timing":"AT_RENEWAL"}
+                """;
+
+        mockMvc.perform(get(
+                                "/api/admin/subscriptions/account/{id}/change-catalog",
+                                missingAccountId)
+                        .header("Authorization", bearer(previewer.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(get(
+                                "/api/admin/subscriptions/account/{id}/change-catalog",
+                                missingAccountId)
+                        .header("Authorization", bearer(optionChooser.token())))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post("/api/admin/subscriptions/account/{id}/changes/preview", missingAccountId)
+                        .header("Authorization", bearer(applier.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(selection))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(post("/api/admin/subscriptions/account/{id}/changes/preview", missingAccountId)
+                        .header("Authorization", bearer(previewer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(selection))
+                .andExpect(status().isNotFound());
+
+        String applyBody = """
+                {"selection":%s,"previewToken":"not-valid-evidence","reason":"Permission boundary test"}
+                """.formatted(selection.strip());
+        mockMvc.perform(post("/api/admin/subscriptions/account/{id}/changes/apply", missingAccountId)
+                        .header("Authorization", bearer(previewer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applyBody))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(post("/api/admin/subscriptions/account/{id}/changes/apply", missingAccountId)
+                        .header("Authorization", bearer(applier.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applyBody))
+                .andExpect(status().isNotFound());
+
+        String cancelBody = "{\"reason\":\"Permission boundary test\"}";
+        mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{id}/changes/{operationId}/cancel",
+                                missingAccountId, missingOperationId)
+                        .header("Authorization", bearer(applier.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cancelBody))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{id}/changes/{operationId}/cancel",
+                                missingAccountId, missingOperationId)
+                        .header("Authorization", bearer(canceller.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(cancelBody))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void scheduledReplacementPreviewAndExecutionUseSeparatePermissionNodes() throws Exception {
         UUID currentId = UUID.randomUUID();
         UUID successorId = UUID.randomUUID();
