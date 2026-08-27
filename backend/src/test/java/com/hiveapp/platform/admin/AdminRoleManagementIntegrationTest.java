@@ -157,6 +157,45 @@ class AdminRoleManagementIntegrationTest extends PlatformShellIntegrationTestSup
     }
 
     @Test
+    void segmentPermissionsRespectOperationalPresetSensitivity() throws Exception {
+        String token = loginAdminAndGetToken();
+        JsonNode presets = responseJson(mockMvc.perform(get("/api/admin/role-presets")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk()));
+
+        Set<String> observerCodes = permissionCodes(
+                findByCode(presets, "PLATFORM_OBSERVER").get("permissions"));
+        Set<String> commercialCodes = permissionCodes(
+                findByCode(presets, "COMMERCIAL_OPERATIONS").get("permissions"));
+        Set<String> allSegmentCodes = permissionRepository.findAll().stream()
+                .map(permission -> permission.getCode())
+                .filter(code -> code.startsWith("platform.segments."))
+                .collect(java.util.stream.Collectors.toSet());
+        Set<String> observerSegmentCodes = Set.of(
+                "platform.segments.list",
+                "platform.segments.read_detail",
+                "platform.segments.compare",
+                "platform.segments.read_revisions",
+                "platform.segments.read_history",
+                "platform.segments.count",
+                "platform.segments.preview",
+                "platform.segments.read_activations",
+                "platform.segments.read_activation_audience");
+
+        assertThat(allSegmentCodes).hasSize(22);
+        assertThat(commercialCodes).containsAll(allSegmentCodes);
+        assertThat(observerCodes).containsAll(observerSegmentCodes);
+        assertThat(observerCodes).doesNotContain(
+                "platform.segments.read_sample_identities",
+                "platform.segments.read_activation_identities",
+                "platform.segments.read_owner");
+        assertThat(observerCodes.stream()
+                .filter(allSegmentCodes::contains)
+                .collect(java.util.stream.Collectors.toSet()))
+                .isEqualTo(observerSegmentCodes);
+    }
+
+    @Test
     void permissionReplacementRequiresCurrentImpactPreview() throws Exception {
         String token = loginAdminAndGetToken();
         UUID permissionId = permissionRepository.findByCode("platform.registry.read").orElseThrow().getId();

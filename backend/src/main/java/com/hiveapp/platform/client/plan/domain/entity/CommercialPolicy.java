@@ -13,6 +13,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
@@ -39,11 +40,14 @@ import java.util.UUID;
 
 /** A reviewable commercial policy revision. Published terms are never edited in place. */
 @Entity
-@Table(name = "commercial_policies", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_commercial_policy_code", columnNames = "code"),
-        @UniqueConstraint(name = "uk_commercial_policy_lineage_revision",
-                columnNames = {"lineage_id", "revision_number"})
-})
+@Table(name = "commercial_policies",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_commercial_policy_code", columnNames = "code"),
+                @UniqueConstraint(name = "uk_commercial_policy_lineage_revision",
+                        columnNames = {"lineage_id", "revision_number"})
+        },
+        indexes = @Index(name = "idx_commercial_policy_segment_reference",
+                columnList = "segment_reference"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CommercialPolicy extends BaseEntity {
