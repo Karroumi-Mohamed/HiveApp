@@ -72,6 +72,42 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrationTestSupport {
 
+    @Test
+    void policyScopedSegmentChooserReturnsOnlyActiveFrozenRevisions() throws Exception {
+        String token = loginAdminAndGetToken();
+        Account account = registerAccount("segment-policy-choice");
+        JsonNode executable = createSegment(token,
+                explicitRequest("Executable renewal audience", Set.of(account.getId())));
+        UUID executableId = id(executable);
+        JsonNode active = activate(token, executableId, preview(token, executableId),
+                "Freeze the audience for policy targeting");
+        JsonNode draft = createSegment(token,
+                explicitRequest("Unpublished renewal audience", Set.of(account.getId())));
+
+        mockMvc.perform(get("/api/admin/commercial-policies/segment-choices")
+                        .header("Authorization", bearer(token))
+                        .param("query", "Executable renewal"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].id").value(executableId.toString()))
+                .andExpect(jsonPath("$.content[0].code")
+                        .value(active.at("/summary/code").asText()))
+                .andExpect(jsonPath("$.content[0].immutableAccountCount").value(1))
+                .andExpect(jsonPath("$.content[0].ownerEmail").doesNotExist());
+
+        mockMvc.perform(get("/api/admin/commercial-policies/segment-choices/selected")
+                        .header("Authorization", bearer(token))
+                        .param("references", active.at("/summary/code").asText()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].name").value("Executable renewal audience"));
+        mockMvc.perform(get("/api/admin/commercial-policies/segment-choices/selected")
+                        .header("Authorization", bearer(token))
+                        .param("references", draft.at("/summary/code").asText()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
     @Autowired private AccountRepository accountRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private SubscriptionRepository subscriptionRepository;

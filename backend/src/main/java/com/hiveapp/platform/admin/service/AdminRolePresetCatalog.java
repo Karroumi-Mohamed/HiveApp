@@ -201,6 +201,8 @@ public class AdminRolePresetCatalog {
                             "platform.commercial_policies.read",
                             "platform.commercial_policies.choose_accounts",
                             "platform.commercial_policies.resolve_account_choices",
+                            "platform.commercial_policies.choose_segments",
+                            "platform.commercial_policies.resolve_segment_choices",
                             "platform.commercial_policies.preview_audience",
                             "platform.commercial_policies.read_revisions",
                             "platform.commercial_policies.compare",

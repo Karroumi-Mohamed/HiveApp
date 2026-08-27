@@ -10,6 +10,8 @@ import org.springframework.data.domain.Pageable;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 public interface CommercialPolicyAdminService {
@@ -44,5 +46,7 @@ public interface CommercialPolicyAdminService {
     CommercialPolicyViews.Owner owner(UUID policyId);
     CommercialPolicyViews.Detail reassignOwner(UUID policyId, CommercialPolicyRequests.ReassignOwner request);
     Page<AccountDirectoryEntryDto> chooseAccounts(String query, Boolean active, Pageable pageable);
-    java.util.List<AccountDirectoryEntryDto> resolveAccountChoices(java.util.Collection<UUID> ids);
+    List<AccountDirectoryEntryDto> resolveAccountChoices(Collection<UUID> ids);
+    Page<CommercialPolicyViews.SegmentChoice> chooseSegments(String query, Pageable pageable);
+    List<CommercialPolicyViews.SegmentChoice> resolveSegmentChoices(Collection<String> references);
 }

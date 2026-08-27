@@ -226,6 +226,20 @@ public class CommercialPolicyAdminController {
         return service.resolveAccountChoices(ids);
     }
 
+    @GetMapping("/segment-choices")
+    public PageResponse<CommercialPolicyViews.SegmentChoice> chooseSegments(
+            @RequestParam(required = false) String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return PageResponse.from(service.chooseSegments(query, choicePage(page, size)));
+    }
+
+    @GetMapping("/segment-choices/selected")
+    public List<CommercialPolicyViews.SegmentChoice> resolveSegmentChoices(
+            @RequestParam List<String> references) {
+        return service.resolveSegmentChoices(references);
+    }
+
     private PageRequest page(int page, int size, String sort, String direction) {
         return CommercialProductPageRequest.of(page, size, sort, direction, SORTABLE,
                 "createdAt", Sort.Direction.DESC);

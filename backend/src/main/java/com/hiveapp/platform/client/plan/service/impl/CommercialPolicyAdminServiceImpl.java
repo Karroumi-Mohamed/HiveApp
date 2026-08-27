@@ -18,17 +18,22 @@ import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicySource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyStatus;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyTargetKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialPolicy;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialPolicyActivation;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialPolicyEffect;
+import com.hiveapp.platform.client.plan.domain.entity.CommercialSegment;
+import com.hiveapp.platform.client.plan.domain.entity.CommercialSegmentActivation;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialPolicyActivationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialPolicyRepository;
+import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentActivationRepository;
+import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.CommercialPolicyRequests;
@@ -102,6 +107,8 @@ public class CommercialPolicyAdminServiceImpl extends PlatformControlFeatureServ
 
     private final CommercialPolicyRepository policyRepository;
     private final CommercialPolicyActivationRepository activationRepository;
+    private final CommercialSegmentRepository segmentRepository;
+    private final CommercialSegmentActivationRepository segmentActivationRepository;
     private final AccountRepository accountRepository;
     private final AccountDirectoryService accountDirectoryService;
     private final PlanRepository planRepository;
@@ -514,6 +521,91 @@ public class CommercialPolicyAdminServiceImpl extends PlatformControlFeatureServ
                     "Account choice resolution requires 1 to 100 unique non-null ids.");
         }
         return accountDirectoryService.resolve(ids);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "choose_segments",
+            description = "Choose executable Segment targets for commercial policies")
+    public Page<CommercialPolicyViews.SegmentChoice> chooseSegments(
+            String search,
+            Pageable pageable
+    ) {
+        Page<CommercialSegment> segments = segmentRepository.findAll(
+                executableSegmentSpecification(search, null), pageable);
+        return toSegmentChoices(segments);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "resolve_segment_choices",
+            description = "Resolve retained commercial policy Segment targets")
+    public List<CommercialPolicyViews.SegmentChoice> resolveSegmentChoices(
+            java.util.Collection<String> references
+    ) {
+        if (references == null || references.isEmpty() || references.size() > 100
+                || references.stream().anyMatch(reference -> reference == null
+                        || reference.isBlank() || reference.trim().length() > 100)) {
+            throw new InvalidRequestException(
+                    "Segment choice resolution requires 1 to 100 non-blank references.");
+        }
+        List<String> normalized = references.stream()
+                .map(reference -> reference.trim().toUpperCase(Locale.ROOT))
+                .toList();
+        if (new LinkedHashSet<>(normalized).size() != normalized.size()) {
+            throw new InvalidRequestException(
+                    "Segment choice resolution requires unique references.");
+        }
+        List<CommercialSegment> segments = segmentRepository.findAll(
+                executableSegmentSpecification(null, Set.copyOf(normalized)),
+                Sort.by(Sort.Direction.ASC, "name").and(Sort.by(Sort.Direction.ASC, "id")));
+        Map<String, CommercialPolicyViews.SegmentChoice> byCode = segmentChoices(segments).stream()
+                .collect(Collectors.toMap(CommercialPolicyViews.SegmentChoice::code,
+                        Function.identity()));
+        return normalized.stream().map(byCode::get).filter(Objects::nonNull).toList();
+    }
+
+    private Specification<CommercialSegment> executableSegmentSpecification(
+            String search,
+            Set<String> references
+    ) {
+        return (root, query, cb) -> {
+            var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
+            predicates.add(cb.equal(root.get("status"), CommercialSegmentStatus.ACTIVE));
+            var activation = query.subquery(Long.class);
+            var activationRoot = activation.from(CommercialSegmentActivation.class);
+            activation.select(cb.literal(1L)).where(
+                    cb.equal(activationRoot.get("segment").get("id"), root.get("id")));
+            predicates.add(cb.exists(activation));
+            if (references != null) predicates.add(root.get("code").in(references));
+            if (search != null && !search.isBlank()) {
+                String pattern = "%" + escapeLike(search.trim().toLowerCase(Locale.ROOT)) + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("code")), pattern, '\\'),
+                        cb.like(cb.lower(root.get("name")), pattern, '\\')));
+            }
+            return cb.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
+        };
+    }
+
+    private Page<CommercialPolicyViews.SegmentChoice> toSegmentChoices(
+            Page<CommercialSegment> segments
+    ) {
+        return new PageImpl<>(segmentChoices(segments.getContent()), segments.getPageable(),
+                segments.getTotalElements());
+    }
+
+    private List<CommercialPolicyViews.SegmentChoice> segmentChoices(
+            List<CommercialSegment> segments
+    ) {
+        List<UUID> ids = segments.stream().map(CommercialSegment::getId).toList();
+        Map<UUID, Integer> counts = ids.isEmpty()
+                ? Map.of()
+                : groupedInteger(segmentActivationRepository.countLatestSnapshotAccounts(ids));
+        return segments.stream().map(segment -> new CommercialPolicyViews.SegmentChoice(
+                segment.getId(), segment.getCode(), segment.getName(),
+                segment.getRevisionNumber(), segment.getKind(),
+                counts.getOrDefault(segment.getId(), 0))).toList();
     }
 
     private CommercialPolicyViews.Detail applyActivation(

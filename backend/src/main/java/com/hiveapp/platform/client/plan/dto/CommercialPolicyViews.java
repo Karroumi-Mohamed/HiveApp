@@ -10,6 +10,7 @@ import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyProductT
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicySource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyStatus;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyTargetKind;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
 import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.shared.audit.domain.AuditOutcome;
 
@@ -83,6 +84,16 @@ public final class CommercialPolicyViews {
     ) {
         public Target { accountIds = Set.copyOf(accountIds == null ? Set.of() : accountIds); }
     }
+
+    /** Policy-scoped chooser row: executable Segment metadata without Account identities. */
+    public record SegmentChoice(
+            UUID id,
+            String code,
+            String name,
+            int revisionNumber,
+            CommercialSegmentKind kind,
+            int immutableAccountCount
+    ) {}
 
     public record Effect(
             UUID id,
