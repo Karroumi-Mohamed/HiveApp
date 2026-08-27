@@ -31,6 +31,7 @@ import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementResult;
 import com.hiveapp.platform.client.plan.dto.UpdateProductPriceRequest;
 import com.hiveapp.platform.client.plan.service.ProductPriceAdminService;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
 import com.hiveapp.platform.client.plan.service.ProductPriceResolver;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PriceBooksFeature;
@@ -196,6 +197,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "create", description = "Create a draft product price entry")
     public ProductPriceDto createDraft(ProductPriceOwnerType ownerType, UUID ownerId,
                                        CreateProductPriceRequest request) {
@@ -214,6 +216,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_draft", description = "Edit draft product price terms")
     public ProductPriceDto updateDraft(UUID priceId, UpdateProductPriceRequest request) {
         ProductPrice hint = requirePrice(priceId);
@@ -239,6 +242,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "activate", description = "Publish a draft product price entry")
     public ProductPriceDto activate(UUID priceId, long version, String reason) {
         requireReason(reason);
@@ -247,6 +251,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "pause", description = "Pause a published product price for new sales")
     public ProductPriceDto pause(UUID priceId, long version, String reason) {
         requireReason(reason);
@@ -258,6 +263,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "reactivate", description = "Reactivate a paused product price")
     public ProductPriceDto reactivate(UUID priceId, long version, String reason) {
         requireReason(reason);
@@ -266,6 +272,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "revise", description = "Create a successor draft price revision")
     public ProductPriceDto revise(UUID priceId, long version, String reason) {
         requireReason(reason);
@@ -302,6 +309,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "schedule_replacement", description = "Atomically schedule a successor price")
     public ProductPriceReplacementResult scheduleReplacement(
             UUID successorPriceId,
@@ -360,6 +368,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "archive", description = "Archive a non-active product price entry")
     public ProductPriceDto archive(UUID priceId, long version, String reason) {
         requireReason(reason);
@@ -371,6 +380,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "delete_draft", description = "Delete an unpublished draft price entry")
     public void deleteDraft(UUID priceId, long version) {
         ProductPrice price = requirePrice(priceId);

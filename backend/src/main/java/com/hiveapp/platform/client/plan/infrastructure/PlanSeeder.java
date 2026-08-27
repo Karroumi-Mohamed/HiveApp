@@ -9,6 +9,7 @@ import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
 import com.hiveapp.platform.registry.definition.B2bFeature;
 import com.hiveapp.platform.registry.definition.ClientSubscriptionFeature;
 import com.hiveapp.platform.registry.definition.CompanyFeature;
@@ -82,6 +83,7 @@ public class PlanSeeder {
     @EventListener(ApplicationReadyEvent.class)
     @Order(3)
     @Transactional
+    @CommercialCatalogMutation
     public void seed() {
         Map<String, Feature> baselineFeatures = requireBaselineFeatures();
         int created = 0;

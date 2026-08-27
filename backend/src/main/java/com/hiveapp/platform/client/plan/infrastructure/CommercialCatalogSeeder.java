@@ -14,6 +14,7 @@ import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.registry.definition.B2bFeature;
 import com.hiveapp.platform.registry.definition.CompanyFeature;
@@ -109,6 +110,7 @@ public class CommercialCatalogSeeder {
     @EventListener(ApplicationReadyEvent.class)
     @Order(4)
     @Transactional
+    @CommercialCatalogMutation
     public void seed() {
         int addOnsCreated = seedAddOns();
         int packagesCreated = seedQuotaPackages();

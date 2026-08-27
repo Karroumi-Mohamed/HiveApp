@@ -36,6 +36,7 @@ import com.hiveapp.platform.client.plan.dto.ProductVisibilityPreviewRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 import com.hiveapp.platform.client.plan.service.CommercialAvailabilityService;
 import com.hiveapp.platform.client.plan.service.CommercialAvailabilityAuditContract;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.platform.client.plan.service.PlanAdminReadModels;
 import com.hiveapp.platform.registry.definition.CommercialAvailabilityFeature;
@@ -147,6 +148,7 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_plan_policy", description = "Apply a previewed Plan availability change")
     public PlanDto updatePlan(UUID planId, PlanAvailabilityMutationRequest request) {
         Plan plan = planRepository.findByIdForUpdate(planId)
@@ -183,6 +185,7 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_add_on_visibility", description = "Change AddOn sales visibility")
     public AddOnDto updateAddOn(UUID addOnId, ProductVisibilityMutationRequest request) {
         AddOn addOn = addOnRepository.findByIdForUpdate(addOnId)
@@ -217,6 +220,7 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_quota_visibility", description = "Change quota-package sales visibility")
     public QuotaPackageDto updateQuotaPackage(
             UUID quotaPackageId, ProductVisibilityMutationRequest request) {

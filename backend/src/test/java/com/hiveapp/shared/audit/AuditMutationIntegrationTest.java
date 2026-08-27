@@ -5,7 +5,9 @@ import com.hiveapp.shared.audit.domain.AuditActorSurface;
 import com.hiveapp.shared.audit.domain.AuditLogRepository;
 import com.hiveapp.shared.audit.domain.AuditOutcome;
 import com.hiveapp.shared.exception.InvalidStateException;
-import com.hiveapp.platform.admin.service.AdminRoleService;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogMutationAspect;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
@@ -26,6 +28,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.http.MediaType;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -44,7 +47,9 @@ class AuditMutationIntegrationTest extends PlatformShellIntegrationTestSupport {
     @Autowired private AuditLogRepository auditLogRepository;
     @Autowired private AuditTestMutation auditTestMutation;
     @Autowired private PlatformTransactionManager transactionManager;
-    @Autowired private AdminRoleService adminRoleService;
+    @Autowired private CatalogOuterMutation catalogOuterMutation;
+    @Autowired private CatalogWithoutTransaction catalogWithoutTransaction;
+    @Autowired private CommercialCatalogVersionService commercialCatalogVersionService;
 
     private UUID actorUserId;
     private UUID accountId;
@@ -133,12 +138,12 @@ class AuditMutationIntegrationTest extends PlatformShellIntegrationTestSupport {
     }
 
     @Test
-    void mutationAdvisorOrderIsTransactionThenAuditThenPermissionThenMethod() throws Exception {
-        assertThat(adminRoleService).isInstanceOf(Advised.class);
-        Advised advised = (Advised) adminRoleService;
-        Class<?> targetClass = AopUtils.getTargetClass(adminRoleService);
-        var method = targetClass.getMethod(
-                "createAdminRole", String.class, String.class, List.class);
+    void commercialMutationAdvisorOrderIsTransactionThenAuditThenPermissionThenCatalogThenMethod()
+            throws Exception {
+        assertThat(auditTestMutation).isInstanceOf(Advised.class);
+        Advised advised = (Advised) auditTestMutation;
+        Class<?> targetClass = AopUtils.getTargetClass(auditTestMutation);
+        var method = targetClass.getMethod("catalogMutation", UUID.class);
 
         List<String> chain = Arrays.stream(advised.getAdvisors())
                 .filter(advisor -> appliesTo(advisor, method, targetClass))
@@ -147,7 +152,45 @@ class AuditMutationIntegrationTest extends PlatformShellIntegrationTestSupport {
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         chain.add("METHOD");
 
-        assertThat(chain).containsSubsequence("TRANSACTION", "AUDIT", "PERMISSION", "METHOD");
+        assertThat(chain).containsSubsequence(
+                "TRANSACTION", "AUDIT", "PERMISSION", "CATALOG", "METHOD");
+    }
+
+    @Test
+    void nestedCommercialMutationsAdvanceTheRevisionOncePerTransaction() {
+        long before = commercialCatalogVersionService.currentRevision();
+
+        catalogOuterMutation.mutate();
+
+        assertThat(commercialCatalogVersionService.currentRevision()).isEqualTo(before + 1);
+    }
+
+    @Test
+    void rolledBackCommercialMutationDoesNotAdvanceTheRevision() {
+        long before = commercialCatalogVersionService.currentRevision();
+
+        assertThatThrownBy(() -> catalogOuterMutation.mutateThenFail())
+                .isInstanceOf(InvalidStateException.class);
+
+        assertThat(commercialCatalogVersionService.currentRevision()).isEqualTo(before);
+    }
+
+    @Test
+    void commercialMutationWithoutATransactionFailsClosed() {
+        assertThatThrownBy(catalogWithoutTransaction::mutate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("active Spring transaction");
+    }
+
+    @Test
+    void nestedIndependentCommercialTransactionFailsBeforeLockingAgain() {
+        long before = commercialCatalogVersionService.currentRevision();
+
+        assertThatThrownBy(() -> catalogOuterMutation.mutateWithRequiresNew())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("independent nested transaction");
+
+        assertThat(commercialCatalogVersionService.currentRevision()).isEqualTo(before);
     }
 
     @Test
@@ -207,6 +250,26 @@ class AuditMutationIntegrationTest extends PlatformShellIntegrationTestSupport {
         AuditTestMutation auditTestMutation() {
             return new AuditTestMutation();
         }
+
+        @Bean
+        CatalogInnerMutation catalogInnerMutation() {
+            return new CatalogInnerMutation();
+        }
+
+        @Bean
+        CatalogOuterMutation catalogOuterMutation(CatalogInnerMutation inner) {
+            return new CatalogOuterMutation(inner);
+        }
+
+        @Bean
+        CatalogRequiresNewMutation catalogRequiresNewMutation() {
+            return new CatalogRequiresNewMutation();
+        }
+
+        @Bean
+        CatalogWithoutTransaction catalogWithoutTransaction() {
+            return new CatalogWithoutTransaction();
+        }
     }
 
     static class AuditTestMutation {
@@ -228,6 +291,70 @@ class AuditMutationIntegrationTest extends PlatformShellIntegrationTestSupport {
         public void readOnlyFailure(UUID accountId) {
             throw new InvalidStateException("read-only failures are not mutation audit events");
         }
+
+        @Transactional
+        @CommercialCatalogMutation
+        @PermissionNode(key = "catalog_mutation", guard = PermissionNode.Guard.OFF)
+        public void catalogMutation(UUID resourceId) {
+            // Advisor-order probe only.
+        }
+    }
+
+    static class CatalogInnerMutation {
+
+        @Transactional
+        @CommercialCatalogMutation
+        public void mutate() {
+            // Transaction coalescing probe only.
+        }
+    }
+
+    static class CatalogOuterMutation {
+
+        private final CatalogInnerMutation inner;
+
+        @Autowired
+        private CatalogRequiresNewMutation requiresNew;
+
+        CatalogOuterMutation(CatalogInnerMutation inner) {
+            this.inner = inner;
+        }
+
+        @Transactional
+        @CommercialCatalogMutation
+        public void mutate() {
+            inner.mutate();
+        }
+
+        @Transactional
+        @CommercialCatalogMutation
+        public void mutateThenFail() {
+            inner.mutate();
+            throw new InvalidStateException("roll back the catalogue mutation");
+        }
+
+        @Transactional
+        @CommercialCatalogMutation
+        public void mutateWithRequiresNew() {
+            requiresNew.mutate();
+        }
+    }
+
+    static class CatalogRequiresNewMutation {
+
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        @CommercialCatalogMutation
+        public void mutate() {
+            // The guard must reject this before requesting the singleton lock a second time.
+        }
+    }
+
+    static class CatalogWithoutTransaction {
+
+        @CommercialCatalogMutation
+        public void mutate() {
+            // The guard must reject this before entering the method.
+        }
     }
 
     private boolean appliesTo(Advisor advisor, java.lang.reflect.Method method, Class<?> targetClass) {
@@ -242,6 +369,7 @@ class AuditMutationIntegrationTest extends PlatformShellIntegrationTestSupport {
             Class<?> aspectType = aspectJAdvice.getAspectJAdviceMethod().getDeclaringClass();
             if (aspectType == AuditMutationAspect.class) return "AUDIT";
             if (aspectType == PermissionInterceptor.class) return "PERMISSION";
+            if (aspectType == CommercialCatalogMutationAspect.class) return "CATALOG";
         }
         return null;
     }

@@ -35,7 +35,7 @@ public class FeatureSeeder {
     private final FeatureRepository featureRepository;
     private final FeatureDefinitionCollector featureDefinitionCollector;
 
-    public SeedResult seedFeatures() {
+    SeedResult seedFeatures() {
         return synchronize(featureDefinitionCollector.collect());
     }
 

@@ -23,6 +23,7 @@ import com.hiveapp.platform.registry.dto.admin.FeatureOperationalChangeDto;
 import com.hiveapp.platform.registry.service.RegistryService;
 import com.hiveapp.platform.registry.service.CurrentRegistrySnapshot;
 import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
 import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
@@ -164,6 +165,7 @@ public class RegistryServiceImpl extends PlatformControlFeatureService implement
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_public_visibility", description = "Change public feature visibility")
     public void updatePublicVisibility(UUID featureId, boolean enabled, String reason) {
         updateControl(featureId, FeatureOperationalControl.PUBLIC_VISIBILITY, enabled, reason, false, false);
@@ -171,6 +173,7 @@ public class RegistryServiceImpl extends PlatformControlFeatureService implement
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_new_sales", description = "Change availability for new sales")
     public void updateNewSales(UUID featureId, boolean enabled, String reason) {
         updateControl(featureId, FeatureOperationalControl.NEW_SALES, enabled, reason, false, false);
@@ -185,6 +188,7 @@ public class RegistryServiceImpl extends PlatformControlFeatureService implement
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_emergency_runtime", description = "Emergency-stop or restore feature runtime")
     public void updateEmergencyRuntime(UUID featureId, boolean enabled, String reason,
                                        boolean impactConfirmed, boolean communicationConfirmed) {

@@ -6,6 +6,8 @@ import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 
 import java.lang.reflect.Method;
 import java.util.logging.Logger;
@@ -41,6 +43,7 @@ import java.util.logging.Logger;
  * </p>
  */
 @Aspect
+@Order(Ordered.LOWEST_PRECEDENCE - 1)
 public class PermissionInterceptor {
 
     private static final Logger LOG = Logger.getLogger(PermissionInterceptor.class.getName());

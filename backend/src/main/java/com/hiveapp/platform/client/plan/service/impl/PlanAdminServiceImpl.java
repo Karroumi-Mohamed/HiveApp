@@ -58,6 +58,7 @@ import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
 import com.hiveapp.platform.client.plan.service.CommercialCodeGenerator;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
 import com.hiveapp.platform.client.plan.dto.PlanDto;
 import com.hiveapp.platform.client.plan.dto.PlanFeatureDto;
 import com.hiveapp.platform.client.plan.dto.AddOnDto;
@@ -292,6 +293,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "create",
             description = "Create a new Plan draft and its reviewable initial price draft")
     public PlanDto createPlan(CreatePlanRequest request) {
@@ -338,6 +340,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "duplicate",
             description = "Duplicate Plan configuration and active price schedules into reviewable drafts")
     public PlanDto duplicatePlan(UUID sourcePlanId, long expectedVersion, PlanBranchRequest request) {
@@ -360,6 +363,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "revise",
             description = "Create a Plan successor with reviewable copies of active price schedules")
     public PlanDto revisePlan(UUID sourcePlanId, long expectedVersion, PlanBranchRequest request) {
@@ -408,6 +412,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update", description = "Update plan template basics")
     public PlanDto updatePlan(UUID planId, UpdatePlanRequest request) {
         Plan plan = planRepository.findByIdForUpdate(planId)
@@ -430,6 +435,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "transition_status", description = "Transition a plan lifecycle state")
     public PlanDto transitionStatus(
             UUID planId,
@@ -478,6 +484,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "delete",
             description = "Delete a confirmed unused Plan draft and its unpublished price drafts")
     public void deletePlan(UUID planId, DeletePlanRequest request) {
@@ -562,6 +569,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "assign_feature", description = "Assign a feature to a plan")
     public PlanFeatureDto assignFeature(
             UUID planId, long expectedVersion, AssignPlanFeatureRequest request) {
@@ -599,6 +607,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_feature", description = "Update a plan's feature quota/price config")
     public PlanFeatureDto updateFeature(
             UUID planId, UUID planFeatureId, long expectedVersion,
@@ -627,6 +636,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "remove_feature", description = "Remove a feature from a plan")
     public void removeFeature(UUID planId, UUID planFeatureId, long expectedVersion) {
         Plan plan = planRepository.findByIdForCompositionUpdate(planId)
@@ -702,6 +712,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "create_add_on",
             description = "Create an AddOn draft and its reviewable initial price draft")
     public AddOnDto createAddOn(CreateAddOnRequest request) {
@@ -731,6 +742,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "revise_add_on",
             description = "Create an AddOn successor with reviewable copies of active price schedules")
     public AddOnDto reviseAddOn(UUID sourceAddOnId, long expectedVersion) {
@@ -813,6 +825,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_add_on", description = "Update a commercial AddOn draft")
     public AddOnDto updateAddOn(UUID addOnId, UpdateAddOnRequest request) {
         AddOn addOn = addOnRepository.findByIdForUpdate(addOnId)
@@ -829,6 +842,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "transition_add_on", description = "Transition a commercial AddOn lifecycle state")
     public AddOnDto transitionAddOnStatus(
             UUID addOnId,
@@ -913,6 +927,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "delete_add_on",
             description = "Delete an unused AddOn draft and its unpublished price drafts")
     public void deleteAddOn(UUID addOnId, long expectedVersion) {
@@ -958,6 +973,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "assign_add_on_feature", description = "Assign a feature to an AddOn draft")
     public AddOnDto.FeatureItem assignAddOnFeature(
             UUID addOnId, long expectedVersion, AssignAddOnFeatureRequest request) {
@@ -982,6 +998,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_add_on_feature", description = "Update an AddOn feature configuration")
     public AddOnDto.FeatureItem updateAddOnFeature(
             UUID addOnId, UUID addOnFeatureId, long expectedVersion,
@@ -1001,6 +1018,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "remove_add_on_feature", description = "Remove a feature from an AddOn draft")
     public void removeAddOnFeature(UUID addOnId, UUID addOnFeatureId, long expectedVersion) {
         AddOn addOn = requireEditableAddOnForUpdate(addOnId, expectedVersion);
@@ -1070,6 +1088,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "create_quota_package",
             description = "Create a capacity-package draft and its reviewable initial price draft")
     public QuotaPackageDto createQuotaPackage(CreateQuotaPackageRequest request) {
@@ -1111,6 +1130,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "revise_quota_package",
             description = "Create a reasoned successor package and reviewable draft price book")
     public QuotaPackageRevisionResult reviseQuotaPackage(
@@ -1140,10 +1160,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new InvalidStateException(
                     "Only a published, non-archived capacity package can be revised.");
         }
-        int maximumRevision = lineage.stream().mapToInt(QuotaPackage::getRevisionNumber).max().orElse(0);
-        if (source.getRevisionNumber() != maximumRevision) {
-            throw new InvalidStateException("Only the latest capacity-package revision can be revised.");
-        }
         lineage.stream()
                 .filter(candidate -> candidate.getStatus() == QuotaPackageStatus.DRAFT)
                 .findFirst()
@@ -1152,6 +1168,10 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                             "Capacity-package revision R" + draft.getRevisionNumber()
                                     + " is already an editable draft.");
                 });
+        int maximumRevision = lineage.stream().mapToInt(QuotaPackage::getRevisionNumber).max().orElse(0);
+        if (source.getRevisionNumber() != maximumRevision) {
+            throw new InvalidStateException("Only the latest capacity-package revision can be revised.");
+        }
 
         List<ProductPrice> sourcePrices = productPriceRepository
                 .findAllByQuotaPackageIdForUpdate(sourceQuotaPackageId).stream()
@@ -1261,6 +1281,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "lifecycle_quota_package",
             description = "Publish reviewed capacity-package price drafts or change package lifecycle")
     public QuotaPackageDto changeQuotaPackageLifecycle(
@@ -1351,6 +1372,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "update_quota_package", description = "Update a commercial quota package draft")
     public QuotaPackageDto updateQuotaPackage(UUID quotaPackageId, UpdateQuotaPackageRequest request) {
         QuotaPackage item = requireEditableQuotaPackage(quotaPackageId);
@@ -1367,6 +1389,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @Transactional
+    @CommercialCatalogMutation
     @PermissionNode(key = "delete_quota_package",
             description = "Delete a version-pinned package draft and its unpublished price drafts")
     public void deleteQuotaPackage(UUID quotaPackageId, long expectedVersion) {

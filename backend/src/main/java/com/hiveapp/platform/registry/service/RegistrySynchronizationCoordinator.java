@@ -5,6 +5,7 @@ import com.hiveapp.platform.registry.domain.entity.RegistrySyncLock;
 import com.hiveapp.platform.registry.domain.entity.RegistrySyncRun;
 import com.hiveapp.platform.registry.domain.repository.RegistrySyncLockRepository;
 import com.hiveapp.platform.registry.domain.repository.RegistrySyncRunRepository;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ public class RegistrySynchronizationCoordinator {
     private final PermissionSeeder permissionSeeder;
 
     @Transactional
+    @CommercialCatalogMutation
     public RegistrySyncRun synchronize(
             RegistrySnapshot snapshot,
             String buildVersion,

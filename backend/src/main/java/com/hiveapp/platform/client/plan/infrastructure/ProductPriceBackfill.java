@@ -12,6 +12,7 @@ import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +38,7 @@ public class ProductPriceBackfill {
     @EventListener(ApplicationReadyEvent.class)
     @Order(5)
     @Transactional
+    @CommercialCatalogMutation
     public void backfill() {
         int created = 0;
         for (Plan plan : planRepository.findAll()) {
