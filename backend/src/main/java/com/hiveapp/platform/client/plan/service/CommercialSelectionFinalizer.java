@@ -57,6 +57,23 @@ public class CommercialSelectionFinalizer {
             CommercialCatalogResolver.RetainedSelection retained,
             SubscriptionEntitlementSnapshot currentSnapshot
     ) {
+        return finalizeSelection(
+                planCode, requestedPlanPrice, addOnCodes, quotaPackages, audience,
+                retained, currentSnapshot,
+                CommercialPolicyEvaluator.Evaluation.empty(java.time.Instant.EPOCH));
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public FinalizedSelection finalizeSelection(
+            String planCode,
+            ProductPriceSelectionRequest requestedPlanPrice,
+            Set<String> addOnCodes,
+            List<QuotaPackageSelection> quotaPackages,
+            CommercialCatalogResolver.Audience audience,
+            CommercialCatalogResolver.RetainedSelection retained,
+            SubscriptionEntitlementSnapshot currentSnapshot,
+            CommercialPolicyEvaluator.Evaluation policyEvaluation
+    ) {
         // Keep the catalogue revision stable through the final resolver pass and the caller's
         // transaction commit. Exact product-row locks alone do not cover unselected dependencies
         // or availability policy changes that can still alter the resolved selection.
@@ -81,9 +98,11 @@ public class CommercialSelectionFinalizer {
         ProductPrice preliminaryPlanPrice = selectPlanPrice(plan, requestedPlanPrice, currentSnapshot);
         CommercialCatalogResolver.RetainedSelection effectiveRetained = effectiveRetained(
                 retained, preliminaryPlanPrice, currentSnapshot);
-        CommercialCatalogResolver.SelectionResolution preliminary = catalogResolver.resolveSelection(
+        CommercialCatalogResolver.SelectionResolution preliminary =
+                CommercialPolicySelectionRules.adjustSelection(catalogResolver.resolveSelection(
                 plan, CommercialCatalogResolver.PriceTuple.from(preliminaryPlanPrice),
-                selectedAddOns, selectedPackages, audience, effectiveRetained);
+                selectedAddOns, selectedPackages, audience, effectiveRetained),
+                audience, policyEvaluation);
         SelectionPin pin = SelectionPin.capture(
                 preliminary, preliminaryPlanPrice, selectedAddOns, selectedPackages, effectiveRetained);
 
@@ -104,9 +123,11 @@ public class CommercialSelectionFinalizer {
         var finalPlan = planRepository.findByCode(planCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "code", planCode));
         ProductPrice finalPlanPrice = selectPlanPrice(finalPlan, requestedPlanPrice, currentSnapshot);
-        CommercialCatalogResolver.SelectionResolution resolved = catalogResolver.resolveSelection(
+        CommercialCatalogResolver.SelectionResolution resolved =
+                CommercialPolicySelectionRules.adjustSelection(catalogResolver.resolveSelection(
                 finalPlan, CommercialCatalogResolver.PriceTuple.from(finalPlanPrice),
-                selectedAddOns, selectedPackages, audience, effectiveRetained);
+                selectedAddOns, selectedPackages, audience, effectiveRetained),
+                audience, policyEvaluation);
         SelectionPin finalPin = SelectionPin.capture(
                 resolved, finalPlanPrice, selectedAddOns, selectedPackages, effectiveRetained);
         if (!pin.equals(finalPin)) {

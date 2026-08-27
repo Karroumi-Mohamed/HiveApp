@@ -16,8 +16,15 @@ import java.util.UUID;
 
 public record ClientPlanCatalogResponse(
         CurrentSubscription currentSubscription,
-        List<CatalogPlan> plans
+        List<CatalogPlan> plans,
+        List<CommercialPolicyDecisionSnapshot> commercialPolicyDecisions
 ) {
+    public ClientPlanCatalogResponse {
+        plans = plans == null ? List.of() : List.copyOf(plans);
+        commercialPolicyDecisions = commercialPolicyDecisions == null
+                ? List.of() : List.copyOf(commercialPolicyDecisions);
+    }
+
     public record CurrentSubscription(
             UUID id,
             String planCode,
@@ -81,7 +88,8 @@ public record ClientPlanCatalogResponse(
             List<CatalogFeature> features,
             List<CatalogAddOn> addOns,
             List<CatalogQuotaPackage> quotaPackages,
-            List<CatalogPrice> prices
+            List<CatalogPrice> prices,
+            List<CommercialPolicyDecisionSnapshot> commercialPolicyDecisions
     ) {
         public CatalogPlan(
                 String code, String name, String description, BigDecimal basePrice,
@@ -90,7 +98,7 @@ public record ClientPlanCatalogResponse(
                 List<CatalogQuotaPackage> quotaPackages
         ) {
             this(code, name, description, basePrice, currencyCode, billingCycle, current, true,
-                    features, addOns, quotaPackages, List.of());
+                    features, addOns, quotaPackages, List.of(), List.of());
         }
     }
 
@@ -113,7 +121,9 @@ public record ClientPlanCatalogResponse(
             Set<String> dependencyCodes,
             Set<String> exclusionCodes,
             List<CatalogAddOnFeature> features,
-            List<CatalogPrice> prices
+            List<CatalogPrice> prices,
+            boolean selectable,
+            List<CommercialPolicyDecisionSnapshot> commercialPolicyDecisions
     ) {
         public CatalogAddOn(
                 String code, String name, String description, BigDecimal price,
@@ -122,7 +132,7 @@ public record ClientPlanCatalogResponse(
                 List<CatalogAddOnFeature> features
         ) {
             this(code, name, description, price, currencyCode, billingCycle, definitionVersion,
-                    dependencyCodes, exclusionCodes, features, List.of());
+                    dependencyCodes, exclusionCodes, features, List.of(), true, List.of());
         }
     }
 
@@ -160,6 +170,8 @@ public record ClientPlanCatalogResponse(
             List<CatalogPrice> prices,
             boolean directlyAvailable,
             Set<String> requiresAddOnCodes
+            , boolean selectable
+            , List<CommercialPolicyDecisionSnapshot> commercialPolicyDecisions
     ) {
         public CatalogQuotaPackage(
                 String code, String name, String description, long definitionVersion,
@@ -169,7 +181,7 @@ public record ClientPlanCatalogResponse(
         ) {
             this(code, name, description, definitionVersion, featureCode, resource, capacityPerUnit,
                     price, currencyCode, billingCycle, repeatable, maximumQuantity,
-                    allowedPlanCodes, allowedAddOnCodes, List.of(), false, Set.of());
+                    allowedPlanCodes, allowedAddOnCodes, List.of(), false, Set.of(), true, List.of());
         }
     }
 

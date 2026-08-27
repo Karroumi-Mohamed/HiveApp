@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
+import com.hiveapp.platform.client.plan.dto.SubscriptionCommercialPolicyEvaluation;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -79,6 +80,10 @@ public class SubscriptionChangeOperation extends BaseEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "target_snapshot", nullable = false)
     private SubscriptionEntitlementSnapshot targetSnapshot;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "commercial_policy_evaluation")
+    private SubscriptionCommercialPolicyEvaluation commercialPolicyEvaluation;
 
     @Column(name = "attention_reason", length = 2000)
     private String attentionReason;

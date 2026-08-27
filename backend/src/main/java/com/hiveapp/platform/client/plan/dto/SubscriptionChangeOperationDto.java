@@ -14,5 +14,6 @@ public record SubscriptionChangeOperationDto(
         String sourcePlanCode,
         String targetPlanCode,
         String attentionReason,
-        SubscriptionCheckoutDto checkout
+        SubscriptionCheckoutDto checkout,
+        SubscriptionCommercialPolicyEvaluation commercialPolicyEvaluation
 ) {}

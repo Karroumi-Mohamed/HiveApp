@@ -20,14 +20,18 @@ public record SubscriptionEntitlementSnapshot(
         List<SubscriptionFeatureSnapshot> features,
         List<SubscriptionAddOnSnapshot> addOns,
         List<SubscriptionQuotaPackageSnapshot> quotaPackages,
-        UUID planPriceEntryId
+        UUID planPriceEntryId,
+        SubscriptionCommercialPolicyEvaluation commercialPolicyEvaluation
 ) {
     public static final int SCHEMA_VERSION_V1 = 1;
-    public static final int CURRENT_SCHEMA_VERSION = 2;
+    public static final int SCHEMA_VERSION_V2 = 2;
+    public static final int CURRENT_SCHEMA_VERSION = 3;
 
     public SubscriptionEntitlementSnapshot {
         schemaVersion = schemaVersion == 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
-        if (schemaVersion != SCHEMA_VERSION_V1 && schemaVersion != CURRENT_SCHEMA_VERSION) {
+        if (schemaVersion != SCHEMA_VERSION_V1
+                && schemaVersion != SCHEMA_VERSION_V2
+                && schemaVersion != CURRENT_SCHEMA_VERSION) {
             throw new IllegalArgumentException("Unsupported subscription snapshot schema version: " + schemaVersion);
         }
         if (effectiveFrom != null && effectiveUntil != null && !effectiveUntil.isAfter(effectiveFrom)) {
@@ -36,6 +40,27 @@ public record SubscriptionEntitlementSnapshot(
         features = features == null ? List.of() : List.copyOf(features);
         addOns = addOns == null ? List.of() : List.copyOf(addOns);
         quotaPackages = quotaPackages == null ? List.of() : List.copyOf(quotaPackages);
+    }
+
+    /** Source-compatible constructor for schema V1/V2 callers that predate policy terms. */
+    public SubscriptionEntitlementSnapshot(
+            int schemaVersion,
+            String planCode,
+            String planName,
+            long planDefinitionVersion,
+            BigDecimal basePrice,
+            String currencyCode,
+            BillingCycle billingCycle,
+            Instant effectiveFrom,
+            Instant effectiveUntil,
+            List<SubscriptionFeatureSnapshot> features,
+            List<SubscriptionAddOnSnapshot> addOns,
+            List<SubscriptionQuotaPackageSnapshot> quotaPackages,
+            UUID planPriceEntryId
+    ) {
+        this(schemaVersion, planCode, planName, planDefinitionVersion, basePrice, currencyCode,
+                billingCycle, effectiveFrom, effectiveUntil, features, addOns, quotaPackages,
+                planPriceEntryId, null);
     }
 
     /** Source-compatible constructor for persisted and test-owned schema-V1 snapshots. */
@@ -54,7 +79,7 @@ public record SubscriptionEntitlementSnapshot(
             List<SubscriptionQuotaPackageSnapshot> quotaPackages
     ) {
         this(schemaVersion, planCode, planName, planDefinitionVersion, basePrice, currencyCode,
-                billingCycle, effectiveFrom, effectiveUntil, features, addOns, quotaPackages, null);
+                billingCycle, effectiveFrom, effectiveUntil, features, addOns, quotaPackages, null, null);
     }
 
     public SubscriptionEntitlementSnapshot(
@@ -90,6 +115,16 @@ public record SubscriptionEntitlementSnapshot(
     public SubscriptionEntitlementSnapshot withEffectivePeriod(Instant from, Instant until) {
         return new SubscriptionEntitlementSnapshot(
                 schemaVersion, planCode, planName, planDefinitionVersion, basePrice, currencyCode, billingCycle,
-                from, until, features, addOns, quotaPackages, planPriceEntryId);
+                from, until, features, addOns, quotaPackages, planPriceEntryId,
+                commercialPolicyEvaluation);
+    }
+
+    public SubscriptionEntitlementSnapshot withCommercialPolicyEvaluation(
+            SubscriptionCommercialPolicyEvaluation evaluation
+    ) {
+        return new SubscriptionEntitlementSnapshot(
+                CURRENT_SCHEMA_VERSION, planCode, planName, planDefinitionVersion,
+                basePrice, currencyCode, billingCycle, effectiveFrom, effectiveUntil,
+                features, addOns, quotaPackages, planPriceEntryId, evaluation);
     }
 }
