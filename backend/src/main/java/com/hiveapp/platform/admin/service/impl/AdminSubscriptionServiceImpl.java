@@ -2,6 +2,7 @@ package com.hiveapp.platform.admin.service.impl;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
 import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeApplyRequest;
+import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeOperationDto;
 import com.hiveapp.platform.admin.dto.LatestSubscriptionSummary;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOwnerLookupDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
@@ -23,6 +24,7 @@ import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
@@ -81,6 +83,7 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     private final AccountDirectoryService accountDirectoryService;
     private final AccountRepository accountRepository;
     private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
     private final SubscriptionMapper subscriptionMapper;
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
@@ -484,8 +487,31 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
 
     @Override
     @PermissionNode(key = "read_changes", description = "View account subscription changes and checkouts")
-    public List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId) {
-        return subscriptionService.listChangeOperationsAsOperator(accountId);
+    @Transactional(readOnly = true)
+    public Page<AdminSubscriptionChangeOperationDto> listChangeOperations(
+            UUID accountId,
+            Pageable pageable
+    ) {
+        if (!accountRepository.existsById(accountId)) {
+            throw new ResourceNotFoundException("Account", "id", accountId);
+        }
+        return subscriptionChangeOperationRepository.findAllByAccountId(accountId, pageable)
+                .map(this::toAdminChangeOperation);
+    }
+
+    private AdminSubscriptionChangeOperationDto toAdminChangeOperation(
+            com.hiveapp.platform.client.plan.domain.entity.SubscriptionChangeOperation operation
+    ) {
+        return new AdminSubscriptionChangeOperationDto(
+                operation.getId(), operation.getCreatedAt(), operation.getUpdatedAt(),
+                operation.getTiming(), operation.getStatus(),
+                operation.getEffectiveAt(), operation.getSourceSubscription().getPlan().getCode(),
+                operation.getTargetPlan().getCode(), operation.getAttentionReason(),
+                subscriptionCheckoutService.toDto(operation.getCheckout()),
+                operation.getRequestOrigin(), operation.getRequestedByUserId(),
+                operation.getRequestReason(), operation.getCancellationOrigin(),
+                operation.getCancelledByUserId(), operation.getCancellationReason(),
+                operation.getCancelledAt());
     }
 
     @Override
@@ -508,7 +534,8 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
             AdminSubscriptionChangeApplyRequest request
     ) {
         return subscriptionService.applyChangeAsOperator(
-                accountId, actorUserId, request.reviewedSelection());
+                accountId, actorUserId, request.reviewedSelection(),
+                requireOperatorReason(request.reason()));
     }
 
     @Override
@@ -517,9 +544,22 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     public SubscriptionChangeOperationDto cancelChange(
             UUID accountId,
             UUID operationId,
+            UUID actorUserId,
             String reason
     ) {
-        return subscriptionService.cancelPendingChangeAsOperator(accountId, operationId);
+        return subscriptionService.cancelPendingChangeAsOperator(
+                accountId, operationId, actorUserId, requireOperatorReason(reason));
+    }
+
+    private String requireOperatorReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new InvalidRequestException("Operator reason is required.");
+        }
+        String normalized = reason.trim();
+        if (normalized.length() > 2000) {
+            throw new InvalidRequestException("Operator reason must not exceed 2000 characters.");
+        }
+        return normalized;
     }
 
     @Override

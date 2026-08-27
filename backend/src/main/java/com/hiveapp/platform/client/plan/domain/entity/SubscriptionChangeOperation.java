@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.domain.entity;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.shared.domain.BaseEntity;
@@ -83,6 +84,29 @@ public class SubscriptionChangeOperation extends BaseEntity {
     @Column(name = "attention_reason", length = 2000)
     private String attentionReason;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "request_origin", nullable = false, length = 32)
+    private SubscriptionChangeOrigin requestOrigin;
+
+    @Column(name = "requested_by_user_id")
+    private UUID requestedByUserId;
+
+    @Column(name = "request_reason", length = 2000)
+    private String requestReason;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cancellation_origin", length = 32)
+    private SubscriptionChangeOrigin cancellationOrigin;
+
+    @Column(name = "cancelled_by_user_id")
+    private UUID cancelledByUserId;
+
+    @Column(name = "cancellation_reason", length = 2000)
+    private String cancellationReason;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
     @Version
     @Column(nullable = false)
     private long version;
@@ -99,6 +123,24 @@ public class SubscriptionChangeOperation extends BaseEntity {
         }
         if (effectiveAt == null || timing == null || status == null) {
             throw new IllegalStateException("Subscription change timing, status, and effective time are required");
+        }
+        if (requestOrigin == null
+                || (requestOrigin != SubscriptionChangeOrigin.SYSTEM && requestedByUserId == null)
+                || (requestOrigin == SubscriptionChangeOrigin.PLATFORM_ADMIN
+                && (requestReason == null || requestReason.isBlank()))) {
+            throw new IllegalStateException("Subscription change request provenance is incomplete");
+        }
+        if (status == SubscriptionChangeStatus.CANCELLED) {
+            if (cancellationOrigin == null || cancelledAt == null
+                    || (cancellationOrigin != SubscriptionChangeOrigin.SYSTEM
+                    && cancelledByUserId == null)
+                    || (cancellationOrigin == SubscriptionChangeOrigin.PLATFORM_ADMIN
+                    && (cancellationReason == null || cancellationReason.isBlank()))) {
+                throw new IllegalStateException("Cancelled subscription changes require cancellation provenance");
+            }
+        } else if (cancellationOrigin != null || cancelledByUserId != null
+                || cancellationReason != null || cancelledAt != null) {
+            throw new IllegalStateException("Only cancelled subscription changes may contain cancellation provenance");
         }
     }
 }

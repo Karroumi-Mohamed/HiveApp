@@ -1036,6 +1036,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         LimitedAdmin previewer = createLimitedAdmin("platform.subscriptions.preview_change");
         LimitedAdmin applier = createLimitedAdmin("platform.subscriptions.apply_change");
         LimitedAdmin canceller = createLimitedAdmin("platform.subscriptions.cancel_change");
+        LimitedAdmin changeReader = createLimitedAdmin("platform.subscriptions.read_changes");
         LimitedAdmin optionChooser = createLimitedAdmin(
                 "platform.subscriptions.choose_change_options");
         String selection = """
@@ -1096,6 +1097,14 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                         .header("Authorization", bearer(canceller.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(cancelBody))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/admin/subscriptions/account/{id}/changes", missingAccountId)
+                        .header("Authorization", bearer(previewer.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(get("/api/admin/subscriptions/account/{id}/changes", missingAccountId)
+                        .header("Authorization", bearer(changeReader.token())))
                 .andExpect(status().isNotFound());
     }
 

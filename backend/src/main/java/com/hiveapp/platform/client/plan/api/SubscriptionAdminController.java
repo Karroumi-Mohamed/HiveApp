@@ -3,13 +3,13 @@ package com.hiveapp.platform.client.plan.api;
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
 import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeApplyRequest;
 import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeCancelRequest;
+import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeOperationDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOwnerLookupDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
 import com.hiveapp.platform.admin.dto.ManualCheckoutConfirmationRequest;
 import com.hiveapp.platform.admin.dto.OwnerEmailLookupRequest;
 import com.hiveapp.platform.admin.service.AdminSubscriptionService;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
-import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
@@ -25,9 +25,12 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
+import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.shared.security.HiveAppUserDetails;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -35,8 +38,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 
 @RestController
 @RequestMapping("/api/admin/subscriptions")
@@ -51,6 +52,11 @@ public class SubscriptionAdminController {
     private static final Map<String, String> ACCOUNT_CHOOSER_SORTS = Map.of(
             "name", "name",
             "slug", "slug");
+    private static final Map<String, String> CHANGE_OPERATION_SORTS = Map.of(
+            "createdAt", "createdAt",
+            "effectiveAt", "effectiveAt",
+            "status", "status",
+            "timing", "timing");
 
     private final AdminSubscriptionService adminSubscriptionService;
 
@@ -213,8 +219,18 @@ public class SubscriptionAdminController {
     }
 
     @GetMapping("/account/{accountId}/changes")
-    public List<SubscriptionChangeOperationDto> changes(@PathVariable UUID accountId) {
-        return adminSubscriptionService.listChangeOperations(accountId);
+    public PageResponse<AdminSubscriptionChangeOperationDto> changes(
+            @PathVariable UUID accountId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction
+    ) {
+        return PageResponse.from(adminSubscriptionService.listChangeOperations(
+                accountId,
+                CommercialProductPageRequest.of(
+                        page, size, sort, direction, CHANGE_OPERATION_SORTS,
+                        "createdAt", Sort.Direction.DESC)));
     }
 
     @PostMapping("/account/{accountId}/changes/preview")
@@ -242,10 +258,11 @@ public class SubscriptionAdminController {
     public SubscriptionChangeOperationDto cancelChange(
             @PathVariable UUID accountId,
             @PathVariable UUID operationId,
-            @Valid @RequestBody AdminSubscriptionChangeCancelRequest request
+            @Valid @RequestBody AdminSubscriptionChangeCancelRequest request,
+            Authentication authentication
     ) {
         return adminSubscriptionService.cancelChange(
-                accountId, operationId, request.reason());
+                accountId, operationId, actorUserId(authentication), request.reason());
     }
 
     @PostMapping("/checkouts/{checkoutId}/confirm-manual")
