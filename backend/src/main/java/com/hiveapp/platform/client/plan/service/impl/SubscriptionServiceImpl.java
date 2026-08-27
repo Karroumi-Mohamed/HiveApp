@@ -8,6 +8,8 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin;
 import com.hiveapp.platform.client.plan.domain.constant.RetainedEntitlementState;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyDecisionOutcome;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyProductType;
+import com.hiveapp.platform.client.plan.domain.constant.ExtensionAvailabilityReason;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
@@ -17,6 +19,7 @@ import com.hiveapp.platform.client.plan.domain.entity.SubscriptionChangeOperatio
 import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
@@ -42,7 +45,6 @@ import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionImpactAnalyzer;
-import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleManager;
 import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeActivationService;
@@ -101,6 +103,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionMapper subscriptionMapper;
     private final PlanRepository planRepository;
+    private final ProductPriceRepository productPriceRepository;
     private final AccountRepository accountRepository;
     private final BillingCalculator billingCalculator;
     private final SubscriptionOverrideReader subscriptionOverrideReader;
@@ -108,7 +111,6 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
     private final ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
     private final SubscriptionImpactAnalyzer subscriptionImpactAnalyzer;
-    private final SubscriptionLifecycleManager subscriptionLifecycleManager;
     private final SubscriptionPeriodCalculator subscriptionPeriodCalculator;
     private final SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
     private final SubscriptionCheckoutService subscriptionCheckoutService;
@@ -558,142 +560,6 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return toOperationDto(subscriptionChangeOperationRepository.saveAndFlush(operation));
     }
 
-    @Override
-    @Transactional
-    @PermissionNode(key = "internal_create_default", guard = PermissionNode.Guard.OFF)
-    public Subscription createSubscription(UUID accountId, String planCode) {
-        return createSubscription(accountId, planCode, null);
-    }
-
-    @Override
-    @Transactional
-    @PermissionNode(key = "internal_create_priced", guard = PermissionNode.Guard.OFF)
-    public Subscription createSubscription(
-            UUID accountId,
-            String planCode,
-            com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest priceSelection
-    ) {
-        accountRepository.findByIdForSubscriptionUpdate(accountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
-        var finalized = commercialSelectionFinalizer.finalizeSelection(
-                planCode, priceSelection, Set.of(), List.of(),
-                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
-                CommercialCatalogResolver.RetainedSelection.none(), null);
-        requireResolvedSelection(finalized.resolution(), CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR);
-        var plan = finalized.plan();
-        var account = accountRepository.findById(accountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
-
-        var usableSubscriptions = subscriptionRepository.findAllByAccountIdAndStatusIn(
-                accountId,
-                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)
-        );
-        boolean alreadyActiveOnPlan = usableSubscriptions.stream()
-                .anyMatch(subscription -> subscription.getStatus() == SubscriptionStatus.ACTIVE
-                        && subscription.getPlan().getCode().equals(plan.getCode()));
-        if (alreadyActiveOnPlan) {
-            throw new InvalidStateException("Account is already subscribed to plan " + plan.getCode() + ".");
-        }
-        usableSubscriptions.forEach(subscriptionLifecycleManager::closeForReplacement);
-        subscriptionRepository.saveAllAndFlush(usableSubscriptions);
-
-        Subscription sub = new Subscription();
-        sub.setAccount(account);
-        sub.setPlan(plan);
-        sub.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
-        ProductPrice selectedPrice = finalized.planPrice();
-        sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(finalized.snapshot()));
-        sub.setCurrentMoney(billingCalculator.calculateMoney(sub));
-        subscriptionLifecycleManager.initialize(
-                sub, SubscriptionStatus.ACTIVE,
-                subscriptionPeriodCalculator.recurring(selectedPrice.getBillingCycle()));
-        Subscription saved = subscriptionRepository.saveAndFlush(sub);
-        subscriptionLifecycleManager.recordOpenPeriod(saved);
-        return saved;
-    }
-
-    @Override
-    @Transactional
-    @PermissionNode(key = "internal_trial_default", guard = PermissionNode.Guard.OFF)
-    public Subscription createTrial(UUID accountId, String planCode, int trialDays) {
-        return createTrial(accountId, planCode, trialDays, null);
-    }
-
-    @Override
-    @Transactional
-    @PermissionNode(key = "internal_trial_priced", guard = PermissionNode.Guard.OFF)
-    public Subscription createTrial(
-            UUID accountId,
-            String planCode,
-            int trialDays,
-            com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest priceSelection
-    ) {
-        accountRepository.findByIdForSubscriptionUpdate(accountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
-        var finalized = commercialSelectionFinalizer.finalizeSelection(
-                planCode, priceSelection, Set.of(), List.of(),
-                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
-                CommercialCatalogResolver.RetainedSelection.none(), null);
-        requireResolvedSelection(finalized.resolution(), CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR);
-        Plan plan = finalized.plan();
-        var account = accountRepository.findById(accountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
-        var usableSubscriptions = subscriptionRepository.findAllByAccountIdAndStatusIn(
-                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
-        usableSubscriptions.forEach(subscriptionLifecycleManager::closeForReplacement);
-        subscriptionRepository.saveAllAndFlush(usableSubscriptions);
-
-        Subscription trial = new Subscription();
-        trial.setAccount(account);
-        trial.setPlan(plan);
-        trial.setCustomOverrides(SubscriptionOverrides.empty());
-        ProductPrice selectedPrice = finalized.planPrice();
-        trial.setEntitlementSnapshot(finalized.snapshot());
-        trial.setCurrentMoney(Money.zero(selectedPrice.getCurrencyCode()));
-        subscriptionLifecycleManager.initialize(
-                trial, SubscriptionStatus.TRIALING, subscriptionPeriodCalculator.trial(trialDays));
-        Subscription saved = subscriptionRepository.saveAndFlush(trial);
-        subscriptionLifecycleManager.recordOpenPeriod(saved);
-        return saved;
-    }
-
-    @Override
-    @Transactional
-    @PermissionNode(key = "internal_overrides", guard = PermissionNode.Guard.OFF)
-    public Subscription updateOverrides(UUID accountId,
-                                        Set<String> addOnCodes,
-                                        List<QuotaPackageSelection> quotaPackages) {
-        accountRepository.findByIdForSubscriptionUpdate(accountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
-        var sub = getSubscription(accountId);
-        SubscriptionEntitlementSnapshot currentSnapshot = sub.getEntitlementSnapshot();
-        SubscriptionOverrides currentOverrides = subscriptionOverrideReader.read(sub.getCustomOverrides());
-        Set<String> requestedAddOns = normalizeAddOnCodes(addOnCodes);
-        List<QuotaPackageSelection> requestedPackages = normalizeQuotaPackages(quotaPackages);
-        if (currentOverrides.addOnCodes().equals(requestedAddOns)
-                && currentOverrides.quotaPackages().equals(requestedPackages)) {
-            // An unchanged override is not a new sale. It must remain a true no-op even after
-            // the exact historical prices are paused or superseded.
-            return sub;
-        }
-        SubscriptionChangeRequest request = new SubscriptionChangeRequest(
-                sub.getPlan().getCode(), requestedAddOns, requestedPackages);
-        CommercialCatalogResolver.RetainedSelection retained = retainedSelection(
-                currentSnapshot, sub.getPlan(), request);
-        var finalized = commercialSelectionFinalizer.finalizeSelection(
-                sub.getPlan().getCode(), null, requestedAddOns, requestedPackages,
-                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR, retained, currentSnapshot);
-        requireResolvedSelection(finalized.resolution(), CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR);
-        sub = getSubscription(accountId);
-        ChangeSelection selection = new ChangeSelection(requestedAddOns, requestedPackages);
-        var overrides = new SubscriptionOverrides(selection.addOnCodes(), selection.quotaPackages());
-        sub.setCustomOverrides(subscriptionOverrideReader.write(overrides));
-        sub.setEntitlementSnapshot(finalized.snapshot()
-                .withEffectivePeriod(sub.getCurrentPeriodStart(), sub.getCurrentPeriodEnd()));
-        sub.setCurrentMoney(billingCalculator.calculateMoney(sub));
-        return subscriptionRepository.save(sub);
-    }
-
     private ClientPlanCatalogResponse.CatalogPlan toCatalogPlan(
             CommercialCatalogResolver.PlanResolution result,
             Subscription current,
@@ -1025,7 +891,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         CommercialPolicyEvaluator.Evaluation policyEvaluation =
                 commercialPolicyEvaluator.evaluate(accountId, evaluatedAt);
         ClientPlanSelection target = requirePlanSelection(
-                request.targetPlanCode(), request.planPriceSelection(), audience, policyEvaluation);
+                current, request.targetPlanCode(), request.planPriceSelection(),
+                audience, policyEvaluation);
         requireSameSubscriptionCurrency(current, target.price());
         Set<String> requestedAddOns = normalizeAddOnCodes(request.addOnCodes());
         List<QuotaPackageSelection> requestedPackages = normalizeQuotaPackages(request.quotaPackages());
@@ -1056,7 +923,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 commercialPolicyEvaluator.evaluate(accountId, clock.instant());
         // Preserve the ordinary client privacy boundary before exact lock-taking selection.
         ClientPlanSelection preliminary = requirePlanSelection(
-                request.targetPlanCode(), request.planPriceSelection(), audience, policyEvaluation);
+                current, request.targetPlanCode(), request.planPriceSelection(),
+                audience, policyEvaluation);
         requireSameSubscriptionCurrency(current, preliminary.price());
         Set<String> requestedAddOns = normalizeAddOnCodes(request.addOnCodes());
         List<QuotaPackageSelection> requestedPackages = normalizeQuotaPackages(request.quotaPackages());
@@ -1353,6 +1221,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     }
 
     private ClientPlanSelection requirePlanSelection(
+            Subscription current,
             String planCode,
             ProductPriceSelectionRequest requestedPrice,
             CommercialCatalogResolver.Audience audience,
@@ -1364,15 +1233,83 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         CommercialCatalogResolver.PlanResolution resolution = commercialCatalogResolver
                 .resolveCatalog(audience)
                 .plans().stream()
-                .filter(candidate -> CommercialPolicySelectionRules.planSelectable(
-                        candidate, audience, policyEvaluation))
                 .filter(candidate -> candidate.plan().getCode().equals(planCode))
                 .findFirst()
                 .orElseThrow(() -> unavailableSelection(audience));
+        ProductPrice retainedPrice = retainedPlanPrice(current, resolution.plan(), requestedPrice);
+        if (!CommercialPolicySelectionRules.planSelectable(
+                        resolution, audience, policyEvaluation)
+                && !retainedPlanPriceSelectable(
+                        resolution, retainedPrice, audience, policyEvaluation)) {
+            throw unavailableSelection(audience);
+        }
         // Only after the Plan is known to be selectable for this audience may exact price lookup
         // return its normal owner/tuple errors. Client-hidden and unknown Plans fail identically.
-        return new ClientPlanSelection(
-                resolution.plan(), productPriceResolver.resolvePlan(resolution.plan(), requestedPrice));
+        return new ClientPlanSelection(resolution.plan(), retainedPrice != null
+                ? retainedPrice
+                : productPriceResolver.resolvePlan(resolution.plan(), requestedPrice));
+    }
+
+    private boolean retainedPlanPriceSelectable(
+            CommercialCatalogResolver.PlanResolution resolution,
+            ProductPrice retainedPrice,
+            CommercialCatalogResolver.Audience audience,
+            CommercialPolicyEvaluator.Evaluation policyEvaluation
+    ) {
+        if (retainedPrice == null
+                || resolution.issues().isEmpty()
+                || resolution.issues().stream().anyMatch(
+                        issue -> issue.reason() != ExtensionAvailabilityReason.PRICE_UNAVAILABLE)
+                || policyEvaluation.blocksProduct(
+                        CommercialPolicyProductType.PLAN, resolution.plan().getId())) {
+            return false;
+        }
+        return audience == CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR
+                || resolution.effectiveSalesVisibility()
+                == com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility.PUBLIC
+                || policyEvaluation.allowsDirectSelection(
+                        CommercialPolicyProductType.PLAN, resolution.plan().getId());
+    }
+
+    /**
+     * A subscriber may change extensions without being forced off an exact historical Plan price
+     * that is no longer offered to new buyers. The price is usable only for the same current Plan
+     * and only when the request does not choose a different price.
+     */
+    private ProductPrice retainedPlanPrice(
+            Subscription current,
+            Plan targetPlan,
+            ProductPriceSelectionRequest requestedPrice
+    ) {
+        SubscriptionEntitlementSnapshot snapshot = current.getEntitlementSnapshot();
+        if (snapshot == null
+                || snapshot.planPriceEntryId() == null
+                || !targetPlan.getCode().equals(snapshot.planCode())) {
+            return null;
+        }
+        boolean preserve = requestedPrice == null
+                || (requestedPrice.priceEntryId() != null
+                && requestedPrice.priceEntryId().equals(snapshot.planPriceEntryId()));
+        if (!preserve) {
+            return null;
+        }
+        ProductPrice retained = productPriceRepository.findOwned(
+                        com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN,
+                        targetPlan.getId(), snapshot.planPriceEntryId())
+                .orElseThrow(() -> new StaleResourceVersionException(
+                        "The current subscription price no longer exists. Reload and retry."));
+        if (requestedPrice != null && requestedPrice.currencyCode() != null
+                && !Money.normalizeCurrencyCode(requestedPrice.currencyCode())
+                .equals(retained.getCurrencyCode())) {
+            throw new InvalidRequestException(
+                    "Selected price entry does not use the requested currency.");
+        }
+        if (requestedPrice != null && requestedPrice.billingCycle() != null
+                && requestedPrice.billingCycle() != retained.getBillingCycle()) {
+            throw new InvalidRequestException(
+                    "Selected price entry does not use the requested billing cycle.");
+        }
+        return retained;
     }
 
     private InvalidRequestException unavailableSelection(

@@ -15,15 +15,18 @@ public record ClientSubscriptionChangeOperationDto(
         Instant effectiveAt,
         String sourcePlanCode,
         String targetPlanCode,
-        String attentionReason,
-        SubscriptionCheckoutDto checkout,
+        ClientSubscriptionAttentionCode attentionCode,
+        ClientSubscriptionCheckoutDto checkout,
         ClientCommercialPolicyEvaluation commercialPolicyEvaluation
 ) {
     public static ClientSubscriptionChangeOperationDto from(SubscriptionChangeOperationDto source) {
         return new ClientSubscriptionChangeOperationDto(
                 source.id(), source.createdAt(), source.updatedAt(), source.timing(), source.status(),
                 source.effectiveAt(), source.sourcePlanCode(), source.targetPlanCode(),
-                source.attentionReason(), source.checkout(),
+                source.attentionReason() == null
+                        ? null
+                        : ClientSubscriptionAttentionCode.OPERATOR_ASSISTANCE_REQUIRED,
+                ClientSubscriptionCheckoutDto.from(source.checkout()),
                 ClientCommercialPolicyEvaluation.from(source.commercialPolicyEvaluation()));
     }
 }

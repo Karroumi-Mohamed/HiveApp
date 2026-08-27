@@ -7,6 +7,7 @@ import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
@@ -16,7 +17,6 @@ import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
-import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -274,17 +274,14 @@ class CommercialAvailabilityControlPlaneIntegrationTest
             var exactPrice = productPriceRepository.findApplicable(
                     ProductPriceOwnerType.PLAN, flex.getId(), "USD", BillingCycle.MONTHLY,
                     Instant.now()).getFirst();
-            mockMvc.perform(post("/api/admin/subscriptions/account/{id}", accountId)
-                            .param("planCode", "FLEX")
-                            .header("Authorization", bearer(adminToken))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(new ProductPriceSelectionRequest(
-                                    exactPrice.getId(), "USD", BillingCycle.MONTHLY))))
-                    .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.plan.code").value("FLEX"));
+            applyReviewedAdminSubscriptionChange(adminToken, accountId,
+                    new SubscriptionChangeRequest(
+                            "FLEX", Set.of(), List.of(), SubscriptionChangeTiming.IMMEDIATE,
+                            new ProductPriceSelectionRequest(
+                                    exactPrice.getId(), "USD", BillingCycle.MONTHLY)));
 
-            updateOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                    Set.of("CUSTOM_ROLES"),
+            applyReviewedAdminSubscriptionChange(adminToken, accountId, new SubscriptionChangeRequest(
+                    "FLEX", Set.of("CUSTOM_ROLES"),
                     List.of(new QuotaPackageSelection("MEMBERS_5", 1))));
             var heldBeforePause = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow()
                     .getEntitlementSnapshot();
@@ -312,8 +309,17 @@ class CommercialAvailabilityControlPlaneIntegrationTest
                 heldPlanPrice.pause();
                 productPriceRepository.saveAndFlush(heldPlanPrice);
             });
-            updateOverrides(adminToken, accountId, new UpdateSubscriptionOverridesRequest(
-                    Set.of("CUSTOM_ROLES"),
+            previewReviewedAdminSubscriptionChange(adminToken, accountId,
+                    new SubscriptionChangeRequest(
+                            "FLEX", Set.of("CUSTOM_ROLES"),
+                            List.of(new QuotaPackageSelection("MEMBERS_5", 1)),
+                            SubscriptionChangeTiming.IMMEDIATE,
+                            new ProductPriceSelectionRequest(
+                                    heldBeforePause.planPriceEntryId(), "EUR", BillingCycle.MONTHLY)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+            applyReviewedAdminSubscriptionChange(adminToken, accountId, new SubscriptionChangeRequest(
+                    "FLEX", Set.of("CUSTOM_ROLES"),
                     List.of(
                             new QuotaPackageSelection("MEMBERS_5", 1),
                             new QuotaPackageSelection("COMPANY_1", 1))));
@@ -730,15 +736,6 @@ class CommercialAvailabilityControlPlaneIntegrationTest
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);
-    }
-
-    private void updateOverrides(
-            String token, UUID accountId, UpdateSubscriptionOverridesRequest request) throws Exception {
-        mockMvc.perform(patch("/api/admin/subscriptions/account/{id}/overrides", accountId)
-                        .header("Authorization", bearer(token))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
     }
 
     private JsonNode findByCode(JsonNode items, String code) {

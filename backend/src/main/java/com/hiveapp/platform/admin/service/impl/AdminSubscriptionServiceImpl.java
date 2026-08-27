@@ -12,14 +12,11 @@ import com.hiveapp.platform.client.account.service.AccountDirectoryService;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
-import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
-import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
-import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
@@ -446,43 +443,6 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
             description = "Choose operator-authorized subscription change options")
     public ClientPlanCatalogResponse changeCatalog(UUID accountId) {
         return subscriptionService.catalogAsOperator(accountId);
-    }
-
-    @Override
-    @Transactional
-    @PermissionNode(key = "create", description = "Manually assign an exact priced plan to account")
-    public SubscriptionDto createSubscription(
-            UUID accountId,
-            String planCode,
-            ProductPriceSelectionRequest priceSelection
-    ) {
-        return subscriptionMapper.toDto(
-                subscriptionService.createSubscription(accountId, planCode, priceSelection));
-    }
-
-    @Override
-    @Transactional
-    @PermissionNode(key = "create_trial", description = "Start a trial on an exact priced plan")
-    public SubscriptionDto createTrial(
-            UUID accountId,
-            String planCode,
-            int trialDays,
-            ProductPriceSelectionRequest priceSelection
-    ) {
-        return subscriptionMapper.toDto(
-                subscriptionService.createTrial(accountId, planCode, trialDays, priceSelection));
-    }
-
-    @Override
-    @Transactional
-    @PermissionNode(key = "update_overrides", description = "Apply AddOn and quota package selections to subscription")
-    public SubscriptionDto updateOverrides(
-            UUID accountId,
-            Set<String> addOnCodes,
-            List<QuotaPackageSelection> quotaPackages
-    ) {
-        return subscriptionMapper.toDto(
-                subscriptionService.updateOverrides(accountId, addOnCodes, quotaPackages));
     }
 
     @Override

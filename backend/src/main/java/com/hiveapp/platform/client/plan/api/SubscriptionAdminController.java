@@ -15,12 +15,9 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
-import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
-import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
-import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
@@ -198,26 +195,6 @@ public class SubscriptionAdminController {
                 overrideChoicePage(page, size, sort, direction, true));
     }
 
-    @PostMapping("/account/{accountId}")
-    @ResponseStatus(HttpStatus.CREATED)
-    public SubscriptionDto create(
-            @PathVariable UUID accountId,
-            @RequestParam String planCode,
-            @Valid @RequestBody(required = false) ProductPriceSelectionRequest priceSelection) {
-        return adminSubscriptionService.createSubscription(accountId, planCode, priceSelection);
-    }
-
-    @PostMapping("/account/{accountId}/trial")
-    @ResponseStatus(HttpStatus.CREATED)
-    public SubscriptionDto createTrial(
-            @PathVariable UUID accountId,
-            @RequestParam String planCode,
-            @RequestParam int trialDays,
-            @Valid @RequestBody(required = false) ProductPriceSelectionRequest priceSelection
-    ) {
-        return adminSubscriptionService.createTrial(accountId, planCode, trialDays, priceSelection);
-    }
-
     @GetMapping("/account/{accountId}/changes")
     public PageResponse<AdminSubscriptionChangeOperationDto> changes(
             @PathVariable UUID accountId,
@@ -278,15 +255,6 @@ public class SubscriptionAdminController {
 
     private UUID actorUserId(Authentication authentication) {
         return ((HiveAppUserDetails) authentication.getPrincipal()).getUserId();
-    }
-
-    @PatchMapping("/account/{accountId}/overrides")
-    public SubscriptionDto updateOverrides(@PathVariable UUID accountId,
-                                           @Valid @RequestBody UpdateSubscriptionOverridesRequest request) {
-        return adminSubscriptionService.updateOverrides(
-                accountId,
-                request.addOnCodes(),
-                request.quotaPackages());
     }
 
     private org.springframework.data.domain.Pageable overrideChoicePage(

@@ -332,6 +332,10 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andExpect(jsonPath("$.operation.status").value("AWAITING_CONFIRMATION"))
                 .andExpect(jsonPath("$.operation.checkout.status").value("PENDING_CONFIRMATION"))
                 .andExpect(jsonPath("$.operation.checkout.gatewayAttemptStatus").value("PENDING"))
+                .andExpect(jsonPath("$.operation.checkout.gatewayReference").doesNotExist())
+                .andExpect(jsonPath("$.operation.checkout.gatewayFailureReason").doesNotExist())
+                .andExpect(jsonPath("$.operation.checkout.confirmationSource").doesNotExist())
+                .andExpect(jsonPath("$.operation.checkout.confirmationReference").doesNotExist())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -365,6 +369,16 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                         .content(objectMapper.writeValueAsString(confirmation)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"));
+
+        mockMvc.perform(get("/api/v1/subscriptions/changes")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].checkout.id").value(checkoutId.toString()))
+                .andExpect(jsonPath("$.content[0].checkout.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.content[0].checkout.gatewayReference").doesNotExist())
+                .andExpect(jsonPath("$.content[0].checkout.gatewayFailureReason").doesNotExist())
+                .andExpect(jsonPath("$.content[0].checkout.confirmationSource").doesNotExist())
+                .andExpect(jsonPath("$.content[0].checkout.confirmationReference").doesNotExist());
 
         var usable = subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
@@ -622,25 +636,24 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
     }
 
     @Test
-    void adminCreatedTrialIsVisibleToTheAccountWithExplicitBounds() throws Exception {
+    void retiredDirectTrialRouteCannotReplaceTheClientSubscription() throws Exception {
         String token = registerClientAndGetToken();
         UUID accountId = currentAccountId(token);
         String adminToken = loginAdminAndGetToken();
+        UUID beforeId = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow().getId();
 
         mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}/trial", accountId)
                         .param("planCode", "PRO")
                         .param("trialDays", "14")
                         .header("Authorization", bearer(adminToken)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("TRIALING"))
-                .andExpect(jsonPath("$.currentPeriodStart").isNotEmpty())
-                .andExpect(jsonPath("$.currentPeriodEnd").isNotEmpty());
+                .andExpect(status().isNotFound());
 
         mockMvc.perform(get("/api/v1/subscriptions/me")
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("TRIALING"))
-                .andExpect(jsonPath("$.plan.code").value("PRO"));
+                .andExpect(jsonPath("$.id").value(beforeId.toString()))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.plan.code").value("FREE"));
     }
 
     @Test
