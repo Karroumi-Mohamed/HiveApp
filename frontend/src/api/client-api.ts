@@ -2,6 +2,8 @@ import type {
   Account,
   AuthResponse,
   ClientPlanCatalog,
+  ClientSubscriptionChangeApplyResponse,
+  ClientSubscriptionChangePreview,
   Collaboration,
   CollaborationGrant,
   Company,
@@ -21,10 +23,8 @@ import type {
   RoleImpact,
   Subscription,
   SubscriptionChangeApplyInput,
-  SubscriptionChangeApplyResponse,
   SubscriptionChangeInput,
   SubscriptionChangeOperation,
-  SubscriptionChangePreview,
   UUID,
 } from "@/api/contracts";
 import { apiRequest, jsonBody } from "@/api/http";
@@ -198,9 +198,12 @@ export const clientApi = {
   subscription: () => client<Subscription>("/api/v1/subscriptions/me"),
   planCatalog: () => client<ClientPlanCatalog>("/api/v1/subscriptions/catalog"),
   previewSubscriptionChange: (input: SubscriptionChangeInput) =>
-    client<SubscriptionChangePreview>("/api/v1/subscriptions/preview", { method: "POST", body: jsonBody(input) }),
+    client<ClientSubscriptionChangePreview>("/api/v1/subscriptions/preview", {
+      method: "POST",
+      body: jsonBody(input),
+    }),
   applySubscriptionChange: (input: SubscriptionChangeApplyInput) =>
-    client<SubscriptionChangeApplyResponse>("/api/v1/subscriptions/apply", {
+    client<ClientSubscriptionChangeApplyResponse>("/api/v1/subscriptions/apply", {
       method: "POST",
       body: jsonBody(input),
     }),

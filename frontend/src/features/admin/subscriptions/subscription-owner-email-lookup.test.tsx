@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import type { ReactNode } from "react";
-import type { AdminSubscription, ClientPlanCatalog, SubscriptionChangePreview } from "@/api/contracts";
+import type {
+  AdminSubscription,
+  AdminSubscriptionChangeOperation,
+  ClientPlanCatalog,
+  CommercialPolicyDecisionSnapshot,
+  SubscriptionChangePreview,
+  SubscriptionCommercialPolicyEvaluation,
+} from "@/api/contracts";
 
 const browser = new Window({ url: "http://localhost:3000/admin/subscriptions" });
 for (const key of [
@@ -48,7 +55,7 @@ const { adminApi } = await import("@/api/admin-api");
 const { adminPermissions } = await import("@/auth/permissions");
 const { AdminSessionProvider } = await import("@/auth/session-provider");
 const { clearSession, writeSession } = await import("@/auth/session-store");
-const { OverridesEditor, SubscriptionDetail } = await import("./admin-subscriptions-page");
+const { SubscriptionDetail } = await import("./admin-subscriptions-page");
 const { AdminSubscriptionChangeWorkbench } = await import("./admin-subscription-change-workbench");
 const { RetainedSubscriptionQuantityControl } = await import("@/features/commercial/subscription-quantity-control");
 const { SubscriptionOwnerEmailLookup } = await import("./subscription-owner-email-lookup");
@@ -139,6 +146,7 @@ const changeCatalog: ClientPlanCatalog = {
     retainedAddOns: [],
     retainedQuotaPackages: [],
   },
+  commercialPolicyDecisions: [],
   plans: [
     {
       code: "PRO",
@@ -149,6 +157,7 @@ const changeCatalog: ClientPlanCatalog = {
       billingCycle: "MONTHLY",
       current: true,
       selectable: true,
+      commercialPolicyDecisions: [],
       features: [],
       addOns: [],
       quotaPackages: [],
@@ -192,6 +201,8 @@ const changeCatalogWithAddOn: ClientPlanCatalog = {
             effectiveUntil: null,
           },
         ],
+        selectable: true,
+        commercialPolicyDecisions: [],
       },
     ],
   })),
@@ -216,7 +227,75 @@ const preview = (token: string): SubscriptionChangePreview => ({
   addOnCodes: [],
   quotaPackages: [],
   conflicts: [],
+  commercialPolicyEvaluation: null,
 });
+
+const adminPolicyDecision: CommercialPolicyDecisionSnapshot = {
+  policyId: "policy-secret-id",
+  activationId: "activation-secret-id",
+  lineageId: "lineage-secret-id",
+  policyRevisionNumber: 4,
+  policyCode: "CONTRACT_ACME_2026",
+  policyName: "Contrat Acme",
+  targetKind: "ACCOUNT",
+  priority: 90,
+  effectId: "effect-secret-id",
+  effectOrder: 2,
+  effectType: "FIXED_DISCOUNT",
+  productType: null,
+  productId: null,
+  productCode: null,
+  featureCode: null,
+  quotaResource: null,
+  quantityDelta: null,
+  configuredAmount: "20.0000",
+  configuredCurrencyCode: "MAD",
+  percentage: null,
+  maximumAmount: null,
+  maximumCurrencyCode: null,
+  outcome: "APPLIED",
+  evaluatedAmount: "20.0000",
+  evaluatedCurrencyCode: "MAD",
+  explanation: "Remise du contrat",
+};
+
+function adminPolicyEvaluation(
+  conflicts: SubscriptionCommercialPolicyEvaluation["conflicts"] = [],
+): SubscriptionCommercialPolicyEvaluation {
+  return {
+    evaluatedAt: "2026-08-27T10:00:00Z",
+    catalogueRecurringPrice: "110.0000",
+    fixedRecurringPrice: "110.0000",
+    discountAmount: "20.0000",
+    finalRecurringPrice: "90.0000",
+    currencyCode: "MAD",
+    decisions: [adminPolicyDecision],
+    conflicts,
+  };
+}
+
+function adminPolicyOperation(): AdminSubscriptionChangeOperation {
+  return {
+    id: "operation-policy",
+    createdAt: "2026-08-27T10:00:00Z",
+    updatedAt: "2026-08-27T10:00:00Z",
+    timing: "IMMEDIATE",
+    status: "APPLIED",
+    effectiveAt: "2026-08-27T10:00:00Z",
+    sourcePlanCode: "PRO",
+    targetPlanCode: "PRO",
+    attentionReason: null,
+    checkout: null,
+    requestOrigin: "PLATFORM_ADMIN",
+    requestedByUserId: "admin-1",
+    requestReason: "Contrat validé",
+    cancellationOrigin: null,
+    cancelledByUserId: null,
+    cancellationReason: null,
+    cancelledAt: null,
+    commercialPolicyEvaluation: adminPolicyEvaluation(),
+  };
+}
 
 beforeEach(() => {
   cleanup();
@@ -381,6 +460,52 @@ describe("independent operator subscription surfaces", () => {
     expect(requests).toEqual(["/api/admin/subscriptions/account/account-1/change-catalog"]);
   });
 
+  test("uses the reviewed change workbench as the only product-selection path", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname.endsWith("/change-catalog")) return jsonResponse(changeCatalog);
+      if (url.pathname === "/api/admin/subscriptions/account/account-1") return jsonResponse(subscription);
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [
+      adminPermissions.subscriptionsRead,
+      adminPermissions.subscriptionsChooseChangeOptions,
+    ]);
+
+    expect(await view.findByRole("heading", { name: "Préparer un changement" })).toBeTruthy();
+    expect(view.getByRole("heading", { name: "Composition détenue" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Gérer les exceptions" })).toBeNull();
+    expect(requests.sort()).toEqual(
+      [
+        "/api/admin/subscriptions/account/account-1",
+        "/api/admin/subscriptions/account/account-1/change-catalog",
+      ].sort(),
+    );
+    expect(requests.some((path) => path.includes("/overrides") || path.includes("/override-choices"))).toBeFalse();
+  });
+
+  test("does not offer direct subscription or trial creation when provisioning is absent", async () => {
+    const requests: Array<{ path: string; method: string }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input));
+      requests.push({ path: url.pathname, method: init?.method ?? "GET" });
+      if (url.pathname === "/api/admin/subscriptions/account/account-1") {
+        return jsonResponse({ code: "NOT_FOUND", message: "No subscription" }, 404);
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [adminPermissions.subscriptionsRead]);
+
+    expect(await view.findByText("Aucun abonnement")).toBeTruthy();
+    expect(view.getByText(/provisionné automatiquement/)).toBeTruthy();
+    expect(view.queryByRole("button", { name: /Créer l’abonnement|Démarrer l’essai/ })).toBeNull();
+    expect(requests).toEqual([{ path: "/api/admin/subscriptions/account/account-1", method: "GET" }]);
+  });
+
   test("loads bounded history without requiring current-subscription access", async () => {
     const requests: string[] = [];
     globalThis.fetch = (async (input) => {
@@ -397,6 +522,62 @@ describe("independent operator subscription surfaces", () => {
     expect(await view.findByRole("heading", { name: "Opérations de changement" })).toBeTruthy();
     expect(await view.findByText("Aucune opération")).toBeTruthy();
     expect(requests).toEqual(["/api/admin/subscriptions/account/account-1/changes"]);
+  });
+
+  test("keeps complete accepted policy provenance available in operator history", async () => {
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/changes")) return jsonResponse(pageResponse([adminPolicyOperation()]));
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [
+      adminPermissions.subscriptionsReadChanges,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    const disclosure = await view.findByRole("button", { name: "Afficher la traçabilité de PRO vers PRO" });
+    await user.click(disclosure);
+    const [provenance] = view.getAllByText("Traçabilité commerciale complète");
+    if (!provenance) throw new Error("Expected complete policy provenance");
+    await user.click(provenance);
+
+    expect(view.getAllByText("Conditions acceptées avec ce changement").length).toBeGreaterThan(0);
+    expect(view.getAllByText("Contrat Acme · révision 4").length).toBeGreaterThan(0);
+    expect(view.getAllByText("CONTRACT_ACME_2026").length).toBeGreaterThan(0);
+    expect(view.getAllByText(/policy-secret-id \/ activation-secret-id/).length).toBeGreaterThan(0);
+  });
+
+  test("renders the accepted entitlement snapshot independently of a policy still being active", async () => {
+    const subscriptionWithTerms: AdminSubscription = {
+      ...subscription,
+      entitlementSnapshot: {
+        schemaVersion: 3,
+        planCode: "PRO",
+        planName: "Pro",
+        planDefinitionVersion: 7,
+        basePrice: "110.0000",
+        currencyCode: "MAD",
+        billingCycle: "MONTHLY",
+        effectiveFrom: "2026-08-27T10:00:00Z",
+        effectiveUntil: null,
+        features: [],
+        addOns: [],
+        quotaPackages: [],
+        planPriceEntryId: "price-1",
+        commercialPolicyEvaluation: adminPolicyEvaluation(),
+      },
+    };
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/admin/subscriptions/account/account-1") return jsonResponse(subscriptionWithTerms);
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [adminPermissions.subscriptionsRead]);
+
+    expect(await view.findByText("Conditions commerciales détenues")).toBeTruthy();
+    expect(view.getByText("Prix récurrent final")).toBeTruthy();
+    expect(view.getByText("90,00 MAD")).toBeTruthy();
   });
 
   test("confirms a paid checkout from history without loading the broader subscription", async () => {
@@ -431,6 +612,7 @@ describe("independent operator subscription surfaces", () => {
       cancelledByUserId: null,
       cancellationReason: null,
       cancelledAt: null,
+      commercialPolicyEvaluation: null,
     };
     globalThis.fetch = (async (input, init) => {
       const url = new URL(String(input));
@@ -474,23 +656,6 @@ describe("independent operator subscription surfaces", () => {
       body: { reference: "receipt-42", reason: "Paiement vérifié" },
     });
     expect(requests.some(({ path }) => path === "/api/admin/subscriptions/account/account-1")).toBeFalse();
-  });
-});
-
-describe("subscription override dialog", () => {
-  test("renders one trigger child and opens without violating the Radix asChild contract", async () => {
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      throw new Error(`Unexpected request: ${String(input)}`);
-    }) as unknown as typeof fetch;
-    const { view } = renderAdmin(<OverridesEditor subscription={subscription} />, [
-      adminPermissions.subscriptionsOverrides,
-    ]);
-    const trigger = view.getByRole("button", { name: "Gérer les exceptions" });
-    expect(view.getAllByRole("button", { name: "Gérer les exceptions" })).toHaveLength(1);
-
-    const user = userEvent.setup({ document: view.container.ownerDocument });
-    await user.click(trigger);
-    expect(await view.findByRole("heading", { name: "Exceptions de l’abonnement" })).toBeTruthy();
   });
 });
 
@@ -559,6 +724,7 @@ describe("operator subscription change workbench", () => {
             targetPlanCode: "PRO",
             attentionReason: null,
             checkout: null,
+            commercialPolicyEvaluation: null,
           },
         });
       }
@@ -587,5 +753,41 @@ describe("operator subscription change workbench", () => {
 
     expect(applyBodies.map((body) => body.previewToken)).toEqual(["first.review.token", "fresh.review.token"]);
     expect(applyBodies.every((body) => body.reason === "Contrat client approuvé")).toBeTrue();
+  });
+
+  test("shows full operator provenance and prevents applying a policy-conflicted review", async () => {
+    const evaluation = adminPolicyEvaluation([
+      {
+        code: "POLICY_PRODUCT_BLOCKED",
+        policyId: "policy-secret-id",
+        effectId: "effect-secret-id",
+        productCode: "AUDIT",
+        featureCode: null,
+        quotaResource: null,
+        message: "internal conflict wording",
+      },
+    ]);
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/changes/preview")) {
+        return jsonResponse({ ...preview("policy.review.token"), commercialPolicyEvaluation: evaluation });
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(
+      <AdminSubscriptionChangeWorkbench accountId="account-1" catalog={changeCatalogWithAddOn} />,
+      [adminPermissions.subscriptionsPreviewChange, adminPermissions.subscriptionsApplyChange],
+    );
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(view.getByRole("checkbox", { name: /Audit avancé/ }));
+    await user.click(view.getByRole("button", { name: "Prévisualiser" }));
+
+    expect(await view.findByRole("heading", { name: "Vérifier le changement" })).toBeTruthy();
+    expect(view.getAllByText("Le produit AUDIT n’est pas disponible pour ce compte.").length).toBeGreaterThan(0);
+    expect(view.getByRole("button", { name: "Appliquer le changement" }).hasAttribute("disabled")).toBeTrue();
+    await user.click(view.getByText("Traçabilité commerciale complète"));
+    expect(view.getByText("Contrat Acme · révision 4")).toBeTruthy();
+    expect(view.getByText(/policy-secret-id \/ activation-secret-id/)).toBeTruthy();
   });
 });

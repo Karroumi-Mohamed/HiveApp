@@ -16,10 +16,10 @@ import type {
   AdminSubscription,
   AdminSubscriptionChangeApplyInput,
   AdminSubscriptionChangeOperation,
+  AdminSubscriptionChangeResult,
   AdminUser,
   AdminUserCreation,
   AssignAddOnFeatureInput,
-  AssignablePlanPrice,
   AssignPlanFeatureInput,
   AuthResponse,
   BillingCycle,
@@ -72,7 +72,6 @@ import type {
   ProductPriceOwnerType,
   ProductPriceReplacementPreview,
   ProductPriceReplacementResult,
-  ProductPriceSelection,
   ProductPriceStatus,
   ProductSalesVisibility,
   ProductVisibilityPreview,
@@ -88,18 +87,12 @@ import type {
   RegistryModule,
   RegistrySyncRun,
   RoleHolder,
-  Subscription,
   SubscriptionAccountListItem,
   SubscriptionAccountOwnerLookup,
-  SubscriptionAddOnOverrideChoice,
   SubscriptionChangeApplyResponse,
   SubscriptionChangeInput,
-  SubscriptionChangeOperation,
   SubscriptionChangePreview,
   SubscriptionCheckout,
-  SubscriptionOverrideChoicePage,
-  SubscriptionOverridesInput,
-  SubscriptionQuotaPackageOverrideChoice,
   SubscriptionStatus,
   UpdatePlanInput,
   UUID,
@@ -665,63 +658,10 @@ export const adminApi = {
       body: jsonBody(input),
     }),
   cancelSubscriptionChange: (accountId: UUID, operationId: UUID, reason: string) =>
-    admin<SubscriptionChangeOperation>(`/subscriptions/account/${accountId}/changes/${operationId}/cancel`, {
+    admin<AdminSubscriptionChangeResult>(`/subscriptions/account/${accountId}/changes/${operationId}/cancel`, {
       method: "POST",
       body: jsonBody({ reason }),
     }),
-  assignablePlanPrices: (query: {
-    search?: string;
-    currencyCode?: string;
-    billingCycle?: ProductPriceBillingCycle;
-    page?: number;
-    size?: number;
-    sort?: "planCode" | "planName" | "amount" | "currencyCode" | "billingCycle" | "effectiveFrom";
-    direction?: "asc" | "desc";
-  }) => admin<PageResponse<AssignablePlanPrice>>("/subscriptions/assignable-plan-prices", { query }),
-  createSubscription: (accountId: UUID, planCode: string, priceSelection: ProductPriceSelection) =>
-    admin<Subscription>(`/subscriptions/account/${accountId}`, {
-      method: "POST",
-      query: { planCode },
-      body: jsonBody(priceSelection),
-    }),
-  createTrial: (accountId: UUID, planCode: string, trialDays: number, priceSelection: ProductPriceSelection) =>
-    admin<Subscription>(`/subscriptions/account/${accountId}/trial`, {
-      method: "POST",
-      query: { planCode, trialDays },
-      body: jsonBody(priceSelection),
-    }),
-  updateSubscriptionOverrides: (accountId: UUID, input: SubscriptionOverridesInput) =>
-    admin<Subscription>(`/subscriptions/account/${accountId}/overrides`, { method: "PATCH", body: jsonBody(input) }),
-  subscriptionAddOnOverrideChoices: (
-    accountId: UUID,
-    query: {
-      search?: string;
-      selectedAddOnCodes?: string[];
-      useCurrentAddOnSelections?: boolean;
-      page?: number;
-      size?: number;
-    } = {},
-  ) =>
-    admin<SubscriptionOverrideChoicePage<SubscriptionAddOnOverrideChoice>>(
-      `/subscriptions/account/${accountId}/override-choices/add-ons`,
-      { query },
-    ),
-  subscriptionQuotaOverrideChoices: (
-    accountId: UUID,
-    query: {
-      search?: string;
-      featureCode?: string;
-      resource?: string;
-      selectedAddOnCodes?: string[];
-      useCurrentAddOnSelections?: boolean;
-      page?: number;
-      size?: number;
-    } = {},
-  ) =>
-    admin<SubscriptionOverrideChoicePage<SubscriptionQuotaPackageOverrideChoice>>(
-      `/subscriptions/account/${accountId}/override-choices/quota-packages`,
-      { query },
-    ),
   confirmCheckout: (checkoutId: UUID, input: ManualCheckoutConfirmationInput) =>
     admin<SubscriptionCheckout>(`/subscriptions/checkouts/${checkoutId}/confirm-manual`, {
       method: "POST",
