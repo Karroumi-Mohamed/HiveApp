@@ -27,7 +27,9 @@ function ChangeIdentity({ operation }: { operation: SubscriptionChangeOperation 
       </p>
       <p className="mt-1 text-xs text-muted-foreground">Demandé le {date(operation.createdAt)}</p>
       {operation.attentionReason ? (
-        <p className="mt-1 max-w-sm text-xs text-destructive">{operation.attentionReason}</p>
+        <p className="mt-1 max-w-sm whitespace-pre-wrap break-words text-xs text-destructive">
+          {operation.attentionReason}
+        </p>
       ) : null}
     </div>
   );

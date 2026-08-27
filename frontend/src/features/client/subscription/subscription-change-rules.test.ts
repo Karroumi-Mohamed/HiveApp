@@ -5,6 +5,7 @@ import {
   subscriptionChangeFailureMessage,
   subscriptionChangePreviewIsCurrent,
   subscriptionChangeSelectionKey,
+  subscriptionChangeSelectionMatchesCurrent,
 } from "./subscription-change-rules";
 
 const selection: SubscriptionChangeInput = {
@@ -57,5 +58,26 @@ describe("subscription price failure feedback", () => {
         Date.parse("2026-08-27T12:04:59Z"),
       ),
     ).toBeFalse();
+  });
+
+  test("recognizes only an exact current priced selection as a no-op", () => {
+    const current = {
+      planCode: "PRO",
+      planPriceEntryId: "price-1",
+      addOnCodes: ["B2B", "HR"],
+      quotaPackages: [
+        { packageCode: "STORAGE", quantity: 1 },
+        { packageCode: "MEMBERS", quantity: 2 },
+      ],
+    };
+
+    expect(subscriptionChangeSelectionMatchesCurrent(selection, current)).toBeTrue();
+    expect(
+      subscriptionChangeSelectionMatchesCurrent(
+        { ...selection, planPriceSelection: { ...selection.planPriceSelection, priceEntryId: "price-2" } },
+        current,
+      ),
+    ).toBeFalse();
+    expect(subscriptionChangeSelectionMatchesCurrent(selection, { ...current, planPriceEntryId: null })).toBeFalse();
   });
 });

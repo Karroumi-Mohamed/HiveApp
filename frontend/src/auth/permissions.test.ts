@@ -4,6 +4,7 @@ import {
   adminPermissions,
   adminPriceBookDetailSurfacePermissions,
   adminProfileCan,
+  adminSubscriptionDetailSurfacePermissions,
   clientPermissions,
   clientProfileCan,
   clientSubscriptionSurfacePermissions,
@@ -37,6 +38,14 @@ describe("session permission bypasses", () => {
       clientPermissions.subscriptionRead,
       clientPermissions.subscriptionCatalog,
       clientPermissions.subscriptionReadChanges,
+    ]);
+  });
+
+  test("the operator subscription detail route does not require broad subscription read access", () => {
+    expect(adminSubscriptionDetailSurfacePermissions).toEqual([
+      adminPermissions.subscriptionsRead,
+      adminPermissions.subscriptionsChooseChangeOptions,
+      adminPermissions.subscriptionsReadChanges,
     ]);
   });
 

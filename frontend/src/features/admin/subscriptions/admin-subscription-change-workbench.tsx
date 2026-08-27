@@ -18,8 +18,10 @@ import {
   subscriptionChangeFailureMessage,
   subscriptionChangePreviewIsCurrent,
   subscriptionChangeSelectionKey,
+  subscriptionChangeSelectionMatchesCurrent,
 } from "@/features/client/subscription/subscription-change-rules";
 import {
+  catalogAddOnSelectionState,
   currentCatalogPrice,
   defaultCatalogPrice,
   initialCatalogPlanCode,
@@ -27,8 +29,10 @@ import {
   preserveRetainedSelection,
   pruneCommercialSelection,
   sameStringSet,
+  updateCatalogAddOnSelection,
 } from "@/features/commercial/catalog-price-rules";
 import { adminCommercialKeys, invalidateAdminSubscriptionEntitlement } from "@/features/commercial/commercial-query";
+import { subscriptionChangeRecordedMessage } from "@/features/commercial/subscription-presentation";
 import {
   RetainedSubscriptionQuantityControl,
   SubscriptionQuantityControl,
@@ -336,6 +340,7 @@ export function AdminSubscriptionChangeWorkbench({
         : null,
     [addOnCodes, plan, quantities, selectedPlanPrice, timing],
   );
+  const selectionIsNoOp = subscriptionChangeSelectionMatchesCurrent(selection, current);
 
   useEffect(() => {
     if (!preview) return;
@@ -388,7 +393,7 @@ export function AdminSubscriptionChangeWorkbench({
       setPreviewSelectionKey(null);
       setReason("");
       setReasonTouched(false);
-      toast.success(result.operation.timing === "AT_RENEWAL" ? "Changement planifié" : "Changement enregistré");
+      toast.success(subscriptionChangeRecordedMessage(result.operation));
     },
     onError: (error) => {
       setPreview(null);
@@ -418,10 +423,7 @@ export function AdminSubscriptionChangeWorkbench({
   };
 
   const toggleAddOn = (item: CatalogPlan["addOns"][number], checked: boolean) => {
-    setAddOnCodes((selected) => {
-      if (!checked) return selected.filter((code) => code !== item.code);
-      return [...new Set([...selected, item.code, ...item.dependencyCodes])];
-    });
+    setAddOnCodes((selected) => updateCatalogAddOnSelection(selected, item, compatibleAddOns, checked));
     setPreview(null);
   };
 
@@ -492,13 +494,10 @@ export function AdminSubscriptionChangeWorkbench({
             {compatibleAddOns.length ? (
               compatibleAddOns.map((item) => {
                 const price = matchingCatalogPrice(item.prices, selectedPlanPrice);
-                const selected = addOnCodes.includes(item.code);
-                const excludedBy = item.exclusionCodes.find((code) => addOnCodes.includes(code));
-                const missingDependency = item.dependencyCodes.find(
-                  (code) => !compatibleAddOns.some((candidate) => candidate.code === code),
-                );
-                const requiredBy = compatibleAddOns.find(
-                  (candidate) => addOnCodes.includes(candidate.code) && candidate.dependencyCodes.includes(item.code),
+                const { selected, excludedBy, missingDependency, requiredBy } = catalogAddOnSelectionState(
+                  item,
+                  compatibleAddOns,
+                  addOnCodes,
                 );
                 return (
                   <div className="flex items-start gap-3 py-3" key={item.code}>
@@ -520,7 +519,7 @@ export function AdminSubscriptionChangeWorkbench({
                           {missingDependency
                             ? `Dépendance indisponible : ${missingDependency}`
                             : excludedBy
-                              ? `Incompatible avec ${excludedBy}`
+                              ? `Incompatible avec ${excludedBy.name}`
                               : `Requis par ${requiredBy?.name}`}
                         </span>
                       ) : null}
@@ -617,10 +616,14 @@ export function AdminSubscriptionChangeWorkbench({
         </section>
       </div>
 
-      <div className="flex justify-end border-t p-4">
+      <div className="flex flex-col gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-end">
+        {selectionIsNoOp ? <p className="text-xs text-muted-foreground">Aucun changement sélectionné.</p> : null}
         <Button
           disabled={
-            !selection || previewMutation.isPending || !session.can(adminPermissions.subscriptionsPreviewChange)
+            !selection ||
+            selectionIsNoOp ||
+            previewMutation.isPending ||
+            !session.can(adminPermissions.subscriptionsPreviewChange)
           }
           onClick={refreshPreview}
           title={

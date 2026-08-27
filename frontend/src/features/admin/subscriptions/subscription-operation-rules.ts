@@ -1,4 +1,5 @@
 import type { SubscriptionChangeOperation } from "@/api/contracts";
+import { ApiError } from "@/api/http";
 
 export function normalizedOperatorReason(value: string): string {
   return value.trim();
@@ -22,6 +23,24 @@ export function adminChangeNeedsFreshReview(error: unknown): boolean {
       "code" in error &&
       (error as { code?: string }).code === "STALE_RESOURCE_VERSION",
   );
+}
+
+export function operatorSubscriptionMutationFailureMessage(error: unknown, fallback: string) {
+  if (!(error instanceof ApiError)) return fallback;
+  switch (error.code) {
+    case "FORBIDDEN":
+    case "PERMISSION_DENIED":
+      return "Votre rôle n’autorise pas cette opération.";
+    case "INVALID_REQUEST":
+    case "VALIDATION_FAILED":
+    case "BUSINESS_RULE_VIOLATED":
+      return "Les données ne sont pas applicables. Corrigez la sélection puis réessayez.";
+    case "INVALID_STATE":
+    case "STALE_RESOURCE_VERSION":
+      return "Les données ont changé. Rechargez la page puis réessayez.";
+    default:
+      return fallback;
+  }
 }
 
 export const subscriptionOperationOriginLabel = {

@@ -25,7 +25,7 @@ import type {
   RegistryFeature,
 } from "@/api/contracts";
 import { ApiError } from "@/api/http";
-import { adminPermissions } from "@/auth/permissions";
+import { adminPermissions, adminSubscriptionDetailSurfacePermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { createDataColumns, DataTable, DataTableExpander } from "@/components/patterns/data-table";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -832,7 +832,7 @@ function PlanSubscribers({ plan }: { plan: Plan }) {
   const state = readPlanSubscriberListState(params);
   const deferred = useDebouncedValue(state.search);
   const setState = (next: typeof state) => setParams(writePlanSubscriberListState(params, next), { replace: true });
-  const canOpenSubscriber = session.can(adminPermissions.subscriptionsRead);
+  const canOpenSubscriber = adminSubscriptionDetailSurfacePermissions.some(session.can);
   const subscribers = useQuery({
     queryKey: adminCommercialKeys.plans.subscribers(plan.id, {
       search: deferred,

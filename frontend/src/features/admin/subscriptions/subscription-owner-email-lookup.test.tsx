@@ -48,7 +48,7 @@ const { adminApi } = await import("@/api/admin-api");
 const { adminPermissions } = await import("@/auth/permissions");
 const { AdminSessionProvider } = await import("@/auth/session-provider");
 const { clearSession, writeSession } = await import("@/auth/session-store");
-const { OverridesEditor } = await import("./admin-subscriptions-page");
+const { OverridesEditor, SubscriptionDetail } = await import("./admin-subscriptions-page");
 const { AdminSubscriptionChangeWorkbench } = await import("./admin-subscription-change-workbench");
 const { RetainedSubscriptionQuantityControl } = await import("@/features/commercial/subscription-quantity-control");
 const { SubscriptionOwnerEmailLookup } = await import("./subscription-owner-email-lookup");
@@ -164,6 +164,37 @@ const changeCatalog: ClientPlanCatalog = {
       ],
     },
   ],
+};
+
+const changeCatalogWithAddOn: ClientPlanCatalog = {
+  ...changeCatalog,
+  plans: changeCatalog.plans.map((plan) => ({
+    ...plan,
+    addOns: [
+      {
+        code: "AUDIT",
+        name: "Audit avancé",
+        description: null,
+        price: "10.0000",
+        currencyCode: "MAD",
+        billingCycle: "MONTHLY",
+        definitionVersion: 1,
+        dependencyCodes: [],
+        exclusionCodes: [],
+        features: [],
+        prices: [
+          {
+            priceEntryId: "addon-price-1",
+            amount: "10.0000",
+            currencyCode: "MAD",
+            billingCycle: "MONTHLY",
+            effectiveFrom: "2026-08-01T00:00:00Z",
+            effectiveUntil: null,
+          },
+        ],
+      },
+    ],
+  })),
 };
 
 const preview = (token: string): SubscriptionChangePreview => ({
@@ -332,6 +363,120 @@ describe("subscription owner-email lookup", () => {
   });
 });
 
+describe("independent operator subscription surfaces", () => {
+  test("loads the change workbench without making the broader subscription query", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname.endsWith("/change-catalog")) return jsonResponse(changeCatalog);
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [
+      adminPermissions.subscriptionsChooseChangeOptions,
+    ]);
+
+    expect(await view.findByRole("heading", { name: "Préparer un changement" })).toBeTruthy();
+    expect(requests).toEqual(["/api/admin/subscriptions/account/account-1/change-catalog"]);
+  });
+
+  test("loads bounded history without requiring current-subscription access", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname.endsWith("/changes")) return jsonResponse(pageResponse([]));
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [
+      adminPermissions.subscriptionsReadChanges,
+    ]);
+
+    expect(await view.findByRole("heading", { name: "Opérations de changement" })).toBeTruthy();
+    expect(await view.findByText("Aucune opération")).toBeTruthy();
+    expect(requests).toEqual(["/api/admin/subscriptions/account/account-1/changes"]);
+  });
+
+  test("confirms a paid checkout from history without loading the broader subscription", async () => {
+    const requests: Array<{ path: string; method: string; body: unknown }> = [];
+    const checkout = {
+      id: "checkout-1",
+      status: "PENDING_CONFIRMATION" as const,
+      amount: "125.0000",
+      currencyCode: "MAD",
+      gatewayAttemptStatus: "PENDING" as const,
+      gatewayReference: "gateway-attempt-1",
+      gatewayFailureReason: null,
+      confirmationSource: null,
+      confirmationReference: null,
+      confirmedAt: null,
+    };
+    const operation = {
+      id: "operation-1",
+      createdAt: "2026-08-27T10:00:00Z",
+      updatedAt: "2026-08-27T10:00:00Z",
+      timing: "IMMEDIATE" as const,
+      status: "AWAITING_CONFIRMATION" as const,
+      effectiveAt: null,
+      sourcePlanCode: "PRO",
+      targetPlanCode: "BUSINESS",
+      attentionReason: null,
+      checkout,
+      requestOrigin: "PLATFORM_ADMIN" as const,
+      requestedByUserId: "admin-1",
+      requestReason: "Contrat validé",
+      cancellationOrigin: null,
+      cancelledByUserId: null,
+      cancellationReason: null,
+      cancelledAt: null,
+    };
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      requests.push({ path: url.pathname, method, body });
+      if (url.pathname.endsWith("/changes")) return jsonResponse(pageResponse([operation]));
+      if (url.pathname.endsWith("/checkouts/checkout-1/confirm-manual")) {
+        return jsonResponse({
+          ...checkout,
+          status: "CONFIRMED",
+          confirmationSource: "MANUAL_OPERATOR",
+          confirmationReference: "receipt-42",
+          confirmedAt: "2026-08-27T10:10:00Z",
+        });
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [
+      adminPermissions.subscriptionsReadChanges,
+      adminPermissions.subscriptionsConfirmCheckout,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    const [confirmTrigger] = await view.findAllByRole("button", { name: "Confirmer" });
+    if (!confirmTrigger) throw new Error("Expected a checkout confirmation trigger");
+    await user.click(confirmTrigger);
+
+    expect((await view.findAllByText(/125,00 MAD/)).length).toBeGreaterThan(0);
+    await user.type(view.getByLabelText("Référence"), " receipt-42 ");
+    await user.type(view.getByLabelText("Justification"), " Paiement vérifié ");
+    await user.click(view.getByRole("button", { name: "Confirmer le paiement" }));
+
+    await waitFor(() =>
+      expect(requests.some(({ path }) => path.endsWith("/checkouts/checkout-1/confirm-manual"))).toBeTrue(),
+    );
+    const confirmation = requests.find(({ path }) => path.endsWith("/checkouts/checkout-1/confirm-manual"));
+    expect(confirmation).toEqual({
+      path: "/api/admin/subscriptions/checkouts/checkout-1/confirm-manual",
+      method: "POST",
+      body: { reference: "receipt-42", reason: "Paiement vérifié" },
+    });
+    expect(requests.some(({ path }) => path === "/api/admin/subscriptions/account/account-1")).toBeFalse();
+  });
+});
+
 describe("subscription override dialog", () => {
   test("renders one trigger child and opens without violating the Radix asChild contract", async () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -373,6 +518,18 @@ describe("retained subscription quantity", () => {
 });
 
 describe("operator subscription change workbench", () => {
+  test("does not request signed evidence for an unchanged exact selection", () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }) as unknown as typeof fetch;
+    const { view } = renderAdmin(<AdminSubscriptionChangeWorkbench accountId="account-1" catalog={changeCatalog} />, [
+      adminPermissions.subscriptionsPreviewChange,
+    ]);
+
+    expect(view.getByText("Aucun changement sélectionné.")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Prévisualiser" }).hasAttribute("disabled")).toBeTrue();
+  });
+
   test("requires a reason and replaces rejected signed evidence before retrying", async () => {
     let previewCalls = 0;
     const applyBodies: Array<Record<string, unknown>> = [];
@@ -408,11 +565,12 @@ describe("operator subscription change workbench", () => {
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
 
-    const { view } = renderAdmin(<AdminSubscriptionChangeWorkbench accountId="account-1" catalog={changeCatalog} />, [
-      adminPermissions.subscriptionsPreviewChange,
-      adminPermissions.subscriptionsApplyChange,
-    ]);
+    const { view } = renderAdmin(
+      <AdminSubscriptionChangeWorkbench accountId="account-1" catalog={changeCatalogWithAddOn} />,
+      [adminPermissions.subscriptionsPreviewChange, adminPermissions.subscriptionsApplyChange],
+    );
     const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(view.getByRole("checkbox", { name: /Audit avancé/ }));
     await user.click(view.getByRole("button", { name: "Prévisualiser" }));
     await view.findByRole("heading", { name: "Vérifier le changement" });
 

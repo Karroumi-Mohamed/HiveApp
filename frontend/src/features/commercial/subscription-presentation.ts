@@ -20,3 +20,18 @@ export const subscriptionChangeStatusPresentation: Record<SubscriptionChangeOper
   NEEDS_ATTENTION: { label: "Intervention requise", tone: "danger" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
 };
+
+export function subscriptionChangeRecordedMessage(operation: Pick<SubscriptionChangeOperation, "status">) {
+  switch (operation.status) {
+    case "AWAITING_CONFIRMATION":
+      return "Changement en attente de confirmation du paiement";
+    case "PENDING":
+      return "Changement planifié";
+    case "APPLIED":
+      return "Changement appliqué";
+    case "NEEDS_ATTENTION":
+      return "Changement enregistré avec intervention requise";
+    case "CANCELLED":
+      return "Changement annulé";
+  }
+}
