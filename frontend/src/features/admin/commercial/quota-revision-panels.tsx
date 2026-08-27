@@ -6,6 +6,7 @@ import { adminApi } from "@/api/admin-api";
 import type { QuotaPackage } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
+import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -43,13 +44,14 @@ export function QuotaRevisionPanel({ product }: { product: QuotaPackage }) {
   const navigate = useNavigate();
   const [reason, setReason] = useState("");
   const [candidateId, setCandidateId] = useState("");
+  const [revisionPage, setRevisionPage] = useState(0);
   const revisions = useQuery({
-    queryKey: ["admin", "commercial", "quota", product.lineageId, "revisions"],
+    queryKey: ["admin", "commercial", "quota", product.lineageId, "revisions", revisionPage],
     queryFn: () =>
       adminApi.operationalQuotaPackages({
         lineageId: product.lineageId,
-        page: 0,
-        size: 50,
+        page: revisionPage,
+        size: 20,
         sort: "revisionNumber",
         direction: "desc",
       }),
@@ -117,6 +119,17 @@ export function QuotaRevisionPanel({ product }: { product: QuotaPackage }) {
             </Select>
           </div>
           {revisions.isError ? <ErrorState retry={() => void revisions.refetch()} /> : null}
+          {revisions.data && revisions.data.totalPages > 1 ? (
+            <PaginationBar
+              page={revisions.data.page}
+              totalElements={revisions.data.totalElements}
+              totalPages={revisions.data.totalPages}
+              onPageChange={(page) => {
+                setCandidateId("");
+                setRevisionPage(page);
+              }}
+            />
+          ) : null}
           {comparison.isLoading ? <LoadingState rows={2} /> : null}
           {comparison.isError ? <ErrorState retry={() => void comparison.refetch()} /> : null}
           {comparison.data ? (
@@ -143,9 +156,10 @@ export function QuotaRevisionPanel({ product }: { product: QuotaPackage }) {
 
 export function QuotaHistoryPanel({ productId }: { productId: string }) {
   const session = useAdminSession();
+  const [page, setPage] = useState(0);
   const history = useQuery({
-    queryKey: ["admin", "commercial", "quota", productId, "history"],
-    queryFn: () => adminApi.quotaPackageHistory(productId, 0, 50),
+    queryKey: ["admin", "commercial", "quota", productId, "history", page],
+    queryFn: () => adminApi.quotaPackageHistory(productId, page, 20),
     enabled: session.can(adminPermissions.quotaPackagesHistory),
   });
   if (!session.can(adminPermissions.quotaPackagesHistory)) return <PermissionState />;
@@ -154,26 +168,34 @@ export function QuotaHistoryPanel({ productId }: { productId: string }) {
   if (!history.data?.content.length)
     return <p className="border-y py-10 text-center text-sm text-muted-foreground">Aucun événement enregistré.</p>;
   return (
-    <ol className="divide-y rounded-xl border bg-card px-5">
-      {history.data.content.map((entry) => (
-        <li className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_auto]" key={entry.id}>
-          <div>
-            <p className="text-sm font-medium">{historyActionLabel(entry.action, entry.lifecycleAction)}</p>
-            <p className="text-xs text-muted-foreground">
-              {entry.actorEmail ? `par ${entry.actorEmail}` : "Action système"}
-              {entry.reason ? ` · ${entry.reason}` : ""}
-            </p>
-          </div>
-          <div className="text-xs text-muted-foreground sm:text-end">
-            <p>
-              {new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(
-                new Date(entry.occurredAt),
-              )}
-            </p>
-            <p>{entry.outcome === "SUCCEEDED" ? "Réussi" : "Échec"}</p>
-          </div>
-        </li>
-      ))}
-    </ol>
+    <section className="overflow-hidden rounded-xl border bg-card">
+      <ol className="divide-y px-5">
+        {history.data.content.map((entry) => (
+          <li className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_auto]" key={entry.id}>
+            <div>
+              <p className="text-sm font-medium">{historyActionLabel(entry.action, entry.lifecycleAction)}</p>
+              <p className="text-xs text-muted-foreground">
+                {entry.actorEmail ? `par ${entry.actorEmail}` : "Action système"}
+                {entry.reason ? ` · ${entry.reason}` : ""}
+              </p>
+            </div>
+            <div className="text-xs text-muted-foreground sm:text-end">
+              <p>
+                {new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(
+                  new Date(entry.occurredAt),
+                )}
+              </p>
+              <p>{entry.outcome === "SUCCEEDED" ? "Réussi" : "Échec"}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <PaginationBar
+        page={history.data.page}
+        totalElements={history.data.totalElements}
+        totalPages={history.data.totalPages}
+        onPageChange={setPage}
+      />
+    </section>
   );
 }
