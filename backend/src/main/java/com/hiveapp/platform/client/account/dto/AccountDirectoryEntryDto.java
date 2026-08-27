@@ -6,7 +6,6 @@ public record AccountDirectoryEntryDto(
         UUID id,
         String name,
         String slug,
-        String ownerEmail,
         boolean active
 ) {
 }

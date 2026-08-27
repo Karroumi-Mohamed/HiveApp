@@ -11,7 +11,6 @@ public record SubscriptionAccountOperationalListItemDto(
         UUID id,
         String name,
         String slug,
-        String ownerEmail,
         boolean active,
         Instant createdAt,
         LatestSubscriptionSummary latestSubscription

@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -25,7 +27,7 @@ class AccountDirectoryServiceImplTest {
     @InjectMocks private AccountDirectoryServiceImpl service;
 
     @Test
-    void searchNormalizesInputAndReturnsTheOwnerIdentityNeededByAdminUi() {
+    void searchReturnsOnlyTheMinimumAccountIdentityNeededByAChooser() {
         User owner = new User();
         owner.setEmail("owner@example.com");
         Account account = Account.builder()
@@ -37,7 +39,7 @@ class AccountDirectoryServiceImplTest {
         UUID accountId = UUID.randomUUID();
         ReflectionTestUtils.setField(account, "id", accountId);
         PageRequest page = PageRequest.of(1, 20);
-        when(accountRepository.searchDirectory("north", page))
+        when(accountRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), eq(page)))
                 .thenReturn(new PageImpl<>(List.of(account), page, 21));
 
         var result = service.search("  north  ", page);
@@ -47,7 +49,6 @@ class AccountDirectoryServiceImplTest {
             assertThat(item.id()).isEqualTo(accountId);
             assertThat(item.name()).isEqualTo("Northwind");
             assertThat(item.slug()).isEqualTo("northwind");
-            assertThat(item.ownerEmail()).isEqualTo("owner@example.com");
             assertThat(item.active()).isTrue();
         });
     }

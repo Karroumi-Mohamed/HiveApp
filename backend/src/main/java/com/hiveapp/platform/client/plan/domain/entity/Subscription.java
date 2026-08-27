@@ -17,7 +17,11 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "subscriptions", uniqueConstraints = {
+@Table(name = "subscriptions", indexes = {
+        @Index(
+                name = "idx_subscriptions_account_created_id",
+                columnList = "account_id,created_at,id")
+}, uniqueConstraints = {
         @UniqueConstraint(name = "uk_subscriptions_usable_account", columnNames = "usable_account_id")
 })
 @Getter @Setter

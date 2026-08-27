@@ -30,7 +30,7 @@ public class AccountDirectoryServiceImpl implements AccountDirectoryService {
     @Override
     @Transactional(readOnly = true)
     public Page<AccountDirectoryEntryDto> search(String query, Pageable pageable) {
-        return accountRepository.searchDirectory(normalizeSearch(query), pageable).map(this::toDto);
+        return search(query, null, pageable);
     }
 
     @Override
@@ -40,11 +40,12 @@ public class AccountDirectoryServiceImpl implements AccountDirectoryService {
         Specification<Account> specification = (root, ignored, cb) -> {
             var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
             if (normalized != null) {
-                String pattern = "%" + normalized.toLowerCase(Locale.ROOT) + "%";
-                predicates.add(cb.or(
-                        cb.like(cb.lower(root.get("name")), pattern),
-                        cb.like(cb.lower(root.get("slug")), pattern),
-                        cb.like(cb.lower(root.get("owner").get("email")), pattern)));
+                String pattern = "%" + escapeLike(normalized.toLowerCase(Locale.ROOT)) + "%";
+                var matches = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+                matches.add(cb.like(cb.lower(root.get("name")), pattern, '\\'));
+                matches.add(cb.like(cb.lower(root.get("slug")), pattern, '\\'));
+                parseUuid(normalized).ifPresent(id -> matches.add(cb.equal(root.get("id"), id)));
+                predicates.add(cb.or(matches.toArray(jakarta.persistence.criteria.Predicate[]::new)));
             }
             if (active != null) {
                 predicates.add(cb.equal(root.get("isActive"), active));
@@ -66,7 +67,7 @@ public class AccountDirectoryServiceImpl implements AccountDirectoryService {
     private AccountDirectoryEntryDto toDto(Account account) {
         return new AccountDirectoryEntryDto(
                 account.getId(), account.getName(), account.getSlug(),
-                account.getOwner().getEmail(), account.isActive());
+                account.isActive());
     }
 
     private String normalizeSearch(String value) {
@@ -94,5 +95,17 @@ public class AccountDirectoryServiceImpl implements AccountDirectoryService {
             throw new InvalidRequestException("Selected account ids must not contain duplicates.");
         }
         return ids;
+    }
+
+    private java.util.Optional<UUID> parseUuid(String value) {
+        try {
+            return java.util.Optional.of(UUID.fromString(value));
+        } catch (IllegalArgumentException ignored) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    private String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }
