@@ -73,6 +73,13 @@ public class GlobalExceptionHandler {
                         "Conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(StaleSchedulePreviewException.class)
+    public ResponseEntity<ApiError> handleStaleSchedulePreview(StaleSchedulePreviewException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.STALE_SCHEDULE_PREVIEW,
+                        "Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ResponseEntity<ApiError> handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
         return ResponseEntity

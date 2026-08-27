@@ -9,6 +9,7 @@ import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.account.service.AccountDirectoryService;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyStatus;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignStatus;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentAction;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentBlocker;
@@ -21,6 +22,7 @@ import com.hiveapp.platform.client.plan.domain.entity.CommercialSegment;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialSegmentActivation;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialSegmentProductSelection;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialPolicyRepository;
+import com.hiveapp.platform.client.plan.domain.repository.CommercialCampaignRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentActivationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
@@ -99,6 +101,7 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
     private final CommercialSegmentRepository segmentRepository;
     private final CommercialSegmentActivationRepository activationRepository;
     private final CommercialPolicyRepository policyRepository;
+    private final CommercialCampaignRepository campaignRepository;
     private final AccountRepository accountRepository;
     private final AccountDirectoryService accountDirectoryService;
     private final PlanRepository planRepository;
@@ -154,13 +157,18 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
         Map<UUID, Integer> maximumRevisions = maximumRevisions(page.getContent());
         Map<String, Integer> liveReferenceCounts = livePolicyReferenceCounts(page.getContent());
         Map<String, Integer> allReferenceCounts = allPolicyReferenceCounts(page.getContent());
+        Map<UUID, Integer> draftCampaignReferences = campaignReferenceCounts(
+                page.getContent(), CommercialCampaignStatus.DRAFT);
+        Map<UUID, Integer> allCampaignReferences = campaignReferenceCounts(page.getContent(), null);
         ActionPermissions permissions = actionPermissions();
         return page.map(segment -> toSummary(segment,
                 explicitCounts.getOrDefault(segment.getId(), 0),
                 activationCounts.get(segment.getId()),
                 maximumRevisions.getOrDefault(segment.getLineageId(), segment.getRevisionNumber()),
                 liveReferenceCounts.getOrDefault(segment.getCode(), 0),
-                allReferenceCounts.getOrDefault(segment.getCode(), 0), permissions));
+                allReferenceCounts.getOrDefault(segment.getCode(), 0),
+                draftCampaignReferences.getOrDefault(segment.getId(), 0),
+                allCampaignReferences.getOrDefault(segment.getId(), 0), permissions));
     }
 
     @Override
@@ -395,6 +403,11 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             throw new InvalidStateException(
                     "Segment cannot be archived while commercial policies reference it.");
         }
+        if (campaignRepository.countBySegment_IdAndStatus(
+                segmentId, CommercialCampaignStatus.DRAFT) > 0) {
+            throw new InvalidStateException(
+                    "Segment cannot be archived while draft Campaigns reference it.");
+        }
         translateState(segment::archive);
         segmentRepository.saveAndFlush(segment);
         return toDetail(requireSegment(segmentId));
@@ -415,6 +428,9 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
         }
         if (policyRepository.countBySegmentReference(segment.getCode()) > 0) {
             throw new InvalidStateException("A Segment referenced by a commercial policy cannot be deleted.");
+        }
+        if (campaignRepository.countBySegment_Id(segmentId) > 0) {
+            throw new InvalidStateException("A Segment referenced by a Campaign cannot be deleted.");
         }
         segmentRepository.delete(segment);
         segmentRepository.flush();
@@ -666,9 +682,14 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
                 segment.getCode(), LIVE_POLICY_STATUSES));
         int allReferences = Math.toIntExact(
                 policyRepository.countBySegmentReference(segment.getCode()));
+        int draftCampaignReferences = Math.toIntExact(campaignRepository
+                .countBySegment_IdAndStatus(segment.getId(), CommercialCampaignStatus.DRAFT));
+        int allCampaignReferences = Math.toIntExact(
+                campaignRepository.countBySegment_Id(segment.getId()));
         return new CommercialSegmentViews.Detail(
                 toSummary(segment, explicitCount, latestActivation, maximum, liveReferences,
-                        allReferences, actionPermissions()),
+                        allReferences, draftCampaignReferences, allCampaignReferences,
+                        actionPermissions()),
                 segment.getDescription(), segment.getReason(), toDefinition(segment),
                 segment.getSourceSegment() == null ? null : segment.getSourceSegment().getId());
     }
@@ -680,14 +701,17 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             int maximumRevision,
             int livePolicyReferences,
             int allPolicyReferences,
+            int draftCampaignReferences,
+            int allCampaignReferences,
             ActionPermissions permissions
     ) {
         Map<CommercialSegmentAction, List<CommercialSegmentBlocker>> blockedActions =
                 blockedActions(segment, maximumRevision, livePolicyReferences, allPolicyReferences,
+                        draftCampaignReferences, allCampaignReferences,
                         latestActivationCount != null, permissions);
         List<CommercialSegmentAction> actions = availableActions(
                 segment, maximumRevision == segment.getRevisionNumber(), livePolicyReferences,
-                permissions);
+                draftCampaignReferences, permissions);
         return new CommercialSegmentViews.Summary(
                 segment.getId(), segment.getCode(), segment.getName(), segment.getStatus(),
                 segment.getKind(), segment.getSource(), configuredCount, latestActivationCount,
@@ -742,6 +766,8 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             int maximumRevision,
             int livePolicyReferences,
             int allPolicyReferences,
+            int draftCampaignReferences,
+            int allCampaignReferences,
             boolean hasActivationHistory,
             ActionPermissions permissions
     ) {
@@ -772,6 +798,14 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             block(blocked, CommercialSegmentAction.DELETE_DRAFT,
                     CommercialSegmentBlocker.HAS_POLICY_REFERENCES);
         }
+        if (draftCampaignReferences > 0) {
+            block(blocked, CommercialSegmentAction.ARCHIVE,
+                    CommercialSegmentBlocker.HAS_CAMPAIGN_REFERENCES);
+        }
+        if (allCampaignReferences > 0) {
+            block(blocked, CommercialSegmentAction.DELETE_DRAFT,
+                    CommercialSegmentBlocker.HAS_CAMPAIGN_REFERENCES);
+        }
         if (hasActivationHistory) {
             block(blocked, CommercialSegmentAction.DELETE_DRAFT,
                     CommercialSegmentBlocker.HAS_ACTIVATION_HISTORY);
@@ -792,6 +826,7 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             CommercialSegment segment,
             boolean latestRevision,
             int policyReferences,
+            int draftCampaignReferences,
             ActionPermissions permissions
     ) {
         EnumSet<CommercialSegmentAction> actions = EnumSet.of(
@@ -815,7 +850,9 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             actions.add(CommercialSegmentAction.REASSIGN_OWNER);
         } else if (segment.getStatus() == CommercialSegmentStatus.ACTIVE) {
             if (latestRevision) actions.add(CommercialSegmentAction.REVISE);
-            if (policyReferences == 0) actions.add(CommercialSegmentAction.ARCHIVE);
+            if (policyReferences == 0 && draftCampaignReferences == 0) {
+                actions.add(CommercialSegmentAction.ARCHIVE);
+            }
         }
         actions.add(CommercialSegmentAction.COUNT);
         actions.removeIf(action -> !permissions.allows(permissionFor(action)));
@@ -909,6 +946,18 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
                         LIVE_POLICY_STATUSES).stream()
                 .collect(Collectors.toMap(
                         row -> (String) row[0], row -> ((Number) row[1]).intValue()));
+    }
+
+    private Map<UUID, Integer> campaignReferenceCounts(
+            List<CommercialSegment> segments,
+            CommercialCampaignStatus status
+    ) {
+        if (segments.isEmpty()) return Map.of();
+        Set<UUID> ids = segments.stream().map(CommercialSegment::getId).collect(Collectors.toSet());
+        List<Object[]> rows = status == null
+                ? campaignRepository.countReferencesBySegmentIds(ids)
+                : campaignRepository.countReferencesBySegmentIdsAndStatus(ids, status);
+        return groupedInteger(rows);
     }
 
     private CommercialSegment requireSegment(UUID id) {

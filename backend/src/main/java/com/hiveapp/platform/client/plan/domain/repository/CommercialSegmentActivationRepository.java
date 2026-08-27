@@ -54,5 +54,12 @@ public interface CommercialSegmentActivationRepository
             + "from CommercialSegmentActivation other where other.segment.id = activation.segment.id)")
     List<Object[]> countLatestSnapshotAccounts(@Param("segmentIds") Collection<UUID> segmentIds);
 
+    @Query("select activation.segment.id, activation.id, activation.activationNumber, "
+            + "activation.affectedAccountCount "
+            + "from CommercialSegmentActivation activation where activation.segment.id in :segmentIds "
+            + "and activation.activationNumber = (select max(other.activationNumber) "
+            + "from CommercialSegmentActivation other where other.segment.id = activation.segment.id)")
+    List<Object[]> findLatestMetadata(@Param("segmentIds") Collection<UUID> segmentIds);
+
     boolean existsBySegment_Id(UUID segmentId);
 }

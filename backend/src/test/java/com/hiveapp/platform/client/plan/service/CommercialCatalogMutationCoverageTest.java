@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.plan.infrastructure.CommercialCatalogSeeder;
 import com.hiveapp.platform.client.plan.infrastructure.PlanSeeder;
 import com.hiveapp.platform.client.plan.infrastructure.ProductPriceBackfill;
 import com.hiveapp.platform.client.plan.service.impl.CommercialAvailabilityServiceImpl;
+import com.hiveapp.platform.client.plan.service.impl.CommercialCampaignAdminServiceImpl;
 import com.hiveapp.platform.client.plan.service.impl.PlanAdminServiceImpl;
 import com.hiveapp.platform.client.plan.service.impl.ProductPriceAdminServiceImpl;
 import com.hiveapp.platform.registry.service.RegistrySynchronizationCoordinator;
@@ -34,6 +35,9 @@ class CommercialCatalogMutationCoverageTest {
                         "scheduleReplacement", "archive", "deleteDraft")),
                 Map.entry(CommercialAvailabilityServiceImpl.class,
                         List.of("updatePlan", "updateAddOn", "updateQuotaPackage")),
+                Map.entry(CommercialCampaignAdminServiceImpl.class, List.of(
+                        "create", "update", "duplicate", "revise", "schedule", "pause",
+                        "resume", "end", "archive", "deleteDraft", "reassignOwner")),
                 Map.entry(RegistryServiceImpl.class,
                         List.of("updatePublicVisibility", "updateNewSales", "updateEmergencyRuntime")),
                 Map.entry(RegistrySynchronizationCoordinator.class, List.of("synchronize")),
@@ -54,5 +58,20 @@ class CommercialCatalogMutationCoverageTest {
                     .as(type.getSimpleName() + "#" + method.getName() + " is transactional")
                     .isTrue());
         });
+    }
+
+    @Test
+    void conditionalCampaignLifecycleProcessorOwnsItsMutationFenceExplicitly() {
+        assertThat(CommercialCampaignLifecycleTransitionService.class.getDeclaredFields())
+                .extracting(java.lang.reflect.Field::getType)
+                .contains(CommercialCatalogVersionService.class);
+        assertThat(java.util.Arrays.stream(
+                        CommercialCampaignLifecycleTransitionService.class.getDeclaredMethods())
+                .filter(method -> method.getName().startsWith("processDue")))
+                .allSatisfy(method -> {
+                    assertThat(method.getReturnType()).isEqualTo(boolean.class);
+                    assertThat(method.isAnnotationPresent(Transactional.class)).isTrue();
+                    assertThat(method.isAnnotationPresent(CommercialCatalogMutation.class)).isFalse();
+                });
     }
 }

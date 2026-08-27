@@ -196,6 +196,44 @@ class AdminRoleManagementIntegrationTest extends PlatformShellIntegrationTestSup
     }
 
     @Test
+    void campaignPermissionsRespectOperationalPresetSensitivity() throws Exception {
+        String token = loginAdminAndGetToken();
+        JsonNode presets = responseJson(mockMvc.perform(get("/api/admin/role-presets")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk()));
+
+        Set<String> observerCodes = permissionCodes(
+                findByCode(presets, "PLATFORM_OBSERVER").get("permissions"));
+        Set<String> commercialCodes = permissionCodes(
+                findByCode(presets, "COMMERCIAL_OPERATIONS").get("permissions"));
+        Set<String> allCampaignCodes = permissionRepository.findAll().stream()
+                .map(permission -> permission.getCode())
+                .filter(code -> code.startsWith("platform.campaigns."))
+                .collect(java.util.stream.Collectors.toSet());
+        Set<String> observerCampaignCodes = Set.of(
+                "platform.campaigns.list",
+                "platform.campaigns.read",
+                "platform.campaigns.compare",
+                "platform.campaigns.revisions",
+                "platform.campaigns.history",
+                "platform.campaigns.preview_schedule",
+                "platform.campaigns.read_audience");
+
+        assertThat(allCampaignCodes).hasSize(26);
+        assertThat(commercialCodes).containsAll(allCampaignCodes);
+        assertThat(observerCodes.stream().filter(allCampaignCodes::contains)
+                .collect(java.util.stream.Collectors.toSet()))
+                .isEqualTo(observerCampaignCodes);
+        assertThat(observerCodes).doesNotContain(
+                "platform.campaigns.owner",
+                "platform.campaigns.read_audience_identities",
+                "platform.campaigns.choose_owners",
+                "platform.campaigns.resolve_owner_choices",
+                "platform.campaigns.choose_accounts",
+                "platform.campaigns.choose_segments");
+    }
+
+    @Test
     void permissionReplacementRequiresCurrentImpactPreview() throws Exception {
         String token = loginAdminAndGetToken();
         UUID permissionId = permissionRepository.findByCode("platform.registry.read").orElseThrow().getId();
