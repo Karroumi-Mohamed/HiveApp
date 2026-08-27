@@ -164,6 +164,16 @@ export async function invalidateAdminCommercial(queryClient: QueryClient, ...aff
   );
 }
 
+/** Segment lifecycle and Policy-definition writes share one executable-target graph. */
+export async function invalidateCommercialPolicyTargeting(queryClient: QueryClient, ...affected: QueryKey[]) {
+  await invalidateAdminCommercial(
+    queryClient,
+    adminCommercialKeys.segments.all(),
+    adminCommercialKeys.policies.all(),
+    ...affected,
+  );
+}
+
 /**
  * Creating/replacing an account subscription (including checkout confirmation) changes both the
  * subscription inspector/history and the subscriber counts/lists held by plan read models.

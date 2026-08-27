@@ -24,7 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
-  invalidateAdminCommercial,
+  invalidateCommercialPolicyTargeting,
 } from "@/features/commercial/commercial-query";
 import { CommercialPolicyApplicationStatus } from "./commercial-policy-application-notice";
 import {
@@ -78,11 +78,7 @@ const reasonCopy: Record<ReasonAction, { title: string; description: string; con
   };
 
 function invalidatePolicy(queryClient: ReturnType<typeof useQueryClient>, policyId: string) {
-  return invalidateAdminCommercial(
-    queryClient,
-    adminCommercialKeys.policies.all(),
-    adminCommercialKeys.policies.detail(policyId),
-  );
+  return invalidateCommercialPolicyTargeting(queryClient, adminCommercialKeys.policies.detail(policyId));
 }
 
 export function CommercialPolicyReasonDialog({

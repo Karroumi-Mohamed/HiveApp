@@ -677,9 +677,9 @@ export type CommercialSegmentCount = {
 export type CommercialSegmentAudienceReference = { accountId: UUID };
 export type CommercialSegmentAudienceIdentity = {
   accountId: UUID;
-  accountName: string;
-  accountSlug: string;
-  ownerEmail: string;
+  accountName: string | null;
+  accountSlug: string | null;
+  ownerEmail: string | null;
   active: boolean;
 };
 export type CommercialSegmentPreview = {

@@ -37,7 +37,7 @@ import { statusText } from "@/features/admin/plans/plan-presentation";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
-  invalidateAdminCommercial,
+  invalidateCommercialPolicyTargeting,
 } from "@/features/commercial/commercial-query";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { CommercialPolicyExplicitApplicationNotice } from "./commercial-policy-application-notice";
@@ -1181,7 +1181,7 @@ export function PolicyEditor({ existing }: { existing?: CommercialPolicyDetail }
         : adminApi.createCommercialPolicy(input);
     },
     onSuccess: async (policy) => {
-      await invalidateAdminCommercial(queryClient, adminCommercialKeys.policies.all());
+      await invalidateCommercialPolicyTargeting(queryClient);
       completed.current = true;
       toast.success(existing ? "Brouillon mis à jour" : "Politique créée en brouillon");
       navigate(`/admin/commercial-policies/${policy.summary.id}`);

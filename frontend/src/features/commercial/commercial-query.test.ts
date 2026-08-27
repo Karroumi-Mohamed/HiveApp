@@ -8,6 +8,7 @@ import {
   invalidateAdminSubscriptionEntitlement,
   invalidateClientCommercial,
   invalidateCommercialCatalogs,
+  invalidateCommercialPolicyTargeting,
 } from "./commercial-query";
 
 describe("commercial query permissions", () => {
@@ -130,5 +131,19 @@ describe("commercial query keys and invalidation", () => {
     expect(queryClient.getQueryState(adminCatalog)?.isInvalidated).toBeTrue();
     expect(queryClient.getQueryState(clientCatalog)?.isInvalidated).toBeTrue();
     expect(queryClient.getQueryState(unrelatedPlan)?.isInvalidated).toBeFalse();
+  });
+
+  test("Segment lifecycle and Policy writes invalidate the shared targeting graph", async () => {
+    const queryClient = new QueryClient();
+    const segmentDetail = adminCommercialKeys.segments.detail("segment-1");
+    const policyList = adminCommercialKeys.policies.list({ page: 0 });
+    const segmentChooser = adminCommercialKeys.policies.segmentChoices({ search: "renewal", page: 0 });
+    for (const queryKey of [segmentDetail, policyList, segmentChooser]) queryClient.setQueryData(queryKey, {});
+
+    await invalidateCommercialPolicyTargeting(queryClient);
+
+    expect(queryClient.getQueryState(segmentDetail)?.isInvalidated).toBeTrue();
+    expect(queryClient.getQueryState(policyList)?.isInvalidated).toBeTrue();
+    expect(queryClient.getQueryState(segmentChooser)?.isInvalidated).toBeTrue();
   });
 });

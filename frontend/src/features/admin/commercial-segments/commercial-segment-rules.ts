@@ -4,6 +4,7 @@ import type {
   CommercialSegmentBlocker,
   CommercialSegmentDetail,
   CommercialSegmentKind,
+  CommercialSegmentPreview,
   CommercialSegmentProductHolding,
   CommercialSegmentProductType,
   CommercialSegmentSource,
@@ -48,6 +49,49 @@ export const segmentBlocker: Record<CommercialSegmentBlocker, string> = {
   ACTIVE_SUCCESSOR_EXISTS: "Une révision active plus récente existe déjà.",
 };
 
+export const segmentActionLabel: Record<CommercialSegmentAction, string> = {
+  EDIT_DRAFT: "Modifier le brouillon",
+  DUPLICATE: "Dupliquer",
+  COUNT: "Compter l’audience",
+  PREVIEW: "Vérifier l’audience",
+  READ_SAMPLE_IDENTITIES: "Lire l’échantillon identifié",
+  ACTIVATE: "Activer",
+  REVISE: "Créer une révision",
+  COMPARE: "Comparer",
+  ARCHIVE: "Archiver",
+  DELETE_DRAFT: "Supprimer le brouillon",
+  READ_HISTORY: "Lire l’historique",
+  READ_REVISIONS: "Lire les révisions",
+  READ_ACTIVATIONS: "Lire les activations",
+  READ_ACTIVATION_AUDIENCE: "Lire l’audience figée",
+  READ_ACTIVATION_IDENTITIES: "Lire les identités de l’audience",
+  READ_OWNER: "Lire le responsable",
+  REASSIGN_OWNER: "Réassigner le responsable",
+};
+
+const segmentHistoryActionLabel: Record<string, string> = {
+  CREATE: "Brouillon créé",
+  UPDATE: "Brouillon modifié",
+  UPDATE_DRAFT: "Brouillon modifié",
+  DUPLICATE: "Copie indépendante créée",
+  REVISE: "Révision créée",
+  ACTIVATE: "Segment activé",
+  ARCHIVE: "Segment archivé",
+  DELETE_DRAFT: "Brouillon supprimé",
+  REASSIGN_OWNER: "Responsable réassigné",
+};
+
+export function segmentHistoryAction(action: string) {
+  const key = (action.split(".").at(-1) ?? action).replaceAll("-", "_").toUpperCase();
+  return (
+    segmentHistoryActionLabel[key] ??
+    key
+      .toLowerCase()
+      .replaceAll("_", " ")
+      .replace(/^./, (value) => value.toUpperCase())
+  );
+}
+
 export const subscriptionStatusLabel: Record<SubscriptionStatus, string> = {
   TRIALING: "Essai",
   ACTIVE: "Actif",
@@ -56,6 +100,14 @@ export const subscriptionStatusLabel: Record<SubscriptionStatus, string> = {
   CANCELLED: "Annulé",
   EXPIRED: "Expiré",
 };
+
+/** Segment criteria describe the current subscription, never terminal history. */
+export const segmentCurrentSubscriptionStatuses = [
+  "TRIALING",
+  "ACTIVE",
+  "PAST_DUE",
+  "SUSPENDED",
+] as const satisfies readonly SubscriptionStatus[];
 
 export const billingCycleLabel: Record<BillingCycle, string> = {
   MONTHLY: "Mensuel",
@@ -80,8 +132,12 @@ export type CommercialSegmentDraft = {
 };
 
 export type CommercialSegmentDraftErrors = Partial<
-  Record<"name" | "reason" | "audience" | "createdWindow" | "currencies" | "products", string>
+  Record<"name" | "reason" | "audience" | "statuses" | "createdWindow" | "currencies" | "products", string>
 >;
+
+const earliestAccountDate = Date.parse("2000-01-01T00:00:00Z");
+const maximumAccountDateRange = 366 * 20 * 24 * 60 * 60 * 1000;
+const oneDay = 24 * 60 * 60 * 1000;
 
 export function emptyCommercialSegmentDraft(): CommercialSegmentDraft {
   return {
@@ -170,7 +226,10 @@ function uniqueHoldings(values: CommercialSegmentProductHolding[]) {
   return [...byKey.values()];
 }
 
-export function validateCommercialSegmentDraft(draft: CommercialSegmentDraft): CommercialSegmentDraftErrors {
+export function validateCommercialSegmentDraft(
+  draft: CommercialSegmentDraft,
+  now = Date.now(),
+): CommercialSegmentDraftErrors {
   const errors: CommercialSegmentDraftErrors = {};
   if (!draft.name.trim()) errors.name = "Le nom est obligatoire.";
   if (!draft.reason.trim()) errors.reason = "Le motif métier est obligatoire.";
@@ -193,17 +252,59 @@ export function validateCommercialSegmentDraft(draft: CommercialSegmentDraft): C
     if (draft.productHoldings.some((holding) => !holding.code.trim())) {
       errors.products = "Chaque produit sélectionné doit avoir un code.";
     }
+    if (
+      draft.subscriptionStatuses.some(
+        (status) =>
+          !segmentCurrentSubscriptionStatuses.includes(status as (typeof segmentCurrentSubscriptionStatuses)[number]),
+      )
+    ) {
+      errors.statuses = "Un segment courant ne peut pas cibler un abonnement annulé ou expiré.";
+    }
   }
-  if (draft.accountCreatedFrom && draft.accountCreatedUntil) {
-    const from = new Date(draft.accountCreatedFrom);
-    const until = new Date(draft.accountCreatedUntil);
-    if (from >= until) errors.createdWindow = "La date de fin doit suivre la date de début.";
+  if (draft.kind === "TYPED_CRITERIA") {
+    const from = draft.accountCreatedFrom ? new Date(draft.accountCreatedFrom).getTime() : null;
+    const until = draft.accountCreatedUntil ? new Date(draft.accountCreatedUntil).getTime() : null;
+    if (
+      (from !== null && (!Number.isFinite(from) || from < earliestAccountDate || from > now + oneDay)) ||
+      (until !== null && (!Number.isFinite(until) || until < earliestAccountDate || until > now + oneDay))
+    ) {
+      errors.createdWindow = "Les dates de création doivent être comprises entre 2000 et demain.";
+    } else if (from !== null && until !== null) {
+      if (from >= until) errors.createdWindow = "La date de fin doit suivre la date de début.";
+      else if (until - from > maximumAccountDateRange) {
+        errors.createdWindow = "La période de création ne peut pas dépasser 20 ans.";
+      }
+    }
   }
   return errors;
 }
 
 export function hasDraftErrors(errors: CommercialSegmentDraftErrors) {
   return Object.values(errors).some(Boolean);
+}
+
+export function reviewedSegmentActivationReady(
+  segment: Pick<CommercialSegmentDetail, "summary">,
+  preview:
+    | Pick<
+        CommercialSegmentPreview,
+        "segmentId" | "criteriaVersion" | "expiresAt" | "previewToken" | "activatable" | "blockers"
+      >
+    | null
+    | undefined,
+  now = Date.now(),
+) {
+  if (!preview) return false;
+  const expiresAt = Date.parse(preview.expiresAt);
+  return (
+    preview.activatable &&
+    preview.blockers.length === 0 &&
+    Boolean(preview.previewToken.trim()) &&
+    preview.segmentId === segment.summary.id &&
+    preview.criteriaVersion === segment.summary.version &&
+    Number.isFinite(expiresAt) &&
+    expiresAt > now
+  );
 }
 
 export function actionBlockers(
