@@ -1360,6 +1360,23 @@ export type AdminSubscription = {
 
 export type AccountDirectoryEntry = { id: UUID; name: string; slug: string; ownerEmail: string; active: boolean };
 
+export type SubscriptionAccountListItem = AccountDirectoryEntry & {
+  createdAt: Instant;
+  latestSubscription: {
+    id: UUID;
+    status: SubscriptionStatus;
+    planId: UUID;
+    planCode: string;
+    planName: string;
+    planRevisionNumber: number;
+    billingCycle: ProductPriceBillingCycle;
+    currentPeriodEnd: Instant | null;
+    cancelAtPeriodEnd: boolean;
+    currentPrice: ExactDecimal;
+    currencyCode: string;
+  } | null;
+};
+
 export type SubscriptionChangeOperation = {
   id: UUID;
   timing: "IMMEDIATE" | "AT_RENEWAL";

@@ -1,19 +1,21 @@
 import { ArrowLeftIcon, ArrowRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { SortingState } from "@tanstack/react-table";
 import { type FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
 import type {
-  AccountDirectoryEntry,
   AdminSubscription,
   AssignablePlanPrice,
+  SubscriptionAccountListItem,
   SubscriptionChangeOperation,
+  SubscriptionStatus,
 } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
-import { createDataColumns, DataTable } from "@/components/patterns/data-table";
+import { createDataColumns, DataTable, SortHeader } from "@/components/patterns/data-table";
 import { PageHeader } from "@/components/patterns/page-header";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
@@ -44,10 +46,29 @@ import {
 } from "@/features/commercial/commercial-query";
 import { formatExactMoney } from "@/lib/exact-decimal";
 import { AssignablePlanPricePicker } from "./assignable-plan-price-picker";
+import {
+  readSubscriptionAccountListState,
+  subscriptionAccountQuery,
+  subscriptionAccountSorting,
+  subscriptionAccountStateFromSorting,
+  writeSubscriptionAccountListState,
+} from "./subscription-account-list-state";
 
 const money = formatExactMoney;
 const date = (value: string | null) =>
   value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium" }).format(new Date(value)) : "—";
+
+const subscriptionState: Record<
+  SubscriptionStatus,
+  { label: string; tone: "success" | "info" | "warning" | "danger" | "neutral" }
+> = {
+  ACTIVE: { label: "Actif", tone: "success" },
+  TRIALING: { label: "Essai", tone: "info" },
+  PAST_DUE: { label: "Impayé", tone: "danger" },
+  SUSPENDED: { label: "Suspendu", tone: "warning" },
+  CANCELLED: { label: "Annulé", tone: "neutral" },
+  EXPIRED: { label: "Expiré", tone: "neutral" },
+};
 
 function CreateSubscription({ accountId }: { accountId: string }) {
   const session = useAdminSession();
@@ -568,32 +589,89 @@ export function AdminSubscriptionsPage() {
   const { accountId } = useParams();
   const session = useAdminSession();
   const [params, setParams] = useSearchParams();
-  const search = params.get("q") ?? "";
-  const parsedPage = Number(params.get("page") ?? "0");
-  const page = Number.isInteger(parsedPage) && parsedPage >= 0 ? parsedPage : 0;
-  const deferred = useDeferredValue(search);
+  const state = readSubscriptionAccountListState(params);
+  const deferredSearch = useDeferredValue(state.search);
+  const request = useMemo(
+    () => subscriptionAccountQuery({ ...state, search: deferredSearch }),
+    [deferredSearch, state],
+  );
   const accounts = useQuery({
-    queryKey: adminCommercialKeys.subscriptions.accounts({ search: deferred, page }),
-    queryFn: () => adminApi.accounts({ query: deferred || undefined, page, size: 20 }),
+    queryKey: adminCommercialKeys.subscriptions.accounts(request),
+    queryFn: () => adminApi.accounts(request),
     enabled: commercialQueryEnabled(session.can, adminPermissions.subscriptionsSearch, !accountId),
+    placeholderData: keepPreviousData,
   });
+  useEffect(() => {
+    if (accounts.data && accounts.data.totalPages > 0 && state.page >= accounts.data.totalPages) {
+      setParams(
+        writeSubscriptionAccountListState(params, {
+          ...state,
+          page: Math.max(accounts.data.totalPages - 1, 0),
+        }),
+        { replace: true },
+      );
+    }
+  }, [accounts.data, params, setParams, state]);
   const canOpen = session.can(adminPermissions.subscriptionsRead);
-  const column = useMemo(() => createDataColumns<AccountDirectoryEntry>(), []);
+  const column = useMemo(() => createDataColumns<SubscriptionAccountListItem>(), []);
   const columns = useMemo(
     () =>
       column.columns([
         column.accessor("name", {
-          header: "Compte",
-          cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+          meta: { headerClassName: "min-w-48" },
+          header: ({ column: item }) => <SortHeader column={item}>Compte</SortHeader>,
+          cell: ({ row }) => (
+            <span>
+              <span className="block font-medium">{row.original.name}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{row.original.slug}</span>
+            </span>
+          ),
         }),
-        column.accessor("ownerEmail", { header: "Propriétaire" }),
-        column.accessor("slug", {
-          header: "Slug",
-          cell: ({ row }) => <code className="text-xs">{row.original.slug}</code>,
+        column.accessor("ownerEmail", {
+          meta: { headerClassName: "min-w-52" },
+          header: ({ column: item }) => <SortHeader column={item}>Propriétaire</SortHeader>,
+        }),
+        column.display({
+          id: "plan",
+          header: "Dernier forfait",
+          cell: ({ row }) =>
+            row.original.latestSubscription ? (
+              <span>
+                <span className="block font-medium">{row.original.latestSubscription.planName}</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  R{row.original.latestSubscription.planRevisionNumber} ·{" "}
+                  {row.original.latestSubscription.billingCycle === "MONTHLY" ? "mensuel" : "annuel"}
+                </span>
+              </span>
+            ) : (
+              <span className="text-sm text-muted-foreground">Aucun abonnement</span>
+            ),
+        }),
+        column.display({
+          id: "subscription",
+          header: "Abonnement",
+          cell: ({ row }) => {
+            const current = row.original.latestSubscription;
+            if (!current) return <span className="text-sm text-muted-foreground">—</span>;
+            const presentation = subscriptionState[current.status];
+            return (
+              <span>
+                <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {current.cancelAtPeriodEnd ? "Fin programmée" : `Échéance ${date(current.currentPeriodEnd)}`}
+                </span>
+              </span>
+            );
+          },
+        }),
+        column.accessor("createdAt", {
+          meta: { headerClassName: "w-32", cellClassName: "w-32" },
+          header: ({ column: item }) => <SortHeader column={item}>Créé le</SortHeader>,
+          cell: ({ row }) => <time dateTime={row.original.createdAt}>{date(row.original.createdAt)}</time>,
         }),
         column.accessor("active", {
           meta: { headerClassName: "w-28", cellClassName: "w-28" },
-          header: "Statut",
+          header: ({ column: item }) => <SortHeader column={item}>Compte</SortHeader>,
           cell: ({ row }) => (
             <StatusBadge tone={row.original.active ? "success" : "danger"}>
               {row.original.active ? "Actif" : "Inactif"}
@@ -619,16 +697,9 @@ export function AdminSubscriptionsPage() {
       ]),
     [canOpen, column],
   );
-  const updateListState = (next: { search?: string; page?: number }) => {
-    const updated = new URLSearchParams(params);
-    if (next.search !== undefined) {
-      if (next.search) updated.set("q", next.search);
-      else updated.delete("q");
-    }
-    if (next.page !== undefined && next.page > 0) updated.set("page", String(next.page));
-    else if (next.page !== undefined) updated.delete("page");
-    setParams(updated, { replace: true });
-  };
+  const sorting = subscriptionAccountSorting(state);
+  const setState = (next: typeof state) =>
+    setParams(writeSubscriptionAccountListState(params, next), { replace: true });
   if (accountId)
     return (
       <div className="space-y-7">
@@ -646,20 +717,56 @@ export function AdminSubscriptionsPage() {
     <div className="space-y-7">
       <PageHeader title="Abonnements" />
       <section className="overflow-hidden rounded-xl border bg-card">
-        <div className="relative border-b p-4">
-          <MagnifyingGlassIcon
-            aria-hidden="true"
-            className="absolute start-7 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            aria-label="Rechercher des comptes"
-            className="max-w-md ps-9"
-            onChange={(event) => {
-              updateListState({ search: event.target.value, page: 0 });
-            }}
-            placeholder="Compte, slug ou email du propriétaire…"
-            value={search}
-          />
+        <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(240px,1fr)_180px_210px]">
+          <div className="relative">
+            <MagnifyingGlassIcon
+              aria-hidden="true"
+              className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              aria-label="Rechercher des comptes"
+              className="ps-9"
+              onChange={(event) => setState({ ...state, search: event.target.value, page: 0 })}
+              placeholder="Compte, slug ou email du propriétaire…"
+              value={state.search}
+            />
+          </div>
+          <Select
+            onValueChange={(accountStatus) =>
+              setState({ ...state, accountStatus: accountStatus as typeof state.accountStatus, page: 0 })
+            }
+            value={state.accountStatus}
+          >
+            <SelectTrigger aria-label="État du compte">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les comptes</SelectItem>
+              <SelectItem value="active">Comptes actifs</SelectItem>
+              <SelectItem value="inactive">Comptes inactifs</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            onValueChange={(subscription) =>
+              setState({ ...state, subscription: subscription as typeof state.subscription, page: 0 })
+            }
+            value={state.subscription}
+          >
+            <SelectTrigger aria-label="État de l’abonnement">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les abonnements</SelectItem>
+              <SelectItem value="any">Avec historique</SelectItem>
+              <SelectItem value="none">Sans abonnement</SelectItem>
+              <SelectItem value="ACTIVE">Actifs</SelectItem>
+              <SelectItem value="TRIALING">En essai</SelectItem>
+              <SelectItem value="PAST_DUE">Impayés</SelectItem>
+              <SelectItem value="SUSPENDED">Suspendus</SelectItem>
+              <SelectItem value="CANCELLED">Annulés</SelectItem>
+              <SelectItem value="EXPIRED">Expirés</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         {accounts.isLoading ? (
           <div className="p-5">
@@ -667,20 +774,32 @@ export function AdminSubscriptionsPage() {
           </div>
         ) : accounts.isError ? (
           <ErrorState retry={() => void accounts.refetch()} />
-        ) : !accounts.data?.content.length ? (
-          <EmptyState title="Aucun compte" />
         ) : (
           <>
             <div className="hidden md:block">
-              <DataTable columns={columns} data={accounts.data.content} getRowId={(row) => row.id} />
+              <DataTable
+                columns={columns}
+                data={accounts.data?.content ?? []}
+                emptyState={<EmptyState description="Modifiez les filtres ou la recherche." title="Aucun compte" />}
+                getRowId={(row) => row.id}
+                onSortingChange={(next: SortingState) => setState(subscriptionAccountStateFromSorting(state, next))}
+                sorting={sorting}
+              />
             </div>
             <div className="divide-y md:hidden">
-              {accounts.data.content.map((account) => (
+              {!accounts.data?.content.length ? (
+                <EmptyState description="Modifiez les filtres ou la recherche." title="Aucun compte" />
+              ) : null}
+              {(accounts.data?.content ?? []).map((account) => (
                 <article className="flex items-center justify-between gap-4 p-4" key={account.id}>
                   <div className="min-w-0">
                     <p className="truncate font-medium">{account.name}</p>
                     <p className="truncate text-xs text-muted-foreground">{account.ownerEmail}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{account.active ? "Actif" : "Inactif"}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {account.latestSubscription
+                        ? `${account.latestSubscription.planName} · ${subscriptionState[account.latestSubscription.status].label}`
+                        : "Aucun abonnement"}
+                    </p>
                   </div>
                   {canOpen ? (
                     <Button asChild size="icon-sm" variant="ghost">
@@ -702,10 +821,10 @@ export function AdminSubscriptionsPage() {
               ))}
             </div>
             <PaginationBar
-              onPageChange={(nextPage) => updateListState({ page: nextPage })}
-              page={accounts.data.page}
-              totalElements={accounts.data.totalElements}
-              totalPages={accounts.data.totalPages}
+              onPageChange={(page) => setState({ ...state, page })}
+              page={accounts.data?.page ?? 0}
+              totalElements={accounts.data?.totalElements ?? 0}
+              totalPages={accounts.data?.totalPages ?? 0}
             />
           </>
         )}

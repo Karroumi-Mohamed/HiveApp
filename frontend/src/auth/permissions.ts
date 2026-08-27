@@ -103,6 +103,8 @@ export const adminPermissions = {
   priceBooksDeleteDraft: permission("price_books", "delete_draft"),
   subscriptionsRead: permission("subscriptions", "read"),
   subscriptionsSearch: permission("subscriptions", "search_accounts"),
+  subscriptionsChooseAccounts: permission("subscriptions", "choose_accounts"),
+  subscriptionsResolveAccountChoices: permission("subscriptions", "resolve_account_choices"),
   subscriptionsListAssignablePrices: permission("subscriptions", "list_assignable_prices"),
   subscriptionsCreate: permission("subscriptions", "create"),
   subscriptionsCreateTrial: permission("subscriptions", "create_trial"),

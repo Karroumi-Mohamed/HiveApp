@@ -56,8 +56,7 @@ export const adminCommercialKeys = {
   },
   subscriptions: {
     all: () => subscriptionsRoot,
-    accounts: (filters: Readonly<{ search: string; page: number }>) =>
-      [...subscriptionsRoot, "accounts", filters] as const,
+    accounts: (filters: Readonly<Record<string, unknown>>) => [...subscriptionsRoot, "accounts", filters] as const,
     assignablePrices: (filters: Readonly<Record<string, unknown>>) =>
       [...subscriptionsRoot, "assignable-prices", filters] as const,
     detail: (accountId: string) => [...subscriptionsRoot, "detail", accountId] as const,

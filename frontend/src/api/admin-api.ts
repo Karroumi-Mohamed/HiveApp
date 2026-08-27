@@ -72,12 +72,14 @@ import type {
   RegistrySyncRun,
   RoleHolder,
   Subscription,
+  SubscriptionAccountListItem,
   SubscriptionAddOnOverrideChoice,
   SubscriptionChangeOperation,
   SubscriptionCheckout,
   SubscriptionOverrideChoicePage,
   SubscriptionOverridesInput,
   SubscriptionQuotaPackageOverrideChoice,
+  SubscriptionStatus,
   UpdatePlanInput,
   UUID,
 } from "@/api/contracts";
@@ -504,8 +506,26 @@ export const adminApi = {
   deleteProductPrice: (id: UUID, version: number) =>
     admin<void>(`/product-prices/${id}`, { method: "DELETE", query: { version } }),
   subscription: (accountId: UUID) => admin<AdminSubscription>(`/subscriptions/account/${accountId}`),
-  accounts: (query: { query?: string; page?: number; size?: number }) =>
-    admin<PageResponse<AccountDirectoryEntry>>("/subscriptions/accounts/search", { query }),
+  accounts: (query: {
+    query?: string;
+    accountActive?: boolean;
+    subscriptionStatus?: SubscriptionStatus;
+    hasSubscription?: boolean;
+    page?: number;
+    size?: number;
+    sort?: "name" | "slug" | "ownerEmail" | "active" | "createdAt";
+    direction?: "asc" | "desc";
+  }) => admin<PageResponse<SubscriptionAccountListItem>>("/subscriptions/accounts/search", { query }),
+  chooseSubscriptionAccounts: (query: {
+    query?: string;
+    active?: boolean;
+    page?: number;
+    size?: number;
+    sort?: "name" | "slug" | "ownerEmail";
+    direction?: "asc" | "desc";
+  }) => admin<PageResponse<AccountDirectoryEntry>>("/subscriptions/accounts/chooser", { query }),
+  resolveSubscriptionAccounts: (ids: UUID[]) =>
+    admin<AccountDirectoryEntry[]>("/subscriptions/accounts/chooser/selected", { query: { ids } }),
   subscriptionChanges: (accountId: UUID) =>
     admin<SubscriptionChangeOperation[]>(`/subscriptions/account/${accountId}/changes`),
   assignablePlanPrices: (query: {
