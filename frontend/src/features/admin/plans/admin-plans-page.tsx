@@ -1,5 +1,6 @@
 import {
   ArrowLeftIcon,
+  ArrowRightIcon,
   CopyIcon,
   GitBranchIcon,
   MagnifyingGlassIcon,
@@ -8,8 +9,8 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useDeferredValue, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { type FormEvent, useEffect, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
 import type {
@@ -36,6 +37,7 @@ import { RowAction } from "@/components/patterns/row-action";
 import { SectionTabs } from "@/components/patterns/section-tabs";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { StatusText } from "@/components/patterns/status-text";
+import { TableActionsCell } from "@/components/patterns/table-actions-cell";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -68,13 +70,19 @@ import {
   statusText,
 } from "@/features/admin/plans/plan-presentation";
 import { quotaLinesOf } from "@/features/admin/plans/plan-schema-model";
+import {
+  readPlanSubscriberListState,
+  writePlanSubscriberListState,
+} from "@/features/admin/plans/plan-subscriber-list-state";
 import { ProductPricePanel } from "@/features/admin/price-books/product-price-panel";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
+import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
 import { commercialAmount, isCommercialAmount } from "@/lib/exact-decimal";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 type PlanFeatureCommercialRow = {
   feature: PlanFeature;
@@ -820,21 +828,33 @@ function PlanFeatureActions({
 
 function PlanSubscribers({ plan }: { plan: Plan }) {
   const session = useAdminSession();
-  const [search, setSearch] = useState("");
-  const deferred = useDeferredValue(search);
-  const [status, setStatus] = useState("all");
-  const [page, setPage] = useState(0);
+  const [params, setParams] = useSearchParams();
+  const state = readPlanSubscriberListState(params);
+  const deferred = useDebouncedValue(state.search);
+  const setState = (next: typeof state) => setParams(writePlanSubscriberListState(params, next), { replace: true });
+  const canOpenSubscriber = session.can(adminPermissions.subscriptionsRead);
   const subscribers = useQuery({
-    queryKey: adminCommercialKeys.plans.subscribers(plan.id, { search: deferred, status, page }),
+    queryKey: adminCommercialKeys.plans.subscribers(plan.id, {
+      search: deferred,
+      status: state.status,
+      page: state.page,
+    }),
     queryFn: () =>
       adminApi.planSubscribers(plan.id, {
         search: deferred || undefined,
-        status: status === "all" ? undefined : status,
-        page,
+        status: state.status === "all" ? undefined : state.status,
+        page: state.page,
         size: 20,
       }),
     enabled: commercialQueryEnabled(session.can, adminPermissions.plansListSubscribers),
   });
+  useEffect(() => {
+    if (!subscribers.data) return;
+    const boundedPage = subscribers.data.totalPages === 0 ? 0 : Math.min(state.page, subscribers.data.totalPages - 1);
+    if (boundedPage !== state.page) {
+      setParams(writePlanSubscriberListState(params, { ...state, page: boundedPage }), { replace: true });
+    }
+  }, [params, setParams, state, subscribers.data]);
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
       <div className="flex flex-col gap-3 border-b p-4 sm:flex-row">
@@ -847,28 +867,26 @@ function PlanSubscribers({ plan }: { plan: Plan }) {
             aria-label="Rechercher des abonnés"
             className="ps-9"
             onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(0);
+              setState({ ...state, search: event.target.value, page: 0 });
             }}
             placeholder="Nom du compte…"
-            value={search}
+            value={state.search}
           />
         </div>
         <Select
           onValueChange={(value) => {
-            setStatus(value);
-            setPage(0);
+            setState({ ...state, status: value as typeof state.status, page: 0 });
           }}
-          value={status}
+          value={state.status}
         >
           <SelectTrigger aria-label="Statut de l’abonnement" className="w-full sm:w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tous les statuts</SelectItem>
-            {["ACTIVE", "TRIALING", "PAST_DUE", "SUSPENDED", "CANCELLED", "EXPIRED"].map((value) => (
+            {Object.entries(subscriptionStatusPresentation).map(([value, presentation]) => (
               <SelectItem key={value} value={value}>
-                {value}
+                {presentation.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -884,48 +902,95 @@ function PlanSubscribers({ plan }: { plan: Plan }) {
         <EmptyState title="Aucun abonné" />
       ) : (
         <>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Compte</TableHead>
-                <TableHead>Statut</TableHead>
-                <TableHead>Prix configuré</TableHead>
-                <TableHead>Fin de période</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {subscribers.data.content.map((subscriber) => (
-                <TableRow key={subscriber.subscriptionId}>
-                  <TableCell>
-                    <p className="font-medium">{subscriber.accountName}</p>
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge
-                      tone={
-                        subscriber.status === "ACTIVE"
-                          ? "success"
-                          : subscriber.status === "PAST_DUE" || subscriber.status === "SUSPENDED"
-                            ? "danger"
-                            : "warning"
-                      }
-                    >
-                      {subscriber.status}
-                    </StatusBadge>
-                  </TableCell>
-                  <TableCell>
-                    {money(subscriber.configuredRecurringPrice, subscriber.configuredRecurringPriceCurrencyCode)}
-                  </TableCell>
-                  <TableCell>
-                    {subscriber.currentPeriodEnd
-                      ? new Intl.DateTimeFormat("fr-MA").format(new Date(subscriber.currentPeriodEnd))
-                      : "—"}
-                  </TableCell>
+          <div className="divide-y md:hidden">
+            {subscribers.data.content.map((subscriber) => {
+              const presentation = subscriptionStatusPresentation[subscriber.status];
+              return (
+                <article className="space-y-3 p-4" key={subscriber.subscriptionId}>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="min-w-0 truncate font-medium">{subscriber.accountName}</p>
+                    <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <dt className="text-muted-foreground">Prix configuré</dt>
+                      <dd className="mt-0.5 font-medium">
+                        {money(subscriber.configuredRecurringPrice, subscriber.configuredRecurringPriceCurrencyCode)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Fin de période</dt>
+                      <dd className="mt-0.5 font-medium">
+                        {subscriber.currentPeriodEnd
+                          ? new Intl.DateTimeFormat("fr-MA").format(new Date(subscriber.currentPeriodEnd))
+                          : "—"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="flex justify-end">
+                    <TableActionsCell label={`Actions pour ${subscriber.accountName}`}>
+                      <RowAction
+                        disabled={!canOpenSubscriber}
+                        disabledLabel="Votre rôle ne permet pas d’ouvrir cet abonnement"
+                        icon={<ArrowRightIcon className="rtl:rotate-180" />}
+                        label="Ouvrir l’abonnement"
+                        to={canOpenSubscriber ? `/admin/subscriptions/${subscriber.accountId}` : undefined}
+                      />
+                    </TableActionsCell>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Compte</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead>Prix configuré</TableHead>
+                  <TableHead>Fin de période</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {subscribers.data.content.map((subscriber) => {
+                  const presentation = subscriptionStatusPresentation[subscriber.status];
+                  return (
+                    <TableRow key={subscriber.subscriptionId}>
+                      <TableCell>
+                        <p className="font-medium">{subscriber.accountName}</p>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
+                      </TableCell>
+                      <TableCell>
+                        {money(subscriber.configuredRecurringPrice, subscriber.configuredRecurringPriceCurrencyCode)}
+                      </TableCell>
+                      <TableCell>
+                        {subscriber.currentPeriodEnd
+                          ? new Intl.DateTimeFormat("fr-MA").format(new Date(subscriber.currentPeriodEnd))
+                          : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <TableActionsCell label={`Actions pour ${subscriber.accountName}`}>
+                          <RowAction
+                            disabled={!canOpenSubscriber}
+                            disabledLabel="Votre rôle ne permet pas d’ouvrir cet abonnement"
+                            icon={<ArrowRightIcon className="rtl:rotate-180" />}
+                            label="Ouvrir l’abonnement"
+                            to={canOpenSubscriber ? `/admin/subscriptions/${subscriber.accountId}` : undefined}
+                          />
+                        </TableActionsCell>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
           <PaginationBar
-            onPageChange={setPage}
+            onPageChange={(page) => setState({ ...state, page })}
             page={subscribers.data.page}
             totalElements={subscribers.data.totalElements}
             totalPages={subscribers.data.totalPages}

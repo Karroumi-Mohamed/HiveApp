@@ -176,12 +176,14 @@ function CommercialCatalogPage({ kind }: { kind: Kind }) {
   });
   const data = query.data;
   useEffect(() => {
-    if (data && data.totalPages > 0 && state.page >= data.totalPages) {
-      setParams(writeCommercialListState(params, { ...state, page: Math.max(data.totalPages - 1, 0) }), {
+    if (!data || query.isPlaceholderData) return;
+    const boundedPage = data.totalPages === 0 ? 0 : Math.min(state.page, data.totalPages - 1);
+    if (boundedPage !== state.page) {
+      setParams(writeCommercialListState(params, { ...state, page: boundedPage }), {
         replace: true,
       });
     }
-  }, [data, params, setParams, state]);
+  }, [data, params, query.isPlaceholderData, setParams, state]);
 
   const setState = (next: typeof state) => setParams(writeCommercialListState(params, next), { replace: true });
   const column = useMemo(() => createDataColumns<Row>(), []);

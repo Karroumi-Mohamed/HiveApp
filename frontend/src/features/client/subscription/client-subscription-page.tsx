@@ -1,6 +1,7 @@
 import { ArrowRightIcon, CheckIcon, MinusIcon, PlusIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { clientApi } from "@/api/client-api";
 import type { ClientPlanCatalog, SubscriptionChangeInput, SubscriptionChangePreview } from "@/api/contracts";
@@ -15,7 +16,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { capacityUnitLabel } from "@/features/admin/commercial/commercial-presentation";
 import {
   currentCatalogPrice,
@@ -31,8 +31,14 @@ import {
   commercialQueryEnabled,
   invalidateClientCommercial,
 } from "@/features/commercial/commercial-query";
+import { SubscriptionChangeList } from "@/features/commercial/subscription-change-list";
+import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
 import { formatExactMoney } from "@/lib/exact-decimal";
-import { subscriptionChangeFailureMessage } from "./subscription-change-rules";
+import {
+  subscriptionChangeFailureMessage,
+  subscriptionChangePreviewIsCurrent,
+  subscriptionChangeSelectionKey,
+} from "./subscription-change-rules";
 
 const money = formatExactMoney;
 const date = (value: string | null) =>
@@ -82,6 +88,9 @@ function PreviewDialog({
   onApply,
   applying,
   canApply,
+  previewReady,
+  onRecalculate,
+  recalculating,
   currentPlanName,
   targetPlanName,
   featureNames,
@@ -93,6 +102,9 @@ function PreviewDialog({
   onApply: () => void;
   applying: boolean;
   canApply: boolean;
+  previewReady: boolean;
+  onRecalculate: () => void;
+  recalculating: boolean;
   currentPlanName: string;
   targetPlanName: string;
   featureNames: ReadonlyMap<string, string>;
@@ -150,11 +162,24 @@ function PreviewDialog({
               ))}
             </div>
           </section>
+          {!previewReady ? (
+            <div className="flex flex-col gap-3 rounded-lg border border-warning/30 bg-warning-subtle p-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-warning" role="alert">
+                Cette prévisualisation a expiré ou la sélection a changé. Recalculez-la avant de confirmer.
+              </p>
+              <Button disabled={recalculating} onClick={onRecalculate} size="sm" variant="outline">
+                {recalculating ? "Calcul…" : "Recalculer"}
+              </Button>
+            </div>
+          ) : null}
           {canApply ? (
             <div className="flex justify-end">
               <Button
                 disabled={
-                  Boolean(preview.conflicts.length) || applying || (timing === "IMMEDIATE" && !preview.immediateAllowed)
+                  !previewReady ||
+                  Boolean(preview.conflicts.length) ||
+                  applying ||
+                  (timing === "IMMEDIATE" && !preview.immediateAllowed)
                 }
                 onClick={onApply}
               >
@@ -185,11 +210,14 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
   );
   const [timing, setTiming] = useState<"IMMEDIATE" | "AT_RENEWAL">("IMMEDIATE");
   const [preview, setPreview] = useState<SubscriptionChangePreview | null>(null);
+  const [previewSelectionKey, setPreviewSelectionKey] = useState<string | null>(null);
+  const [previewClock, setPreviewClock] = useState(() => Date.now());
   const [previewOpen, setPreviewOpen] = useState(false);
   const retainedAddOns = useMemo(() => current?.retainedAddOns ?? [], [current?.retainedAddOns]);
   const retainedQuotaPackages = useMemo(() => current?.retainedQuotaPackages ?? [], [current?.retainedQuotaPackages]);
   const changeError = (error: unknown) => {
     setPreview(null);
+    setPreviewSelectionKey(null);
     setPreviewOpen(false);
     void invalidateClientCommercial(queryClient);
     toast.error(subscriptionChangeFailureMessage(error));
@@ -275,25 +303,37 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
         : null,
     [planCode, addOns, quantities, timing, selectedPlanPrice],
   );
+  const previewReady = subscriptionChangePreviewIsCurrent(preview, request, previewSelectionKey, previewClock);
+  useEffect(() => {
+    if (!preview) return;
+    setPreviewClock(Date.now());
+    const expiresAt = Date.parse(preview.expiresAt);
+    if (!Number.isFinite(expiresAt)) return;
+    const delay = expiresAt - Date.now();
+    if (delay <= 0) return;
+    const timer = window.setTimeout(() => setPreviewClock(Date.now()), delay + 25);
+    return () => window.clearTimeout(timer);
+  }, [preview]);
   const previewMutation = useMutation({
-    mutationFn: () => {
-      if (!request) throw new Error("Aucun tarif disponible");
-      return clientApi.previewSubscriptionChange(request);
-    },
-    onSuccess: (data) => {
+    mutationFn: (selection: SubscriptionChangeInput) => clientApi.previewSubscriptionChange(selection),
+    onSuccess: (data, selection) => {
       setPreview(data);
+      setPreviewSelectionKey(subscriptionChangeSelectionKey(selection));
       setPreviewOpen(true);
     },
     onError: changeError,
   });
   const apply = useMutation({
     mutationFn: () => {
-      if (!request || !preview) throw new Error("Prévisualisez le changement avant de l’appliquer");
+      if (!request || !preview || !previewReady)
+        throw new Error("Recalculez la prévisualisation avant d’appliquer ce changement");
       return clientApi.applySubscriptionChange({ selection: request, previewToken: preview.previewToken });
     },
     onSuccess: () => {
       void invalidateClientCommercial(queryClient);
       setPreviewOpen(false);
+      setPreview(null);
+      setPreviewSelectionKey(null);
       toast.success(timing === "IMMEDIATE" ? "Changement appliqué" : "Changement planifié");
     },
     onError: changeError,
@@ -533,7 +573,10 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             </Select>
           </div>
           {session.can(clientPermissions.subscriptionPreview) ? (
-            <Button disabled={!request || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
+            <Button
+              disabled={!request || previewMutation.isPending}
+              onClick={() => request && previewMutation.mutate(request)}
+            >
               {previewMutation.isPending ? (
                 "Calcul…"
               ) : (
@@ -553,8 +596,11 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
         featureNames={featureNames}
         onApply={() => apply.mutate()}
         onOpenChange={setPreviewOpen}
+        onRecalculate={() => request && previewMutation.mutate(request)}
         open={previewOpen}
         preview={preview}
+        previewReady={previewReady}
+        recalculating={previewMutation.isPending}
         targetPlanName={plan.name}
         timing={timing}
       />
@@ -585,58 +631,24 @@ function ChangeHistory() {
   if (!changes.data?.length) return <EmptyState title="Aucun changement" />;
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Changement</TableHead>
-            <TableHead>Timing</TableHead>
-            <TableHead>Effet</TableHead>
-            <TableHead>Statut</TableHead>
-            <TableHead />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {changes.data.map((operation) => (
-            <TableRow key={operation.id}>
-              <TableCell>
-                <span className="text-sm">Changement de forfait</span>
-                {operation.attentionReason ? (
-                  <p className="mt-1 text-xs text-destructive">{operation.attentionReason}</p>
-                ) : null}
-              </TableCell>
-              <TableCell>{operation.timing === "IMMEDIATE" ? "Immédiat" : "Renouvellement"}</TableCell>
-              <TableCell>{date(operation.effectiveAt)}</TableCell>
-              <TableCell>
-                <StatusBadge
-                  tone={
-                    operation.status === "APPLIED"
-                      ? "success"
-                      : operation.status === "NEEDS_ATTENTION"
-                        ? "danger"
-                        : "warning"
-                  }
-                >
-                  {operation.status}
-                </StatusBadge>
-              </TableCell>
-              <TableCell>
-                {["PENDING", "AWAITING_CONFIRMATION"].includes(operation.status) &&
-                session.can(clientPermissions.subscriptionCancel) ? (
-                  <Button onClick={() => cancel.mutate(operation.id)} size="sm" variant="ghost">
-                    Annuler
-                  </Button>
-                ) : null}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <SubscriptionChangeList
+        operations={changes.data}
+        renderAction={(operation) =>
+          ["PENDING", "AWAITING_CONFIRMATION"].includes(operation.status) &&
+          session.can(clientPermissions.subscriptionCancel) ? (
+            <Button disabled={cancel.isPending} onClick={() => cancel.mutate(operation.id)} size="sm" variant="ghost">
+              {cancel.isPending && cancel.variables === operation.id ? "Annulation…" : "Annuler"}
+            </Button>
+          ) : null
+        }
+      />
     </section>
   );
 }
 
 export function ClientSubscriptionPage() {
   const session = useClientSession();
+  const [params, setParams] = useSearchParams();
   const canReadSubscription = session.can(clientPermissions.subscriptionRead);
   const canReadCatalog = session.can(clientPermissions.subscriptionCatalog);
   const canReadChanges = session.can(clientPermissions.subscriptionReadChanges);
@@ -645,9 +657,9 @@ export function ClientSubscriptionPage() {
     ...(canReadCatalog ? [{ label: "Changer de forfait", value: "catalog" as const }] : []),
     ...(canReadChanges ? [{ label: "Changements", value: "changes" as const }] : []),
   ];
-  const [requestedTab, setRequestedTab] = useState<"current" | "catalog" | "changes">("current");
+  const requestedTab = params.get("tab") as "current" | "catalog" | "changes" | null;
   const tab = availableTabs.some((item) => item.value === requestedTab)
-    ? requestedTab
+    ? (requestedTab as "current" | "catalog" | "changes")
     : (availableTabs[0]?.value ?? "current");
   const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
   const [subscription, catalog] = useQueries({
@@ -670,7 +682,11 @@ export function ClientSubscriptionPage() {
       <PageHeader title="Abonnement" />
       <SectionTabs
         items={availableTabs}
-        onValueChange={(value) => setRequestedTab(value as "current" | "catalog" | "changes")}
+        onValueChange={(value) => {
+          const next = new URLSearchParams(params);
+          next.set("tab", value);
+          setParams(next, { replace: true });
+        }}
         value={tab}
       />
       {(tab === "current" && subscription.isLoading) || (tab === "catalog" && catalog.isLoading) ? (
@@ -690,8 +706,8 @@ export function ClientSubscriptionPage() {
               <div>
                 <h2 className="text-xl font-semibold">{subscription.data.plan.name}</h2>
               </div>
-              <StatusBadge tone={subscription.data.status === "ACTIVE" ? "success" : "warning"}>
-                {subscription.data.status}
+              <StatusBadge tone={subscriptionStatusPresentation[subscription.data.status].tone}>
+                {subscriptionStatusPresentation[subscription.data.status].label}
               </StatusBadge>
             </div>
             <p className="mt-6 text-2xl font-semibold">

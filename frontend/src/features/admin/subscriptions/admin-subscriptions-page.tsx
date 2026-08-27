@@ -5,13 +5,7 @@ import { type FormEvent, useDeferredValue, useEffect, useMemo, useState } from "
 import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type {
-  AdminSubscription,
-  AssignablePlanPrice,
-  SubscriptionAccountListItem,
-  SubscriptionChangeOperation,
-  SubscriptionStatus,
-} from "@/api/contracts";
+import type { AdminSubscription, AssignablePlanPrice, SubscriptionAccountListItem } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
@@ -35,7 +29,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { capacityUnitLabel } from "@/features/admin/commercial/commercial-presentation";
 import {
@@ -44,7 +37,10 @@ import {
   invalidateAdminCommercial,
   invalidateAdminSubscriptionEntitlement,
 } from "@/features/commercial/commercial-query";
+import { SubscriptionChangeList } from "@/features/commercial/subscription-change-list";
+import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
 import { formatExactMoney } from "@/lib/exact-decimal";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { AssignablePlanPricePicker } from "./assignable-plan-price-picker";
 import {
   readSubscriptionAccountListState,
@@ -58,18 +54,6 @@ import { SubscriptionOwnerEmailLookup } from "./subscription-owner-email-lookup"
 const money = formatExactMoney;
 const date = (value: string | null) =>
   value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium" }).format(new Date(value)) : "—";
-
-const subscriptionState: Record<
-  SubscriptionStatus,
-  { label: string; tone: "success" | "info" | "warning" | "danger" | "neutral" }
-> = {
-  ACTIVE: { label: "Actif", tone: "success" },
-  TRIALING: { label: "Essai", tone: "info" },
-  PAST_DUE: { label: "Impayé", tone: "danger" },
-  SUSPENDED: { label: "Suspendu", tone: "warning" },
-  CANCELLED: { label: "Annulé", tone: "neutral" },
-  EXPIRED: { label: "Expiré", tone: "neutral" },
-};
 
 function CreateSubscription({ accountId }: { accountId: string }) {
   const session = useAdminSession();
@@ -176,6 +160,8 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
   const [open, setOpen] = useState(false);
   const [addOnSearch, setAddOnSearch] = useState("");
   const [quotaSearch, setQuotaSearch] = useState("");
+  const debouncedAddOnSearch = useDebouncedValue(addOnSearch);
+  const debouncedQuotaSearch = useDebouncedValue(quotaSearch);
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>(subscription.customOverrides.addOnCodes);
   const canListAddOns = session.can(adminPermissions.subscriptionsChooseAddOnOverrides);
   const canListQuotaPackages = session.can(adminPermissions.subscriptionsChooseQuotaOverrides);
@@ -185,12 +171,19 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
   const [addOns, quotaPackages] = useQueries({
     queries: [
       {
-        queryKey: ["admin", "subscriptions", subscription.accountId, "override-add-ons", selectedAddOns, addOnSearch],
+        queryKey: [
+          "admin",
+          "subscriptions",
+          subscription.accountId,
+          "override-add-ons",
+          selectedAddOns,
+          debouncedAddOnSearch,
+        ],
         queryFn: () =>
           adminApi.subscriptionAddOnOverrideChoices(subscription.accountId, {
             selectedAddOnCodes: selectedAddOns,
             useCurrentAddOnSelections: false,
-            search: addOnSearch || undefined,
+            search: debouncedAddOnSearch || undefined,
             size: 50,
           }),
         enabled: commercialQueryEnabled(
@@ -200,12 +193,19 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
         ),
       },
       {
-        queryKey: ["admin", "subscriptions", subscription.accountId, "override-quotas", selectedAddOns, quotaSearch],
+        queryKey: [
+          "admin",
+          "subscriptions",
+          subscription.accountId,
+          "override-quotas",
+          selectedAddOns,
+          debouncedQuotaSearch,
+        ],
         queryFn: () =>
           adminApi.subscriptionQuotaOverrideChoices(subscription.accountId, {
             selectedAddOnCodes: selectedAddOns,
             useCurrentAddOnSelections: false,
-            search: quotaSearch || undefined,
+            search: debouncedQuotaSearch || undefined,
             size: 50,
           }),
         enabled: commercialQueryEnabled(
@@ -232,6 +232,21 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
       ]),
     ).values(),
   ];
+  const invalidQuantityCodes = new Set(
+    quotaChoices
+      .filter((item) => {
+        const quantity = quantities[item.code] ?? 0;
+        return !Number.isInteger(quantity) || quantity < 0 || quantity > item.maximumQuantity;
+      })
+      .map((item) => item.code),
+  );
+  const catalogReady =
+    canListAddOns &&
+    canListQuotaPackages &&
+    !addOns.isLoading &&
+    !quotaPackages.isLoading &&
+    !addOns.isError &&
+    !quotaPackages.isError;
   useEffect(() => {
     if (open) {
       setSelectedAddOns(subscription.customOverrides.addOnCodes);
@@ -324,7 +339,7 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
             ) : null}
           </section>
           <section>
-            <h3 className="text-sm font-semibold">Packages de quota</h3>
+            <h3 className="text-sm font-semibold">Packs de capacité</h3>
             <Input
               aria-label="Rechercher un pack de capacité"
               className="mt-3"
@@ -342,7 +357,7 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
               ) : quotaPackages.isError ? (
                 <ErrorState
                   retry={() => void quotaPackages.refetch()}
-                  title="Impossible de charger les packages de quota"
+                  title="Impossible de charger les packs de capacité"
                 />
               ) : quotaChoices.length ? (
                 quotaChoices.map((item) => (
@@ -362,6 +377,10 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
                     </div>
                     <Input
                       aria-label={`Quantité ${item.name}`}
+                      aria-describedby={
+                        invalidQuantityCodes.has(item.code) ? `quota-${item.productId}-error` : undefined
+                      }
+                      aria-invalid={invalidQuantityCodes.has(item.code)}
                       disabled={item.retained && !item.quantityEditable && !item.removable}
                       max={item.maximumQuantity}
                       min="0"
@@ -369,12 +388,22 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
                         setQuantities((current) => ({ ...current, [item.code]: Number(event.target.value) }))
                       }
                       type="number"
+                      step="1"
                       value={quantities[item.code] ?? 0}
                     />
+                    {invalidQuantityCodes.has(item.code) ? (
+                      <p
+                        className="col-span-2 text-xs text-destructive"
+                        id={`quota-${item.productId}-error`}
+                        role="alert"
+                      >
+                        Saisissez un nombre entier entre 0 et {item.maximumQuantity}.
+                      </p>
+                    ) : null}
                   </div>
                 ))
               ) : (
-                <p className="p-3 text-sm text-muted-foreground">Aucun package actif.</p>
+                <p className="p-3 text-sm text-muted-foreground">Aucun pack actif.</p>
               )}
             </div>
             {quotaPackages.data?.hasMoreCandidates ? (
@@ -382,7 +411,10 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
             ) : null}
           </section>
           <div className="flex justify-end">
-            <Button disabled={save.isPending} onClick={() => save.mutate()}>
+            <Button
+              disabled={save.isPending || !catalogReady || invalidQuantityCodes.size > 0}
+              onClick={() => save.mutate()}
+            >
               Enregistrer
             </Button>
           </div>
@@ -488,16 +520,8 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
             <div>
               <h2 className="text-lg font-semibold">{data.planName}</h2>
             </div>
-            <StatusBadge
-              tone={
-                data.status === "ACTIVE"
-                  ? "success"
-                  : data.status === "PAST_DUE" || data.status === "SUSPENDED"
-                    ? "danger"
-                    : "warning"
-              }
-            >
-              {data.status}
+            <StatusBadge tone={subscriptionStatusPresentation[data.status].tone}>
+              {subscriptionStatusPresentation[data.status].label}
             </StatusBadge>
           </div>
           <dl className="mt-6 grid gap-5 sm:grid-cols-2">
@@ -518,7 +542,7 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
           <dl className="mt-5 space-y-4">
             <Info label="Add-ons" value={data.customOverrides.addOnCodes.length} />
             <Info
-              label="Packages de quota"
+              label="Packs de capacité"
               value={data.customOverrides.quotaPackages.reduce((total, item) => total + item.quantity, 0)}
             />
             <Info label="Version du snapshot" value={data.entitlementSnapshot?.planDefinitionVersion ?? "—"} />
@@ -539,46 +563,14 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
           ) : !changes.data?.length ? (
             <EmptyState title="Aucune opération" />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Changement</TableHead>
-                  <TableHead>Timing</TableHead>
-                  <TableHead>Statut</TableHead>
-                  <TableHead>Effet</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {changes.data.map((operation: SubscriptionChangeOperation) => (
-                  <TableRow key={operation.id}>
-                    <TableCell>
-                      <span className="text-sm">Changement de forfait</span>
-                    </TableCell>
-                    <TableCell>{operation.timing === "IMMEDIATE" ? "Immédiat" : "Au renouvellement"}</TableCell>
-                    <TableCell>
-                      <StatusBadge
-                        tone={
-                          operation.status === "APPLIED"
-                            ? "success"
-                            : operation.status === "NEEDS_ATTENTION"
-                              ? "danger"
-                              : "warning"
-                        }
-                      >
-                        {operation.status}
-                      </StatusBadge>
-                    </TableCell>
-                    <TableCell>{date(operation.effectiveAt)}</TableCell>
-                    <TableCell>
-                      {operation.checkout?.status === "PENDING_CONFIRMATION" ? (
-                        <CheckoutDialog checkoutId={operation.checkout.id} />
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <SubscriptionChangeList
+              operations={changes.data}
+              renderAction={(operation) =>
+                operation.checkout?.status === "PENDING_CONFIRMATION" ? (
+                  <CheckoutDialog checkoutId={operation.checkout.id} />
+                ) : null
+              }
+            />
           )}
         </section>
       ) : null}
@@ -603,16 +595,18 @@ export function AdminSubscriptionsPage() {
     placeholderData: keepPreviousData,
   });
   useEffect(() => {
-    if (accounts.data && accounts.data.totalPages > 0 && state.page >= accounts.data.totalPages) {
+    if (!accounts.data || accounts.isPlaceholderData) return;
+    const boundedPage = accounts.data.totalPages === 0 ? 0 : Math.min(state.page, accounts.data.totalPages - 1);
+    if (boundedPage !== state.page) {
       setParams(
         writeSubscriptionAccountListState(params, {
           ...state,
-          page: Math.max(accounts.data.totalPages - 1, 0),
+          page: boundedPage,
         }),
         { replace: true },
       );
     }
-  }, [accounts.data, params, setParams, state]);
+  }, [accounts.data, accounts.isPlaceholderData, params, setParams, state]);
   const canOpen = session.can(adminPermissions.subscriptionsRead);
   const column = useMemo(() => createDataColumns<SubscriptionAccountListItem>(), []);
   const columns = useMemo(
@@ -650,7 +644,7 @@ export function AdminSubscriptionsPage() {
           cell: ({ row }) => {
             const current = row.original.latestSubscription;
             if (!current) return <span className="text-sm text-muted-foreground">—</span>;
-            const presentation = subscriptionState[current.status];
+            const presentation = subscriptionStatusPresentation[current.status];
             return (
               <span>
                 <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
@@ -801,7 +795,7 @@ export function AdminSubscriptionsPage() {
                     <p className="truncate text-xs text-muted-foreground">{account.slug}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {account.latestSubscription
-                        ? `${account.latestSubscription.planName} · ${subscriptionState[account.latestSubscription.status].label}`
+                        ? `${account.latestSubscription.planName} · ${subscriptionStatusPresentation[account.latestSubscription.status].label}`
                         : "Aucun abonnement"}
                     </p>
                   </div>

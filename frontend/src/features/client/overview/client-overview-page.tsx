@@ -10,6 +10,7 @@ import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import { clientCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
+import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
 
 export function ClientOverviewPage() {
   const session = useClientSession();
@@ -133,7 +134,9 @@ export function ClientOverviewPage() {
                 <h2 className="text-sm font-semibold">Abonnement</h2>
                 <p className="mt-2 text-lg font-semibold">{subscription.data.plan.name}</p>
               </div>
-              <StatusBadge>{subscription.data.status}</StatusBadge>
+              <StatusBadge tone={subscriptionStatusPresentation[subscription.data.status].tone}>
+                {subscriptionStatusPresentation[subscription.data.status].label}
+              </StatusBadge>
             </div>
             <Button asChild className="mt-5" size="sm" variant="outline">
               <Link to="/app/subscription">Gérer</Link>
