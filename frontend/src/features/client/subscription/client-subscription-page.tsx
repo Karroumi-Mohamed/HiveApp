@@ -1,5 +1,5 @@
-import { ArrowRightIcon, CheckIcon, MinusIcon, PlusIcon, WarningCircleIcon } from "@phosphor-icons/react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowRightIcon, CheckIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import type { ClientPlanCatalog, SubscriptionChangeInput, SubscriptionChangePrev
 import { clientPermissions } from "@/auth/permissions";
 import { useClientSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
+import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { SectionTabs } from "@/components/patterns/section-tabs";
 import { StatusBadge } from "@/components/patterns/status-badge";
@@ -32,7 +33,19 @@ import {
   invalidateClientCommercial,
 } from "@/features/commercial/commercial-query";
 import { SubscriptionChangeList } from "@/features/commercial/subscription-change-list";
+import {
+  clientSubscriptionOperationUrlKeys,
+  readSubscriptionOperationListState,
+  subscriptionOperationQuery,
+  subscriptionOperationSorting,
+  subscriptionOperationStateFromSorting,
+  writeSubscriptionOperationListState,
+} from "@/features/commercial/subscription-operation-list-state";
 import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
+import {
+  RetainedSubscriptionQuantityControl,
+  SubscriptionQuantityControl,
+} from "@/features/commercial/subscription-quantity-control";
 import { formatExactMoney } from "@/lib/exact-decimal";
 import {
   subscriptionChangeFailureMessage,
@@ -43,42 +56,6 @@ import {
 const money = formatExactMoney;
 const date = (value: string | null) =>
   value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium" }).format(new Date(value)) : "—";
-
-function QuantityControl({
-  value,
-  maximum,
-  onChange,
-}: {
-  value: number;
-  maximum: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <div className="inline-flex items-center rounded-lg border">
-      <Button
-        aria-label="Réduire"
-        disabled={value <= 0}
-        onClick={() => onChange(value - 1)}
-        size="icon-sm"
-        type="button"
-        variant="ghost"
-      >
-        <MinusIcon />
-      </Button>
-      <span className="min-w-8 text-center text-sm font-semibold tabular-nums">{value}</span>
-      <Button
-        aria-label="Augmenter"
-        disabled={value >= maximum}
-        onClick={() => onChange(value + 1)}
-        size="icon-sm"
-        type="button"
-        variant="ghost"
-      >
-        <PlusIcon />
-      </Button>
-    </div>
-  );
-}
 
 function PreviewDialog({
   preview,
@@ -518,7 +495,8 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
                         {itemPrice ? money(itemPrice.amount, itemPrice.currencyCode) : "Indisponible"} par unité
                       </p>
                     </div>
-                    <QuantityControl
+                    <SubscriptionQuantityControl
+                      label={item.name}
                       maximum={item.maximumQuantity}
                       onChange={(value) => setQuantities((currentItems) => ({ ...currentItems, [item.code]: value }))}
                       value={quantities[item.code] ?? 0}
@@ -545,15 +523,15 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
                       {money(item.unitPrice, item.currencyCode)} par unité · conservé
                     </p>
                   </div>
-                  {item.quantityEditable || item.removable ? (
-                    <QuantityControl
-                      maximum={item.maximumSelectableQuantity ?? item.quantity}
-                      onChange={(value) => setQuantities((items) => ({ ...items, [item.code]: value }))}
-                      value={quantities[item.code] ?? 0}
-                    />
-                  ) : (
-                    <span className="text-sm font-semibold tabular-nums">× {item.quantity}</span>
-                  )}
+                  <RetainedSubscriptionQuantityControl
+                    label={item.name}
+                    maximum={item.maximumSelectableQuantity ?? item.quantity}
+                    onChange={(value) => setQuantities((items) => ({ ...items, [item.code]: value }))}
+                    quantityEditable={item.quantityEditable}
+                    removable={item.removable}
+                    retainedQuantity={item.quantity}
+                    value={quantities[item.code] ?? item.quantity}
+                  />
                 </div>
               ))}
             </div>
@@ -611,11 +589,15 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
 function ChangeHistory() {
   const session = useClientSession();
   const queryClient = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const state = readSubscriptionOperationListState(params, clientSubscriptionOperationUrlKeys);
+  const request = subscriptionOperationQuery(state);
   const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
   const changes = useQuery({
-    queryKey: clientCommercialKeys.changes(commercialContext),
-    queryFn: clientApi.subscriptionChanges,
+    queryKey: clientCommercialKeys.changes(commercialContext, request),
+    queryFn: () => clientApi.subscriptionChanges(request),
     enabled: commercialQueryEnabled(session.can, clientPermissions.subscriptionReadChanges),
+    placeholderData: keepPreviousData,
   });
   const cancel = useMutation({
     mutationFn: clientApi.cancelSubscriptionChange,
@@ -623,16 +605,39 @@ function ChangeHistory() {
       void invalidateClientCommercial(queryClient);
       toast.success("Changement annulé");
     },
+    onError: (error) => {
+      void invalidateClientCommercial(queryClient);
+      toast.error(subscriptionChangeFailureMessage(error));
+    },
   });
+  useEffect(() => {
+    if (!changes.data || changes.isPlaceholderData) return;
+    const boundedPage = changes.data.totalPages === 0 ? 0 : Math.min(state.page, changes.data.totalPages - 1);
+    if (boundedPage === state.page) return;
+    setParams(
+      writeSubscriptionOperationListState(params, { ...state, page: boundedPage }, clientSubscriptionOperationUrlKeys),
+      { replace: true },
+    );
+  }, [changes.data, changes.isPlaceholderData, params, setParams, state]);
   if (changes.isLoading) return <LoadingState />;
   if (changes.isError) {
     return <ErrorState retry={() => void changes.refetch()} title="Impossible de charger les changements" />;
   }
-  if (!changes.data?.length) return <EmptyState title="Aucun changement" />;
+  if (!changes.data?.content.length) return <EmptyState title="Aucun changement" />;
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
       <SubscriptionChangeList
-        operations={changes.data}
+        onSortingChange={(sorting) =>
+          setParams(
+            writeSubscriptionOperationListState(
+              params,
+              subscriptionOperationStateFromSorting(state, sorting),
+              clientSubscriptionOperationUrlKeys,
+            ),
+            { replace: true },
+          )
+        }
+        operations={changes.data.content}
         renderAction={(operation) =>
           ["PENDING", "AWAITING_CONFIRMATION"].includes(operation.status) &&
           session.can(clientPermissions.subscriptionCancel) ? (
@@ -641,6 +646,18 @@ function ChangeHistory() {
             </Button>
           ) : null
         }
+        sorting={subscriptionOperationSorting(state)}
+      />
+      <PaginationBar
+        onPageChange={(page) =>
+          setParams(
+            writeSubscriptionOperationListState(params, { ...state, page }, clientSubscriptionOperationUrlKeys),
+            { replace: true },
+          )
+        }
+        page={changes.data.page}
+        totalElements={changes.data.totalElements}
+        totalPages={changes.data.totalPages}
       />
     </section>
   );

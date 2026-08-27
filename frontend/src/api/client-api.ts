@@ -14,6 +14,7 @@ import type {
   MemberAuthorization,
   MemberCreation,
   OrganizationGroup,
+  PageResponse,
   PermissionOverride,
   PermissionPickerCatalog,
   Role,
@@ -203,7 +204,14 @@ export const clientApi = {
       method: "POST",
       body: jsonBody(input),
     }),
-  subscriptionChanges: () => client<SubscriptionChangeOperation[]>("/api/v1/subscriptions/changes"),
+  subscriptionChanges: (
+    query: {
+      page?: number;
+      size?: number;
+      sort?: "createdAt" | "effectiveAt" | "status" | "timing";
+      direction?: "asc" | "desc";
+    } = {},
+  ) => client<PageResponse<SubscriptionChangeOperation>>("/api/v1/subscriptions/changes", { query }),
   cancelSubscriptionChange: (id: UUID) =>
     client<SubscriptionChangeOperation>(`/api/v1/subscriptions/changes/${id}`, { method: "DELETE" }),
 };

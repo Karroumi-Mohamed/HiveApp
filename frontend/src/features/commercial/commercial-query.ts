@@ -70,7 +70,9 @@ export const adminCommercialKeys = {
     assignablePrices: (filters: Readonly<Record<string, unknown>>) =>
       [...subscriptionsRoot, "assignable-prices", filters] as const,
     detail: (accountId: string) => [...subscriptionsRoot, "detail", accountId] as const,
-    changes: (accountId: string) => [...subscriptionsRoot, "detail", accountId, "changes"] as const,
+    changeCatalog: (accountId: string) => [...subscriptionsRoot, "detail", accountId, "change-catalog"] as const,
+    changes: (accountId: string, filters: Readonly<Record<string, unknown>> = {}) =>
+      [...subscriptionsRoot, "detail", accountId, "changes", filters] as const,
   },
   registry: {
     all: () => registryRoot,
@@ -93,8 +95,8 @@ export const clientCommercialKeys = {
     [...clientRoot, normalizedContext(context), "subscription"] as const,
   catalog: (context: ClientCommercialContext) =>
     [...clientRoot, normalizedContext(context), "subscription", "catalog"] as const,
-  changes: (context: ClientCommercialContext) =>
-    [...clientRoot, normalizedContext(context), "subscription", "changes"] as const,
+  changes: (context: ClientCommercialContext, filters: Readonly<Record<string, unknown>> = {}) =>
+    [...clientRoot, normalizedContext(context), "subscription", "changes", filters] as const,
 } as const;
 
 export function adminCommercialInvalidationKeys(affected: readonly QueryKey[]) {
