@@ -5,6 +5,8 @@ import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.platform.admin.dto.AssignAdminRoleRequest;
+import com.hiveapp.platform.admin.dto.AdminRoleImpactRequest;
+import com.hiveapp.platform.admin.dto.AdminRolePermissionSetRequest;
 import com.hiveapp.platform.admin.dto.CreateAdminRoleRequest;
 import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
 import com.hiveapp.platform.admin.dto.GrantAdminPermissionRequest;
@@ -33,6 +35,9 @@ import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicySource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyTargetKind;
 import com.hiveapp.platform.client.plan.dto.CommercialPolicyRequests;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentRequests;
+import com.hiveapp.platform.client.plan.dto.CommercialCampaignRequests;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignAudienceMode;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignSource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.registry.definition.PriceBooksFeature;
@@ -1386,6 +1391,230 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         mockMvc.perform(get("/api/admin/segments/{id}/history", missing)
                         .header("Authorization", bearer(historian.token())))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void campaignOpaqueIdentityAndMutationSurfacesStaySeparatelyAuthorized() throws Exception {
+        UUID missing = UUID.randomUUID();
+        LimitedAdmin opaqueReader = createLimitedAdmin(
+                "platform.campaigns.list", "platform.campaigns.read",
+                "platform.campaigns.compare", "platform.campaigns.revisions",
+                "platform.campaigns.history", "platform.campaigns.preview_schedule",
+                "platform.campaigns.read_audience");
+        LimitedAdmin identityReader = createLimitedAdmin(
+                "platform.campaigns.owner", "platform.campaigns.read_audience_identities");
+        LimitedAdmin mutator = createLimitedAdmin(
+                "platform.campaigns.create", "platform.campaigns.update",
+                "platform.campaigns.duplicate", "platform.campaigns.revise",
+                "platform.campaigns.schedule", "platform.campaigns.pause",
+                "platform.campaigns.resume", "platform.campaigns.end",
+                "platform.campaigns.archive", "platform.campaigns.delete_draft",
+                "platform.campaigns.reassign_owner");
+
+        mockMvc.perform(get("/api/admin/campaigns/{id}", missing)
+                        .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/{id}", missing)
+                        .header("Authorization", bearer(opaqueReader.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/owner", missing)
+                        .header("Authorization", bearer(opaqueReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/owner", missing)
+                        .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/audience-identities", missing)
+                        .header("Authorization", bearer(opaqueReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/audience-identities", missing)
+                        .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/audience", missing)
+                        .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/audience", missing)
+                        .header("Authorization", bearer(opaqueReader.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/schedule-preview", missing)
+                        .header("Authorization", bearer(mutator.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/schedule-preview", missing)
+                        .header("Authorization", bearer(opaqueReader.token())))
+                .andExpect(status().isNotFound());
+
+        String lifecycleBody = objectMapper.writeValueAsString(
+                new CommercialCampaignRequests.VersionReason(0L, "Permission boundary"));
+        mockMvc.perform(post("/api/admin/campaigns/{id}/pause", missing)
+                        .header("Authorization", bearer(opaqueReader.token()))
+                        .contentType(MediaType.APPLICATION_JSON).content(lifecycleBody))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/campaigns/{id}/pause", missing)
+                        .header("Authorization", bearer(mutator.token()))
+                        .contentType(MediaType.APPLICATION_JSON).content(lifecycleBody))
+                .andExpect(status().isNotFound());
+
+        Instant start = Instant.now().plusSeconds(3600);
+        var request = new CommercialCampaignRequests.Create(
+                "Permission boundary Campaign " + UUID.randomUUID(), null,
+                start, start.plusSeconds(3600), CommercialCampaignSource.MARKETING,
+                "Exercise the Campaign create node",
+                new CommercialCampaignRequests.Audience(
+                        CommercialCampaignAudienceMode.PUBLIC, Set.of(), null, null));
+        mockMvc.perform(post("/api/admin/campaigns")
+                        .header("Authorization", bearer(opaqueReader.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/campaigns")
+                        .header("Authorization", bearer(mutator.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void campaignAccountSegmentAndOwnerChoosersAreNarrowAndIndependentlyAuthorized() throws Exception {
+        String clientToken = registerClientAndGetToken();
+        LimitedAdmin reader = createLimitedAdmin("platform.campaigns.read");
+        LimitedAdmin accountChooser = createLimitedAdmin(
+                "platform.campaigns.choose_accounts",
+                "platform.campaigns.resolve_account_choices");
+        LimitedAdmin segmentChooser = createLimitedAdmin(
+                "platform.campaigns.choose_segments",
+                "platform.campaigns.resolve_segment_choices");
+        LimitedAdmin ownerChooser = createLimitedAdmin(
+                "platform.campaigns.choose_owners",
+                "platform.campaigns.resolve_owner_choices");
+
+        mockMvc.perform(get("/api/admin/campaigns/account-choices"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/admin/campaigns/account-choices")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/account-choices")
+                        .header("Authorization", bearer(reader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/account-choices")
+                        .header("Authorization", bearer(accountChooser.token())).param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].ownerEmail").doesNotExist());
+        mockMvc.perform(get("/api/admin/campaigns/account-choices/selected")
+                        .header("Authorization", bearer(segmentChooser.token()))
+                        .param("ids", UUID.randomUUID().toString()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/account-choices/selected")
+                        .header("Authorization", bearer(accountChooser.token()))
+                        .param("ids", UUID.randomUUID().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+
+        mockMvc.perform(get("/api/admin/campaigns/segment-choices")
+                        .header("Authorization", bearer(accountChooser.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/segment-choices")
+                        .header("Authorization", bearer(segmentChooser.token())).param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray());
+        mockMvc.perform(get("/api/admin/campaigns/segment-choices/selected")
+                        .header("Authorization", bearer(accountChooser.token()))
+                        .param("segmentId", UUID.randomUUID().toString())
+                        .param("activationId", UUID.randomUUID().toString()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/segment-choices/selected")
+                        .header("Authorization", bearer(segmentChooser.token()))
+                        .param("segmentId", UUID.randomUUID().toString())
+                        .param("activationId", UUID.randomUUID().toString()))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/admin/campaigns/owner-choices")
+                        .header("Authorization", bearer(reader.token())))
+                .andExpect(status().isForbidden());
+        JsonNode firstOwnerPage = responseJson(mockMvc.perform(get("/api/admin/campaigns/owner-choices")
+                        .header("Authorization", bearer(ownerChooser.token()))
+                        .param("page", "0").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].email").isString())
+                .andExpect(jsonPath("$.content[0].roles").doesNotExist())
+                .andExpect(jsonPath("$.content[0].superAdmin").doesNotExist()));
+        JsonNode repeatedOwnerPage = responseJson(mockMvc.perform(
+                        get("/api/admin/campaigns/owner-choices")
+                                .header("Authorization", bearer(ownerChooser.token()))
+                                .param("page", "0").param("size", "2"))
+                .andExpect(status().isOk()));
+        assertThat(repeatedOwnerPage.get("content")).isEqualTo(firstOwnerPage.get("content"));
+        mockMvc.perform(get("/api/admin/campaigns/owner-choices/selected")
+                        .header("Authorization", bearer(segmentChooser.token()))
+                        .param("ids", ownerChooser.adminUserId().toString()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/owner-choices/selected")
+                        .header("Authorization", bearer(ownerChooser.token()))
+                        .param("ids", ownerChooser.adminUserId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].adminUserId")
+                        .value(ownerChooser.adminUserId().toString()));
+    }
+
+    @Test
+    void campaignScheduleActionRequiresBothPreviewAndApplyPermissions() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        Instant start = Instant.now().plusSeconds(3600);
+        var request = new CommercialCampaignRequests.Create(
+                "Composable Campaign " + UUID.randomUUID(), null,
+                start, start.plusSeconds(3600), CommercialCampaignSource.MARKETING,
+                "Verify action composition",
+                new CommercialCampaignRequests.Audience(
+                        CommercialCampaignAudienceMode.PUBLIC, Set.of(), null, null));
+        JsonNode campaign = responseJson(mockMvc.perform(post("/api/admin/campaigns")
+                        .header("Authorization", bearer(superToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated()));
+        LimitedAdmin scheduleOnly = createLimitedAdmin(
+                "platform.campaigns.read", "platform.campaigns.schedule");
+
+        mockMvc.perform(get("/api/admin/campaigns/{id}",
+                        campaign.at("/summary/id").asText())
+                        .header("Authorization", bearer(scheduleOnly.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.availableActions",
+                        not(hasItem("SCHEDULE"))));
+
+        LimitedAdmin reviewerAndScheduler = createLimitedAdmin(
+                "platform.campaigns.read", "platform.campaigns.preview_schedule",
+                "platform.campaigns.schedule");
+        JsonNode preview = responseJson(mockMvc.perform(
+                        get("/api/admin/campaigns/{id}/schedule-preview",
+                                campaign.at("/summary/id").asText())
+                                .header("Authorization", bearer(reviewerAndScheduler.token())))
+                .andExpect(status().isOk()));
+        List<UUID> remainingPermissionIds = List.of(
+                permissionRepository.findByCode("platform.campaigns.read").orElseThrow().getId(),
+                permissionRepository.findByCode("platform.campaigns.schedule").orElseThrow().getId());
+        JsonNode rolePreview = responseJson(mockMvc.perform(
+                        post("/api/admin/roles/{id}/impact-preview", reviewerAndScheduler.roleId())
+                                .header("Authorization", bearer(superToken))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(
+                                        new AdminRoleImpactRequest(remainingPermissionIds, null))))
+                .andExpect(status().isOk()));
+        mockMvc.perform(put("/api/admin/roles/{id}/permissions", reviewerAndScheduler.roleId())
+                        .header("Authorization", bearer(superToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AdminRolePermissionSetRequest(
+                                remainingPermissionIds,
+                                rolePreview.get("version").asLong(),
+                                rolePreview.get("assignmentCount").asLong()))))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/admin/campaigns/{id}/schedule",
+                        campaign.at("/summary/id").asText())
+                        .header("Authorization", bearer(reviewerAndScheduler.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CommercialCampaignRequests.Schedule(
+                                campaign.at("/summary/version").asLong(),
+                                "Reauthorize both reviewed operations",
+                                preview.get("previewToken").asText()))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test
