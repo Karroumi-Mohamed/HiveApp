@@ -11,9 +11,10 @@ import type {
   AssignablePlanPrice,
   SubscriptionAccountListItem,
   SubscriptionChangeOperation,
+  SubscriptionCheckout,
 } from "@/api/contracts";
 import { ApiError } from "@/api/http";
-import { adminPermissions } from "@/auth/permissions";
+import { adminPermissions, adminSubscriptionDetailSurfacePermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { createDataColumns, DataTable, SortHeader } from "@/components/patterns/data-table";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -67,6 +68,7 @@ import {
 import {
   normalizedOperatorReason,
   operatorReasonError,
+  operatorSubscriptionMutationFailureMessage,
   subscriptionOperationCanBeCancelled,
   subscriptionOperationOriginLabel,
 } from "./subscription-operation-rules";
@@ -105,7 +107,7 @@ function CreateSubscription({ accountId }: { accountId: string }) {
       void invalidateAdminSubscriptionEntitlement(queryClient);
       toast.success(mode === "trial" ? "Essai démarré" : "Abonnement créé");
     },
-    onError: (error) => toast.error(error instanceof ApiError ? error.message : "Création impossible"),
+    onError: (error) => toast.error(operatorSubscriptionMutationFailureMessage(error, "Création impossible")),
   });
   if (!canCreate && !canCreateTrial) {
     return (
@@ -291,6 +293,8 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
       toast.success("Exceptions mises à jour");
       setOpen(false);
     },
+    onError: (error) =>
+      toast.error(operatorSubscriptionMutationFailureMessage(error, "Les exceptions n’ont pas pu être enregistrées.")),
   });
   if (!session.can(adminPermissions.subscriptionsOverrides)) return null;
   return (
@@ -447,17 +451,19 @@ export function OverridesEditor({ subscription }: { subscription: AdminSubscript
   );
 }
 
-function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
+function CheckoutDialog({ checkout }: { checkout: SubscriptionCheckout }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [reference, setReference] = useState("");
   const [reason, setReason] = useState("");
   const confirm = useMutation({
-    mutationFn: () => adminApi.confirmCheckout(checkoutId, { reference: reference.trim(), reason: reason.trim() }),
+    mutationFn: () => adminApi.confirmCheckout(checkout.id, { reference: reference.trim(), reason: reason.trim() }),
     onSuccess: () => {
       void invalidateAdminSubscriptionEntitlement(queryClient);
       toast.success("Paiement confirmé manuellement");
+      setReference("");
+      setReason("");
       setOpen(false);
     },
     onError: (error) => {
@@ -471,7 +477,16 @@ function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
   });
   if (!session.can(adminPermissions.subscriptionsConfirmCheckout)) return null;
   return (
-    <Dialog onOpenChange={setOpen} open={open}>
+    <Dialog
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen && !confirm.isPending) {
+          setReference("");
+          setReason("");
+        }
+      }}
+      open={open}
+    >
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
           Confirmer
@@ -481,7 +496,8 @@ function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
         <DialogHeader>
           <DialogTitle>Confirmation manuelle</DialogTitle>
           <DialogDescription>
-            Cette action exige une référence externe et une justification auditable.
+            {formatExactMoney(checkout.amount, checkout.currencyCode)} · cette action exige une référence externe et une
+            justification auditable.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -496,8 +512,11 @@ function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
             <Input
               id="checkout-reference"
               maxLength={255}
+              name="checkout-reference"
               onChange={(event) => setReference(event.target.value)}
               required
+              spellCheck={false}
+              autoComplete="off"
               value={reference}
             />
           </div>
@@ -506,8 +525,10 @@ function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
             <Textarea
               id="checkout-reason"
               maxLength={2000}
+              name="checkout-reason"
               onChange={(event) => setReason(event.target.value)}
               required
+              autoComplete="off"
               value={reason}
             />
           </div>
@@ -545,6 +566,40 @@ function OperationProvenance({ operation }: { operation: AdminSubscriptionChange
   );
 }
 
+const checkoutStatusLabel: Record<SubscriptionCheckout["status"], string> = {
+  PENDING_CONFIRMATION: "Confirmation en attente",
+  CONFIRMED: "Confirmé",
+  FAILED: "Échoué",
+  CANCELLED: "Annulé",
+};
+
+function OperationDetails({ operation }: { operation: AdminSubscriptionChangeOperation }) {
+  const checkout = operation.checkout;
+  return (
+    <div className="space-y-5">
+      <OperationProvenance operation={operation} />
+      {checkout ? (
+        <section className="border-t pt-4">
+          <h3 className="text-sm font-semibold">Paiement</h3>
+          <dl className="mt-3 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            <Info label="Montant" value={formatExactMoney(checkout.amount, checkout.currencyCode)} />
+            <Info label="Statut" value={checkoutStatusLabel[checkout.status]} />
+            <Info label="État de la tentative" value={checkout.gatewayAttemptStatus ?? "—"} />
+            <Info label="Référence du prestataire" value={checkout.gatewayReference ?? "—"} />
+            <Info label="Référence de confirmation" value={checkout.confirmationReference ?? "—"} />
+            <Info label="Confirmé le" value={dateTime(checkout.confirmedAt)} />
+            {checkout.gatewayFailureReason ? (
+              <div className="sm:col-span-2 lg:col-span-3">
+                <Info label="Échec du prestataire" value={checkout.gatewayFailureReason} />
+              </div>
+            ) : null}
+          </dl>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 function CancelChangeDialog({ accountId, operation }: { accountId: string; operation: SubscriptionChangeOperation }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -556,6 +611,8 @@ function CancelChangeDialog({ accountId, operation }: { accountId: string; opera
     onSuccess: () => {
       void invalidateAdminSubscriptionEntitlement(queryClient);
       toast.success("Changement annulé");
+      setReason("");
+      setTouched(false);
       setOpen(false);
     },
     onError: (error) => {
@@ -630,9 +687,10 @@ function CancelChangeDialog({ accountId, operation }: { accountId: string; opera
   );
 }
 
-function SubscriptionDetail({ accountId }: { accountId: string }) {
+export function SubscriptionDetail({ accountId }: { accountId: string }) {
   const session = useAdminSession();
   const [params, setParams] = useSearchParams();
+  const canReadSubscription = session.can(adminPermissions.subscriptionsRead);
   const canReadChanges = session.can(adminPermissions.subscriptionsReadChanges);
   const canChooseChange = session.can(adminPermissions.subscriptionsChooseChangeOptions);
   const operationState = readSubscriptionOperationListState(params, adminSubscriptionOperationUrlKeys);
@@ -669,51 +727,56 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
       { replace: true },
     );
   }, [changes.data, changes.isPlaceholderData, operationState, params, setParams]);
-  if (subscription.isLoading) return <LoadingState />;
-  if (subscription.isError) {
-    if (subscription.error instanceof ApiError && subscription.error.status === 404)
-      return <CreateSubscription accountId={accountId} />;
-    return <ErrorState retry={() => void subscription.refetch()} />;
-  }
-  if (!subscription.data) return null;
   const data = subscription.data;
   return (
     <div className="space-y-6">
-      <div className="grid gap-5 lg:grid-cols-[1fr_0.85fr]">
-        <section className="rounded-xl border bg-card p-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">{data.planName}</h2>
-            </div>
-            <StatusBadge tone={subscriptionStatusPresentation[data.status].tone}>
-              {subscriptionStatusPresentation[data.status].label}
-            </StatusBadge>
+      {canReadSubscription ? (
+        subscription.isLoading ? (
+          <LoadingState />
+        ) : subscription.isError ? (
+          subscription.error instanceof ApiError && subscription.error.status === 404 ? (
+            <CreateSubscription accountId={accountId} />
+          ) : (
+            <ErrorState retry={() => void subscription.refetch()} />
+          )
+        ) : data ? (
+          <div className="grid gap-5 lg:grid-cols-[1fr_0.85fr]">
+            <section className="rounded-xl border bg-card p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">{data.planName}</h2>
+                </div>
+                <StatusBadge tone={subscriptionStatusPresentation[data.status].tone}>
+                  {subscriptionStatusPresentation[data.status].label}
+                </StatusBadge>
+              </div>
+              <dl className="mt-6 grid gap-5 sm:grid-cols-2">
+                <Info label="Prix actuel" value={money(data.currentPrice, data.currentPriceCurrencyCode)} />
+                <Info label="Début de période" value={date(data.currentPeriodStart)} />
+                <Info label="Fin de période" value={date(data.currentPeriodEnd)} />
+                <Info label="Résiliation planifiée" value={data.cancelAtPeriodEnd ? "Oui" : "Non"} />
+              </dl>
+            </section>
+            <section className="rounded-xl border bg-card p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold">Exceptions</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">Produits ajoutés au modèle de base.</p>
+                </div>
+                <OverridesEditor subscription={data} />
+              </div>
+              <dl className="mt-5 space-y-4">
+                <Info label="Add-ons" value={data.customOverrides.addOnCodes.length} />
+                <Info
+                  label="Packs de capacité"
+                  value={data.customOverrides.quotaPackages.reduce((total, item) => total + item.quantity, 0)}
+                />
+                <Info label="Version du snapshot" value={data.entitlementSnapshot?.planDefinitionVersion ?? "—"} />
+              </dl>
+            </section>
           </div>
-          <dl className="mt-6 grid gap-5 sm:grid-cols-2">
-            <Info label="Prix actuel" value={money(data.currentPrice, data.currentPriceCurrencyCode)} />
-            <Info label="Début de période" value={date(data.currentPeriodStart)} />
-            <Info label="Fin de période" value={date(data.currentPeriodEnd)} />
-            <Info label="Résiliation planifiée" value={data.cancelAtPeriodEnd ? "Oui" : "Non"} />
-          </dl>
-        </section>
-        <section className="rounded-xl border bg-card p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold">Exceptions</h2>
-              <p className="mt-1 text-xs text-muted-foreground">Produits ajoutés au modèle de base.</p>
-            </div>
-            <OverridesEditor subscription={data} />
-          </div>
-          <dl className="mt-5 space-y-4">
-            <Info label="Add-ons" value={data.customOverrides.addOnCodes.length} />
-            <Info
-              label="Packs de capacité"
-              value={data.customOverrides.quotaPackages.reduce((total, item) => total + item.quantity, 0)}
-            />
-            <Info label="Version du snapshot" value={data.entitlementSnapshot?.planDefinitionVersion ?? "—"} />
-          </dl>
-        </section>
-      </div>
+        ) : null
+      ) : null}
       {canChooseChange ? (
         changeCatalog.isLoading ? (
           <section className="rounded-xl border bg-card p-5">
@@ -758,7 +821,7 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
                 renderAction={(operation) => (
                   <div className="flex items-center gap-1">
                     {operation.checkout?.status === "PENDING_CONFIRMATION" ? (
-                      <CheckoutDialog checkoutId={operation.checkout.id} />
+                      <CheckoutDialog checkout={operation.checkout} />
                     ) : null}
                     {subscriptionOperationCanBeCancelled(operation) &&
                     session.can(adminPermissions.subscriptionsCancelChange) ? (
@@ -767,7 +830,7 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
                   </div>
                 )}
                 renderDetails={(operation) => (
-                  <OperationProvenance operation={operation as AdminSubscriptionChangeOperation} />
+                  <OperationDetails operation={operation as AdminSubscriptionChangeOperation} />
                 )}
                 sorting={subscriptionOperationSorting(operationState)}
               />
@@ -823,7 +886,7 @@ export function AdminSubscriptionsPage() {
       );
     }
   }, [accounts.data, accounts.isPlaceholderData, params, setParams, state]);
-  const canOpen = session.can(adminPermissions.subscriptionsRead);
+  const canOpen = adminSubscriptionDetailSurfacePermissions.some(session.can);
   const column = useMemo(() => createDataColumns<SubscriptionAccountListItem>(), []);
   const columns = useMemo(
     () =>
@@ -1049,9 +1112,9 @@ export function AdminSubscriptionsPage() {
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-1 font-medium">{value}</dd>
+      <dd className="mt-1 whitespace-pre-wrap break-words font-medium">{value}</dd>
     </div>
   );
 }

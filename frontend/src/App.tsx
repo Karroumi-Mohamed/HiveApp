@@ -4,6 +4,7 @@ import {
   adminOverviewSurfacePermissions,
   adminPermissions,
   adminPriceBookDetailSurfacePermissions,
+  adminSubscriptionDetailSurfacePermissions,
   clientSubscriptionSurfacePermissions,
 } from "@/auth/permissions";
 import { AdminReadPermissionGate, ClientReadPermissionGate } from "@/components/patterns/permission-gate";
@@ -154,7 +155,7 @@ const router = createBrowserRouter([
       {
         path: "subscriptions/:accountId",
         element: (
-          <AdminReadPermissionGate allOf={[adminPermissions.subscriptionsRead]}>
+          <AdminReadPermissionGate anyOf={adminSubscriptionDetailSurfacePermissions}>
             <AdminSubscriptionsPage />
           </AdminReadPermissionGate>
         ),

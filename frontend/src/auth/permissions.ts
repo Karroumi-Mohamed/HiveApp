@@ -228,6 +228,17 @@ export const clientSubscriptionSurfacePermissions = [
   clientPermissions.subscriptionReadChanges,
 ] as const;
 
+/**
+ * Account subscription details are three independently readable operator surfaces. An operator
+ * who may prepare a reviewed change or inspect its history must not also need the broader current
+ * subscription read permission merely to reach the route.
+ */
+export const adminSubscriptionDetailSurfacePermissions = [
+  adminPermissions.subscriptionsRead,
+  adminPermissions.subscriptionsChooseChangeOptions,
+  adminPermissions.subscriptionsReadChanges,
+] as const;
+
 export const adminPriceBookDetailSurfacePermissions = [
   adminPermissions.priceBooksRead,
   adminPermissions.priceBooksReadHistory,

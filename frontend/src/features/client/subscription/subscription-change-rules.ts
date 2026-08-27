@@ -48,3 +48,38 @@ export function subscriptionChangePreviewIsCurrent(
     previewSelectionKey === subscriptionChangeSelectionKey(selection)
   );
 }
+
+/**
+ * Detects the exact common no-op before asking the server to sign a review. Historical prices
+ * without a stable price id are deliberately left to the backend because the client cannot prove
+ * their monetary identity from the request alone.
+ */
+export function subscriptionChangeSelectionMatchesCurrent(
+  selection: SubscriptionChangeInput | null,
+  current: {
+    planCode: string;
+    planPriceEntryId: string | null;
+    addOnCodes: readonly string[];
+    quotaPackages: ReadonlyArray<{ packageCode: string; quantity: number }>;
+  } | null,
+) {
+  if (!selection || !current?.planPriceEntryId) return false;
+  if (
+    selection.targetPlanCode !== current.planCode ||
+    selection.planPriceSelection.priceEntryId !== current.planPriceEntryId
+  ) {
+    return false;
+  }
+  const currentAddOns = new Set(current.addOnCodes);
+  if (
+    selection.addOnCodes.length !== currentAddOns.size ||
+    !selection.addOnCodes.every((code) => currentAddOns.has(code))
+  ) {
+    return false;
+  }
+  const currentPackages = new Map(current.quotaPackages.map((item) => [item.packageCode, item.quantity]));
+  return (
+    selection.quotaPackages.length === currentPackages.size &&
+    selection.quotaPackages.every((item) => currentPackages.get(item.packageCode) === item.quantity)
+  );
+}

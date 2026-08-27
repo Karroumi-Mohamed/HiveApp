@@ -82,3 +82,59 @@ export function preserveRetainedSelection(
   const retained = new Set(retainedCodes);
   return [...new Set([...selectable, ...previousSelection.filter((code) => retained.has(code))])];
 }
+
+type CatalogAddOnLike = {
+  code: string;
+  name: string;
+  dependencyCodes: readonly string[];
+  exclusionCodes: readonly string[];
+};
+
+/** Shared dependency/exclusion state for the operator and client subscription configurators. */
+export function catalogAddOnSelectionState<T extends CatalogAddOnLike>(
+  item: T,
+  candidates: readonly T[],
+  selectedCodes: readonly string[],
+) {
+  const selected = new Set(selectedCodes);
+  const missingDependency = item.dependencyCodes.find(
+    (code) => !candidates.some((candidate) => candidate.code === code),
+  );
+  const excludedBy = candidates.find(
+    (candidate) =>
+      candidate.code !== item.code &&
+      selected.has(candidate.code) &&
+      (item.exclusionCodes.includes(candidate.code) || candidate.exclusionCodes.includes(item.code)),
+  );
+  const requiredBy = candidates.find(
+    (candidate) => selected.has(candidate.code) && candidate.dependencyCodes.includes(item.code),
+  );
+  return {
+    selected: selected.has(item.code),
+    missingDependency,
+    excludedBy,
+    requiredBy,
+  } as const;
+}
+
+/** Selecting an Add-on also selects its complete available dependency closure. */
+export function updateCatalogAddOnSelection<T extends CatalogAddOnLike>(
+  selectedCodes: readonly string[],
+  item: T,
+  candidates: readonly T[],
+  checked: boolean,
+) {
+  if (!checked) return selectedCodes.filter((code) => code !== item.code);
+  const candidatesByCode = new Map(candidates.map((candidate) => [candidate.code, candidate]));
+  const selected = new Set(selectedCodes);
+  const pending = [item.code];
+  while (pending.length) {
+    const code = pending.pop();
+    if (!code || selected.has(code)) continue;
+    selected.add(code);
+    for (const dependencyCode of candidatesByCode.get(code)?.dependencyCodes ?? []) {
+      if (!selected.has(dependencyCode)) pending.push(dependencyCode);
+    }
+  }
+  return [...selected];
+}

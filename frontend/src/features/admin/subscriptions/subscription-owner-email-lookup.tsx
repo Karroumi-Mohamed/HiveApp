@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
 import { adminApi } from "@/api/admin-api";
-import { adminPermissions } from "@/auth/permissions";
+import { adminPermissions, adminSubscriptionDetailSurfacePermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { StatusText } from "@/components/patterns/status-text";
@@ -186,5 +186,5 @@ function OwnerEmailLookupDialog({ canOpenAccount }: { canOpenAccount: boolean })
 export function SubscriptionOwnerEmailLookup() {
   const session = useAdminSession();
   if (!session.can(adminPermissions.subscriptionsLookupAccountOwnerEmail)) return null;
-  return <OwnerEmailLookupDialog canOpenAccount={session.can(adminPermissions.subscriptionsRead)} />;
+  return <OwnerEmailLookupDialog canOpenAccount={adminSubscriptionDetailSurfacePermissions.some(session.can)} />;
 }

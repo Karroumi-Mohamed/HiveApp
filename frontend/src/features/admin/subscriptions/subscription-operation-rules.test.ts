@@ -4,6 +4,7 @@ import {
   adminChangeNeedsFreshReview,
   normalizedOperatorReason,
   operatorReasonError,
+  operatorSubscriptionMutationFailureMessage,
   subscriptionOperationCanBeCancelled,
 } from "./subscription-operation-rules";
 
@@ -25,5 +26,15 @@ describe("operator subscription operations", () => {
   test("invalidates signed review evidence by stable code, never message text", () => {
     expect(adminChangeNeedsFreshReview(new ApiError(409, "STALE_RESOURCE_VERSION", "anything"))).toBeTrue();
     expect(adminChangeNeedsFreshReview(new ApiError(409, "INVALID_STATE", "STALE_RESOURCE_VERSION"))).toBeFalse();
+  });
+
+  test("maps operational failures by stable code without showing backend prose", () => {
+    expect(
+      operatorSubscriptionMutationFailureMessage(
+        new ApiError(400, "VALIDATION_FAILED", "internal validation details"),
+        "Échec",
+      ),
+    ).toContain("Corrigez");
+    expect(operatorSubscriptionMutationFailureMessage(new ApiError(500, "HTTP_ERROR", "stack"), "Échec")).toBe("Échec");
   });
 });
