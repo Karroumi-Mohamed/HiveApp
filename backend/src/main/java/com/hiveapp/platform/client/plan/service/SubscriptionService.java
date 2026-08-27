@@ -6,15 +6,11 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
-import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
-import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
-import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 public interface SubscriptionService {
@@ -45,11 +41,4 @@ public interface SubscriptionService {
             UUID accountId, UUID operationId, UUID actorUserId);
     SubscriptionChangeOperationDto cancelPendingChangeAsOperator(
             UUID accountId, UUID operationId, UUID actorUserId, String reason);
-    Subscription createSubscription(UUID accountId, String planCode);
-    Subscription createSubscription(
-            UUID accountId, String planCode, ProductPriceSelectionRequest priceSelection);
-    Subscription createTrial(UUID accountId, String planCode, int trialDays);
-    Subscription createTrial(
-            UUID accountId, String planCode, int trialDays, ProductPriceSelectionRequest priceSelection);
-    Subscription updateOverrides(UUID accountId, Set<String> addOnCodes, List<QuotaPackageSelection> quotaPackages);
 }

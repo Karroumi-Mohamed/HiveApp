@@ -524,7 +524,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                         .header("Authorization", bearer(addOnChooser.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"addOnCodes\":[],\"quotaPackages\":[]}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/admin/subscriptions/account/{id}/override-choices/add-ons", accountId)
                         .header("Authorization", bearer(addOnChooser.token()))
                         .param("size", "101"))
@@ -892,14 +892,14 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     @Test
     void assignablePlanPriceChooserIsBoundedAndDoesNotGrantPriceBookAccess() throws Exception {
         String clientToken = registerClientAndGetToken();
-        LimitedAdmin creatorOnly = createLimitedAdmin("platform.subscriptions.create");
+        LimitedAdmin readerOnly = createLimitedAdmin("platform.subscriptions.read");
         LimitedAdmin chooser = createLimitedAdmin("platform.subscriptions.list_assignable_prices");
 
         mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
                         .header("Authorization", bearer(clientToken)))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
-                        .header("Authorization", bearer(creatorOnly.token())))
+                        .header("Authorization", bearer(readerOnly.token())))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
 

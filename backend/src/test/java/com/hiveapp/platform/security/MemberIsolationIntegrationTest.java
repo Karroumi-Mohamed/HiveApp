@@ -165,11 +165,11 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
 
     private void assignPlan(String clientToken, String planCode) throws Exception {
         String adminToken = loginAdminAndGetToken();
-        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", currentAccountId(clientToken))
-                        .param("planCode", planCode)
-                        .header("Authorization", bearer(adminToken)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.plan.code").value(planCode));
+        UUID accountId = currentAccountId(clientToken);
+        applyReviewedAdminSubscriptionChange(adminToken, accountId,
+                new com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest(
+                        planCode, java.util.Set.of(), java.util.List.of(),
+                        com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming.IMMEDIATE));
     }
 
     private UUID currentAccountId(String token) throws Exception {
