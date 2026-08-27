@@ -46,6 +46,7 @@ const { AdminSessionProvider } = await import("@/auth/session-provider");
 const { clearSession, writeSession } = await import("@/auth/session-store");
 const { Button } = await import("@/components/ui/button");
 const { ProductPriceActivationDialog } = await import("./product-price-dialogs");
+const { ProductPriceActionButton } = await import("./product-price-action-button");
 
 import type { ProductPrice, ProductPriceActivationPreview } from "@/api/contracts";
 
@@ -93,7 +94,7 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function renderDialog() {
+function renderDialog(trigger = <Button>Ouvrir la vérification</Button>) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY }, mutations: { retry: false } },
   });
@@ -109,7 +110,7 @@ function renderDialog() {
     <QueryClientProvider client={queryClient}>
       <AdminSessionProvider>
         <MemoryRouter>
-          <ProductPriceActivationDialog price={price} trigger={<Button>Ouvrir la vérification</Button>} />
+          <ProductPriceActivationDialog price={price} trigger={trigger} />
         </MemoryRouter>
       </AdminSessionProvider>
     </QueryClientProvider>,
@@ -138,6 +139,26 @@ afterEach(() => {
 });
 
 describe("signed product-price reactivation", () => {
+  test("the permission-aware action forwards dialog trigger events", async () => {
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/admin/product-prices/price-1/activation-preview")) {
+        return jsonResponse(activationPreview("forwarded.trigger.token"));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const view = renderDialog(
+      <ProductPriceActionButton action="PREVIEW_ACTIVATION" price={price}>
+        Vérifier et mettre en vente
+      </ProductPriceActionButton>,
+    );
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(view.getByRole("button", { name: "Vérifier et mettre en vente" }));
+
+    expect(await view.findByRole("heading", { name: "Remettre ce tarif en vente ?" })).toBeTruthy();
+  });
+
   test("cannot submit before review and recovers from rejected evidence with a fresh token", async () => {
     const firstToken = "tampered.secret.token";
     const freshToken = "fresh.signed.token";

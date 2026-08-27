@@ -9,10 +9,9 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { adminApi } from "@/api/admin-api";
-import type { ProductPrice, ProductPriceAction } from "@/api/contracts";
+import type { ProductPrice } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -23,6 +22,7 @@ import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
 import { formatExactMoney } from "@/lib/exact-decimal";
+import { ProductPriceActionButton } from "./product-price-action-button";
 import {
   DeleteProductPriceDialog,
   EditProductPriceDialog,
@@ -31,9 +31,7 @@ import {
 } from "./product-price-dialogs";
 import { ProductPriceReplacementDialog } from "./product-price-replacement-dialog";
 import {
-  canUseProductPriceAction,
   isProductPriceReplacementDraft,
-  productPriceActionReason,
   productPriceBlocker,
   productPriceCycle,
   productPriceHistoryLabel,
@@ -54,31 +52,6 @@ function productLink(price: ProductPrice) {
   if (price.productType === "PLAN") return `/admin/plans/${price.productId}`;
   if (price.productType === "ADD_ON") return `/admin/add-ons/${price.productId}`;
   return `/admin/quota-packages/${price.productId}`;
-}
-
-function ActionButton({
-  price,
-  action,
-  children,
-  variant = "outline",
-}: {
-  price: ProductPrice;
-  action: ProductPriceAction;
-  children: ReactNode;
-  variant?: "outline" | "default" | "destructive" | "ghost";
-}) {
-  const session = useAdminSession();
-  const disabled = !canUseProductPriceAction(price, action, session.can);
-  return (
-    <Button
-      aria-disabled={disabled || undefined}
-      disabled={disabled}
-      title={disabled ? productPriceActionReason(price, action, session.can) : undefined}
-      variant={variant}
-    >
-      {children}
-    </Button>
-  );
 }
 
 function Terms({ price }: { price: ProductPrice }) {
@@ -174,10 +147,10 @@ function Lifecycle({ price }: { price: ProductPrice }) {
             <ProductPriceActivationDialog
               price={price}
               trigger={
-                <ActionButton action="PREVIEW_ACTIVATION" price={price} variant="default">
+                <ProductPriceActionButton action="PREVIEW_ACTIVATION" price={price} variant="default">
                   <PlayIcon />
                   Vérifier et mettre en vente
-                </ActionButton>
+                </ProductPriceActionButton>
               }
             />
           ) : null}
@@ -186,10 +159,10 @@ function Lifecycle({ price }: { price: ProductPrice }) {
               action="PAUSE"
               price={price}
               trigger={
-                <ActionButton action="PAUSE" price={price}>
+                <ProductPriceActionButton action="PAUSE" price={price}>
                   <PauseIcon />
                   Suspendre la vente
-                </ActionButton>
+                </ProductPriceActionButton>
               }
             />
           ) : null}
@@ -198,10 +171,10 @@ function Lifecycle({ price }: { price: ProductPrice }) {
               action="REVISE"
               price={price}
               trigger={
-                <ActionButton action="REVISE" price={price}>
+                <ProductPriceActionButton action="REVISE" price={price}>
                   <GitBranchIcon />
                   Créer une révision
-                </ActionButton>
+                </ProductPriceActionButton>
               }
             />
           ) : null}
@@ -210,10 +183,10 @@ function Lifecycle({ price }: { price: ProductPrice }) {
               action="ARCHIVE"
               price={price}
               trigger={
-                <ActionButton action="ARCHIVE" price={price} variant="destructive">
+                <ProductPriceActionButton action="ARCHIVE" price={price} variant="destructive">
                   <ArchiveIcon />
                   Archiver
-                </ActionButton>
+                </ProductPriceActionButton>
               }
             />
           ) : null}
@@ -221,10 +194,10 @@ function Lifecycle({ price }: { price: ProductPrice }) {
             <DeleteProductPriceDialog
               price={price}
               trigger={
-                <ActionButton action="DELETE_DRAFT" price={price} variant="ghost">
+                <ProductPriceActionButton action="DELETE_DRAFT" price={price} variant="ghost">
                   <TrashIcon />
                   Supprimer le brouillon
-                </ActionButton>
+                </ProductPriceActionButton>
               }
             />
           ) : null}
@@ -334,10 +307,10 @@ export function AdminProductPriceDetailPage() {
             <EditProductPriceDialog
               price={data}
               trigger={
-                <ActionButton action="EDIT_DRAFT" price={data} variant="ghost">
+                <ProductPriceActionButton action="EDIT_DRAFT" price={data} variant="ghost">
                   <PencilSimpleIcon />
                   Modifier
-                </ActionButton>
+                </ProductPriceActionButton>
               }
             />
           ) : undefined
