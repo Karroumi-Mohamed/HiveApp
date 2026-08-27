@@ -498,6 +498,12 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                         .content(objectMapper.writeValueAsString(policyRequest)))
                 .andExpect(status().isCreated()));
         UUID policyId = UUID.fromString(policy.at("/summary/id").asText());
+        mockMvc.perform(post("/api/admin/segments/{id}/archive", segmentId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(versionReason(active, "Draft Policy still reuses this audience")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
         JsonNode policyPreview = responseJson(mockMvc.perform(get(
                                 "/api/admin/commercial-policies/{id}/activation-preview", policyId)
                         .header("Authorization", bearer(token)))
@@ -527,12 +533,33 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATE"));
 
+        JsonNode pausedPolicy = responseJson(mockMvc.perform(post(
+                                "/api/admin/commercial-policies/{id}/pause", policyId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CommercialPolicyRequests.VersionReason(
+                                activatedPolicy.at("/summary/version").asLong(),
+                                "Temporarily pause the reusable policy"))))
+                .andExpect(status().isOk()));
+        mockMvc.perform(post("/api/admin/segments/{id}/archive", segmentId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(versionReason(active, "Paused Policy may still resume")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+        mockMvc.perform(get("/api/admin/segments")
+                        .header("Authorization", bearer(token))
+                        .param("search", active.at("/summary/code").asText()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].blockedActions.ARCHIVE",
+                        hasItem("HAS_POLICY_REFERENCES")));
+
         JsonNode endedPolicy = responseJson(mockMvc.perform(post(
                                 "/api/admin/commercial-policies/{id}/end", policyId)
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CommercialPolicyRequests.VersionReason(
-                                activatedPolicy.at("/summary/version").asLong(),
+                                pausedPolicy.at("/summary/version").asLong(),
                                 "Retire the live Segment policy"))))
                 .andExpect(status().isOk()));
         mockMvc.perform(get("/api/admin/segments/{id}", segmentId)
@@ -540,6 +567,11 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.summary.availableActions", hasItem("ARCHIVE")))
                 .andExpect(jsonPath("$.summary.blockedActions.ARCHIVE").doesNotExist());
+        mockMvc.perform(get("/api/admin/segments")
+                        .header("Authorization", bearer(token))
+                        .param("search", active.at("/summary/code").asText()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].blockedActions.ARCHIVE").doesNotExist());
 
         mockMvc.perform(post("/api/admin/commercial-policies/{id}/archive", policyId)
                         .header("Authorization", bearer(token))
