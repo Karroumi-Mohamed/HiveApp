@@ -12,7 +12,12 @@ import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
-import com.hiveapp.platform.client.plan.service.ProductPriceResolver;
+import com.hiveapp.platform.client.plan.dto.ProductPriceActivationRequest;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
+import com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService;
+import com.hiveapp.platform.client.plan.service.ProductPriceActivationAssessor;
+import com.hiveapp.platform.registry.domain.entity.RegistrySyncLock;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.shared.audit.AuditTrail;
 import com.hiveapp.shared.audit.domain.AuditLogRepository;
 import com.hiveapp.shared.exception.InvalidStateException;
@@ -48,7 +53,10 @@ class ProductPriceAdminServiceImplTest {
     @Mock private AddOnRepository addOnRepository;
     @Mock private QuotaPackageRepository quotaPackageRepository;
     @Mock private Clock clock;
-    @Mock private ProductPriceResolver productPriceResolver;
+    @Mock private ProductPriceActivationAssessor productPriceActivationAssessor;
+    @Mock private CommercialCatalogVersionService commercialCatalogVersionService;
+    @Mock private RegistryCatalogVersionService registryCatalogVersionService;
+    @Mock private CommercialPreviewTokenService previewTokenService;
     @Mock private AuditLogRepository auditLogRepository;
     @Mock private AdminUserRepository adminUserRepository;
     @Mock private ObjectMapper objectMapper;
@@ -66,21 +74,37 @@ class ProductPriceAdminServiceImplTest {
         Plan authoritativeArchivedOwner = plan(ownerId, PlanStatus.ARCHIVED);
         ProductPrice staleHint = price(priceId, staleDraftOwner);
         ProductPrice authoritativePrice = price(priceId, authoritativeArchivedOwner);
+        Instant now = Instant.parse("2026-08-27T00:00:00Z");
+        UUID actorId = UUID.randomUUID();
 
+        when(clock.instant()).thenReturn(now);
+        when(registryCatalogVersionService.lockForMutation()).thenReturn(new RegistrySyncLock());
+        when(registryCatalogVersionService.currentVersion()).thenReturn("registry:1");
+        when(commercialCatalogVersionService.currentRevision()).thenReturn(1L);
+        when(adminMutationAuthorizer.currentActorUserId()).thenReturn(actorId);
         when(productPriceRepository.findById(priceId)).thenReturn(Optional.of(staleHint));
         when(planRepository.findByIdForUpdate(ownerId))
                 .thenReturn(Optional.of(authoritativeArchivedOwner));
         when(productPriceRepository.findByIdForUpdate(priceId))
                 .thenReturn(Optional.of(authoritativePrice));
+        when(productPriceActivationAssessor.assess(authoritativePrice, now))
+                .thenReturn(new ProductPriceActivationAssessor.Assessment(
+                        java.util.List.of(
+                                com.hiveapp.platform.client.plan.domain.constant.ProductPriceBlocker.OWNER_NOT_ACTIVE),
+                        "assessment"));
 
-        assertThatThrownBy(() -> service.activate(priceId, 0L, "Publish reviewed price"))
+        assertThatThrownBy(() -> service.activate(priceId, new ProductPriceActivationRequest(
+                        0L, "Publish reviewed price", "preview")))
                 .isInstanceOf(InvalidStateException.class)
                 .hasMessageContaining("OWNER_NOT_ACTIVE");
 
         assertThat(staleHint.getStatus()).isEqualTo(ProductPriceStatus.DRAFT);
         assertThat(authoritativePrice.getStatus()).isEqualTo(ProductPriceStatus.DRAFT);
         verify(productPriceRepository, never()).saveAndFlush(authoritativePrice);
-        InOrder order = inOrder(productPriceRepository, planRepository, entityManager);
+        InOrder order = inOrder(
+                registryCatalogVersionService, productPriceRepository, planRepository, entityManager);
+        order.verify(registryCatalogVersionService).lockForMutation();
+        order.verify(registryCatalogVersionService).currentVersion();
         order.verify(productPriceRepository).findById(priceId);
         order.verify(planRepository).findByIdForUpdate(ownerId);
         order.verify(entityManager).clear();

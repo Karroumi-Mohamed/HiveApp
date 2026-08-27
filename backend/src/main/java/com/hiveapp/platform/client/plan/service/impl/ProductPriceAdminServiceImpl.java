@@ -5,6 +5,7 @@ import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceAction;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceAudit;
@@ -23,6 +24,7 @@ import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.dto.CreateProductPriceRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceActivationPreview;
+import com.hiveapp.platform.client.plan.dto.ProductPriceActivationRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceHistoryEntryDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreview;
@@ -32,14 +34,18 @@ import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementResult;
 import com.hiveapp.platform.client.plan.dto.UpdateProductPriceRequest;
 import com.hiveapp.platform.client.plan.service.ProductPriceAdminService;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
-import com.hiveapp.platform.client.plan.service.ProductPriceResolver;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
+import com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService;
+import com.hiveapp.platform.client.plan.service.ProductPriceActivationAssessor;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.PriceBooksFeature;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.PriceEntryOverlapException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
+import com.hiveapp.shared.exception.StaleActivationPreviewException;
 import com.hiveapp.shared.exception.StaleResourceVersionException;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.audit.domain.AuditLog;
@@ -81,7 +87,10 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
     private final AddOnRepository addOnRepository;
     private final QuotaPackageRepository quotaPackageRepository;
     private final java.time.Clock clock;
-    private final ProductPriceResolver productPriceResolver;
+    private final ProductPriceActivationAssessor productPriceActivationAssessor;
+    private final CommercialCatalogVersionService commercialCatalogVersionService;
+    private final RegistryCatalogVersionService registryCatalogVersionService;
+    private final CommercialPreviewTokenService previewTokenService;
     private final AuditLogRepository auditLogRepository;
     private final AdminUserRepository adminUserRepository;
     private final ObjectMapper objectMapper;
@@ -235,18 +244,35 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
     @Transactional(readOnly = true)
     @PermissionNode(key = "preview_activation", description = "Preview price activation blockers")
     public ProductPriceActivationPreview previewActivation(UUID priceId) {
-        ProductPrice price = requirePrice(priceId);
-        List<ProductPriceBlocker> blockers = activationBlockers(price);
-        return new ProductPriceActivationPreview(price.getId(), blockers.isEmpty(), blockers);
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        String registryVersion = registryCatalogVersionService.currentVersion();
+        return commercialCatalogVersionService.readConsistently(catalogRevision -> {
+            ProductPrice price = requirePrice(priceId);
+            java.time.Instant evaluatedAt = clock.instant();
+            var assessment = productPriceActivationAssessor.assess(price, evaluatedAt);
+            var evidence = previewTokenService.issue(
+                    CommercialPreviewKind.PRODUCT_PRICE_ACTIVATION,
+                    price.getId(),
+                    price.getVersion(),
+                    actorUserId,
+                    catalogRevision,
+                    registryVersion,
+                    assessment.fingerprint(),
+                    evaluatedAt);
+            return new ProductPriceActivationPreview(
+                    price.getId(), price.getVersion(), catalogRevision, registryVersion,
+                    evidence.evaluatedAt(), evidence.expiresAt(), evidence.token(),
+                    assessment.blockers().isEmpty(), assessment.blockers());
+        }, StaleActivationPreviewException::new);
     }
 
     @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "activate", description = "Publish a draft product price entry")
-    public ProductPriceDto activate(UUID priceId, long version, String reason) {
-        requireReason(reason);
-        return activate(priceId, version, ProductPriceStatus.DRAFT);
+    public ProductPriceDto activate(UUID priceId, ProductPriceActivationRequest request) {
+        requireReason(request.reason());
+        return activate(priceId, request, ProductPriceStatus.DRAFT);
     }
 
     @Override
@@ -265,9 +291,9 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "reactivate", description = "Reactivate a paused product price")
-    public ProductPriceDto reactivate(UUID priceId, long version, String reason) {
-        requireReason(reason);
-        return activate(priceId, version, ProductPriceStatus.INACTIVE);
+    public ProductPriceDto reactivate(UUID priceId, ProductPriceActivationRequest request) {
+        requireReason(request.reason());
+        return activate(priceId, request, ProductPriceStatus.INACTIVE);
     }
 
     @Override
@@ -395,7 +421,15 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
         productPriceRepository.flush();
     }
 
-    private ProductPriceDto activate(UUID priceId, long version, ProductPriceStatus requiredStatus) {
+    private ProductPriceDto activate(
+            UUID priceId,
+            ProductPriceActivationRequest request,
+            ProductPriceStatus requiredStatus
+    ) {
+        // CommercialCatalogMutation already holds the commercial singleton. Registry must be
+        // pinned before any owner or price row so all reviewed mutations share one lock order.
+        registryCatalogVersionService.lockForMutation();
+        String registryVersion = registryCatalogVersionService.currentVersion();
         ProductPrice hint = requirePrice(priceId);
         lockOwner(hint.getOwnerType(), hint.ownerId());
         // The initial read only identifies the authoritative owner lock. A concurrent archive may
@@ -403,11 +437,25 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
         // re-read both the price and its owner under locks before evaluating lifecycle blockers.
         entityManager.clear();
         ProductPrice price = requirePriceForUpdate(priceId);
-        requireVersion(price, version);
+        long catalogRevision = commercialCatalogVersionService.currentRevision();
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        var assessment = productPriceActivationAssessor.assess(price, clock.instant());
+        previewTokenService.requireValid(
+                request.activationPreviewToken(),
+                CommercialPreviewKind.PRODUCT_PRICE_ACTIVATION,
+                price.getId(),
+                price.getVersion(),
+                actorUserId,
+                catalogRevision,
+                registryVersion,
+                assessment.fingerprint());
+        if (request.version() != price.getVersion()) {
+            throw new StaleActivationPreviewException();
+        }
         if (price.getStatus() != requiredStatus) {
             throw new InvalidStateException("Price entry is not in the required " + requiredStatus + " state.");
         }
-        List<ProductPriceBlocker> blockers = activationBlockers(price);
+        List<ProductPriceBlocker> blockers = assessment.blockers();
         if (blockers.contains(ProductPriceBlocker.ACTIVE_WINDOW_OVERLAP)) {
             throw new PriceEntryOverlapException(
                     "An active price already overlaps this owner, currency, billing cycle, and effective window.");
@@ -417,27 +465,6 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
         }
         translateState(price::activate);
         return toDto(productPriceRepository.saveAndFlush(price), true);
-    }
-
-    private List<ProductPriceBlocker> activationBlockers(ProductPrice price) {
-        List<ProductPriceBlocker> blockers = new ArrayList<>();
-        if (price.getStatus() == ProductPriceStatus.ARCHIVED) {
-            blockers.add(ProductPriceBlocker.ARCHIVED_TERMINAL);
-            return List.copyOf(blockers);
-        }
-        if (price.getStatus() != ProductPriceStatus.DRAFT && price.getStatus() != ProductPriceStatus.INACTIVE) {
-            blockers.add(ProductPriceBlocker.WRONG_LIFECYCLE_STATE);
-        }
-        if (!ownerIsActive(price)) {
-            blockers.add(ProductPriceBlocker.OWNER_NOT_ACTIVE);
-        }
-        if (price.getEffectiveUntil() != null && !price.getEffectiveUntil().isAfter(clock.instant())) {
-            blockers.add(ProductPriceBlocker.EFFECTIVE_WINDOW_EXPIRED);
-        }
-        if (price.getId() != null && productPriceResolver.hasActiveOverlap(price)) {
-            blockers.add(ProductPriceBlocker.ACTIVE_WINDOW_OVERLAP);
-        }
-        return List.copyOf(blockers);
     }
 
     private List<ProductPriceReplacementBlocker> replacementBlockers(
@@ -601,7 +628,7 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
         if (price.getStatus() == ProductPriceStatus.ACTIVE) {
             return List.of(ProductPriceBlocker.ACTIVE_MUST_BE_PAUSED);
         }
-        return activationBlockers(price);
+        return productPriceActivationAssessor.assess(price, clock.instant()).blockers();
     }
 
     private List<ProductPriceBlocker> generalBlockers(ProductPrice price, List<ProductPrice> activePrices) {

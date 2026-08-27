@@ -16,6 +16,7 @@ import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceActivationRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
@@ -416,9 +417,10 @@ class QuotaPackageRevisionIntegrationTest extends PlatformShellIntegrationTestSu
                         post("/api/admin/product-prices/{id}/reactivate", sourcePrice.getId())
                                 .header("Authorization", bearer(token))
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content(objectMapper.writeValueAsString(new ProductPriceVersionRequest(
+                                .content(objectMapper.writeValueAsString(new ProductPriceActivationRequest(
                                         paused.get("version").asLong(),
-                                        "Inactive owners may publish reviewed prices"))))
+                                        "Inactive owners may publish reviewed prices",
+                                        fetchProductPriceActivationToken(token, sourcePrice.getId())))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE")));
         mockMvc.perform(post("/api/admin/product-prices/{id}/pause", sourcePrice.getId())

@@ -2,6 +2,7 @@ package com.hiveapp.platform.security;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.client.plan.domain.constant.PlanLifecycleAction;
@@ -13,6 +14,7 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService;
 import com.hiveapp.platform.client.plan.infrastructure.ProductPriceBackfill;
 import com.hiveapp.platform.client.plan.dto.CreateProductPriceRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
@@ -21,6 +23,7 @@ import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
 import com.hiveapp.platform.client.plan.dto.PlanLifecycleRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceActivationRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreviewRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
@@ -31,12 +34,17 @@ import com.hiveapp.platform.client.plan.dto.UpdateProductPriceRequest;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import com.hiveapp.shared.audit.domain.AuditLogRepository;
+import com.hiveapp.platform.registry.domain.repository.RegistrySyncLockRepository;
+import com.hiveapp.platform.registry.service.RegistrySynchronizationCoordinator;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -63,6 +71,9 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     @Autowired private SubscriptionRepository subscriptionRepository;
     @Autowired private ProductPriceBackfill productPriceBackfill;
     @Autowired private AuditLogRepository auditLogRepository;
+    @Autowired private CommercialPreviewTokenService commercialPreviewTokenService;
+    @Autowired private RegistrySyncLockRepository registrySyncLockRepository;
+    @Autowired private TransactionTemplate transactionTemplate;
 
     @Test
     void compatibilityBackfillIsIdempotentForEverySeededProductTuple() {
@@ -270,8 +281,10 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new ProductPriceVersionRequest(
-                                        overlap.get("version").asLong(), "Publish overlapping annual price"))))
+                                new ProductPriceActivationRequest(
+                                        overlap.get("version").asLong(), "Publish overlapping annual price",
+                                        fetchProductPriceActivationToken(
+                                                adminToken, UUID.fromString(overlap.get("id").asText()))))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PRICE_ENTRY_OVERLAP"));
         mockMvc.perform(delete("/api/admin/product-prices/{id}", overlap.get("id").asText())
@@ -310,8 +323,9 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new ProductPriceVersionRequest(
-                                        archived.get("version").asLong(), "Attempt archived reactivation"))))
+                                new ProductPriceActivationRequest(
+                                        archived.get("version").asLong(), "Attempt archived reactivation",
+                                        fetchProductPriceActivationToken(adminToken, annualId)))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATE"));
         mockMvc.perform(delete("/api/admin/product-prices/{id}", revision.get("id").asText())
@@ -325,6 +339,153 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
             assertThat(price.isCompatibilityDefault()).isTrue();
             assertThat(price.getAmount()).isZero();
         });
+    }
+
+    @Test
+    void activationEvidenceRejectsMissingTamperedExpiredAndMismatchedClaimsWithoutWriting()
+            throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        UUID planId = createActivePlan(adminToken);
+        JsonNode draft = createPrice(
+                adminToken, ProductPriceOwnerType.PLAN, planId,
+                new BigDecimal("47.00"), BillingCycle.YEARLY,
+                Instant.now().minusSeconds(30), null);
+        UUID priceId = UUID.fromString(draft.get("id").asText());
+        long version = draft.get("version").asLong();
+        JsonNode preview = priceActivationPreview(adminToken, priceId);
+        String reviewedToken = preview.get("previewToken").asText();
+        PreviewClaims claims = previewClaims(reviewedToken);
+
+        assertThat(preview.get("expectedVersion").asLong()).isEqualTo(version);
+        assertThat(preview.get("catalogRevision").isIntegralNumber()).isTrue();
+        assertThat(preview.get("registryVersion").asText()).isNotBlank();
+        assertThat(preview.get("evaluatedAt").asText()).isNotBlank();
+        assertThat(preview.get("expiresAt").asText()).isNotBlank();
+
+        assertRejectedActivation(adminToken, priceId,
+                new ProductPriceActivationRequest(version, "Missing evidence", null));
+
+        int signatureOffset = reviewedToken.indexOf('.') + 3;
+        char replacement = reviewedToken.charAt(signatureOffset) == 'A' ? 'B' : 'A';
+        String tampered = reviewedToken.substring(0, signatureOffset) + replacement
+                + reviewedToken.substring(signatureOffset + 1);
+        assertRejectedActivation(adminToken, priceId,
+                new ProductPriceActivationRequest(version, "Tampered evidence", tampered));
+
+        assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Wrong operation kind", issueEvidence(
+                        CommercialPreviewKind.PLAN_ACTIVATION,
+                        claims.resourceId(), claims.version(), claims.actorUserId(),
+                        claims.catalogRevision(), claims.registryVersion(), claims.fingerprint(),
+                        claims.issuedAt())));
+        assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Wrong resource", issueEvidence(
+                        CommercialPreviewKind.PRODUCT_PRICE_ACTIVATION,
+                        UUID.randomUUID(), claims.version(), claims.actorUserId(),
+                        claims.catalogRevision(), claims.registryVersion(), claims.fingerprint(),
+                        claims.issuedAt())));
+        assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Wrong actor", issueEvidence(
+                        CommercialPreviewKind.PRODUCT_PRICE_ACTIVATION,
+                        claims.resourceId(), claims.version(), UUID.randomUUID(),
+                        claims.catalogRevision(), claims.registryVersion(), claims.fingerprint(),
+                        claims.issuedAt())));
+        assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Wrong signed version", issueEvidence(
+                        CommercialPreviewKind.PRODUCT_PRICE_ACTIVATION,
+                        claims.resourceId(), claims.version() + 1, claims.actorUserId(),
+                        claims.catalogRevision(), claims.registryVersion(), claims.fingerprint(),
+                        claims.issuedAt())));
+        assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version + 1, "Wrong request version", reviewedToken));
+        assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Wrong catalogue", issueEvidence(
+                        CommercialPreviewKind.PRODUCT_PRICE_ACTIVATION,
+                        claims.resourceId(), claims.version(), claims.actorUserId(),
+                        claims.catalogRevision() + 1, claims.registryVersion(), claims.fingerprint(),
+                        claims.issuedAt())));
+        assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Wrong registry", issueEvidence(
+                        CommercialPreviewKind.PRODUCT_PRICE_ACTIVATION,
+                        claims.resourceId(), claims.version(), claims.actorUserId(),
+                        claims.catalogRevision(), claims.registryVersion() + "-stale",
+                        claims.fingerprint(), claims.issuedAt())));
+        assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Wrong assessment", issueEvidence(
+                        CommercialPreviewKind.PRODUCT_PRICE_ACTIVATION,
+                        claims.resourceId(), claims.version(), claims.actorUserId(),
+                        claims.catalogRevision(), claims.registryVersion(),
+                        claims.fingerprint() + "-stale", claims.issuedAt())));
+        assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Expired evidence", issueEvidence(
+                        CommercialPreviewKind.PRODUCT_PRICE_ACTIVATION,
+                        claims.resourceId(), claims.version(), claims.actorUserId(),
+                        claims.catalogRevision(), claims.registryVersion(), claims.fingerprint(),
+                        Instant.now().minusSeconds(360))));
+
+        JsonNode activated = applyActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Apply exact reviewed price", reviewedToken));
+        assertThat(activated.get("status").asText()).isEqualTo("ACTIVE");
+
+        JsonNode paused = pause(adminToken, priceId, activated.get("version").asLong());
+        assertRejectedReactivation(adminToken, priceId, new ProductPriceActivationRequest(
+                paused.get("version").asLong(), "Missing reactivation evidence", null));
+        JsonNode reactivationPreview = priceActivationPreview(adminToken, priceId);
+        JsonNode reactivated = applyReactivation(adminToken, priceId,
+                new ProductPriceActivationRequest(
+                        reactivationPreview.get("expectedVersion").asLong(),
+                        "Apply exact reviewed reactivation",
+                        reactivationPreview.get("previewToken").asText()));
+        assertThat(reactivated.get("status").asText()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void activationEvidenceIsInvalidatedByCatalogAndRegistryInterleaving() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        UUID planId = createActivePlan(adminToken);
+        JsonNode draft = createPrice(
+                adminToken, ProductPriceOwnerType.PLAN, planId,
+                new BigDecimal("58.00"), BillingCycle.YEARLY,
+                Instant.now().minusSeconds(30), null);
+        UUID priceId = UUID.fromString(draft.get("id").asText());
+        long version = draft.get("version").asLong();
+
+        JsonNode beforeCatalogChange = priceActivationPreview(adminToken, priceId);
+        createPrice(adminToken, ProductPriceOwnerType.PLAN, planId,
+                new BigDecimal("59.00"), BillingCycle.MONTHLY,
+                Instant.now().plusSeconds(3600), null);
+        assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Reject stale catalogue review",
+                beforeCatalogChange.get("previewToken").asText()));
+
+        JsonNode beforeRegistryChange = priceActivationPreview(adminToken, priceId);
+        long originalRegistryRevision = transactionTemplate.execute(status -> {
+            var lock = registrySyncLockRepository.findByLockNameForUpdate(
+                    RegistrySynchronizationCoordinator.LOCK_NAME).orElseThrow();
+            long original = lock.getCatalogRevision();
+            lock.setCatalogRevision(original + 1);
+            registrySyncLockRepository.saveAndFlush(lock);
+            return original;
+        });
+        try {
+            assertRejectedActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                    version, "Reject stale registry review",
+                    beforeRegistryChange.get("previewToken").asText()));
+        } finally {
+            transactionTemplate.executeWithoutResult(status -> {
+                var lock = registrySyncLockRepository.findByLockNameForUpdate(
+                        RegistrySynchronizationCoordinator.LOCK_NAME).orElseThrow();
+                lock.setCatalogRevision(originalRegistryRevision);
+                registrySyncLockRepository.saveAndFlush(lock);
+            });
+        }
+
+        JsonNode current = priceActivationPreview(adminToken, priceId);
+        applyActivation(adminToken, priceId, new ProductPriceActivationRequest(
+                version, "Apply after fresh catalogue and registry review",
+                current.get("previewToken").asText()));
+        assertThat(productPriceRepository.findById(priceId).orElseThrow().getStatus().name())
+                .isEqualTo("ACTIVE");
     }
 
     @Test
@@ -557,18 +718,22 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 new BigDecimal("10.00"), BillingCycle.YEARLY, starts, null);
         JsonNode second = createPrice(adminToken, ProductPriceOwnerType.PLAN, planId,
                 new BigDecimal("11.00"), BillingCycle.YEARLY, starts, null);
+        String firstPreviewToken = fetchProductPriceActivationToken(
+                adminToken, UUID.fromString(first.get("id").asText()));
+        String secondPreviewToken = fetchProductPriceActivationToken(
+                adminToken, UUID.fromString(second.get("id").asText()));
         CountDownLatch start = new CountDownLatch(1);
 
         CompletableFuture<HttpResult> left = CompletableFuture.supplyAsync(
-                () -> activateAfter(start, adminToken, first));
+                () -> activateAfter(start, adminToken, first, firstPreviewToken));
         CompletableFuture<HttpResult> right = CompletableFuture.supplyAsync(
-                () -> activateAfter(start, adminToken, second));
+                () -> activateAfter(start, adminToken, second, secondPreviewToken));
         start.countDown();
 
         List<HttpResult> results = List.of(left.join(), right.join());
         assertThat(results).extracting(HttpResult::status).containsExactlyInAnyOrder(200, 409);
         assertThat(results.stream().filter(result -> result.status() == 409).findFirst().orElseThrow().body())
-                .contains("PRICE_ENTRY_OVERLAP");
+                .contains("STALE_ACTIVATION_PREVIEW");
         assertThat(productPriceRepository.findApplicable(
                 ProductPriceOwnerType.PLAN, planId, "USD", BillingCycle.YEARLY, Instant.now()))
                 .hasSize(1);
@@ -601,8 +766,10 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new ProductPriceVersionRequest(
-                                        expired.get("version").asLong(), "Attempt expired activation"))))
+                                new ProductPriceActivationRequest(
+                                        expired.get("version").asLong(), "Attempt expired activation",
+                                        fetchProductPriceActivationToken(adminToken,
+                                                UUID.fromString(expired.get("id").asText()))))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATE"));
     }
@@ -760,15 +927,21 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 
-    private HttpResult activateAfter(CountDownLatch start, String token, JsonNode draft) {
+    private HttpResult activateAfter(
+            CountDownLatch start,
+            String token,
+            JsonNode draft,
+            String previewToken
+    ) {
         try {
             start.await();
             var response = mockMvc.perform(post("/api/admin/product-prices/{id}/activate", draft.get("id").asText())
                             .header("Authorization", bearer(token))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(
-                                    new ProductPriceVersionRequest(
-                                            draft.get("version").asLong(), "Concurrent price activation"))))
+                                    new ProductPriceActivationRequest(
+                                            draft.get("version").asLong(), "Concurrent price activation",
+                                            previewToken))))
                     .andReturn().getResponse();
             return new HttpResult(response.getStatus(), response.getContentAsString());
         } catch (Exception exception) {
@@ -879,14 +1052,107 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     }
 
     private JsonNode activate(String token, UUID priceId, long version) throws Exception {
-        String response = mockMvc.perform(post("/api/admin/product-prices/{id}/activate", priceId)
-                        .header("Authorization", bearer(token))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(
-                                new ProductPriceVersionRequest(version, "Activate price"))))
+        String previewToken = fetchProductPriceActivationToken(token, priceId);
+        return applyActivation(token, priceId, new ProductPriceActivationRequest(
+                version, "Activate price", previewToken));
+    }
+
+    private JsonNode priceActivationPreview(String token, UUID priceId) throws Exception {
+        String response = mockMvc.perform(
+                        get("/api/admin/product-prices/{id}/activation-preview", priceId)
+                                .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(response);
+    }
+
+    private JsonNode applyActivation(
+            String token,
+            UUID priceId,
+            ProductPriceActivationRequest request
+    ) throws Exception {
+        String response = mockMvc.perform(post("/api/admin/product-prices/{id}/activate", priceId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response);
+    }
+
+    private JsonNode applyReactivation(
+            String token,
+            UUID priceId,
+            ProductPriceActivationRequest request
+    ) throws Exception {
+        String response = mockMvc.perform(post("/api/admin/product-prices/{id}/reactivate", priceId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response);
+    }
+
+    private void assertRejectedActivation(
+            String token,
+            UUID priceId,
+            ProductPriceActivationRequest request
+    ) throws Exception {
+        mockMvc.perform(post("/api/admin/product-prices/{id}/activate", priceId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_ACTIVATION_PREVIEW"));
+        assertThat(productPriceRepository.findById(priceId).orElseThrow().getStatus().name())
+                .isEqualTo("DRAFT");
+    }
+
+    private void assertRejectedReactivation(
+            String token,
+            UUID priceId,
+            ProductPriceActivationRequest request
+    ) throws Exception {
+        mockMvc.perform(post("/api/admin/product-prices/{id}/reactivate", priceId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_ACTIVATION_PREVIEW"));
+        assertThat(productPriceRepository.findById(priceId).orElseThrow().getStatus().name())
+                .isEqualTo("INACTIVE");
+    }
+
+    private String issueEvidence(
+            CommercialPreviewKind kind,
+            UUID resourceId,
+            long version,
+            UUID actorUserId,
+            long catalogRevision,
+            String registryVersion,
+            String fingerprint,
+            Instant evaluatedAt
+    ) {
+        return commercialPreviewTokenService.issue(
+                kind, resourceId, version, actorUserId, catalogRevision,
+                registryVersion, fingerprint, evaluatedAt).token();
+    }
+
+    private PreviewClaims previewClaims(String token) {
+        String encodedPayload = token.substring(0, token.indexOf('.'));
+        String[] claims = new String(
+                Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8)
+                .split("\\n", -1);
+        return new PreviewClaims(
+                CommercialPreviewKind.valueOf(claims[1]),
+                UUID.fromString(claims[2]),
+                Long.parseLong(claims[3]),
+                UUID.fromString(claims[4]),
+                Long.parseLong(claims[5]),
+                claims[6],
+                Instant.ofEpochMilli(Long.parseLong(claims[7])),
+                claims[9]);
     }
 
     private JsonNode pause(String token, UUID priceId, long version) throws Exception {
@@ -912,11 +1178,15 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     }
 
     private JsonNode lifecycle(String token, UUID priceId, long version, String action) throws Exception {
+        Object request = "reactivate".equals(action)
+                ? new ProductPriceActivationRequest(
+                        version, "Price lifecycle " + action,
+                        fetchProductPriceActivationToken(token, priceId))
+                : new ProductPriceVersionRequest(version, "Price lifecycle " + action);
         String response = mockMvc.perform(post("/api/admin/product-prices/{id}/{action}", priceId, action)
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(
-                                new ProductPriceVersionRequest(version, "Price lifecycle " + action))))
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(response);
@@ -955,4 +1225,15 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     }
 
     private record HttpResult(int status, String body) {}
+
+    private record PreviewClaims(
+            CommercialPreviewKind kind,
+            UUID resourceId,
+            long version,
+            UUID actorUserId,
+            long catalogRevision,
+            String registryVersion,
+            Instant issuedAt,
+            String fingerprint
+    ) {}
 }

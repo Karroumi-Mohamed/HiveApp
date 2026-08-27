@@ -19,6 +19,7 @@ import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceActivationRequest;
 import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
 import com.hiveapp.platform.client.plan.dto.PlanLifecycleRequest;
 import com.hiveapp.platform.client.plan.dto.AddOnLifecycleRequest;
@@ -1026,11 +1027,12 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
             String token,
             com.hiveapp.platform.client.plan.domain.entity.ProductPrice price
     ) throws Exception {
+        String previewToken = fetchProductPriceActivationToken(token, price.getId());
         mockMvc.perform(post("/api/admin/product-prices/{id}/activate", price.getId())
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ProductPriceVersionRequest(
-                                price.getVersion(), "Publish reviewed initial price"))))
+                        .content(objectMapper.writeValueAsString(new ProductPriceActivationRequest(
+                                price.getVersion(), "Publish reviewed initial price", previewToken))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
     }
@@ -1055,11 +1057,12 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
 
     private JsonNode reactivatePrice(String token, UUID id, long version, String reason)
             throws Exception {
+        String previewToken = fetchProductPriceActivationToken(token, id);
         return responseJson(mockMvc.perform(post("/api/admin/product-prices/{id}/reactivate", id)
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ProductPriceVersionRequest(
-                                version, reason))))
+                        .content(objectMapper.writeValueAsString(new ProductPriceActivationRequest(
+                                version, reason, previewToken))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE")));
     }
@@ -1069,12 +1072,13 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
             com.hiveapp.platform.client.plan.domain.entity.ProductPrice price
     ) throws Exception {
         JsonNode paused = pausePrice(token, price, "Pause archived-owner price");
+        String previewToken = fetchProductPriceActivationToken(token, price.getId());
         mockMvc.perform(post("/api/admin/product-prices/{id}/reactivate", price.getId())
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ProductPriceVersionRequest(
+                        .content(objectMapper.writeValueAsString(new ProductPriceActivationRequest(
                                 paused.get("version").asLong(),
-                                "Must not reactivate archived-owner price"))))
+                                "Must not reactivate archived-owner price", previewToken))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATE"))
                 .andExpect(jsonPath("$.message",
