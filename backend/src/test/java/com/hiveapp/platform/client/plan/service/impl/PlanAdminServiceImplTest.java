@@ -49,6 +49,7 @@ import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.DraftSuccessorExistsException;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.OperationBlockedException;
+import com.hiveapp.shared.exception.StaleResourceVersionException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.audit.AuditTrail;
@@ -80,6 +81,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -443,6 +445,11 @@ class PlanAdminServiceImplTest {
                 .isInstanceOf(OperationBlockedException.class)
                 .satisfies(exception -> assertThat(((OperationBlockedException) exception).getDetails())
                         .contains("NO_INCLUDED_FEATURES"));
+
+        var lockOrder = inOrder(registryCatalogVersionService, planRepository);
+        lockOrder.verify(registryCatalogVersionService).lockForMutation();
+        lockOrder.verify(registryCatalogVersionService).currentVersion();
+        lockOrder.verify(planRepository).findByIdForUpdate(planId);
     }
 
     @Test
@@ -708,6 +715,22 @@ class PlanAdminServiceImplTest {
 
         verify(planFeatureRepository).deleteAll(List.of(planFeature));
         verify(planRepository).delete(plan);
+    }
+
+    @Test
+    void deletionIntegrityRaceReturnsTheStalePreviewContract() {
+        UUID planId = UUID.randomUUID();
+        Plan plan = plan(planId, "DRAFT");
+        plan.setStatus(PlanStatus.DRAFT);
+
+        when(planRepository.findByIdForUpdate(planId)).thenReturn(Optional.of(plan));
+        doThrow(new DataIntegrityViolationException("concurrent retained reference"))
+                .when(planRepository).flush();
+
+        assertThatThrownBy(() -> planAdminService.deletePlan(
+                planId, new DeletePlanRequest(plan.getName(), plan.getVersion(), "preview-token")))
+                .isInstanceOf(StaleResourceVersionException.class)
+                .hasMessage("Plan deletion preview is stale; request a fresh preview.");
     }
 
     private static Plan plan(UUID id) {

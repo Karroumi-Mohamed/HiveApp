@@ -293,6 +293,14 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             throw staleSubscriptionPreview();
         }
         commercialCatalogVersionService.requireCurrent(catalogRevision);
+        try {
+            // The finalizer now holds the registry singleton. Requiring the version observed
+            // before finalization closes the registry-only mutation window (for example,
+            // NEW_GRANTS changes that intentionally do not advance the commercial revision).
+            registryCatalogVersionService.requireCurrent(registryVersion);
+        } catch (InvalidStateException exception) {
+            throw staleSubscriptionPreview();
+        }
         var verified = previewTokenService.requireValid(
                 applyRequest.previewToken(), CommercialPreviewKind.SUBSCRIPTION_CHANGE,
                 assessment.current().getId(), assessment.current().getVersion(), actorUserId,

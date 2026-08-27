@@ -447,6 +447,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             String reason,
             String activationPreviewToken
     ) {
+        String registryVersion = targetStatus == PlanStatus.ACTIVE
+                ? lockRegistryVersion() : null;
         var plan = planRepository.findByIdForUpdate(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         requireVersion(plan, expectedVersion);
@@ -474,7 +476,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (targetStatus == PlanStatus.ACTIVE) {
             requireActivationToken(activationPreviewToken, "Plan");
             long catalogRevision = commercialCatalogVersionService.currentRevision();
-            String registryVersion = registryCatalogVersionService.currentVersion();
             UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
             var assessment = planActivationAssessor.assess(plan, clock.instant());
             previewTokenService.requireValid(
@@ -554,11 +555,11 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     public void deletePlan(UUID planId, DeletePlanRequest request) {
         requirePriceBookPermission(
                 "delete_draft", "Deleting a Plan and its owned price drafts");
+        String registryVersion = lockRegistryVersion();
         Plan plan = planRepository.findByIdForUpdate(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         List<ProductPrice> prices = productPriceRepository.findAllByPlanIdForUpdate(planId);
         long catalogRevision = commercialCatalogVersionService.currentRevision();
-        String registryVersion = registryCatalogVersionService.currentVersion();
         UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
         PlanDeletionAssessment assessment = assessDeletion(plan, prices);
         if (request.expectedVersion() != plan.getVersion()) throw staleDeletionPreview();
@@ -582,8 +583,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             planRepository.delete(plan);
             planRepository.flush();
         } catch (DataIntegrityViolationException exception) {
-            throw new InvalidStateException(
-                    "Plan gained a retained reference during deletion; request a fresh preview.");
+            throw staleDeletionPreview();
         }
     }
 
@@ -921,6 +921,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (targetStatus == null) {
             throw new InvalidRequestException("Target AddOn status is required.");
         }
+        String registryVersion = targetStatus == AddOnStatus.ACTIVE
+                ? lockRegistryVersion() : null;
         AddOn addOn;
         List<AddOn> lockedLineage = List.of();
         if (targetStatus == AddOnStatus.ACTIVE) {
@@ -957,7 +959,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         if (targetStatus == AddOnStatus.ACTIVE) {
             requireActivationToken(activationPreviewToken, "AddOn");
             long catalogRevision = commercialCatalogVersionService.currentRevision();
-            String registryVersion = registryCatalogVersionService.currentVersion();
             UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
             var assessment = addOnActivationAssessor.assess(
                     addOn, lockedLineage, clock.instant());
@@ -1400,6 +1401,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             QuotaPackageLifecycleRequest request
     ) {
         requireReason(request.reason(), "Quota-package lifecycle change");
+        String registryVersion = request.action() == QuotaPackageLifecycleAction.ACTIVATE
+                ? lockRegistryVersion() : null;
         QuotaPackage hint = requireDetailedQuotaPackage(quotaPackageId);
         List<QuotaPackage> lineage = quotaPackageRepository.findLineageForUpdate(hint.getLineageId());
         QuotaPackage item = lineage.stream()
@@ -1411,7 +1414,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
         switch (request.action()) {
             case ACTIVATE -> activateQuotaPackageRevision(
-                    item, lineage, request.activationPreviewToken(), request.reason());
+                    item, lineage, request.activationPreviewToken(), request.reason(), registryVersion);
             case DEACTIVATE -> {
                 if (item.getStatus() != QuotaPackageStatus.ACTIVE) {
                     throw new InvalidStateException(
@@ -1542,7 +1545,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             QuotaPackage item,
             List<QuotaPackage> lineage,
             String previewToken,
-            String reason
+            String reason,
+            String registryVersion
     ) {
         if (previewToken == null || previewToken.isBlank()) {
             throw new InvalidRequestException(
@@ -1551,7 +1555,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         List<ProductPrice> prices = productPriceRepository
                 .findAllByQuotaPackageIdForUpdate(item.getId());
         long catalogRevision = commercialCatalogVersionService.currentRevision();
-        String registryVersion = registryCatalogVersionService.currentVersion();
         UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
         Instant evaluatedAt = clock.instant();
         var assessment = quotaPackageActivationAssessor.assessForMutation(
@@ -2369,6 +2372,12 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private StaleResourceVersionException staleDeletionPreview() {
         return new StaleResourceVersionException(
                 "Plan deletion preview is stale; request a fresh preview.");
+    }
+
+    /** Pins registry state for the full reviewed mutation while the commercial lock is held. */
+    private String lockRegistryVersion() {
+        registryCatalogVersionService.lockForMutation();
+        return registryCatalogVersionService.currentVersion();
     }
 
     private record PlanDeletionAssessment(
