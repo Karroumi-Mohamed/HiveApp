@@ -135,6 +135,29 @@ export const adminPermissions = {
   commercialPreviewQuotaVisibility: permission("commercial_availability", "preview_quota_visibility"),
   commercialUpdateQuotaVisibility: permission("commercial_availability", "update_quota_visibility"),
   commercialReadHistory: permission("commercial_availability", "read_history"),
+  commercialPoliciesList: permission("commercial_policies", "list"),
+  commercialPoliciesRead: permission("commercial_policies", "read"),
+  commercialPoliciesCreate: permission("commercial_policies", "create"),
+  commercialPoliciesUpdateDraft: permission("commercial_policies", "update_draft"),
+  commercialPoliciesDuplicate: permission("commercial_policies", "duplicate"),
+  commercialPoliciesRevise: permission("commercial_policies", "revise"),
+  commercialPoliciesCompare: permission("commercial_policies", "compare"),
+  commercialPoliciesReadRevisions: permission("commercial_policies", "read_revisions"),
+  commercialPoliciesReadHistory: permission("commercial_policies", "read_history"),
+  commercialPoliciesReadActivations: permission("commercial_policies", "read_activations"),
+  commercialPoliciesReadActivationAccounts: permission("commercial_policies", "read_activation_accounts"),
+  commercialPoliciesPreviewAudience: permission("commercial_policies", "preview_audience"),
+  commercialPoliciesPreviewActivation: permission("commercial_policies", "preview_activation"),
+  commercialPoliciesActivate: permission("commercial_policies", "activate"),
+  commercialPoliciesPause: permission("commercial_policies", "pause"),
+  commercialPoliciesResume: permission("commercial_policies", "resume"),
+  commercialPoliciesEnd: permission("commercial_policies", "end"),
+  commercialPoliciesArchive: permission("commercial_policies", "archive"),
+  commercialPoliciesDeleteDraft: permission("commercial_policies", "delete_draft"),
+  commercialPoliciesReadOwner: permission("commercial_policies", "read_owner"),
+  commercialPoliciesReassignOwner: permission("commercial_policies", "reassign_owner"),
+  commercialPoliciesChooseAccounts: permission("commercial_policies", "choose_accounts"),
+  commercialPoliciesResolveAccountChoices: permission("commercial_policies", "resolve_account_choices"),
 } as const;
 
 export const clientPermissions = {
@@ -242,6 +265,17 @@ export const adminSubscriptionDetailSurfacePermissions = [
 export const adminPriceBookDetailSurfacePermissions = [
   adminPermissions.priceBooksRead,
   adminPermissions.priceBooksReadHistory,
+] as const;
+
+export const adminCommercialPolicyDetailSurfacePermissions = [
+  adminPermissions.commercialPoliciesRead,
+  adminPermissions.commercialPoliciesReadRevisions,
+  adminPermissions.commercialPoliciesCompare,
+  adminPermissions.commercialPoliciesReadHistory,
+  adminPermissions.commercialPoliciesReadActivations,
+  adminPermissions.commercialPoliciesReadActivationAccounts,
+  adminPermissions.commercialPoliciesPreviewAudience,
+  adminPermissions.commercialPoliciesReadOwner,
 ] as const;
 
 /** Each overview card family is independently readable, including registry sync on its own. */

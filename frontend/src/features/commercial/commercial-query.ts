@@ -17,6 +17,7 @@ const plansRoot = [...adminRoot, "plans"] as const;
 const addOnsRoot = [...adminRoot, "add-ons"] as const;
 const quotaPackagesRoot = [...adminRoot, "quota-packages"] as const;
 const priceBooksRoot = [...adminRoot, "price-books"] as const;
+const policiesRoot = [...adminRoot, "commercial-policies"] as const;
 const subscriptionsRoot = [...adminRoot, "subscriptions"] as const;
 const registryRoot = [...adminRoot, "registry"] as const;
 
@@ -61,6 +62,25 @@ export const adminCommercialKeys = {
     replacementPreview: (successorId: string, currentVersion: number, successorVersion: number) =>
       [...priceBooksRoot, "detail", successorId, "replacement-preview", currentVersion, successorVersion] as const,
     owner: (ownerType: string, ownerId: string) => [...priceBooksRoot, "owner", ownerType, ownerId] as const,
+  },
+  policies: {
+    all: () => policiesRoot,
+    list: (filters: Readonly<Record<string, unknown>>) => [...policiesRoot, "list", filters] as const,
+    detail: (policyId: string) => [...policiesRoot, "detail", policyId] as const,
+    revisions: (policyId: string, page: number) => [...policiesRoot, "detail", policyId, "revisions", page] as const,
+    comparison: (policyId: string, comparedId: string) =>
+      [...policiesRoot, "detail", policyId, "comparison", comparedId] as const,
+    history: (policyId: string, page: number) => [...policiesRoot, "detail", policyId, "history", page] as const,
+    activations: (policyId: string, page: number) =>
+      [...policiesRoot, "detail", policyId, "activations", page] as const,
+    activationAudience: (policyId: string, activationId: string, page: number) =>
+      [...policiesRoot, "detail", policyId, "activations", activationId, "accounts", page] as const,
+    audience: (policyId: string, page: number) => [...policiesRoot, "detail", policyId, "audience", page] as const,
+    activationPreview: (policyId: string, version: number) =>
+      [...policiesRoot, "detail", policyId, "activation-preview", version] as const,
+    owner: (policyId: string) => [...policiesRoot, "detail", policyId, "owner"] as const,
+    accountChoices: (filters: Readonly<Record<string, unknown>>) =>
+      [...policiesRoot, "account-choices", filters] as const,
   },
   subscriptions: {
     all: () => subscriptionsRoot,
