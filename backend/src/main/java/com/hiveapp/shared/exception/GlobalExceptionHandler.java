@@ -13,6 +13,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
@@ -222,6 +223,14 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.NOT_FOUND)
                 .body(ApiError.of(404, ErrorCode.RESOURCE_NOT_FOUND, "Not Found",
                         "No endpoint matches " + ex.getResourcePath()));
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiError> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        return ResponseEntity
+                .status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(ApiError.of(405, ErrorCode.METHOD_NOT_ALLOWED, "Method Not Allowed",
+                        ex.getMethod() + " is not supported for this endpoint"));
     }
 
     /**

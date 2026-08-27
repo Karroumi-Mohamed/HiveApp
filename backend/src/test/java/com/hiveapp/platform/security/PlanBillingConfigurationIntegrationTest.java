@@ -402,12 +402,18 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(jsonPath("$.size").value(1))
                 .andExpect(jsonPath("$.content[0].accountId").value(accountId.toString()));
 
-        mockMvc.perform(get("/api/admin/plans/{planId}/subscribers/by-owner-email", freePlanId)
-                        .param("ownerEmail", ownerEmail)
+        mockMvc.perform(post("/api/admin/plans/{planId}/subscribers/by-owner-email", freePlanId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ownerEmail\":\"" + ownerEmail + "\"}")
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].ownerEmail").value(ownerEmail))
                 .andExpect(jsonPath("$.content[0].subscriber.accountId").value(accountId.toString()));
+        mockMvc.perform(get("/api/admin/plans/{planId}/subscribers/by-owner-email", freePlanId)
+                        .param("ownerEmail", ownerEmail)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
 
         mockMvc.perform(put("/api/admin/plans/{planId}", freePlanId)
                         .header("Authorization", bearer(adminToken))

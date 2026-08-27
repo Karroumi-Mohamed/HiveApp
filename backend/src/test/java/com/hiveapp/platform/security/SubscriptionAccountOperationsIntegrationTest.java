@@ -181,14 +181,21 @@ class SubscriptionAccountOperationsIntegrationTest extends PlatformShellIntegrat
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].ownerEmail").doesNotExist());
 
-        mockMvc.perform(get("/api/admin/subscriptions/accounts/by-owner-email")
+        mockMvc.perform(post("/api/admin/subscriptions/accounts/by-owner-email")
                         .header("Authorization", bearer(token))
-                        .param("ownerEmail", ownerEmail.toUpperCase(java.util.Locale.ROOT)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ownerEmail\":\""
+                                + ownerEmail.toUpperCase(java.util.Locale.ROOT) + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].ownerEmail").value(ownerEmail))
                 .andExpect(jsonPath("$.content[0].account.id").value(subscribed.getId().toString()))
                 .andExpect(jsonPath("$.content[0].account.ownerEmail").doesNotExist());
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/by-owner-email")
+                .header("Authorization", bearer(token))
+                        .param("ownerEmail", ownerEmail))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
     }
 
     @Test
@@ -265,11 +272,12 @@ class SubscriptionAccountOperationsIntegrationTest extends PlatformShellIntegrat
                         .param("planCode", "FREE"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        mockMvc.perform(get("/api/admin/subscriptions/accounts/by-owner-email")
+        mockMvc.perform(post("/api/admin/subscriptions/accounts/by-owner-email")
                         .header("Authorization", bearer(token))
-                        .param("ownerEmail", " "))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ownerEmail\":\" \"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 
         createAccountWithoutSubscription(UUID.randomUUID().toString().substring(0, 8), "Clamp");
         mockMvc.perform(get("/api/admin/subscriptions/accounts/search")

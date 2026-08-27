@@ -989,9 +989,10 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                         .header("Authorization", bearer(tableReader.token())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].ownerEmail").doesNotExist());
-        mockMvc.perform(get("/api/admin/subscriptions/accounts/by-owner-email")
+        mockMvc.perform(post("/api/admin/subscriptions/accounts/by-owner-email")
                         .header("Authorization", bearer(tableReader.token()))
-                        .param("ownerEmail", "owner@example.com"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ownerEmail\":\"owner@example.com\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
         mockMvc.perform(get("/api/admin/subscriptions/accounts/chooser")
@@ -1017,9 +1018,10 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isEmpty());
 
-        mockMvc.perform(get("/api/admin/subscriptions/accounts/by-owner-email")
+        mockMvc.perform(post("/api/admin/subscriptions/accounts/by-owner-email")
                         .header("Authorization", bearer(ownerIdentityReader.token()))
-                        .param("ownerEmail", "missing@example.com"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ownerEmail\":\"missing@example.com\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isEmpty());
         mockMvc.perform(get("/api/admin/subscriptions/accounts/search")

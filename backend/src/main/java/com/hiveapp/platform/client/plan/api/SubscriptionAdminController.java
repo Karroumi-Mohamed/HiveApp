@@ -4,6 +4,7 @@ import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOwnerLookupDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
 import com.hiveapp.platform.admin.dto.ManualCheckoutConfirmationRequest;
+import com.hiveapp.platform.admin.dto.OwnerEmailLookupRequest;
 import com.hiveapp.platform.admin.service.AdminSubscriptionService;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.shared.api.PageResponse;
@@ -64,9 +65,9 @@ public class SubscriptionAdminController {
                         ACCOUNT_TABLE_SORTS, "name", Sort.Direction.ASC)));
     }
 
-    @GetMapping("/accounts/by-owner-email")
+    @PostMapping("/accounts/by-owner-email")
     public PageResponse<SubscriptionAccountOwnerLookupDto> findAccountsByOwnerEmail(
-            @RequestParam String ownerEmail,
+            @Valid @RequestBody OwnerEmailLookupRequest request,
             @RequestParam(required = false) Boolean accountActive,
             @RequestParam(required = false) SubscriptionStatus subscriptionStatus,
             @RequestParam(required = false) Boolean hasSubscription,
@@ -76,7 +77,7 @@ public class SubscriptionAdminController {
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String direction) {
         return PageResponse.from(adminSubscriptionService.findAccountsByOwnerEmail(
-                ownerEmail, accountActive, subscriptionStatus, hasSubscription, planCode,
+                request.ownerEmail(), accountActive, subscriptionStatus, hasSubscription, planCode,
                 CommercialProductPageRequest.of(page, size, sort, direction,
                         ACCOUNT_TABLE_SORTS, "name", Sort.Direction.ASC)));
     }

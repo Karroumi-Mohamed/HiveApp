@@ -35,6 +35,9 @@ public enum ErrorCode {
     // 404
     RESOURCE_NOT_FOUND,
 
+    // 405
+    METHOD_NOT_ALLOWED,
+
     // 409
     RESOURCE_ALREADY_EXISTS,
     ROLE_NAME_CONFLICT,

@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.plan.api;
 
+import com.hiveapp.platform.admin.dto.OwnerEmailLookupRequest;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
@@ -187,13 +188,14 @@ public class PlanAdminController {
         return PageResponse.from(planAdminService.listPlanSubscribers(planId, search, status, pageable));
     }
 
-    @GetMapping("/{planId}/subscribers/by-owner-email")
+    @PostMapping("/{planId}/subscribers/by-owner-email")
     public PageResponse<PlanSubscriberOwnerLookupDto> subscribersByOwnerEmail(
             @PathVariable UUID planId,
-            @RequestParam String ownerEmail,
+            @Valid @RequestBody OwnerEmailLookupRequest request,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
     ) {
-        return PageResponse.from(planAdminService.findPlanSubscribersByOwnerEmail(planId, ownerEmail, pageable));
+        return PageResponse.from(planAdminService.findPlanSubscribersByOwnerEmail(
+                planId, request.ownerEmail(), pageable));
     }
 
     @PostMapping("/{planId}/features")
