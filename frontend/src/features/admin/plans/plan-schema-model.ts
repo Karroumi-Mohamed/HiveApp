@@ -1,4 +1,4 @@
-import type { AddOn, PlanFeature, QuotaPackage, RegistryFeature } from "@/api/contracts";
+import type { AddOn, ExtensionCompatibility, PlanFeature, QuotaPackage, RegistryFeature } from "@/api/contracts";
 
 /**
  * Pure layout model for the plan schema. Everything positional is computed here so the geometry
@@ -60,6 +60,26 @@ export type PermissionsNode = {
   featureCode: string;
   labels: string[];
   overflow: number;
+  y: number;
+  height: number;
+};
+
+export type CompatibilityPackageNode = {
+  kind: "package";
+  extension: ExtensionCompatibility;
+  via: { type: "feature"; code: string };
+  relatedFeatureCodes: string[];
+  resourceLabel: string;
+  y: number;
+  height: number;
+};
+
+export type CompatibilityAddOnNode = {
+  kind: "addOn";
+  extension: ExtensionCompatibility;
+  featureCodes: string[];
+  featureNames: string[];
+  notes: string[];
   y: number;
   height: number;
 };
@@ -221,7 +241,7 @@ export function buildPlanSchemaModel(input: {
   const addOnNodes: AddOnNode[] = [];
   for (const addOn of targetedAddOns) {
     const featureCodes = addOn.features.map((feature) => feature.featureCode);
-    const featureNames = featureCodes.map((code) => byCode.get(code)?.displayName ?? code);
+    const featureNames = featureCodes.map((code) => byCode.get(code)?.displayName ?? "Fonctionnalité indisponible");
     const availability =
       input.catalogComplete === false
         ? "UNKNOWN"
@@ -277,6 +297,102 @@ export function buildPlanSchemaModel(input: {
     };
   });
 
+  const featureBottom = rows.length ? (rows.at(-1)?.y ?? 0) + (rows.at(-1)?.height ?? 0) : 0;
+  const permissionsBottom = permissionsNodes.reduce((max, node) => Math.max(max, node.y + node.height), 0);
+  const height = Math.max(featureBottom, extensionY ? extensionY - SCHEMA.rowGap : 0, permissionsBottom, 200);
+  return { rows, packageNodes, addOnNodes, permissionsNodes, height };
+}
+
+/**
+ * Builds the same diagram from the server's bounded compatibility projection. Unlike the legacy
+ * client-side join, this model does not download every commercial product or attempt to recreate
+ * backend eligibility rules in the browser.
+ */
+export function buildPlanSchemaCompatibilityModel(input: {
+  features: PlanFeature[];
+  catalogFeatures: RegistryFeature[];
+  extensions: ExtensionCompatibility[];
+}) {
+  const byCode = new Map(input.catalogFeatures.map((feature) => [feature.code, feature]));
+  let featureY = 0;
+  const rows: FeatureNode[] = input.features.map((feature) => {
+    const definition = byCode.get(feature.featureCode);
+    const quotaLines = quotaLinesOf(feature, definition);
+    const permissions = definition?.permissions ?? [];
+    const permissionPreview = permissions.slice(0, 3).map((permission) => permissionActionLabelOf(permission.action));
+    const lines = quotaLines.length + (permissionPreview.length ? 1 : 0) + 1;
+    const height = SCHEMA.nodePadding + SCHEMA.headerHeight + lines * SCHEMA.lineHeight;
+    const node: FeatureNode = {
+      feature,
+      definition,
+      quotaLines,
+      permissionPreview,
+      permissionOverflow: Math.max(0, permissions.length - permissionPreview.length),
+      y: featureY,
+      height,
+    };
+    featureY += height + SCHEMA.rowGap;
+    return node;
+  });
+
+  let extensionY = 0;
+  const packageNodes: CompatibilityPackageNode[] = [];
+  for (const extension of input.extensions.filter((item) => item.productType === "QUOTA_PACKAGE")) {
+    const featureCode = extension.quotaFeatureCode;
+    if (!featureCode) continue;
+    const row = rows.find((candidate) => candidate.feature.featureCode === featureCode);
+    if (!row) continue;
+    const resourceLabel =
+      row.definition?.quotaSchema.find((slot) => slot.resource === extension.quotaResource)?.unit ?? "capacité";
+    const height = SCHEMA.nodePadding + SCHEMA.headerHeight + 2 * SCHEMA.lineHeight;
+    const y = Math.max(row.y, extensionY);
+    packageNodes.push({
+      kind: "package",
+      extension,
+      via: { type: "feature", code: featureCode },
+      relatedFeatureCodes: [featureCode],
+      resourceLabel,
+      y,
+      height,
+    });
+    extensionY = y + height + SCHEMA.rowGap;
+  }
+
+  const addOnNodes: CompatibilityAddOnNode[] = [];
+  for (const extension of input.extensions.filter((item) => item.productType === "ADD_ON")) {
+    const featureNames = extension.featureCodes.map(
+      (code) => byCode.get(code)?.displayName ?? "Fonctionnalité indisponible",
+    );
+    const notes = [
+      extension.operatorSelectable ? null : "Non sélectionnable actuellement",
+      extension.issues.length
+        ? `${extension.issues.length} condition${extension.issues.length > 1 ? "s" : ""} à vérifier`
+        : null,
+    ].filter((note): note is string => note !== null);
+    const height = SCHEMA.nodePadding + SCHEMA.headerHeight + (2 + notes.length) * SCHEMA.lineHeight;
+    addOnNodes.push({
+      kind: "addOn",
+      extension,
+      featureCodes: extension.featureCodes,
+      featureNames,
+      notes,
+      y: extensionY,
+      height,
+    });
+    extensionY += height + SCHEMA.rowGap;
+  }
+
+  const permissionsNodes: PermissionsNode[] = rows.map((row) => {
+    const permissions = row.definition?.permissions ?? [];
+    const labels = permissions.slice(0, 8).map((permission) => permissionActionLabelOf(permission.action));
+    return {
+      featureCode: row.feature.featureCode,
+      labels,
+      overflow: Math.max(0, permissions.length - labels.length),
+      y: row.y,
+      height: SCHEMA.nodePadding + SCHEMA.headerHeight + Math.max(labels.length, 1) * SCHEMA.lineHeight,
+    };
+  });
   const featureBottom = rows.length ? (rows.at(-1)?.y ?? 0) + (rows.at(-1)?.height ?? 0) : 0;
   const permissionsBottom = permissionsNodes.reduce((max, node) => Math.max(max, node.y + node.height), 0);
   const height = Math.max(featureBottom, extensionY ? extensionY - SCHEMA.rowGap : 0, permissionsBottom, 200);

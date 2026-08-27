@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { capacityUnitLabel } from "@/features/admin/commercial/commercial-presentation";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
@@ -143,34 +144,64 @@ function OverridesEditor({ subscription }: { subscription: AdminSubscription }) 
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [addOnSearch, setAddOnSearch] = useState("");
+  const [quotaSearch, setQuotaSearch] = useState("");
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>(subscription.customOverrides.addOnCodes);
-  const canListAddOns = session.can(adminPermissions.addOnsList);
-  const canListQuotaPackages = session.can(adminPermissions.quotaPackagesList);
+  const canListAddOns = session.can(adminPermissions.subscriptionsChooseAddOnOverrides);
+  const canListQuotaPackages = session.can(adminPermissions.subscriptionsChooseQuotaOverrides);
   const [quantities, setQuantities] = useState<Record<string, number>>(
     Object.fromEntries(subscription.customOverrides.quotaPackages.map((item) => [item.packageCode, item.quantity])),
   );
   const [addOns, quotaPackages] = useQueries({
     queries: [
       {
-        queryKey: adminCommercialKeys.addOns.list(),
-        queryFn: adminApi.addOns,
+        queryKey: ["admin", "subscriptions", subscription.accountId, "override-add-ons", selectedAddOns, addOnSearch],
+        queryFn: () =>
+          adminApi.subscriptionAddOnOverrideChoices(subscription.accountId, {
+            selectedAddOnCodes: selectedAddOns,
+            useCurrentAddOnSelections: false,
+            search: addOnSearch || undefined,
+            size: 50,
+          }),
         enabled: commercialQueryEnabled(
           session.can,
-          adminPermissions.addOnsList,
+          adminPermissions.subscriptionsChooseAddOnOverrides,
           open && session.can(adminPermissions.subscriptionsOverrides),
         ),
       },
       {
-        queryKey: adminCommercialKeys.quotaPackages.list(),
-        queryFn: adminApi.quotaPackages,
+        queryKey: ["admin", "subscriptions", subscription.accountId, "override-quotas", selectedAddOns, quotaSearch],
+        queryFn: () =>
+          adminApi.subscriptionQuotaOverrideChoices(subscription.accountId, {
+            selectedAddOnCodes: selectedAddOns,
+            useCurrentAddOnSelections: false,
+            search: quotaSearch || undefined,
+            size: 50,
+          }),
         enabled: commercialQueryEnabled(
           session.can,
-          adminPermissions.quotaPackagesList,
+          adminPermissions.subscriptionsChooseQuotaOverrides,
           open && session.can(adminPermissions.subscriptionsOverrides),
         ),
       },
     ],
   });
+  const addOnChoices = [
+    ...new Map(
+      [...(addOns.data?.content ?? []), ...(addOns.data?.retainedSelections ?? [])].map((item) => [
+        item.productId,
+        item,
+      ]),
+    ).values(),
+  ];
+  const quotaChoices = [
+    ...new Map(
+      [...(quotaPackages.data?.content ?? []), ...(quotaPackages.data?.retainedSelections ?? [])].map((item) => [
+        item.productId,
+        item,
+      ]),
+    ).values(),
+  ];
   useEffect(() => {
     if (open) {
       setSelectedAddOns(subscription.customOverrides.addOnCodes);
@@ -209,6 +240,13 @@ function OverridesEditor({ subscription }: { subscription: AdminSubscription }) 
         <div className="space-y-6">
           <section>
             <h3 className="text-sm font-semibold">Add-ons</h3>
+            <Input
+              aria-label="Rechercher un add-on"
+              className="mt-3"
+              onChange={(event) => setAddOnSearch(event.target.value)}
+              placeholder="Nom de l’add-on…"
+              value={addOnSearch}
+            />
             <div className="mt-3 divide-y rounded-lg border">
               {!canListAddOns ? (
                 <p className="p-3 text-sm text-muted-foreground">Catalogue non accessible pour cet accès.</p>
@@ -218,37 +256,52 @@ function OverridesEditor({ subscription }: { subscription: AdminSubscription }) 
                 </div>
               ) : addOns.isError ? (
                 <ErrorState retry={() => void addOns.refetch()} title="Impossible de charger les add-ons" />
-              ) : addOns.data?.some((item) => item.status === "ACTIVE") ? (
-                addOns.data
-                  .filter((item) => item.status === "ACTIVE")
-                  .map((item) => (
-                    <div className="flex items-start gap-3 p-3" key={item.id}>
-                      <Checkbox
-                        checked={selectedAddOns.includes(item.code)}
-                        id={`addon-${item.id}`}
-                        onCheckedChange={(checked) =>
-                          setSelectedAddOns((current) =>
-                            checked
-                              ? [...new Set([...current, item.code])]
-                              : current.filter((code) => code !== item.code),
-                          )
-                        }
-                      />
-                      <Label className="font-normal" htmlFor={`addon-${item.id}`}>
-                        <span className="block text-sm font-medium">{item.name}</span>
-                        <span className="block text-xs text-muted-foreground">
-                          {money(item.price, item.currencyCode)}
-                        </span>
-                      </Label>
-                    </div>
-                  ))
+              ) : addOnChoices.length ? (
+                addOnChoices.map((item) => (
+                  <div className="flex items-start gap-3 p-3" key={item.productId}>
+                    <Checkbox
+                      checked={selectedAddOns.includes(item.code)}
+                      disabled={item.retained && !item.removable}
+                      id={`addon-${item.productId}`}
+                      onCheckedChange={(checked) =>
+                        setSelectedAddOns((current) =>
+                          checked
+                            ? [...new Set([...current, item.code])]
+                            : current.filter((code) => code !== item.code),
+                        )
+                      }
+                    />
+                    <Label className="font-normal" htmlFor={`addon-${item.productId}`}>
+                      <span className="block text-sm font-medium">{item.name}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {money(item.unitPrice, item.currencyCode)} ·{" "}
+                        {item.billingCycle === "MONTHLY"
+                          ? "mensuel"
+                          : item.billingCycle === "YEARLY"
+                            ? "annuel"
+                            : "permanent"}
+                        {item.retained ? " · conservé" : ""}
+                      </span>
+                    </Label>
+                  </div>
+                ))
               ) : (
                 <p className="p-3 text-sm text-muted-foreground">Aucun add-on actif.</p>
               )}
             </div>
+            {addOns.data?.hasMoreCandidates ? (
+              <p className="mt-2 text-xs text-muted-foreground">Affinez la recherche pour voir les autres add-ons.</p>
+            ) : null}
           </section>
           <section>
             <h3 className="text-sm font-semibold">Packages de quota</h3>
+            <Input
+              aria-label="Rechercher un pack de capacité"
+              className="mt-3"
+              onChange={(event) => setQuotaSearch(event.target.value)}
+              placeholder="Nom du pack…"
+              value={quotaSearch}
+            />
             <div className="mt-3 divide-y rounded-lg border">
               {!canListQuotaPackages ? (
                 <p className="p-3 text-sm text-muted-foreground">Catalogue non accessible pour cet accès.</p>
@@ -261,33 +314,42 @@ function OverridesEditor({ subscription }: { subscription: AdminSubscription }) 
                   retry={() => void quotaPackages.refetch()}
                   title="Impossible de charger les packages de quota"
                 />
-              ) : quotaPackages.data?.some((item) => item.status === "ACTIVE") ? (
-                quotaPackages.data
-                  .filter((item) => item.status === "ACTIVE")
-                  .map((item) => (
-                    <div className="grid grid-cols-[1fr_6rem] items-center gap-3 p-3" key={item.id}>
-                      <div>
-                        <p className="text-sm font-medium">{item.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          +{item.capacityPerUnit} {item.resource} par unité
-                        </p>
-                      </div>
-                      <Input
-                        aria-label={`Quantité ${item.name}`}
-                        max={item.maximumQuantity}
-                        min="0"
-                        onChange={(event) =>
-                          setQuantities((current) => ({ ...current, [item.code]: Number(event.target.value) }))
-                        }
-                        type="number"
-                        value={quantities[item.code] ?? 0}
-                      />
+              ) : quotaChoices.length ? (
+                quotaChoices.map((item) => (
+                  <div className="grid grid-cols-[1fr_6rem] items-center gap-3 p-3" key={item.productId}>
+                    <div>
+                      <p className="text-sm font-medium">{item.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        +{item.capacityPerUnit} {capacityUnitLabel(item.resource)} par unité ·{" "}
+                        {money(item.unitPrice, item.currencyCode)} ·{" "}
+                        {item.billingCycle === "MONTHLY"
+                          ? "mensuel"
+                          : item.billingCycle === "YEARLY"
+                            ? "annuel"
+                            : "permanent"}
+                        {item.retained ? " · conservé" : ""}
+                      </p>
                     </div>
-                  ))
+                    <Input
+                      aria-label={`Quantité ${item.name}`}
+                      disabled={item.retained && !item.quantityEditable && !item.removable}
+                      max={item.maximumQuantity}
+                      min="0"
+                      onChange={(event) =>
+                        setQuantities((current) => ({ ...current, [item.code]: Number(event.target.value) }))
+                      }
+                      type="number"
+                      value={quantities[item.code] ?? 0}
+                    />
+                  </div>
+                ))
               ) : (
                 <p className="p-3 text-sm text-muted-foreground">Aucun package actif.</p>
               )}
             </div>
+            {quotaPackages.data?.hasMoreCandidates ? (
+              <p className="mt-2 text-xs text-muted-foreground">Affinez la recherche pour voir les autres packs.</p>
+            ) : null}
           </section>
           <div className="flex justify-end">
             <Button disabled={save.isPending} onClick={() => save.mutate()}>
@@ -461,8 +523,7 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
                 {changes.data.map((operation: SubscriptionChangeOperation) => (
                   <TableRow key={operation.id}>
                     <TableCell>
-                      <code className="text-xs">{operation.sourcePlanCode}</code> →{" "}
-                      <code className="text-xs">{operation.targetPlanCode}</code>
+                      <span className="text-sm">Changement de forfait</span>
                     </TableCell>
                     <TableCell>{operation.timing === "IMMEDIATE" ? "Immédiat" : "Au renouvellement"}</TableCell>
                     <TableCell>

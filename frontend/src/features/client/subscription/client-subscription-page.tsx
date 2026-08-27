@@ -16,11 +16,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { capacityUnitLabel } from "@/features/admin/commercial/commercial-presentation";
 import {
   currentCatalogPrice,
   defaultCatalogPrice,
   initialCatalogPlanCode,
   matchingCatalogPrice,
+  preserveRetainedSelection,
   pruneCommercialSelection,
   sameStringSet,
 } from "@/features/commercial/catalog-price-rules";
@@ -80,6 +82,9 @@ function PreviewDialog({
   onApply,
   applying,
   canApply,
+  currentPlanName,
+  targetPlanName,
+  featureNames,
 }: {
   preview: SubscriptionChangePreview | null;
   open: boolean;
@@ -88,6 +93,9 @@ function PreviewDialog({
   onApply: () => void;
   applying: boolean;
   canApply: boolean;
+  currentPlanName: string;
+  targetPlanName: string;
+  featureNames: ReadonlyMap<string, string>;
 }) {
   if (!preview) return null;
   return (
@@ -96,8 +104,7 @@ function PreviewDialog({
         <DialogHeader>
           <DialogTitle>Vérifier le changement</DialogTitle>
           <DialogDescription>
-            {preview.currentPlanCode} → {preview.targetPlanCode} ·{" "}
-            {timing === "IMMEDIATE" ? "effet immédiat" : "au renouvellement"}
+            {currentPlanName} → {targetPlanName} · {timing === "IMMEDIATE" ? "effet immédiat" : "au renouvellement"}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-6">
@@ -133,8 +140,10 @@ function PreviewDialog({
                   key={`${quota.featureCode}-${quota.resource}`}
                 >
                   <div>
-                    <p className="text-sm font-medium">{quota.resource}</p>
-                    <p className="text-xs text-muted-foreground">{quota.featureCode}</p>
+                    <p className="text-sm font-medium">{capacityUnitLabel(quota.resource)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {featureNames.get(quota.featureCode) ?? "Fonctionnalité indisponible"}
+                    </p>
                   </div>
                   <span className="text-sm font-semibold tabular-nums">{quota.effectiveLimit ?? "Illimité"}</span>
                 </div>
@@ -177,6 +186,8 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
   const [timing, setTiming] = useState<"IMMEDIATE" | "AT_RENEWAL">("IMMEDIATE");
   const [preview, setPreview] = useState<SubscriptionChangePreview | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const retainedAddOns = useMemo(() => current?.retainedAddOns ?? [], [current?.retainedAddOns]);
+  const retainedQuotaPackages = useMemo(() => current?.retainedQuotaPackages ?? [], [current?.retainedQuotaPackages]);
   const changeError = (error: unknown) => {
     setPreview(null);
     setPreviewOpen(false);
@@ -202,17 +213,38 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
       plan?.quotaPackages.filter(
         (item) =>
           matchingCatalogPrice(item.prices, selectedPlanPrice) &&
-          (item.allowedPlanCodes.includes(plan.code) || item.allowedAddOnCodes.some((code) => addOns.includes(code))),
+          (item.directlyAvailable || item.requiresAddOnCodes.some((code) => addOns.includes(code))),
       ) ?? [],
     [addOns, plan, selectedPlanPrice],
   );
+  const featureNames = useMemo(
+    () =>
+      new Map(
+        catalog.plans.flatMap((catalogPlan) =>
+          catalogPlan.features.map((feature) => [feature.featureCode, feature.displayName] as const),
+        ),
+      ),
+    [catalog.plans],
+  );
+  const currentPlanName =
+    catalog.plans.find((catalogPlan) => catalogPlan.code === current?.planCode)?.name ?? "Forfait actuel";
   useEffect(() => {
     if (!plan) return;
     setAddOns((currentItems) => {
       const next = pruneCommercialSelection(currentItems, plan.addOns, selectedPlanPrice);
-      return sameStringSet(currentItems, next) ? currentItems : next;
+      const resolved = preserveRetainedSelection(
+        next,
+        currentItems,
+        retainedAddOns.map((item) => item.code),
+        plan.current,
+      );
+      return sameStringSet(currentItems, resolved) ? currentItems : resolved;
     });
     const compatiblePackageCodes = new Set(compatibleQuotaPackages.map((item) => item.code));
+    if (plan.current)
+      retainedQuotaPackages.forEach((item) => {
+        compatiblePackageCodes.add(item.code);
+      });
     setQuantities((currentItems) => {
       const next = Object.fromEntries(
         Object.entries(currentItems).filter(([code, quantity]) => compatiblePackageCodes.has(code) && quantity > 0),
@@ -222,7 +254,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
         Object.entries(next).every(([code, quantity]) => currentItems[code] === quantity);
       return same ? currentItems : next;
     });
-  }, [compatibleQuotaPackages, plan, selectedPlanPrice]);
+  }, [compatibleQuotaPackages, plan, retainedAddOns, retainedQuotaPackages, selectedPlanPrice]);
 
   const request = useMemo<SubscriptionChangeInput | null>(
     () =>
@@ -275,7 +307,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
           return (
             <button
               className={`w-full rounded-xl border p-4 text-start transition-colors ${item.code === planCode ? "border-primary bg-primary/5" : "bg-card hover:border-foreground/20"}`}
-              disabled={!item.prices.length}
+              disabled={(!item.selectable && !item.current) || !item.prices.length}
               key={item.code}
               onClick={() => {
                 const nextPrice = defaultCatalogPrice(item.prices);
@@ -297,9 +329,11 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
                 <div>
                   <p className="font-semibold">{item.name}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {item.prices.length
-                      ? `${item.prices.length} option${item.prices.length > 1 ? "s" : ""} tarifaire${item.prices.length > 1 ? "s" : ""}`
-                      : "Indisponible"}
+                    {!item.selectable && !item.current
+                      ? "Non disponible pour un nouveau choix"
+                      : item.prices.length
+                        ? `${item.prices.length} option${item.prices.length > 1 ? "s" : ""} tarifaire${item.prices.length > 1 ? "s" : ""}`
+                        : "Indisponible"}
                   </p>
                 </div>
                 {item.current ? <StatusBadge tone="success">Actuel</StatusBadge> : null}
@@ -388,6 +422,47 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             </div>
           </section>
         ) : null}
+        {plan.current && retainedAddOns.length ? (
+          <section className="border-y py-5">
+            <h2 className="text-sm font-semibold">Add-ons conservés</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Conservés aux conditions déjà achetées, mais indisponibles pour une nouvelle sélection.
+            </p>
+            <div className="mt-4 divide-y border-y">
+              {retainedAddOns.map((item) => (
+                <div className="flex items-start gap-3 py-4" key={item.code}>
+                  <Checkbox
+                    checked={addOns.includes(item.code)}
+                    disabled={!item.removable}
+                    id={`retained-addon-${item.code}`}
+                    onCheckedChange={(checked) =>
+                      setAddOns((items) =>
+                        checked ? [...new Set([...items, item.code])] : items.filter((code) => code !== item.code),
+                      )
+                    }
+                  />
+                  <Label className="min-w-0 flex-1 font-normal" htmlFor={`retained-addon-${item.code}`}>
+                    <span className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                      <strong>{item.name}</strong>
+                      <span className="text-muted-foreground">
+                        {money(item.unitPrice, item.currencyCode)} ·{" "}
+                        {item.billingCycle === "MONTHLY"
+                          ? "mensuel"
+                          : item.billingCycle === "YEARLY"
+                            ? "annuel"
+                            : "permanent"}
+                      </span>
+                    </span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      Révision détenue {item.definitionVersion}
+                      {item.removable ? " · peut être retirée" : " · retrait indisponible"}
+                    </span>
+                  </Label>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
         {compatibleQuotaPackages.length ? (
           <section className="rounded-xl border bg-card p-5">
             <h2 className="text-sm font-semibold">Capacités supplémentaires</h2>
@@ -399,7 +474,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
                     <div>
                       <p className="text-sm font-medium">{item.name}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        +{item.capacityPerUnit} {item.resource} ·{" "}
+                        +{item.capacityPerUnit} {capacityUnitLabel(item.resource)} ·{" "}
                         {itemPrice ? money(itemPrice.amount, itemPrice.currencyCode) : "Indisponible"} par unité
                       </p>
                     </div>
@@ -411,6 +486,36 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
                   </div>
                 );
               })}
+            </div>
+          </section>
+        ) : null}
+        {plan.current && retainedQuotaPackages.length ? (
+          <section className="border-y py-5">
+            <h2 className="text-sm font-semibold">Capacités conservées</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Non proposées à la vente, elles restent actives et facturées aux conditions détenues.
+            </p>
+            <div className="mt-4 divide-y border-y">
+              {retainedQuotaPackages.map((item) => (
+                <div className="flex items-center justify-between gap-4 py-4" key={item.code}>
+                  <div>
+                    <p className="text-sm font-medium">{item.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      +{item.capacityPerUnit} {capacityUnitLabel(item.resource)} ·{" "}
+                      {money(item.unitPrice, item.currencyCode)} par unité · conservé
+                    </p>
+                  </div>
+                  {item.quantityEditable || item.removable ? (
+                    <QuantityControl
+                      maximum={item.maximumSelectableQuantity ?? item.quantity}
+                      onChange={(value) => setQuantities((items) => ({ ...items, [item.code]: value }))}
+                      value={quantities[item.code] ?? 0}
+                    />
+                  ) : (
+                    <span className="text-sm font-semibold tabular-nums">× {item.quantity}</span>
+                  )}
+                </div>
+              ))}
             </div>
           </section>
         ) : null}
@@ -444,10 +549,13 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
       <PreviewDialog
         applying={apply.isPending}
         canApply={session.can(clientPermissions.subscriptionApply)}
+        currentPlanName={currentPlanName}
+        featureNames={featureNames}
         onApply={() => apply.mutate()}
         onOpenChange={setPreviewOpen}
         open={previewOpen}
         preview={preview}
+        targetPlanName={plan.name}
         timing={timing}
       />
     </div>
@@ -491,9 +599,7 @@ function ChangeHistory() {
           {changes.data.map((operation) => (
             <TableRow key={operation.id}>
               <TableCell>
-                <code className="text-xs">{operation.sourcePlanCode}</code>{" "}
-                <ArrowRightIcon className="mx-1 inline size-3 rtl:rotate-180" />{" "}
-                <code className="text-xs">{operation.targetPlanCode}</code>
+                <span className="text-sm">Changement de forfait</span>
                 {operation.attentionReason ? (
                   <p className="mt-1 text-xs text-destructive">{operation.attentionReason}</p>
                 ) : null}
@@ -583,7 +689,6 @@ export function ClientSubscriptionPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold">{subscription.data.plan.name}</h2>
-                <code className="mt-1 block text-xs text-muted-foreground">{subscription.data.plan.code}</code>
               </div>
               <StatusBadge tone={subscription.data.status === "ACTIVE" ? "success" : "warning"}>
                 {subscription.data.status}

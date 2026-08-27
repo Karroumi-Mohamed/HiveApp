@@ -1,6 +1,5 @@
 import {
   ArrowLeftIcon,
-  ArrowRightIcon,
   CopyIcon,
   GitBranchIcon,
   MagnifyingGlassIcon,
@@ -9,19 +8,18 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useDeferredValue, useMemo, useState } from "react";
+import { type FormEvent, useDeferredValue, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
 import type {
-  AddOn,
   BillingCycle,
+  CommercialProductAction,
+  ExtensionCompatibility,
   Plan,
   PlanFeature,
   PlanFeatureMode,
-  PlanStatus,
   QuotaLimit,
-  QuotaPackage,
   RegistryFeature,
 } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
@@ -50,6 +48,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  CommercialAvailabilityHistory,
+  CommercialAvailabilityPanel,
+  PlanCompatibilityPanel,
+} from "@/features/admin/commercial/commercial-detail-panels";
+import { CommercialLifecycleDialog } from "@/features/admin/commercial/commercial-lifecycle-dialog";
 import { PlanSchema } from "@/features/admin/plans/admin-plan-schema";
 import {
   addOnAvailabilityLabel,
@@ -72,8 +76,8 @@ import { commercialAmount, isCommercialAmount } from "@/lib/exact-decimal";
 type PlanFeatureCommercialRow = {
   feature: PlanFeature;
   definition: RegistryFeature | undefined;
-  addOns: AddOn[];
-  capacityPacks: QuotaPackage[];
+  addOns: ExtensionCompatibility[];
+  capacityPacks: ExtensionCompatibility[];
 };
 
 const planFeatureColumn = createDataColumns<PlanFeatureCommercialRow>();
@@ -115,9 +119,10 @@ function PlanFormDialog({
         currencyCode: currencyCode.toUpperCase(),
         billingCycle,
       };
-      if (mode === "edit" && source) return adminApi.updatePlan(source.id, input);
-      if (mode === "duplicate" && source) return adminApi.duplicatePlan(source.id, input);
-      if (mode === "revise" && source) return adminApi.revisePlan(source.id, input);
+      if (mode === "edit" && source)
+        return adminApi.updatePlan(source.id, { ...input, expectedVersion: source.version });
+      if (mode === "duplicate" && source) return adminApi.duplicatePlan(source.id, source.version, input);
+      if (mode === "revise" && source) return adminApi.revisePlan(source.id, source.version, input);
       return adminApi.createPlan({ ...input, features: [] });
     },
     onSuccess: (plan) => {
@@ -267,7 +272,9 @@ function PlanFeatureDialog({
   const save = useMutation({
     mutationFn: () => {
       const input = { featureCode, mode, quotaConfigs: mode === "INCLUDED" ? quotas : [] };
-      return item ? adminApi.updatePlanFeature(plan.id, item.id, input) : adminApi.assignPlanFeature(plan.id, input);
+      return item
+        ? adminApi.updatePlanFeature(plan.id, item.id, plan.version, input)
+        : adminApi.assignPlanFeature(plan.id, plan.version, input);
     },
     onSuccess: () => {
       void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
@@ -367,8 +374,7 @@ function PlanFeatureDialog({
 function PlanFeatures({ plan }: { plan: Plan }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
-  const canSeeAddOns = session.can(adminPermissions.addOnsList);
-  const canSeeCapacityPacks = session.can(adminPermissions.quotaPackagesList);
+  const canInspectExtensions = session.can(adminPermissions.commercialInspectCompatibility);
   const features = useQuery({
     queryKey: adminCommercialKeys.plans.features(plan.id),
     queryFn: () => adminApi.planFeatures(plan.id),
@@ -380,21 +386,16 @@ function PlanFeatures({ plan }: { plan: Plan }) {
     // Without registry access the rows fall back to raw codes instead of provoking 403s.
     enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog),
   });
-  const addOns = useQuery({
-    queryKey: adminCommercialKeys.addOns.list(),
-    queryFn: adminApi.addOns,
-    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList),
-  });
-  const quotaPackages = useQuery({
-    queryKey: adminCommercialKeys.quotaPackages.list(),
-    queryFn: adminApi.quotaPackages,
-    enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesList),
+  const extensions = useQuery({
+    queryKey: ["admin", "commercial", "plan", plan.id, "extension-compatibility", "composition"],
+    queryFn: () => adminApi.inspectPlanCompatibility(plan.id, { page: 0, size: 100 }),
+    enabled: canInspectExtensions,
   });
   const refresh = () => {
     void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
   };
   const remove = useMutation({
-    mutationFn: (id: string) => adminApi.removePlanFeature(plan.id, id),
+    mutationFn: (id: string) => adminApi.removePlanFeature(plan.id, id, plan.version),
     onSuccess: () => {
       refresh();
       toast.success("Fonctionnalité retirée");
@@ -415,19 +416,11 @@ function PlanFeatures({ plan }: { plan: Plan }) {
   const frozen = plan.status !== "DRAFT";
   const allPlanFeatures = features.data ?? [];
   const rows: PlanFeatureCommercialRow[] = allPlanFeatures.map((feature) => {
-    const featureAddOns = (canSeeAddOns ? (addOns.data ?? []) : []).filter(
-      (addOn) =>
-        addOn.features.some((item) => item.featureCode === feature.featureCode) &&
-        !addOn.blockedPlanCodes.includes(plan.code) &&
-        (addOn.allowedPlanCodes.length === 0 || addOn.allowedPlanCodes.includes(plan.code)) &&
-        addOn.currencyCode === plan.currencyCode &&
-        addOn.billingCycle === plan.billingCycle,
+    const featureAddOns = (extensions.data?.content ?? []).filter(
+      (item) => item.productType === "ADD_ON" && item.featureCodes.includes(feature.featureCode),
     );
-    const addOnCodes = new Set(featureAddOns.map((addOn) => addOn.code));
-    const capacityPacks = (canSeeCapacityPacks ? (quotaPackages.data ?? []) : []).filter(
-      (pkg) =>
-        pkg.featureCode === feature.featureCode &&
-        (pkg.allowedPlanCodes.includes(plan.code) || pkg.allowedAddOnCodes.some((code) => addOnCodes.has(code))),
+    const capacityPacks = (extensions.data?.content ?? []).filter(
+      (item) => item.productType === "QUOTA_PACKAGE" && item.quotaFeatureCode === feature.featureCode,
     );
     return {
       feature,
@@ -443,8 +436,8 @@ function PlanFeatures({ plan }: { plan: Plan }) {
       meta: { headerClassName: "w-12", cellClassName: "w-12 ps-3 pe-0" },
       cell: ({ row }) => (
         <DataTableExpander
-          collapseLabel={`Masquer les offres associées à ${row.original.definition?.displayName ?? row.original.feature.featureCode}`}
-          expandLabel={`Afficher les offres associées à ${row.original.definition?.displayName ?? row.original.feature.featureCode}`}
+          collapseLabel={`Masquer les offres associées à ${row.original.definition?.displayName ?? "la fonctionnalité indisponible"}`}
+          expandLabel={`Afficher les offres associées à ${row.original.definition?.displayName ?? "la fonctionnalité indisponible"}`}
           row={row}
         />
       ),
@@ -455,8 +448,8 @@ function PlanFeatures({ plan }: { plan: Plan }) {
       meta: { cellClassName: "max-w-md whitespace-normal" },
       cell: ({ row }) => (
         <>
-          <span className="block font-medium" title={row.original.feature.featureCode}>
-            {row.original.definition?.displayName ?? row.original.feature.featureCode}
+          <span className="block font-medium">
+            {row.original.definition?.displayName ?? "Fonctionnalité indisponible"}
           </span>
           {row.original.definition?.description ? (
             <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
@@ -472,7 +465,9 @@ function PlanFeatures({ plan }: { plan: Plan }) {
       meta: { cellClassName: "max-w-64 whitespace-normal" },
       cell: ({ row }) => (
         <PlanFeatureAvailability
-          addOnState={!canSeeAddOns ? "HIDDEN" : addOns.isPending ? "LOADING" : addOns.isError ? "ERROR" : "READY"}
+          addOnState={
+            !canInspectExtensions ? "HIDDEN" : extensions.isPending ? "LOADING" : extensions.isError ? "ERROR" : "READY"
+          }
           expanded={row.getIsExpanded()}
           onToggleDetails={row.getToggleExpandedHandler()}
           row={row.original}
@@ -508,13 +503,7 @@ function PlanFeatures({ plan }: { plan: Plan }) {
       cell: ({ row }) => (
         <PlanCapacityPackSummary
           loadState={
-            !canSeeCapacityPacks
-              ? "HIDDEN"
-              : quotaPackages.isPending
-                ? "LOADING"
-                : quotaPackages.isError
-                  ? "ERROR"
-                  : "READY"
+            !canInspectExtensions ? "HIDDEN" : extensions.isPending ? "LOADING" : extensions.isError ? "ERROR" : "READY"
           }
           row={row.original}
         />
@@ -546,6 +535,12 @@ function PlanFeatures({ plan }: { plan: Plan }) {
               ? "La composition d’un forfait publié est figée — créez une révision pour la faire évoluer."
               : `${features.data?.length ?? 0} fonctionnalités configurées`}
           </p>
+          {extensions.data && extensions.data.totalElements > extensions.data.content.length ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Les offres associées sont limitées aux {extensions.data.content.length} premiers résultats ici ; consultez
+              Compatibilité pour la liste complète.
+            </p>
+          ) : null}
         </div>
         {frozen ? null : <PlanFeatureDialog available={addable} plan={plan} />}
       </div>
@@ -609,7 +604,7 @@ function PlanFeatureAvailability({
       <span className="text-muted-foreground">Via</span>
       <ReferenceTagButton
         aria-expanded={expanded}
-        aria-label={`${expanded ? "Masquer" : "Afficher"} les add-ons associés à ${row.definition?.displayName ?? row.feature.featureCode}`}
+        aria-label={`${expanded ? "Masquer" : "Afficher"} les add-ons associés à ${row.definition?.displayName ?? "la fonctionnalité indisponible"}`}
         onClick={onToggleDetails}
         title={names.join(", ")}
       >
@@ -629,7 +624,7 @@ function PlanCapacityPackSummary({ row, loadState }: { row: PlanFeatureCommercia
   return (
     <ul className="space-y-1" title={row.capacityPacks.map((pkg) => pkg.name).join(", ")}>
       {row.capacityPacks.slice(0, 2).map((pkg) => (
-        <li className="truncate text-sm" key={pkg.id}>
+        <li className="truncate text-sm" key={pkg.productId}>
           {pkg.name}
         </li>
       ))}
@@ -642,7 +637,7 @@ function PlanCapacityPackSummary({ row, loadState }: { row: PlanFeatureCommercia
 
 function PlanFeatureOffers({ row }: { row: PlanFeatureCommercialRow }) {
   const unitOf = (resource: string) =>
-    row.definition?.quotaSchema.find((slot) => slot.resource === resource)?.unit ?? resource;
+    row.definition?.quotaSchema.find((slot) => slot.resource === resource)?.unit ?? "capacité";
   return (
     <div className="grid px-14 py-5 md:grid-cols-2">
       <section className="min-w-0 md:pe-8">
@@ -652,36 +647,35 @@ function PlanFeatureOffers({ row }: { row: PlanFeatureCommercialRow }) {
         </div>
         {row.addOns.length ? (
           <ul className="divide-y">
-            {row.addOns.map((addOn) => {
-              const addOnFeature = addOn.features.find((feature) => feature.featureCode === row.feature.featureCode);
-              return (
-                <li
-                  className="grid gap-x-4 gap-y-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-                  key={addOn.id}
+            {row.addOns.map((addOn) => (
+              <li
+                className="grid gap-x-4 gap-y-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                key={addOn.productId}
+              >
+                <div className="min-w-0">
+                  <Link
+                    className="font-medium underline-offset-4 hover:underline"
+                    to={`/admin/add-ons/${addOn.productId}`}
+                  >
+                    {addOn.name}
+                  </Link>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {addOn.applicablePriceCount > 0
+                      ? `${addOn.applicablePriceCount} tarif${addOn.applicablePriceCount > 1 ? "s" : ""} applicable${addOn.applicablePriceCount > 1 ? "s" : ""}`
+                      : "Aucun tarif applicable"}
+                    {addOn.issues.length
+                      ? ` · ${addOn.issues.length} point${addOn.issues.length > 1 ? "s" : ""} à vérifier`
+                      : ""}
+                  </p>
+                </div>
+                <StatusText
+                  className="sm:justify-self-end"
+                  tone={addOn.operatorSelectable ? "success" : addOn.issues.length ? "warning" : "neutral"}
                 >
-                  <div className="min-w-0">
-                    <Link className="font-medium underline-offset-4 hover:underline" to={`/admin/add-ons/${addOn.id}`}>
-                      {addOn.name}
-                    </Link>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {money(addOn.price, addOn.currencyCode)} / {cycleText[addOn.billingCycle]}
-                      {addOnFeature?.quotaConfigs.length
-                        ? ` · ${addOnFeature.quotaConfigs
-                            .map((quota) =>
-                              quota.mode === "UNLIMITED" || quota.limit === null
-                                ? `Illimité — ${unitOf(quota.resource)}`
-                                : `${quota.limit} ${unitOf(quota.resource)}`,
-                            )
-                            .join(" · ")}`
-                        : ""}
-                    </p>
-                  </div>
-                  <StatusText className="sm:justify-self-end" tone={planTone[addOn.status]}>
-                    {statusText[addOn.status]}
-                  </StatusText>
-                </li>
-              );
-            })}
+                  {addOn.operatorSelectable ? "Sélectionnable" : "Non sélectionnable"}
+                </StatusText>
+              </li>
+            ))}
           </ul>
         ) : (
           <p className="py-4 text-sm text-muted-foreground">Aucun add-on associé</p>
@@ -695,21 +689,29 @@ function PlanFeatureOffers({ row }: { row: PlanFeatureCommercialRow }) {
         {row.capacityPacks.length ? (
           <ul className="divide-y">
             {row.capacityPacks.map((pkg) => (
-              <li className="grid gap-x-4 gap-y-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center" key={pkg.id}>
+              <li
+                className="grid gap-x-4 gap-y-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                key={pkg.productId}
+              >
                 <div className="min-w-0">
                   <Link
                     className="font-medium underline-offset-4 hover:underline"
-                    to={`/admin/quota-packages/${pkg.id}`}
+                    to={`/admin/quota-packages/${pkg.productId}`}
                   >
                     {pkg.name}
                   </Link>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    +{pkg.capacityPerUnit} {unitOf(pkg.resource)} · {money(pkg.price, pkg.currencyCode)} /{" "}
-                    {cycleText[pkg.billingCycle]}
+                    +{pkg.capacityPerUnit ?? "—"} {unitOf(pkg.quotaResource ?? "capacité")} ·{" "}
+                    {pkg.applicablePriceCount > 0
+                      ? `${pkg.applicablePriceCount} tarif${pkg.applicablePriceCount > 1 ? "s" : ""} applicable${pkg.applicablePriceCount > 1 ? "s" : ""}`
+                      : "Aucun tarif applicable"}
                   </p>
                 </div>
-                <StatusText className="sm:justify-self-end" tone={planTone[pkg.status]}>
-                  {statusText[pkg.status]}
+                <StatusText
+                  className="sm:justify-self-end"
+                  tone={pkg.operatorSelectable ? "success" : pkg.issues.length ? "warning" : "neutral"}
+                >
+                  {pkg.operatorSelectable ? "Sélectionnable" : "Non sélectionnable"}
                 </StatusText>
               </li>
             ))}
@@ -864,7 +866,6 @@ function PlanSubscribers({ plan }: { plan: Plan }) {
                 <TableRow key={subscriber.subscriptionId}>
                   <TableCell>
                     <p className="font-medium">{subscriber.accountName}</p>
-                    <code className="text-xs text-muted-foreground">{subscriber.accountId}</code>
                   </TableCell>
                   <TableCell>
                     <StatusBadge
@@ -995,23 +996,20 @@ function DeletePlanDialog({ plan }: { plan: Plan }) {
 
 function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) {
   const session = useAdminSession();
-  const queryClient = useQueryClient();
   const plan = useQuery({
     queryKey: adminCommercialKeys.plans.detail(id),
     queryFn: () => adminApi.plan(id),
     enabled: commercialQueryEnabled(session.can, adminPermissions.plansReadDetail),
   });
-  const transition = useMutation({
-    mutationFn: (status: PlanStatus) => adminApi.transitionPlan(id, status),
-    onSuccess: () => {
-      void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
-      toast.success("Cycle de vie mis à jour");
-    },
+  const operations = useQuery({
+    queryKey: ["admin", "commercial", "plan", id, "operations"],
+    queryFn: () => adminApi.planOperations(id),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansReadOperations),
   });
   if (plan.isLoading) return <LoadingState />;
   if (plan.isError || !plan.data) return <ErrorState retry={() => void plan.refetch()} />;
   const data = plan.data;
-  const canRevise = data.status !== "DRAFT" && data.status !== "ARCHIVED";
+  const hasAction = (action: CommercialProductAction) => operations.data?.availableActions.includes(action) ?? false;
   return (
     <div className="space-y-5">
       <div className="space-y-3">
@@ -1024,16 +1022,18 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
         <PageHeader
           actions={
             <>
-              <PlanFormDialog
-                mode="edit"
-                source={data}
-                trigger={
-                  <Button size="sm" variant="ghost">
-                    <PencilSimpleIcon />
-                    Modifier
-                  </Button>
-                }
-              />
+              {hasAction("EDIT_DRAFT") ? (
+                <PlanFormDialog
+                  mode="edit"
+                  source={data}
+                  trigger={
+                    <Button size="sm" variant="ghost">
+                      <PencilSimpleIcon />
+                      Modifier
+                    </Button>
+                  }
+                />
+              ) : null}
               {session.can(adminPermissions.plansDuplicate) ? (
                 <Button asChild size="sm" variant="ghost">
                   <Link to={`/admin/plans/new?from=${data.id}`}>
@@ -1042,7 +1042,7 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
                   </Link>
                 </Button>
               ) : null}
-              {canRevise ? (
+              {hasAction("REVISE") ? (
                 <PlanFormDialog
                   mode="revise"
                   source={data}
@@ -1087,9 +1087,26 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
           ...(session.can(adminPermissions.priceBooksList)
             ? [{ label: "Tarifs", to: `/admin/plans/${id}/prices` }]
             : []),
+          ...(session.can(adminPermissions.commercialInspectCompatibility)
+            ? [{ label: "Compatibilité", to: `/admin/plans/${id}/compatibility` }]
+            : []),
+          ...(session.can(adminPermissions.commercialPreviewPlanPolicy)
+            ? [{ label: "Disponibilité", to: `/admin/plans/${id}/availability` }]
+            : []),
+          ...(session.can(adminPermissions.commercialReadHistory)
+            ? [{ label: "Historique", to: `/admin/plans/${id}/history` }]
+            : []),
           { label: "Cycle de vie", to: `/admin/plans/${id}/lifecycle` },
         ]}
       />
+      {operations.isError ? (
+        <p className="text-sm text-warning">
+          Les actions autorisées n’ont pas pu être vérifiées.{" "}
+          <button className="underline underline-offset-2" onClick={() => void operations.refetch()} type="button">
+            Réessayer
+          </button>
+        </p>
+      ) : null}
       {tab === "features" && session.can(adminPermissions.plansListFeatures) ? (
         <PlanFeatures plan={data} />
       ) : tab === "schema" && session.can(adminPermissions.plansListFeatures) ? (
@@ -1098,28 +1115,48 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
         <PlanSubscribers plan={data} />
       ) : tab === "prices" && session.can(adminPermissions.priceBooksList) ? (
         <ProductPricePanel ownerId={data.id} ownerType="PLAN" />
+      ) : tab === "compatibility" && session.can(adminPermissions.commercialInspectCompatibility) ? (
+        <PlanCompatibilityPanel planId={data.id} />
+      ) : tab === "availability" && session.can(adminPermissions.commercialPreviewPlanPolicy) ? (
+        <CommercialAvailabilityPanel kind="plan" product={data} />
+      ) : tab === "history" && session.can(adminPermissions.commercialReadHistory) ? (
+        <CommercialAvailabilityHistory productId={data.id} />
       ) : tab === "lifecycle" ? (
         <div className="space-y-6">
           {session.can(adminPermissions.plansTransition) ? (
             <section className="rounded-xl border bg-card p-5">
               <h2 className="text-sm font-semibold">Changer le statut</h2>
               <div className="mt-4 flex flex-wrap gap-2">
-                {(["DRAFT", "ACTIVE", "INACTIVE", "ARCHIVED"] as PlanStatus[])
-                  .filter((value) => value !== data.status)
-                  .map((value) => (
-                    <Button
-                      disabled={transition.isPending}
-                      key={value}
-                      onClick={() => transition.mutate(value)}
-                      variant={value === "ARCHIVED" ? "destructive" : "outline"}
-                    >
-                      {statusText[value]}
-                    </Button>
-                  ))}
+                {hasAction("ACTIVATE") && session.can(adminPermissions.plansPreviewActivation) ? (
+                  <CommercialLifecycleDialog
+                    action="ACTIVATE"
+                    kind="plan"
+                    onChanged={() => void plan.refetch()}
+                    product={data}
+                    trigger={<Button>Activer</Button>}
+                  />
+                ) : hasAction("DEACTIVATE") ? (
+                  <CommercialLifecycleDialog
+                    action="DEACTIVATE"
+                    kind="plan"
+                    onChanged={() => void plan.refetch()}
+                    product={data}
+                    trigger={<Button variant="outline">Suspendre</Button>}
+                  />
+                ) : null}
+                {hasAction("ARCHIVE") ? (
+                  <CommercialLifecycleDialog
+                    action="ARCHIVE"
+                    kind="plan"
+                    onChanged={() => void plan.refetch()}
+                    product={data}
+                    trigger={<Button variant="destructive">Archiver</Button>}
+                  />
+                ) : null}
               </div>
             </section>
           ) : null}
-          {data.status === "DRAFT" &&
+          {hasAction("DELETE_DRAFT") &&
           session.can(adminPermissions.plansDelete) &&
           session.can(adminPermissions.plansPreviewDelete) ? (
             <section className="rounded-xl border border-destructive/30 p-5">
@@ -1213,153 +1250,6 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
 
 export function AdminPlansPage() {
   const { planId, tab } = useParams();
-  const session = useAdminSession();
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("all");
-  const plans = useQuery({
-    queryKey: adminCommercialKeys.plans.list(),
-    queryFn: adminApi.plans,
-    enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, !planId),
-  });
-  const filtered = useMemo(
-    () =>
-      (plans.data ?? []).filter(
-        (plan) =>
-          (status === "all" || plan.status === status) && plan.name.toLowerCase().includes(search.toLowerCase()),
-      ),
-    [plans.data, search, status],
-  );
-  if (planId) return <PlanDetailPage id={planId} tab={tab} />;
-  return (
-    <div className="space-y-7">
-      <PageHeader
-        actions={
-          session.can(adminPermissions.plansCreate) ? (
-            <Button asChild>
-              <Link to="/admin/plans/new">
-                <PlusIcon />
-                Créer un forfait
-              </Link>
-            </Button>
-          ) : undefined
-        }
-        title="Forfaits"
-      />
-      <section className="overflow-hidden rounded-xl border bg-card">
-        <div className="flex flex-col gap-3 border-b p-4 sm:flex-row">
-          <div className="relative flex-1 sm:max-w-sm">
-            <MagnifyingGlassIcon
-              aria-hidden="true"
-              className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              aria-label="Rechercher des forfaits"
-              className="ps-9"
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Rechercher par nom…"
-              value={search}
-            />
-          </div>
-          <Select onValueChange={setStatus} value={status}>
-            <SelectTrigger aria-label="Statut du forfait" className="w-full sm:w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tous les statuts</SelectItem>
-              {Object.entries(statusText).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        {plans.isLoading ? (
-          <div className="p-5">
-            <LoadingState />
-          </div>
-        ) : plans.isError ? (
-          <ErrorState retry={() => void plans.refetch()} />
-        ) : !filtered.length ? (
-          <EmptyState title="Aucun forfait" />
-        ) : (
-          <div className="grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((plan) => (
-              <PlanCard key={plan.id} plan={plan} />
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-/**
- * A catalogue entry, not a data row: a handful of plans is easier to compare as priced cards
- * than as a table. Actions follow the table contract anyway — always rendered, disabled with
- * the reason, navigation on the end arrow.
- */
-function PlanCard({ plan }: { plan: Plan }) {
-  const session = useAdminSession();
-  const [dialog, setDialog] = useState<"duplicate" | "revise" | null>(null);
-  const duplicateBlockedBy = session.can(adminPermissions.plansDuplicate)
-    ? null
-    : "Vous n’êtes pas autorisé à dupliquer un forfait";
-  const reviseBlockedBy = !session.can(adminPermissions.plansRevise)
-    ? "Vous n’êtes pas autorisé à créer une révision"
-    : plan.status === "DRAFT"
-      ? "Modifiez directement ce brouillon ; il ne peut pas être révisé"
-      : plan.status === "ARCHIVED"
-        ? "Un forfait archivé est terminal et ne peut pas être révisé"
-        : null;
-  const openBlockedBy = session.can(adminPermissions.plansReadDetail)
-    ? null
-    : "Vous n’êtes pas autorisé à consulter ce forfait";
-  return (
-    <article className="flex flex-col rounded-xl border bg-background/40 p-5 transition-colors hover:border-ring/40">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="truncate font-semibold">{plan.name}</h3>
-        </div>
-        <StatusBadge tone={planTone[plan.status]}>{statusText[plan.status]}</StatusBadge>
-      </div>
-      <p className="mt-3 line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">
-        {plan.description || "Aucune description."}
-      </p>
-      <p className="mt-4 text-2xl font-semibold tabular-nums">
-        {money(plan.price, plan.currencyCode)}
-        <span className="ms-1.5 text-sm font-normal text-muted-foreground">/ {cycleText[plan.billingCycle]}</span>
-      </p>
-      <div className="mt-5 flex items-center justify-between border-t pt-3">
-        <span className="text-xs tabular-nums text-muted-foreground">Révision R{plan.revisionNumber}</span>
-        <span className="flex items-center gap-0.5">
-          <RowAction
-            disabled={duplicateBlockedBy !== null}
-            disabledLabel={duplicateBlockedBy ?? undefined}
-            icon={<CopyIcon />}
-            label="Dupliquer le forfait"
-            to={duplicateBlockedBy === null ? `/admin/plans/new?from=${plan.id}` : undefined}
-          />
-          <RowAction
-            disabled={reviseBlockedBy !== null}
-            disabledLabel={reviseBlockedBy ?? undefined}
-            icon={<GitBranchIcon />}
-            label="Créer une révision"
-            onClick={() => setDialog("revise")}
-          />
-          <RowAction
-            disabled={openBlockedBy !== null}
-            disabledLabel={openBlockedBy ?? undefined}
-            icon={<ArrowRightIcon />}
-            label="Ouvrir le forfait"
-            to={openBlockedBy === null ? `/admin/plans/${plan.id}` : undefined}
-          />
-        </span>
-      </div>
-      {/* Mounted only while open, so each opening starts from the plan's current values. */}
-      {dialog ? (
-        <PlanFormDialog mode={dialog} onOpenChange={(next) => !next && setDialog(null)} open source={plan} />
-      ) : null}
-    </article>
-  );
+  if (!planId) return <ErrorState />;
+  return <PlanDetailPage id={planId} tab={tab} />;
 }

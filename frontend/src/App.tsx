@@ -18,6 +18,11 @@ import {
   AdminObservabilityPlaceholderPage,
   AdminRoleTemplatesPlaceholderPage,
 } from "@/features/admin/admin-placeholder-pages";
+import {
+  AdminOperationalAddOnsPage,
+  AdminOperationalPlansPage,
+  AdminOperationalQuotaPackagesPage,
+} from "@/features/admin/commercial/admin-commercial-catalog-pages";
 import { AdminAddOnsPage, AdminQuotaPackagesPage } from "@/features/admin/commercial/admin-commercial-pages";
 import { AdminMePage } from "@/features/admin/me/admin-me-page";
 import { AdminOperatorDetailPage } from "@/features/admin/operators/admin-operator-detail-page";
@@ -86,7 +91,7 @@ const router = createBrowserRouter([
         path: "plans",
         element: (
           <AdminReadPermissionGate allOf={[adminPermissions.plansList]}>
-            <AdminPlansPage />
+            <AdminOperationalPlansPage />
           </AdminReadPermissionGate>
         ),
       },
@@ -158,12 +163,12 @@ const router = createBrowserRouter([
         path: "add-ons",
         element: (
           <AdminReadPermissionGate allOf={[adminPermissions.addOnsList]}>
-            <AdminAddOnsPage />
+            <AdminOperationalAddOnsPage />
           </AdminReadPermissionGate>
         ),
       },
       {
-        path: "add-ons/:addOnId",
+        path: "add-ons/:addOnId/:tab?",
         element: (
           <AdminReadPermissionGate allOf={[adminPermissions.addOnsReadDetail]}>
             <AdminAddOnsPage />
@@ -174,12 +179,12 @@ const router = createBrowserRouter([
         path: "quota-packages",
         element: (
           <AdminReadPermissionGate allOf={[adminPermissions.quotaPackagesList]}>
-            <AdminQuotaPackagesPage />
+            <AdminOperationalQuotaPackagesPage />
           </AdminReadPermissionGate>
         ),
       },
       {
-        path: "quota-packages/:packageId",
+        path: "quota-packages/:packageId/:tab?",
         element: (
           <AdminReadPermissionGate allOf={[adminPermissions.quotaPackagesReadDetail]}>
             <AdminQuotaPackagesPage />

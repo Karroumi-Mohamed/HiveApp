@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useBlocker, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { AddOn, Plan, ProductPriceOwnerType, QuotaPackage } from "@/api/contracts";
+import type { AddOn, CommercialChooserItem, Plan, ProductPriceOwnerType, QuotaPackage } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
 import { EmptyState, ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   adminCommercialKeys,
@@ -32,11 +33,8 @@ import { ProductPriceTermsForm } from "./product-price-terms-form";
 type ProductOption = {
   id: string;
   name: string;
-  code: string;
   revision: string;
   status: string;
-  currencyCode: string;
-  billingCycle: "MONTHLY" | "YEARLY" | "FOREVER";
 };
 
 const STEPS = ["Produit", "Conditions", "Vérification"] as const;
@@ -48,39 +46,12 @@ const ownerStatus: Record<string, string> = {
   ARCHIVED: "Archivé",
 };
 
-function planOption(plan: Plan): ProductOption {
+function productOption(product: CommercialChooserItem): ProductOption {
   return {
-    id: plan.id,
-    name: plan.name,
-    code: plan.code,
-    revision: `R${plan.revisionNumber}`,
-    status: plan.status,
-    currencyCode: plan.currencyCode,
-    billingCycle: plan.billingCycle,
-  };
-}
-
-function addOnOption(addOn: AddOn): ProductOption {
-  return {
-    id: addOn.id,
-    name: addOn.name,
-    code: addOn.code,
-    revision: `R${addOn.revisionNumber}`,
-    status: addOn.status,
-    currencyCode: addOn.currencyCode,
-    billingCycle: addOn.billingCycle,
-  };
-}
-
-function quotaOption(item: QuotaPackage): ProductOption {
-  return {
-    id: item.id,
-    name: item.name,
-    code: item.code,
-    revision: `V${item.definitionVersion}`,
-    status: item.status,
-    currencyCode: item.currencyCode,
-    billingCycle: item.billingCycle,
+    id: product.id,
+    name: product.name,
+    revision: `R${product.revisionNumber}`,
+    status: product.status,
   };
 }
 
@@ -101,6 +72,7 @@ export function AdminProductPriceCreatePage() {
     initialType && ["PLAN", "ADD_ON", "QUOTA_PACKAGE"].includes(initialType) ? initialType : "PLAN",
   );
   const [ownerId, setOwnerId] = useState(initialOwnerId ?? "");
+  const [ownerSearch, setOwnerSearch] = useState("");
   const [fields, setFields] = useState<ProductPriceDraftFields>({
     amount: "",
     currencyCode: "MAD",
@@ -112,19 +84,29 @@ export function AdminProductPriceCreatePage() {
   const completed = useRef(false);
 
   const plans = useQuery({
-    queryKey: adminCommercialKeys.plans.list(),
-    queryFn: adminApi.plans,
+    queryKey: ["admin", "commercial", "price-owner-plans", ownerSearch],
+    queryFn: () => adminApi.planChoices({ search: ownerSearch || undefined, size: 50 }),
     enabled: commercialQueryEnabled(session.can, adminPermissions.plansList, ownerType === "PLAN"),
   });
   const addOns = useQuery({
-    queryKey: adminCommercialKeys.addOns.list(),
-    queryFn: adminApi.addOns,
+    queryKey: ["admin", "commercial", "price-owner-add-ons", ownerSearch],
+    queryFn: () => adminApi.addOnChoices({ search: ownerSearch || undefined, size: 50 }),
     enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList, ownerType === "ADD_ON"),
   });
   const quotaPackages = useQuery({
-    queryKey: adminCommercialKeys.quotaPackages.list(),
-    queryFn: adminApi.quotaPackages,
+    queryKey: ["admin", "commercial", "price-owner-quotas", ownerSearch],
+    queryFn: () => adminApi.quotaPackageChoices({ search: ownerSearch || undefined, size: 50 }),
     enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesList, ownerType === "QUOTA_PACKAGE"),
+  });
+  const selectedOwner = useQuery<CommercialChooserItem[]>({
+    queryKey: ["admin", "commercial", "price-owner-choice", ownerType, initialOwnerId],
+    queryFn: () =>
+      ownerType === "PLAN"
+        ? adminApi.selectedPlanChoices([initialOwnerId ?? ""])
+        : ownerType === "ADD_ON"
+          ? adminApi.selectedAddOnChoices([initialOwnerId ?? ""])
+          : adminApi.selectedQuotaPackageChoices([initialOwnerId ?? ""]),
+    enabled: Boolean(initialOwnerId && ownerId === initialOwnerId),
   });
 
   const canReadOwner =
@@ -134,16 +116,28 @@ export function AdminProductPriceCreatePage() {
         ? session.can(adminPermissions.addOnsList)
         : session.can(adminPermissions.quotaPackagesList);
   const ownerQuery = ownerType === "PLAN" ? plans : ownerType === "ADD_ON" ? addOns : quotaPackages;
-  const options = useMemo(
-    () =>
+  const options = useMemo(() => {
+    const page =
       ownerType === "PLAN"
-        ? (plans.data ?? []).map(planOption)
+        ? (plans.data?.content ?? [])
         : ownerType === "ADD_ON"
-          ? (addOns.data ?? []).map(addOnOption)
-          : (quotaPackages.data ?? []).map(quotaOption),
-    [addOns.data, ownerType, plans.data, quotaPackages.data],
-  );
+          ? (addOns.data?.content ?? [])
+          : (quotaPackages.data?.content ?? []);
+    return [
+      ...new Map([...page, ...(selectedOwner.data ?? [])].map((item) => [item.id, productOption(item)])).values(),
+    ];
+  }, [addOns.data, ownerType, plans.data, quotaPackages.data, selectedOwner.data]);
   const owner = options.find((option) => option.id === ownerId);
+  const ownerDetails = useQuery<Plan | AddOn | QuotaPackage>({
+    queryKey: ["admin", "commercial", "price-owner", ownerType, ownerId],
+    queryFn: () =>
+      ownerType === "PLAN"
+        ? adminApi.plan(ownerId)
+        : ownerType === "ADD_ON"
+          ? adminApi.addOn(ownerId)
+          : adminApi.quotaPackage(ownerId),
+    enabled: Boolean(ownerId),
+  });
   const prefilledOwner = useRef<string | null>(null);
 
   useEffect(() => {
@@ -151,14 +145,14 @@ export function AdminProductPriceCreatePage() {
     setOwnerId("");
   }, [initialOwnerId, owner, ownerId, ownerQuery.isLoading]);
   useEffect(() => {
-    if (!owner || prefilledOwner.current === owner.id) return;
-    prefilledOwner.current = owner.id;
+    if (!ownerDetails.data || prefilledOwner.current === ownerDetails.data.id) return;
+    prefilledOwner.current = ownerDetails.data.id;
     setFields((current) => ({
       ...current,
-      currencyCode: owner.currencyCode,
-      billingCycle: owner.billingCycle === "YEARLY" ? "YEARLY" : "MONTHLY",
+      currencyCode: ownerDetails.data.currencyCode,
+      billingCycle: ownerDetails.data.billingCycle === "YEARLY" ? "YEARLY" : "MONTHLY",
     }));
-  }, [owner]);
+  }, [ownerDetails.data]);
 
   const create = useMutation({
     mutationFn: () =>
@@ -242,6 +236,7 @@ export function AdminProductPriceCreatePage() {
                 onValueChange={(value: ProductPriceOwnerType) => {
                   setOwnerType(value);
                   setOwnerId("");
+                  setOwnerSearch("");
                   prefilledOwner.current = null;
                 }}
                 value={ownerType}
@@ -272,6 +267,15 @@ export function AdminProductPriceCreatePage() {
               <EmptyState title={`Aucune révision de ${productPriceOwner[ownerType].toLocaleLowerCase("fr")}`} />
             ) : (
               <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="price-owner-search">
+                  Rechercher
+                </label>
+                <Input
+                  id="price-owner-search"
+                  onChange={(event) => setOwnerSearch(event.target.value)}
+                  placeholder="Nom du produit…"
+                  value={ownerSearch}
+                />
                 <label className="text-sm font-medium" htmlFor="price-owner-id">
                   Révision exacte
                 </label>
@@ -296,6 +300,9 @@ export function AdminProductPriceCreatePage() {
                 <p className="text-xs text-muted-foreground">
                   Le tarif restera lié à cette révision, même lorsqu’une révision plus récente du produit sera créée.
                 </p>
+                {ownerQuery.data && !ownerQuery.data.last ? (
+                  <p className="text-xs text-muted-foreground">Affinez la recherche pour voir les autres révisions.</p>
+                ) : null}
               </div>
             )}
           </div>

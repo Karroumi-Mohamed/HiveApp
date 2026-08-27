@@ -25,7 +25,7 @@ export const adminCommercialKeys = {
   overview: () => [...adminRoot, "overview"] as const,
   plans: {
     all: () => plansRoot,
-    list: () => [...plansRoot, "list"] as const,
+    list: (filters?: Readonly<Record<string, unknown>>) => [...plansRoot, "list", filters ?? {}] as const,
     detail: (planId: string) => [...plansRoot, "detail", planId] as const,
     features: (planId: string) => [...plansRoot, "detail", planId, "features"] as const,
     subscribers: (planId: string, filters: Readonly<{ search: string; status: string; page: number }>) =>
@@ -36,12 +36,12 @@ export const adminCommercialKeys = {
   },
   addOns: {
     all: () => addOnsRoot,
-    list: () => [...addOnsRoot, "list"] as const,
+    list: (filters?: Readonly<Record<string, unknown>>) => [...addOnsRoot, "list", filters ?? {}] as const,
     detail: (addOnId: string) => [...addOnsRoot, "detail", addOnId] as const,
   },
   quotaPackages: {
     all: () => quotaPackagesRoot,
-    list: () => [...quotaPackagesRoot, "list"] as const,
+    list: (filters?: Readonly<Record<string, unknown>>) => [...quotaPackagesRoot, "list", filters ?? {}] as const,
     detail: (packageId: string) => [...quotaPackagesRoot, "detail", packageId] as const,
   },
   priceBooks: {

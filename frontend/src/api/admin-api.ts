@@ -1,7 +1,10 @@
 import type {
   AccountDirectoryEntry,
   AddOn,
+  AddOnActivationPreview,
+  AddOnChooserItem,
   AddOnInput,
+  AddOnOperationalItem,
   AdminAccessOverview,
   AdminMe,
   AdminPermission,
@@ -17,9 +20,14 @@ import type {
   AssignablePlanPrice,
   AssignPlanFeatureInput,
   AuthResponse,
+  BillingCycle,
   BulkOperationResult,
+  CommercialAvailabilityHistoryEntry,
+  CommercialLifecycleInput,
   CommercialOverview,
+  CommercialProductType,
   CreatePlanInput,
+  ExtensionCompatibility,
   FeatureCatalogAudience,
   FeatureOperationalChange,
   ManualCheckoutConfirmationInput,
@@ -27,10 +35,15 @@ import type {
   PageResponse,
   PermissionCatalogAudience,
   Plan,
+  PlanActivationPreview,
+  PlanAvailabilityPreview,
   PlanBranchInput,
+  PlanChooserItem,
   PlanDeletionPreview,
   PlanDetail,
+  PlanExtensionPolicy,
   PlanFeature,
+  PlanOperationalItem,
   PlanSubscriber,
   PlanSubscriberOwnerLookup,
   ProductPrice,
@@ -43,16 +56,27 @@ import type {
   ProductPriceReplacementResult,
   ProductPriceSelection,
   ProductPriceStatus,
+  ProductSalesVisibility,
+  ProductVisibilityPreview,
   QuotaPackage,
+  QuotaPackageActivationPreview,
+  QuotaPackageChooserItem,
+  QuotaPackageComparison,
+  QuotaPackageHistoryEntry,
   QuotaPackageInput,
+  QuotaPackageOperationalItem,
+  QuotaPackageRevisionResult,
   RegistryFeature,
   RegistryModule,
   RegistrySyncRun,
   RoleHolder,
   Subscription,
+  SubscriptionAddOnOverrideChoice,
   SubscriptionChangeOperation,
   SubscriptionCheckout,
+  SubscriptionOverrideChoicePage,
   SubscriptionOverridesInput,
+  SubscriptionQuotaPackageOverrideChoice,
   UpdatePlanInput,
   UUID,
 } from "@/api/contracts";
@@ -182,8 +206,27 @@ export const adminApi = {
     admin<void>(`/roles/${id}/permissions`, { method: "POST", body: jsonBody({ permissionId }) }),
   revokeRolePermission: (id: UUID, permissionId: UUID) =>
     admin<void>(`/roles/${id}/permissions/${permissionId}`, { method: "DELETE" }),
-  plans: () => admin<Plan[]>("/plans"),
+  operationalPlans: (
+    query: {
+      search?: string;
+      status?: string;
+      salesVisibility?: ProductSalesVisibility;
+      extensionPolicy?: PlanExtensionPolicy;
+      lineageId?: UUID;
+      page?: number;
+      size?: number;
+      sort?: string;
+      direction?: string;
+    } = {},
+  ) => admin<PageResponse<PlanOperationalItem>>("/plans", { query }),
+  planChoices: (
+    query: { search?: string; salesVisibility?: ProductSalesVisibility; page?: number; size?: number } = {},
+  ) => admin<PageResponse<PlanChooserItem>>("/plans/chooser", { query }),
+  selectedPlanChoices: (ids: UUID[]) => admin<PlanChooserItem[]>("/plans/chooser/selected", { query: { ids } }),
+  selectedPlanCodeChoices: (codes: string[]) =>
+    admin<PlanChooserItem[]>("/plans/chooser/selected-codes", { query: { codes } }),
   plan: (id: UUID) => admin<PlanDetail>(`/plans/${id}`),
+  planOperations: (id: UUID) => admin<PlanOperationalItem>(`/plans/${id}/operations`),
   planFeatures: (id: UUID) => admin<PlanFeature[]>(`/plans/${id}/features`),
   planSubscribers: (id: UUID, query: { search?: string; status?: string; page?: number; size?: number }) =>
     admin<PageResponse<PlanSubscriber>>(`/plans/${id}/subscribers`, { query }),
@@ -192,48 +235,208 @@ export const adminApi = {
   createPlan: (input: CreatePlanInput) => admin<Plan>("/plans", { method: "POST", body: jsonBody(input) }),
   updatePlan: (id: UUID, input: UpdatePlanInput) =>
     admin<Plan>(`/plans/${id}`, { method: "PUT", body: jsonBody(input) }),
-  duplicatePlan: (id: UUID, input: PlanBranchInput) =>
-    admin<Plan>(`/plans/${id}/duplicate`, { method: "POST", body: jsonBody(input) }),
-  revisePlan: (id: UUID, input: PlanBranchInput) =>
-    admin<Plan>(`/plans/${id}/revisions`, { method: "POST", body: jsonBody(input) }),
-  transitionPlan: (id: UUID, status: string) =>
-    admin<Plan>(`/plans/${id}/status`, { method: "PATCH", query: { status } }),
+  duplicatePlan: (id: UUID, expectedVersionOrInput: number | PlanBranchInput, maybeInput?: PlanBranchInput) =>
+    admin<Plan>(`/plans/${id}/duplicate`, {
+      method: "POST",
+      query: { expectedVersion: typeof expectedVersionOrInput === "number" ? expectedVersionOrInput : undefined },
+      body: jsonBody(maybeInput ?? (expectedVersionOrInput as PlanBranchInput)),
+    }),
+  revisePlan: (id: UUID, expectedVersionOrInput: number | PlanBranchInput, maybeInput?: PlanBranchInput) =>
+    admin<Plan>(`/plans/${id}/revisions`, {
+      method: "POST",
+      query: { expectedVersion: typeof expectedVersionOrInput === "number" ? expectedVersionOrInput : undefined },
+      body: jsonBody(maybeInput ?? (expectedVersionOrInput as PlanBranchInput)),
+    }),
+  previewPlanActivation: (id: UUID) => admin<PlanActivationPreview>(`/plans/${id}/activation-preview`),
+  changePlanLifecycle: (id: UUID, input: CommercialLifecycleInput) =>
+    admin<Plan>(`/plans/${id}/lifecycle`, { method: "POST", body: jsonBody(input) }),
   previewPlanDeletion: (id: UUID) => admin<PlanDeletionPreview>(`/plans/${id}/deletion-preview`),
   deletePlan: (id: UUID, input: { confirmationName: string; expectedVersion: number; previewToken: string }) =>
     admin<void>(`/plans/${id}`, { method: "DELETE", body: jsonBody(input) }),
-  assignPlanFeature: (id: UUID, input: AssignPlanFeatureInput) =>
-    admin<PlanFeature>(`/plans/${id}/features`, { method: "POST", body: jsonBody(input) }),
-  updatePlanFeature: (id: UUID, featureId: UUID, input: AssignPlanFeatureInput) =>
-    admin<PlanFeature>(`/plans/${id}/features/${featureId}`, { method: "PUT", body: jsonBody(input) }),
-  removePlanFeature: (id: UUID, featureId: UUID) =>
-    admin<void>(`/plans/${id}/features/${featureId}`, { method: "DELETE" }),
-  addOns: () => admin<AddOn[]>("/add-ons"),
+  assignPlanFeature: (
+    id: UUID,
+    expectedVersionOrInput: number | AssignPlanFeatureInput,
+    maybeInput?: AssignPlanFeatureInput,
+  ) =>
+    admin<PlanFeature>(`/plans/${id}/features`, {
+      method: "POST",
+      query: { expectedVersion: typeof expectedVersionOrInput === "number" ? expectedVersionOrInput : undefined },
+      body: jsonBody(maybeInput ?? (expectedVersionOrInput as AssignPlanFeatureInput)),
+    }),
+  updatePlanFeature: (
+    id: UUID,
+    featureId: UUID,
+    expectedVersionOrInput: number | AssignPlanFeatureInput,
+    maybeInput?: AssignPlanFeatureInput,
+  ) =>
+    admin<PlanFeature>(`/plans/${id}/features/${featureId}`, {
+      method: "PUT",
+      query: { expectedVersion: typeof expectedVersionOrInput === "number" ? expectedVersionOrInput : undefined },
+      body: jsonBody(maybeInput ?? (expectedVersionOrInput as AssignPlanFeatureInput)),
+    }),
+  removePlanFeature: (id: UUID, featureId: UUID, expectedVersion?: number) =>
+    admin<void>(`/plans/${id}/features/${featureId}`, { method: "DELETE", query: { expectedVersion } }),
+  operationalAddOns: (
+    query: {
+      search?: string;
+      status?: string;
+      salesVisibility?: ProductSalesVisibility;
+      lineageId?: UUID;
+      featureCode?: string;
+      targetPlanCode?: string;
+      page?: number;
+      size?: number;
+      sort?: string;
+      direction?: string;
+    } = {},
+  ) => admin<PageResponse<AddOnOperationalItem>>("/add-ons", { query }),
+  addOnChoices: (
+    query: {
+      search?: string;
+      salesVisibility?: ProductSalesVisibility;
+      featureCode?: string;
+      page?: number;
+      size?: number;
+    } = {},
+  ) => admin<PageResponse<AddOnChooserItem>>("/add-ons/chooser", { query }),
+  selectedAddOnChoices: (ids: UUID[]) => admin<AddOnChooserItem[]>("/add-ons/chooser/selected", { query: { ids } }),
+  selectedAddOnCodeChoices: (codes: string[]) =>
+    admin<AddOnChooserItem[]>("/add-ons/chooser/selected-codes", { query: { codes } }),
   addOn: (id: UUID) => admin<AddOn>(`/add-ons/${id}`),
+  addOnOperations: (id: UUID) => admin<AddOnOperationalItem>(`/add-ons/${id}/operations`),
   createAddOn: (input: AddOnInput) => admin<AddOn>("/add-ons", { method: "POST", body: jsonBody(input) }),
-  reviseAddOn: (id: UUID) => admin<AddOn>(`/add-ons/${id}/revisions`, { method: "POST" }),
+  reviseAddOn: (id: UUID, expectedVersion?: number) =>
+    admin<AddOn>(`/add-ons/${id}/revisions`, { method: "POST", query: { expectedVersion } }),
   updateAddOn: (id: UUID, input: AddOnInput) =>
     admin<AddOn>(`/add-ons/${id}`, { method: "PUT", body: jsonBody(input) }),
-  deleteAddOn: (id: UUID) => admin<void>(`/add-ons/${id}`, { method: "DELETE" }),
-  transitionAddOn: (id: UUID, status: string) =>
-    admin<AddOn>(`/add-ons/${id}/status`, { method: "PATCH", query: { status } }),
-  assignAddOnFeature: (id: UUID, input: AssignAddOnFeatureInput) =>
-    admin<AddOn["features"][number]>(`/add-ons/${id}/features`, { method: "POST", body: jsonBody(input) }),
-  updateAddOnFeature: (id: UUID, featureId: UUID, input: AssignAddOnFeatureInput) =>
-    admin<AddOn["features"][number]>(`/add-ons/${id}/features/${featureId}`, {
-      method: "PUT",
+  deleteAddOn: (id: UUID, expectedVersion: number) =>
+    admin<void>(`/add-ons/${id}`, { method: "DELETE", query: { expectedVersion } }),
+  previewAddOnActivation: (id: UUID) => admin<AddOnActivationPreview>(`/add-ons/${id}/activation-preview`),
+  changeAddOnLifecycle: (id: UUID, input: CommercialLifecycleInput) =>
+    admin<AddOn>(`/add-ons/${id}/lifecycle`, { method: "POST", body: jsonBody(input) }),
+  assignAddOnFeature: (id: UUID, expectedVersion: number, input: AssignAddOnFeatureInput) =>
+    admin<AddOn["features"][number]>(`/add-ons/${id}/features`, {
+      method: "POST",
+      query: { expectedVersion },
       body: jsonBody(input),
     }),
-  removeAddOnFeature: (id: UUID, featureId: UUID) =>
-    admin<void>(`/add-ons/${id}/features/${featureId}`, { method: "DELETE" }),
-  quotaPackages: () => admin<QuotaPackage[]>("/quota-packages"),
+  updateAddOnFeature: (id: UUID, featureId: UUID, expectedVersion: number, input: AssignAddOnFeatureInput) =>
+    admin<AddOn["features"][number]>(`/add-ons/${id}/features/${featureId}`, {
+      method: "PUT",
+      query: { expectedVersion },
+      body: jsonBody(input),
+    }),
+  removeAddOnFeature: (id: UUID, featureId: UUID, expectedVersion: number) =>
+    admin<void>(`/add-ons/${id}/features/${featureId}`, { method: "DELETE", query: { expectedVersion } }),
+  operationalQuotaPackages: (
+    query: {
+      search?: string;
+      status?: string;
+      salesVisibility?: ProductSalesVisibility;
+      lineageId?: UUID;
+      featureCode?: string;
+      resource?: string;
+      targetPlanCode?: string;
+      targetAddOnCode?: string;
+      page?: number;
+      size?: number;
+      sort?: string;
+      direction?: string;
+    } = {},
+  ) => admin<PageResponse<QuotaPackageOperationalItem>>("/quota-packages", { query }),
+  quotaPackageChoices: (
+    query: {
+      search?: string;
+      salesVisibility?: ProductSalesVisibility;
+      featureCode?: string;
+      resource?: string;
+      page?: number;
+      size?: number;
+    } = {},
+  ) => admin<PageResponse<QuotaPackageChooserItem>>("/quota-packages/chooser", { query }),
+  selectedQuotaPackageChoices: (ids: UUID[]) =>
+    admin<QuotaPackageChooserItem[]>("/quota-packages/chooser/selected", { query: { ids } }),
+  selectedQuotaPackageCodeChoices: (codes: string[]) =>
+    admin<QuotaPackageChooserItem[]>("/quota-packages/chooser/selected-codes", { query: { codes } }),
   quotaPackage: (id: UUID) => admin<QuotaPackage>(`/quota-packages/${id}`),
+  quotaPackageOperations: (id: UUID) => admin<QuotaPackageOperationalItem>(`/quota-packages/${id}/operations`),
   createQuotaPackage: (input: QuotaPackageInput) =>
     admin<QuotaPackage>("/quota-packages", { method: "POST", body: jsonBody(input) }),
   updateQuotaPackage: (id: UUID, input: QuotaPackageInput) =>
     admin<QuotaPackage>(`/quota-packages/${id}`, { method: "PUT", body: jsonBody(input) }),
-  deleteQuotaPackage: (id: UUID) => admin<void>(`/quota-packages/${id}`, { method: "DELETE" }),
-  transitionQuotaPackage: (id: UUID, status: string) =>
-    admin<QuotaPackage>(`/quota-packages/${id}/status`, { method: "PATCH", query: { status } }),
+  deleteQuotaPackage: (id: UUID, expectedVersion: number) =>
+    admin<void>(`/quota-packages/${id}`, { method: "DELETE", query: { expectedVersion } }),
+  reviseQuotaPackage: (id: UUID, expectedVersion: number, reason: string) =>
+    admin<QuotaPackageRevisionResult>(`/quota-packages/${id}/revisions`, {
+      method: "POST",
+      body: jsonBody({ expectedVersion, reason }),
+    }),
+  compareQuotaPackage: (id: UUID, candidateId: UUID) =>
+    admin<QuotaPackageComparison>(`/quota-packages/${id}/comparison`, {
+      query: { againstQuotaPackageId: candidateId },
+    }),
+  previewQuotaPackageActivation: (id: UUID) =>
+    admin<QuotaPackageActivationPreview>(`/quota-packages/${id}/activation-preview`),
+  changeQuotaPackageLifecycle: (
+    id: UUID,
+    input: {
+      action: "ACTIVATE" | "DEACTIVATE" | "ARCHIVE";
+      expectedVersion: number;
+      reason: string;
+      activationPreviewToken?: string | null;
+    },
+  ) => admin<QuotaPackage>(`/quota-packages/${id}/lifecycle`, { method: "POST", body: jsonBody(input) }),
+  quotaPackageHistory: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<QuotaPackageHistoryEntry>>(`/quota-packages/${id}/history`, { query: { page, size } }),
+  inspectPlanCompatibility: (
+    id: UUID,
+    query: {
+      search?: string;
+      type?: CommercialProductType;
+      available?: boolean;
+      currencyCode?: string;
+      billingCycle?: BillingCycle;
+      page?: number;
+      size?: number;
+    } = {},
+  ) => admin<PageResponse<ExtensionCompatibility>>(`/plans/${id}/extensions/compatibility`, { query }),
+  previewPlanAvailability: (id: UUID, extensionPolicy: PlanExtensionPolicy, salesVisibility: ProductSalesVisibility) =>
+    admin<PlanAvailabilityPreview>(`/plans/${id}/commercial-availability/preview`, {
+      method: "POST",
+      body: jsonBody({ extensionPolicy, salesVisibility }),
+    }),
+  updatePlanAvailability: (
+    id: UUID,
+    input: {
+      expectedVersion: number;
+      extensionPolicy: PlanExtensionPolicy;
+      salesVisibility: ProductSalesVisibility;
+      reason: string;
+      previewToken: string;
+    },
+  ) => admin<Plan>(`/plans/${id}/commercial-availability`, { method: "PATCH", body: jsonBody(input) }),
+  previewAddOnVisibility: (id: UUID, salesVisibility: ProductSalesVisibility) =>
+    admin<ProductVisibilityPreview>(`/add-ons/${id}/sales-visibility/preview`, {
+      method: "POST",
+      body: jsonBody({ salesVisibility }),
+    }),
+  updateAddOnVisibility: (
+    id: UUID,
+    input: { expectedVersion: number; salesVisibility: ProductSalesVisibility; reason: string; previewToken: string },
+  ) => admin<AddOn>(`/add-ons/${id}/sales-visibility`, { method: "PATCH", body: jsonBody(input) }),
+  previewQuotaPackageVisibility: (id: UUID, salesVisibility: ProductSalesVisibility) =>
+    admin<ProductVisibilityPreview>(`/quota-packages/${id}/sales-visibility/preview`, {
+      method: "POST",
+      body: jsonBody({ salesVisibility }),
+    }),
+  updateQuotaPackageVisibility: (
+    id: UUID,
+    input: { expectedVersion: number; salesVisibility: ProductSalesVisibility; reason: string; previewToken: string },
+  ) => admin<QuotaPackage>(`/quota-packages/${id}/sales-visibility`, { method: "PATCH", body: jsonBody(input) }),
+  commercialAvailabilityHistory: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<CommercialAvailabilityHistoryEntry>>(`/commercial-products/${id}/availability-history`, {
+      query: { page, size },
+    }),
   productPrices: (query: {
     search?: string;
     ownerType?: ProductPriceOwnerType;
@@ -327,6 +530,36 @@ export const adminApi = {
     }),
   updateSubscriptionOverrides: (accountId: UUID, input: SubscriptionOverridesInput) =>
     admin<Subscription>(`/subscriptions/account/${accountId}/overrides`, { method: "PATCH", body: jsonBody(input) }),
+  subscriptionAddOnOverrideChoices: (
+    accountId: UUID,
+    query: {
+      search?: string;
+      selectedAddOnCodes?: string[];
+      useCurrentAddOnSelections?: boolean;
+      page?: number;
+      size?: number;
+    } = {},
+  ) =>
+    admin<SubscriptionOverrideChoicePage<SubscriptionAddOnOverrideChoice>>(
+      `/subscriptions/account/${accountId}/override-choices/add-ons`,
+      { query },
+    ),
+  subscriptionQuotaOverrideChoices: (
+    accountId: UUID,
+    query: {
+      search?: string;
+      featureCode?: string;
+      resource?: string;
+      selectedAddOnCodes?: string[];
+      useCurrentAddOnSelections?: boolean;
+      page?: number;
+      size?: number;
+    } = {},
+  ) =>
+    admin<SubscriptionOverrideChoicePage<SubscriptionQuotaPackageOverrideChoice>>(
+      `/subscriptions/account/${accountId}/override-choices/quota-packages`,
+      { query },
+    ),
   confirmCheckout: (checkoutId: UUID, input: ManualCheckoutConfirmationInput) =>
     admin<SubscriptionCheckout>(`/subscriptions/checkouts/${checkoutId}/confirm-manual`, {
       method: "POST",
