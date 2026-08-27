@@ -1,12 +1,12 @@
 package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
-import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
+import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangeApplyResponse;
+import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangeOperationDto;
+import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
-import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
-import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
@@ -53,23 +53,25 @@ public class SubscriptionController {
     }
 
     @PostMapping("/preview")
-    public SubscriptionChangePreviewResponse preview(@Valid @RequestBody SubscriptionChangeRequest request) {
+    public ClientSubscriptionChangePreviewResponse preview(
+            @Valid @RequestBody SubscriptionChangeRequest request
+    ) {
         var context = HiveAppContextHolder.getContext();
-        return subscriptionService.previewChange(
-                context.currentAccountId(), context.actorUserId(), request);
+        return ClientSubscriptionChangePreviewResponse.from(subscriptionService.previewChange(
+                context.currentAccountId(), context.actorUserId(), request));
     }
 
     @PostMapping("/apply")
     @ResponseStatus(HttpStatus.CREATED)
-    public SubscriptionChangeApplyResponse apply(
+    public ClientSubscriptionChangeApplyResponse apply(
             @Valid @RequestBody SubscriptionChangeApplyRequest request) {
         var context = HiveAppContextHolder.getContext();
-        return subscriptionService.applyChange(
-                context.currentAccountId(), context.actorUserId(), request);
+        return ClientSubscriptionChangeApplyResponse.from(subscriptionService.applyChange(
+                context.currentAccountId(), context.actorUserId(), request));
     }
 
     @GetMapping("/changes")
-    public PageResponse<SubscriptionChangeOperationDto> changes(
+    public PageResponse<ClientSubscriptionChangeOperationDto> changes(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort,
@@ -80,13 +82,14 @@ public class SubscriptionController {
                 accountId,
                 CommercialProductPageRequest.of(
                         page, size, sort, direction, CHANGE_OPERATION_SORTS,
-                        "createdAt", Sort.Direction.DESC)));
+                        "createdAt", Sort.Direction.DESC))
+                .map(ClientSubscriptionChangeOperationDto::from));
     }
 
     @DeleteMapping("/changes/{operationId}")
-    public SubscriptionChangeOperationDto cancelChange(@PathVariable UUID operationId) {
+    public ClientSubscriptionChangeOperationDto cancelChange(@PathVariable UUID operationId) {
         var context = HiveAppContextHolder.getContext();
-        return subscriptionService.cancelPendingChange(
-                context.currentAccountId(), operationId, context.actorUserId());
+        return ClientSubscriptionChangeOperationDto.from(subscriptionService.cancelPendingChange(
+                context.currentAccountId(), operationId, context.actorUserId()));
     }
 }

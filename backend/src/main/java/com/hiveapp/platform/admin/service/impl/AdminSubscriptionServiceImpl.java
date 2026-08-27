@@ -511,7 +511,7 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
                 operation.getRequestOrigin(), operation.getRequestedByUserId(),
                 operation.getRequestReason(), operation.getCancellationOrigin(),
                 operation.getCancelledByUserId(), operation.getCancellationReason(),
-                operation.getCancelledAt());
+                operation.getCancelledAt(), operation.getCommercialPolicyEvaluation());
     }
 
     @Override
