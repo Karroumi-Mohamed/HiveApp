@@ -206,7 +206,7 @@ public class CommercialSegmentAdminController {
             @RequestParam(required = false) Boolean active,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return PageResponse.from(service.chooseAccounts(query, active, bounded(page, size)));
+        return PageResponse.from(service.chooseAccounts(query, active, choicePage(page, size)));
     }
 
     @GetMapping("/account-choices/selected")
@@ -220,6 +220,11 @@ public class CommercialSegmentAdminController {
                     "Page must be non-negative and size must be between 1 and 100.");
         }
         return PageRequest.of(page, size);
+    }
+
+    private PageRequest choicePage(int page, int size) {
+        return bounded(page, size).withSort(
+                Sort.by(Sort.Direction.ASC, "name").and(Sort.by(Sort.Direction.ASC, "id")));
     }
 
     @ExceptionHandler(CannotAcquireLockException.class)
