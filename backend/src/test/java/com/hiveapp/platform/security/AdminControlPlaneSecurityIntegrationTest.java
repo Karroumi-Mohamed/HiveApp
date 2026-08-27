@@ -28,6 +28,10 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyEffectType;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicySource;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyTargetKind;
+import com.hiveapp.platform.client.plan.dto.CommercialPolicyRequests;
 import com.hiveapp.platform.registry.definition.PriceBooksFeature;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
@@ -37,6 +41,9 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import java.util.UUID;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.everyItem;
@@ -1425,6 +1432,51 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
         updateEmergencyRuntime(superToken, featureId, true).andExpect(status().isNoContent());
         assertThat(featureRepository.findById(featureId).orElseThrow().isRuntimeEnabled()).isTrue();
+    }
+
+    @Test
+    void commercialPolicyOwnerIdentityAndOrdinaryDetailHaveIndependentAuthorities() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        CommercialPolicyRequests.Create request = new CommercialPolicyRequests.Create(
+                "Owner privacy policy " + UUID.randomUUID(), null, Instant.now(),
+                Instant.now().plusSeconds(3600), CommercialPolicySource.SUPPORT, 5,
+                "Verify separate owner authority", null, null,
+                new CommercialPolicyRequests.Target(
+                        CommercialPolicyTargetKind.SEGMENT, null, Set.of(), null, "FUTURE_SEGMENT"),
+                List.of(new CommercialPolicyRequests.Effect(
+                        CommercialPolicyEffectType.BLOCK_FEATURE, null, null,
+                        "platform.staff", null, null, null, null,
+                        null, null, null, null)));
+        JsonNode created = objectMapper.readTree(mockMvc.perform(post("/api/admin/commercial-policies")
+                        .header("Authorization", bearer(superToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString());
+        UUID policyId = UUID.fromString(created.get("summary").get("id").asText());
+
+        LimitedAdmin detailReader = createLimitedAdmin("platform.commercial_policies.read");
+        LimitedAdmin ownerReader = createLimitedAdmin("platform.commercial_policies.read_owner");
+        String clientToken = registerClientAndGetToken();
+
+        mockMvc.perform(get("/api/admin/commercial-policies/{id}", policyId)
+                        .header("Authorization", bearer(detailReader.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownerAdminUserId").doesNotExist())
+                .andExpect(jsonPath("$.summary.ownerAdminUserId").doesNotExist());
+        mockMvc.perform(get("/api/admin/commercial-policies/{id}/owner", policyId)
+                        .header("Authorization", bearer(detailReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/commercial-policies/{id}/owner", policyId)
+                        .header("Authorization", bearer(ownerReader.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(ADMIN_EMAIL));
+        mockMvc.perform(get("/api/admin/commercial-policies/{id}", policyId)
+                        .header("Authorization", bearer(ownerReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/commercial-policies/{id}", policyId)
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isForbidden());
     }
 
     private LimitedAdmin createLimitedAdmin(String... permissionCodes) throws Exception {

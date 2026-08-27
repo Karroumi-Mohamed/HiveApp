@@ -78,6 +78,31 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
 
     long countByPlan_IdAndStatusIn(UUID planId, Collection<SubscriptionStatus> statuses);
 
+    @Query(value = "select distinct subscription.account.id from Subscription subscription "
+            + "where subscription.plan.id = :planId and subscription.status in :statuses "
+            + "order by subscription.account.id asc",
+            countQuery = "select count(distinct subscription.account.id) from Subscription subscription "
+                    + "where subscription.plan.id = :planId and subscription.status in :statuses")
+    Page<UUID> findDistinctAccountIdsByPlanAndStatuses(
+            @Param("planId") UUID planId,
+            @Param("statuses") Collection<SubscriptionStatus> statuses,
+            Pageable pageable);
+
+    @Query("select count(distinct subscription.account.id) from Subscription subscription "
+            + "where subscription.plan.id = :planId and subscription.status in :statuses")
+    long countDistinctAccountsByPlanAndStatuses(
+            @Param("planId") UUID planId,
+            @Param("statuses") Collection<SubscriptionStatus> statuses);
+
+    @Query("select count(distinct subscription.account.id) from Subscription subscription "
+            + "where subscription.account.id in :accountIds and subscription.status in :statuses "
+            + "and subscription.currentPriceCurrencyCode is not null "
+            + "and subscription.currentPriceCurrencyCode not in :currencyCodes")
+    long countAudienceCurrencyMismatches(
+            @Param("accountIds") Collection<UUID> accountIds,
+            @Param("statuses") Collection<SubscriptionStatus> statuses,
+            @Param("currencyCodes") Collection<String> currencyCodes);
+
     @Query("""
             select subscription.plan.id, count(subscription)
             from Subscription subscription
