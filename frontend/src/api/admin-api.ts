@@ -14,6 +14,8 @@ import type {
   AdminRolePreset,
   AdminRoleStatus,
   AdminSubscription,
+  AdminSubscriptionChangeApplyInput,
+  AdminSubscriptionChangeOperation,
   AdminUser,
   AdminUserCreation,
   AssignAddOnFeatureInput,
@@ -22,6 +24,7 @@ import type {
   AuthResponse,
   BillingCycle,
   BulkOperationResult,
+  ClientPlanCatalog,
   CommercialAvailabilityHistoryEntry,
   CommercialLifecycleInput,
   CommercialOverview,
@@ -75,7 +78,10 @@ import type {
   SubscriptionAccountListItem,
   SubscriptionAccountOwnerLookup,
   SubscriptionAddOnOverrideChoice,
+  SubscriptionChangeApplyResponse,
+  SubscriptionChangeInput,
   SubscriptionChangeOperation,
+  SubscriptionChangePreview,
   SubscriptionCheckout,
   SubscriptionOverrideChoicePage,
   SubscriptionOverridesInput,
@@ -551,8 +557,32 @@ export const adminApi = {
   }) => admin<PageResponse<AccountDirectoryEntry>>("/subscriptions/accounts/chooser", { query }),
   resolveSubscriptionAccounts: (ids: UUID[]) =>
     admin<AccountDirectoryEntry[]>("/subscriptions/accounts/chooser/selected", { query: { ids } }),
-  subscriptionChanges: (accountId: UUID) =>
-    admin<SubscriptionChangeOperation[]>(`/subscriptions/account/${accountId}/changes`),
+  subscriptionChangeCatalog: (accountId: UUID) =>
+    admin<ClientPlanCatalog>(`/subscriptions/account/${accountId}/change-catalog`),
+  subscriptionChanges: (
+    accountId: UUID,
+    query: {
+      page?: number;
+      size?: number;
+      sort?: "createdAt" | "effectiveAt" | "status" | "timing";
+      direction?: "asc" | "desc";
+    } = {},
+  ) => admin<PageResponse<AdminSubscriptionChangeOperation>>(`/subscriptions/account/${accountId}/changes`, { query }),
+  previewSubscriptionChange: (accountId: UUID, input: SubscriptionChangeInput) =>
+    admin<SubscriptionChangePreview>(`/subscriptions/account/${accountId}/changes/preview`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  applySubscriptionChange: (accountId: UUID, input: AdminSubscriptionChangeApplyInput) =>
+    admin<SubscriptionChangeApplyResponse>(`/subscriptions/account/${accountId}/changes/apply`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  cancelSubscriptionChange: (accountId: UUID, operationId: UUID, reason: string) =>
+    admin<SubscriptionChangeOperation>(`/subscriptions/account/${accountId}/changes/${operationId}/cancel`, {
+      method: "POST",
+      body: jsonBody({ reason }),
+    }),
   assignablePlanPrices: (query: {
     search?: string;
     currencyCode?: string;

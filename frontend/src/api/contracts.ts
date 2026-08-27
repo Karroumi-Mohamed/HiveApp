@@ -1384,19 +1384,36 @@ export type SubscriptionAccountOwnerLookup = {
 
 export type SubscriptionChangeOperation = {
   id: UUID;
+  createdAt: Instant;
+  updatedAt: Instant;
   timing: "IMMEDIATE" | "AT_RENEWAL";
   status: "AWAITING_CONFIRMATION" | "PENDING" | "APPLIED" | "NEEDS_ATTENTION" | "CANCELLED";
   effectiveAt: Instant | null;
   sourcePlanCode: string;
   targetPlanCode: string;
   attentionReason: string | null;
-  checkout: { id: UUID; status: string; amount: ExactDecimal; currencyCode: string } | null;
+  checkout: SubscriptionCheckout | null;
+};
+
+/** Operator-only subscription history. These fields are intentionally absent from the client DTO. */
+export type AdminSubscriptionChangeOperation = SubscriptionChangeOperation & {
+  requestOrigin: "CLIENT" | "PLATFORM_ADMIN" | "SYSTEM";
+  requestedByUserId: UUID | null;
+  requestReason: string | null;
+  cancellationOrigin: "CLIENT" | "PLATFORM_ADMIN" | "SYSTEM" | null;
+  cancelledByUserId: UUID | null;
+  cancellationReason: string | null;
+  cancelledAt: Instant | null;
 };
 
 export type SubscriptionChangeApplyResponse = {
   subscription: Subscription;
   preview: SubscriptionChangePreview;
   operation: SubscriptionChangeOperation;
+};
+
+export type AdminSubscriptionChangeApplyInput = SubscriptionChangeApplyInput & {
+  reason: string;
 };
 
 export type SubscriptionOverridesInput = {

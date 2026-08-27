@@ -29,9 +29,11 @@ describe("subscription price failure feedback", () => {
     expect(subscriptionChangeFailureMessage(error)).toContain("prévisualisez à nouveau");
   });
 
-  test("keeps a backend validation message visible", () => {
+  test("maps validation by stable code instead of coupling the UI to backend prose", () => {
     const error = new ApiError(400, "INVALID_REQUEST", "Cette devise n’est plus proposée.");
-    expect(subscriptionChangeFailureMessage(error)).toBe("Cette devise n’est plus proposée.");
+    expect(subscriptionChangeFailureMessage(error)).toBe(
+      "La sélection n’est plus applicable. Corrigez-la puis prévisualisez à nouveau.",
+    );
   });
 
   test("treats unordered add-ons and packages as the same signed selection", () => {

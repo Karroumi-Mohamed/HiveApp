@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import type { ReactNode } from "react";
-import type { AdminSubscription } from "@/api/contracts";
+import type { AdminSubscription, ClientPlanCatalog, SubscriptionChangePreview } from "@/api/contracts";
 
 const browser = new Window({ url: "http://localhost:3000/admin/subscriptions" });
 for (const key of [
@@ -17,6 +17,7 @@ for (const key of [
   "Element",
   "Node",
   "NodeFilter",
+  "DocumentFragment",
   "Event",
   "CustomEvent",
   "MouseEvent",
@@ -48,6 +49,8 @@ const { adminPermissions } = await import("@/auth/permissions");
 const { AdminSessionProvider } = await import("@/auth/session-provider");
 const { clearSession, writeSession } = await import("@/auth/session-store");
 const { OverridesEditor } = await import("./admin-subscriptions-page");
+const { AdminSubscriptionChangeWorkbench } = await import("./admin-subscription-change-workbench");
+const { RetainedSubscriptionQuantityControl } = await import("@/features/commercial/subscription-quantity-control");
 const { SubscriptionOwnerEmailLookup } = await import("./subscription-owner-email-lookup");
 
 function jsonResponse(body: unknown, status = 200) {
@@ -118,6 +121,71 @@ const subscription: AdminSubscription = {
   customOverrides: { schemaVersion: 1, addOnCodes: [], quotaPackages: [] },
   entitlementSnapshot: null,
 };
+
+const changeCatalog: ClientPlanCatalog = {
+  currentSubscription: {
+    id: "subscription-1",
+    planCode: "PRO",
+    status: "ACTIVE",
+    currentPrice: "100.0000",
+    currentPriceCurrencyCode: "MAD",
+    planPriceEntryId: "price-1",
+    billingCycle: "MONTHLY",
+    currentPeriodStart: "2026-08-01T00:00:00Z",
+    currentPeriodEnd: "2026-09-01T00:00:00Z",
+    cancelAtPeriodEnd: false,
+    addOnCodes: [],
+    quotaPackages: [],
+    retainedAddOns: [],
+    retainedQuotaPackages: [],
+  },
+  plans: [
+    {
+      code: "PRO",
+      name: "Pro",
+      description: null,
+      basePrice: "100.0000",
+      currencyCode: "MAD",
+      billingCycle: "MONTHLY",
+      current: true,
+      selectable: true,
+      features: [],
+      addOns: [],
+      quotaPackages: [],
+      prices: [
+        {
+          priceEntryId: "price-1",
+          amount: "100.0000",
+          currencyCode: "MAD",
+          billingCycle: "MONTHLY",
+          effectiveFrom: "2026-08-01T00:00:00Z",
+          effectiveUntil: null,
+        },
+      ],
+    },
+  ],
+};
+
+const preview = (token: string): SubscriptionChangePreview => ({
+  subscriptionId: "subscription-1",
+  expectedSubscriptionVersion: 4,
+  catalogRevision: 9,
+  registryVersion: "registry-v1",
+  evaluatedAt: new Date().toISOString(),
+  expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  previewToken: token,
+  currentPlanCode: "PRO",
+  targetPlanCode: "PRO",
+  currentPrice: "100.0000",
+  previewPrice: "100.0000",
+  currencyCode: "MAD",
+  immediateAllowed: true,
+  effectiveFeatureCodes: [],
+  effectiveQuotaLimits: [],
+  addOnCodes: [],
+  quotaPackages: [],
+  conflicts: [],
+});
 
 beforeEach(() => {
   cleanup();
@@ -190,6 +258,31 @@ describe("subscription owner-email lookup", () => {
     expect(JSON.parse(String(request.init?.body))).toEqual({ ownerEmail: "owner@example.com" });
   });
 
+  test("subscription history uses the bounded PageResponse query contract", async () => {
+    let requestedUrl = new URL("http://localhost/not-requested");
+    globalThis.fetch = (async (input) => {
+      requestedUrl = new URL(String(input));
+      return jsonResponse(pageResponse([]));
+    }) as typeof fetch;
+
+    const result = await adminApi.subscriptionChanges("account-1", {
+      page: 2,
+      size: 10,
+      sort: "status",
+      direction: "asc",
+    });
+
+    expect(requestedUrl.pathname).toBe("/api/admin/subscriptions/account/account-1/changes");
+    expect(Object.fromEntries(requestedUrl.searchParams)).toEqual({
+      page: "2",
+      size: "10",
+      sort: "status",
+      direction: "asc",
+    });
+    expect(result.content).toEqual([]);
+    expect(result.page).toBe(0);
+  });
+
   test("submits the exact protected lookup and opens the returned Account", async () => {
     const requests: Array<{ url: URL; init?: RequestInit }> = [];
     globalThis.fetch = (async (input, init) => {
@@ -253,5 +346,88 @@ describe("subscription override dialog", () => {
     const user = userEvent.setup({ document: view.container.ownerDocument });
     await user.click(trigger);
     expect(await view.findByRole("heading", { name: "Exceptions de l’abonnement" })).toBeTruthy();
+  });
+});
+
+describe("retained subscription quantity", () => {
+  test("offers keep-or-remove instead of invalid intermediate quantities", async () => {
+    const values: number[] = [];
+    const view = render(
+      <RetainedSubscriptionQuantityControl
+        label="Pack historique"
+        maximum={5}
+        onChange={(value) => values.push(value)}
+        quantityEditable={false}
+        removable={true}
+        retainedQuantity={5}
+        value={5}
+      />,
+    );
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+
+    await user.click(view.getByRole("button", { name: "Retirer" }));
+
+    expect(values).toEqual([0]);
+    expect(view.queryByRole("button", { name: /Réduire|Augmenter/ })).toBeNull();
+  });
+});
+
+describe("operator subscription change workbench", () => {
+  test("requires a reason and replaces rejected signed evidence before retrying", async () => {
+    let previewCalls = 0;
+    const applyBodies: Array<Record<string, unknown>> = [];
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/changes/preview")) {
+        previewCalls += 1;
+        return jsonResponse(preview(previewCalls === 1 ? "first.review.token" : "fresh.review.token"));
+      }
+      if (url.pathname.endsWith("/changes/apply")) {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        applyBodies.push(body);
+        if (applyBodies.length === 1) {
+          return jsonResponse({ code: "STALE_RESOURCE_VERSION", message: "Rejected old evidence" }, 409);
+        }
+        return jsonResponse({
+          subscription,
+          preview: preview("fresh.review.token"),
+          operation: {
+            id: "operation-1",
+            createdAt: "2026-08-27T10:00:00Z",
+            updatedAt: "2026-08-27T10:00:00Z",
+            timing: "IMMEDIATE",
+            status: "APPLIED",
+            effectiveAt: "2026-08-27T10:00:00Z",
+            sourcePlanCode: "PRO",
+            targetPlanCode: "PRO",
+            attentionReason: null,
+            checkout: null,
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<AdminSubscriptionChangeWorkbench accountId="account-1" catalog={changeCatalog} />, [
+      adminPermissions.subscriptionsPreviewChange,
+      adminPermissions.subscriptionsApplyChange,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(view.getByRole("button", { name: "Prévisualiser" }));
+    await view.findByRole("heading", { name: "Vérifier le changement" });
+
+    await user.click(view.getByRole("button", { name: "Appliquer le changement" }));
+    expect(await view.findByText("Saisissez la justification de cette opération.")).toBeTruthy();
+    expect(applyBodies).toHaveLength(0);
+
+    await user.type(view.getByLabelText("Justification de l’opération"), "  Contrat client approuvé  ");
+    await user.click(view.getByRole("button", { name: "Appliquer le changement" }));
+    await waitFor(() => expect(previewCalls).toBe(2));
+    await waitFor(() => expect(view.getByRole("button", { name: "Appliquer le changement" })).toBeTruthy());
+    await user.click(view.getByRole("button", { name: "Appliquer le changement" }));
+    await waitFor(() => expect(applyBodies).toHaveLength(2));
+
+    expect(applyBodies.map((body) => body.previewToken)).toEqual(["first.review.token", "fresh.review.token"]);
+    expect(applyBodies.every((body) => body.reason === "Contrat client approuvé")).toBeTrue();
   });
 });

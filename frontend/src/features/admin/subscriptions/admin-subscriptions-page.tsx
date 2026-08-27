@@ -5,7 +5,13 @@ import { type FormEvent, useDeferredValue, useEffect, useMemo, useState } from "
 import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { AdminSubscription, AssignablePlanPrice, SubscriptionAccountListItem } from "@/api/contracts";
+import type {
+  AdminSubscription,
+  AdminSubscriptionChangeOperation,
+  AssignablePlanPrice,
+  SubscriptionAccountListItem,
+  SubscriptionChangeOperation,
+} from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
@@ -38,9 +44,18 @@ import {
   invalidateAdminSubscriptionEntitlement,
 } from "@/features/commercial/commercial-query";
 import { SubscriptionChangeList } from "@/features/commercial/subscription-change-list";
+import {
+  adminSubscriptionOperationUrlKeys,
+  readSubscriptionOperationListState,
+  subscriptionOperationQuery,
+  subscriptionOperationSorting,
+  subscriptionOperationStateFromSorting,
+  writeSubscriptionOperationListState,
+} from "@/features/commercial/subscription-operation-list-state";
 import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
 import { formatExactMoney } from "@/lib/exact-decimal";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { AdminSubscriptionChangeWorkbench } from "./admin-subscription-change-workbench";
 import { AssignablePlanPricePicker } from "./assignable-plan-price-picker";
 import {
   readSubscriptionAccountListState,
@@ -49,11 +64,19 @@ import {
   subscriptionAccountStateFromSorting,
   writeSubscriptionAccountListState,
 } from "./subscription-account-list-state";
+import {
+  normalizedOperatorReason,
+  operatorReasonError,
+  subscriptionOperationCanBeCancelled,
+  subscriptionOperationOriginLabel,
+} from "./subscription-operation-rules";
 import { SubscriptionOwnerEmailLookup } from "./subscription-owner-email-lookup";
 
 const money = formatExactMoney;
 const date = (value: string | null) =>
   value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium" }).format(new Date(value)) : "—";
+const dateTime = (value: string | null) =>
+  value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 
 function CreateSubscription({ accountId }: { accountId: string }) {
   const session = useAdminSession();
@@ -431,11 +454,19 @@ function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
   const [reference, setReference] = useState("");
   const [reason, setReason] = useState("");
   const confirm = useMutation({
-    mutationFn: () => adminApi.confirmCheckout(checkoutId, { reference, reason }),
+    mutationFn: () => adminApi.confirmCheckout(checkoutId, { reference: reference.trim(), reason: reason.trim() }),
     onSuccess: () => {
       void invalidateAdminSubscriptionEntitlement(queryClient);
       toast.success("Paiement confirmé manuellement");
       setOpen(false);
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "INVALID_STATE") {
+        toast.error("Ce paiement n’attend plus de confirmation. L’abonnement a été rechargé.");
+        void invalidateAdminSubscriptionEntitlement(queryClient);
+        return;
+      }
+      toast.error("La confirmation manuelle n’a pas pu être enregistrée.");
     },
   });
   if (!session.can(adminPermissions.subscriptionsConfirmCheckout)) return null;
@@ -464,6 +495,7 @@ function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
             <Label htmlFor="checkout-reference">Référence</Label>
             <Input
               id="checkout-reference"
+              maxLength={255}
               onChange={(event) => setReference(event.target.value)}
               required
               value={reference}
@@ -473,13 +505,14 @@ function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
             <Label htmlFor="checkout-reason">Justification</Label>
             <Textarea
               id="checkout-reason"
+              maxLength={2000}
               onChange={(event) => setReason(event.target.value)}
               required
               value={reason}
             />
           </div>
           <div className="flex justify-end">
-            <Button disabled={confirm.isPending} type="submit">
+            <Button disabled={confirm.isPending || !reference.trim() || !reason.trim()} type="submit">
               Confirmer le paiement
             </Button>
           </div>
@@ -489,21 +522,153 @@ function CheckoutDialog({ checkoutId }: { checkoutId: string }) {
   );
 }
 
+function OperationProvenance({ operation }: { operation: AdminSubscriptionChangeOperation }) {
+  return (
+    <dl className="grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+      <Info label="Origine de la demande" value={subscriptionOperationOriginLabel[operation.requestOrigin]} />
+      <Info label="Identifiant du demandeur" value={operation.requestedByUserId ?? "—"} />
+      <Info label="Justification" value={operation.requestReason ?? "—"} />
+      {operation.cancellationOrigin ? (
+        <>
+          <Info
+            label="Origine de l’annulation"
+            value={subscriptionOperationOriginLabel[operation.cancellationOrigin]}
+          />
+          <Info label="Identifiant de l’auteur" value={operation.cancelledByUserId ?? "—"} />
+          <Info label="Annulée le" value={dateTime(operation.cancelledAt)} />
+          <div className="sm:col-span-2 lg:col-span-3">
+            <Info label="Motif de l’annulation" value={operation.cancellationReason ?? "—"} />
+          </div>
+        </>
+      ) : null}
+    </dl>
+  );
+}
+
+function CancelChangeDialog({ accountId, operation }: { accountId: string; operation: SubscriptionChangeOperation }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [touched, setTouched] = useState(false);
+  const reasonProblem = operatorReasonError(reason);
+  const cancel = useMutation({
+    mutationFn: () => adminApi.cancelSubscriptionChange(accountId, operation.id, normalizedOperatorReason(reason)),
+    onSuccess: () => {
+      void invalidateAdminSubscriptionEntitlement(queryClient);
+      toast.success("Changement annulé");
+      setOpen(false);
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "INVALID_STATE") {
+        void queryClient.invalidateQueries({ queryKey: adminCommercialKeys.subscriptions.changes(accountId) });
+        toast.error("Ce changement n’est plus annulable. L’historique a été rechargé.");
+        return;
+      }
+      toast.error("L’annulation n’a pas pu être enregistrée.");
+    },
+  });
+  return (
+    <Dialog
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          setReason("");
+          setTouched(false);
+        }
+      }}
+      open={open}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="ghost">
+          Annuler
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Annuler ce changement ?</DialogTitle>
+          <DialogDescription>
+            {operation.sourcePlanCode} → {operation.targetPlanCode} ·{" "}
+            {operation.timing === "AT_RENEWAL" ? "au renouvellement" : "immédiat"}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor={`cancel-change-reason-${operation.id}`}>Motif de l’annulation</Label>
+            <Textarea
+              aria-describedby={touched && reasonProblem ? `cancel-change-error-${operation.id}` : undefined}
+              aria-invalid={touched && Boolean(reasonProblem)}
+              id={`cancel-change-reason-${operation.id}`}
+              maxLength={2000}
+              onBlur={() => setTouched(true)}
+              onChange={(event) => setReason(event.target.value)}
+              value={reason}
+            />
+            {touched && reasonProblem ? (
+              <p className="text-xs text-destructive" id={`cancel-change-error-${operation.id}`} role="alert">
+                {reasonProblem}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setOpen(false)} variant="outline">
+              Retour
+            </Button>
+            <Button
+              disabled={cancel.isPending}
+              onClick={() => {
+                setTouched(true);
+                if (!reasonProblem) cancel.mutate();
+              }}
+              variant="destructive"
+            >
+              {cancel.isPending ? "Annulation…" : "Confirmer l’annulation"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SubscriptionDetail({ accountId }: { accountId: string }) {
   const session = useAdminSession();
+  const [params, setParams] = useSearchParams();
   const canReadChanges = session.can(adminPermissions.subscriptionsReadChanges);
+  const canChooseChange = session.can(adminPermissions.subscriptionsChooseChangeOptions);
+  const operationState = readSubscriptionOperationListState(params, adminSubscriptionOperationUrlKeys);
+  const operationRequest = subscriptionOperationQuery(operationState);
   const subscription = useQuery({
     queryKey: adminCommercialKeys.subscriptions.detail(accountId),
     queryFn: () => adminApi.subscription(accountId),
     enabled: commercialQueryEnabled(session.can, adminPermissions.subscriptionsRead),
     retry: false,
   });
-  const changes = useQuery({
-    queryKey: adminCommercialKeys.subscriptions.changes(accountId),
-    queryFn: () => adminApi.subscriptionChanges(accountId),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.subscriptionsReadChanges),
+  const changeCatalog = useQuery({
+    queryKey: adminCommercialKeys.subscriptions.changeCatalog(accountId),
+    queryFn: () => adminApi.subscriptionChangeCatalog(accountId),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.subscriptionsChooseChangeOptions),
     retry: false,
   });
+  const changes = useQuery({
+    queryKey: adminCommercialKeys.subscriptions.changes(accountId, operationRequest),
+    queryFn: () => adminApi.subscriptionChanges(accountId, operationRequest),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.subscriptionsReadChanges),
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
+  useEffect(() => {
+    if (!changes.data || changes.isPlaceholderData) return;
+    const boundedPage = changes.data.totalPages === 0 ? 0 : Math.min(operationState.page, changes.data.totalPages - 1);
+    if (boundedPage === operationState.page) return;
+    setParams(
+      writeSubscriptionOperationListState(
+        params,
+        { ...operationState, page: boundedPage },
+        adminSubscriptionOperationUrlKeys,
+      ),
+      { replace: true },
+    );
+  }, [changes.data, changes.isPlaceholderData, operationState, params, setParams]);
   if (subscription.isLoading) return <LoadingState />;
   if (subscription.isError) {
     if (subscription.error instanceof ApiError && subscription.error.status === 404)
@@ -549,6 +714,20 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
           </dl>
         </section>
       </div>
+      {canChooseChange ? (
+        changeCatalog.isLoading ? (
+          <section className="rounded-xl border bg-card p-5">
+            <LoadingState rows={4} />
+          </section>
+        ) : changeCatalog.isError ? (
+          <ErrorState
+            retry={() => void changeCatalog.refetch()}
+            title="Impossible de charger les options de changement"
+          />
+        ) : changeCatalog.data ? (
+          <AdminSubscriptionChangeWorkbench accountId={accountId} catalog={changeCatalog.data} />
+        ) : null
+      ) : null}
       {canReadChanges ? (
         <section className="overflow-hidden rounded-xl border bg-card">
           <div className="border-b p-4">
@@ -560,17 +739,54 @@ function SubscriptionDetail({ accountId }: { accountId: string }) {
             </div>
           ) : changes.isError ? (
             <ErrorState retry={() => void changes.refetch()} title="Impossible de charger les changements" />
-          ) : !changes.data?.length ? (
+          ) : !changes.data?.content.length ? (
             <EmptyState title="Aucune opération" />
           ) : (
-            <SubscriptionChangeList
-              operations={changes.data}
-              renderAction={(operation) =>
-                operation.checkout?.status === "PENDING_CONFIRMATION" ? (
-                  <CheckoutDialog checkoutId={operation.checkout.id} />
-                ) : null
-              }
-            />
+            <>
+              <SubscriptionChangeList
+                onSortingChange={(sorting) =>
+                  setParams(
+                    writeSubscriptionOperationListState(
+                      params,
+                      subscriptionOperationStateFromSorting(operationState, sorting),
+                      adminSubscriptionOperationUrlKeys,
+                    ),
+                    { replace: true },
+                  )
+                }
+                operations={changes.data.content}
+                renderAction={(operation) => (
+                  <div className="flex items-center gap-1">
+                    {operation.checkout?.status === "PENDING_CONFIRMATION" ? (
+                      <CheckoutDialog checkoutId={operation.checkout.id} />
+                    ) : null}
+                    {subscriptionOperationCanBeCancelled(operation) &&
+                    session.can(adminPermissions.subscriptionsCancelChange) ? (
+                      <CancelChangeDialog accountId={accountId} operation={operation} />
+                    ) : null}
+                  </div>
+                )}
+                renderDetails={(operation) => (
+                  <OperationProvenance operation={operation as AdminSubscriptionChangeOperation} />
+                )}
+                sorting={subscriptionOperationSorting(operationState)}
+              />
+              <PaginationBar
+                onPageChange={(page) =>
+                  setParams(
+                    writeSubscriptionOperationListState(
+                      params,
+                      { ...operationState, page },
+                      adminSubscriptionOperationUrlKeys,
+                    ),
+                    { replace: true },
+                  )
+                }
+                page={changes.data.page}
+                totalElements={changes.data.totalElements}
+                totalPages={changes.data.totalPages}
+              />
+            </>
           )}
         </section>
       ) : null}
