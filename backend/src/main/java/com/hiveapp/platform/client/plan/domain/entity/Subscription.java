@@ -8,12 +8,16 @@ import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.money.Money;
 import jakarta.persistence.*;
 import lombok.Getter;
+import lombok.AccessLevel;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -61,6 +65,27 @@ public class Subscription extends BaseEntity {
             """)
     private UUID usableAccountId;
 
+    /** One non-terminal commercial subscription per Account, including restricted lifecycle states. */
+    @Column(name = "current_account_id", unique = true, columnDefinition = """
+            uuid check ((status in ('ACTIVE', 'TRIALING', 'PAST_DUE', 'SUSPENDED')
+            and current_account_id is not null and current_account_id = account_id)
+            or (status not in ('ACTIVE', 'TRIALING', 'PAST_DUE', 'SUSPENDED')
+            and current_account_id is null))
+            """)
+    private UUID currentAccountId;
+
+    /** Queryable terms copied transactionally from the authoritative entitlement snapshot. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "snapshot_billing_cycle", length = 20)
+    private com.hiveapp.platform.client.plan.domain.constant.BillingCycle snapshotBillingCycle;
+
+    @Column(name = "snapshot_currency_code", length = 3)
+    private String snapshotCurrencyCode;
+
+    @OneToMany(mappedBy = "subscription", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Setter(AccessLevel.NONE)
+    private List<SubscriptionCurrentHolding> currentHoldings = new ArrayList<>();
+
     @Column(name = "current_period_start", nullable = false)
     private Instant currentPeriodStart;
 
@@ -90,11 +115,26 @@ public class Subscription extends BaseEntity {
         currentPriceCurrencyCode = money != null ? money.currencyCode() : null;
     }
 
+    /** Keeps the portable criteria projection synchronized with every accepted snapshot write. */
+    public void setEntitlementSnapshot(SubscriptionEntitlementSnapshot snapshot) {
+        this.entitlementSnapshot = snapshot;
+        synchronizeCommercialProjection();
+    }
+
+    public List<SubscriptionCurrentHolding> getCurrentHoldings() {
+        return java.util.Collections.unmodifiableList(currentHoldings);
+    }
+
     @PrePersist
     @PreUpdate
     void synchronizeUsableAccountSlot() {
         boolean usable = status == SubscriptionStatus.ACTIVE || status == SubscriptionStatus.TRIALING;
         usableAccountId = usable && account != null ? account.getId() : null;
+        boolean currentLifecycle = status == SubscriptionStatus.ACTIVE
+                || status == SubscriptionStatus.TRIALING
+                || status == SubscriptionStatus.PAST_DUE
+                || status == SubscriptionStatus.SUSPENDED;
+        currentAccountId = currentLifecycle && account != null ? account.getId() : null;
         if (entitlementSnapshot == null) {
             throw new IllegalStateException("Subscription entitlement snapshot is required");
         }
@@ -111,5 +151,57 @@ public class Subscription extends BaseEntity {
         if (currentPeriodStart == null || currentPeriodEnd == null || !currentPeriodEnd.isAfter(currentPeriodStart)) {
             throw new IllegalStateException("Subscription requires a valid current period");
         }
+    }
+
+    private void synchronizeCommercialProjection() {
+        if (entitlementSnapshot == null) {
+            snapshotBillingCycle = null;
+            snapshotCurrencyCode = null;
+            currentHoldings.clear();
+            return;
+        }
+        snapshotBillingCycle = entitlementSnapshot.billingCycle();
+        snapshotCurrencyCode = entitlementSnapshot.currencyCode() == null
+                ? null : entitlementSnapshot.currencyCode().trim().toUpperCase(java.util.Locale.ROOT);
+        LinkedHashSet<String> desired = new LinkedHashSet<>();
+        collectHolding(desired, com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentProductType.PLAN,
+                entitlementSnapshot.planCode());
+        entitlementSnapshot.addOns().forEach(item -> collectHolding(desired,
+                com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentProductType.ADD_ON,
+                item.code()));
+        entitlementSnapshot.quotaPackages().forEach(item -> collectHolding(desired,
+                com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentProductType.QUOTA_PACKAGE,
+                item.code()));
+        currentHoldings.removeIf(holding -> !desired.contains(holdingKey(
+                holding.getProductType(), holding.getProductCode())));
+        LinkedHashSet<String> existing = currentHoldings.stream()
+                .map(holding -> holdingKey(holding.getProductType(), holding.getProductCode()))
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        for (String key : desired) {
+            if (existing.add(key)) {
+                int separator = key.indexOf(':');
+                var type = com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentProductType
+                        .valueOf(key.substring(0, separator));
+                currentHoldings.add(SubscriptionCurrentHolding.of(
+                        this, type, key.substring(separator + 1)));
+            }
+        }
+    }
+
+    private void collectHolding(
+            LinkedHashSet<String> keys,
+            com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentProductType type,
+            String code
+    ) {
+        if (code == null || code.isBlank()) return;
+        String normalized = code.trim().toUpperCase(java.util.Locale.ROOT);
+        keys.add(holdingKey(type, normalized));
+    }
+
+    private String holdingKey(
+            com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentProductType type,
+            String code
+    ) {
+        return type.name() + ":" + code.trim().toUpperCase(java.util.Locale.ROOT);
     }
 }

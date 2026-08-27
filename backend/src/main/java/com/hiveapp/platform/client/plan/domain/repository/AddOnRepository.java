@@ -18,6 +18,8 @@ import java.util.UUID;
 
 public interface AddOnRepository extends JpaRepository<AddOn, UUID>, JpaSpecificationExecutor<AddOn> {
     Optional<AddOn> findByCode(String code);
+    @Query("select addOn.code from AddOn addOn where addOn.code in :codes")
+    List<String> findCodesByCodeIn(@Param("codes") Collection<String> codes);
     @EntityGraph(attributePaths = {"features", "features.feature"})
     List<AddOn> findAllByCodeIn(Collection<String> codes);
 

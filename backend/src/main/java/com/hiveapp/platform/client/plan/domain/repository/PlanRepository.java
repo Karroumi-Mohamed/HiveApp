@@ -17,6 +17,9 @@ import java.util.Optional;
 public interface PlanRepository extends JpaRepository<Plan, UUID>, JpaSpecificationExecutor<Plan> {
     Optional<Plan> findByCode(String code);
 
+    @Query("select plan.code from Plan plan where plan.code in :codes")
+    List<String> findCodesByCodeIn(@Param("codes") Collection<String> codes);
+
     List<Plan> findAllByCodeInOrderByIdAsc(Collection<String> codes);
 
     List<Plan> findAllByOrderByIdAsc(Pageable pageable);

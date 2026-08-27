@@ -301,7 +301,8 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
     }
 
     private void removeFeatureFromActiveSubscription(String token, String featureCode) throws Exception {
-        var subscription = subscriptionRepository.findActiveByAccountId(currentAccountId(token)).orElseThrow();
+        var subscription = subscriptionRepository.findActiveForSnapshotUpdateByAccountId(
+                currentAccountId(token)).orElseThrow();
         var snapshot = subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()).orElseThrow();
         var updated = new SubscriptionEntitlementSnapshot(
                 snapshot.planCode(),
