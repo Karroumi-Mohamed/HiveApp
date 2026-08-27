@@ -25,6 +25,20 @@ import type {
   CommercialAvailabilityHistoryEntry,
   CommercialLifecycleInput,
   CommercialOverview,
+  CommercialPolicyActivation,
+  CommercialPolicyActivationAudience,
+  CommercialPolicyActivationPreview,
+  CommercialPolicyAudiencePreview,
+  CommercialPolicyComparison,
+  CommercialPolicyDetail,
+  CommercialPolicyHistory,
+  CommercialPolicyOwner,
+  CommercialPolicyRevision,
+  CommercialPolicySource,
+  CommercialPolicyStatus,
+  CommercialPolicySummary,
+  CommercialPolicyTargetKind,
+  CommercialPolicyWriteInput,
   CommercialProductType,
   CreatePlanInput,
   ExtensionCompatibility,
@@ -512,6 +526,78 @@ export const adminApi = {
     }),
   deleteProductPrice: (id: UUID, version: number) =>
     admin<void>(`/product-prices/${id}`, { method: "DELETE", query: { version } }),
+  commercialPolicies: (query: {
+    search?: string;
+    status?: CommercialPolicyStatus;
+    targetKind?: CommercialPolicyTargetKind;
+    source?: CommercialPolicySource;
+    effectiveAt?: string;
+    includeArchived?: boolean;
+    page?: number;
+    size?: number;
+    sort?: string;
+    direction?: "asc" | "desc";
+  }) => admin<PageResponse<CommercialPolicySummary>>("/commercial-policies", { query }),
+  commercialPolicy: (id: UUID) => admin<CommercialPolicyDetail>(`/commercial-policies/${id}`),
+  createCommercialPolicy: (input: CommercialPolicyWriteInput) =>
+    admin<CommercialPolicyDetail>("/commercial-policies", { method: "POST", body: jsonBody(input) }),
+  updateCommercialPolicy: (id: UUID, input: CommercialPolicyWriteInput & { version: number }) =>
+    admin<CommercialPolicyDetail>(`/commercial-policies/${id}`, { method: "PUT", body: jsonBody(input) }),
+  duplicateCommercialPolicy: (id: UUID, input: { version: number; name: string; reason: string }) =>
+    admin<CommercialPolicyDetail>(`/commercial-policies/${id}/duplicate`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  reviseCommercialPolicy: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialPolicyDetail>(`/commercial-policies/${id}/revisions`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  commercialPolicyRevisions: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<CommercialPolicyRevision>>(`/commercial-policies/${id}/revisions`, {
+      query: { page, size },
+    }),
+  compareCommercialPolicies: (id: UUID, comparedId: UUID) =>
+    admin<CommercialPolicyComparison>(`/commercial-policies/${id}/compare/${comparedId}`),
+  commercialPolicyHistory: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<CommercialPolicyHistory>>(`/commercial-policies/${id}/history`, { query: { page, size } }),
+  commercialPolicyActivations: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<CommercialPolicyActivation>>(`/commercial-policies/${id}/activations`, {
+      query: { page, size },
+    }),
+  commercialPolicyActivationAudience: (id: UUID, activationId: UUID, page = 0, size = 20) =>
+    admin<CommercialPolicyActivationAudience>(`/commercial-policies/${id}/activations/${activationId}/accounts`, {
+      query: { page, size },
+    }),
+  commercialPolicyAudience: (id: UUID, page = 0, size = 20) =>
+    admin<CommercialPolicyAudiencePreview>(`/commercial-policies/${id}/audience`, { query: { page, size } }),
+  previewCommercialPolicyActivation: (id: UUID) =>
+    admin<CommercialPolicyActivationPreview>(`/commercial-policies/${id}/activation-preview`),
+  activateCommercialPolicy: (id: UUID, input: { version: number; reason: string; activationPreviewToken: string }) =>
+    admin<CommercialPolicyDetail>(`/commercial-policies/${id}/activate`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  resumeCommercialPolicy: (id: UUID, input: { version: number; reason: string; activationPreviewToken: string }) =>
+    admin<CommercialPolicyDetail>(`/commercial-policies/${id}/resume`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  pauseCommercialPolicy: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialPolicyDetail>(`/commercial-policies/${id}/pause`, { method: "POST", body: jsonBody(input) }),
+  endCommercialPolicy: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialPolicyDetail>(`/commercial-policies/${id}/end`, { method: "POST", body: jsonBody(input) }),
+  archiveCommercialPolicy: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialPolicyDetail>(`/commercial-policies/${id}/archive`, { method: "POST", body: jsonBody(input) }),
+  deleteCommercialPolicy: (id: UUID, input: { version: number; reason: string }) =>
+    admin<void>(`/commercial-policies/${id}`, { method: "DELETE", body: jsonBody(input) }),
+  commercialPolicyOwner: (id: UUID) => admin<CommercialPolicyOwner>(`/commercial-policies/${id}/owner`),
+  reassignCommercialPolicyOwner: (id: UUID, input: { version: number; ownerAdminUserId: UUID; reason: string }) =>
+    admin<CommercialPolicyDetail>(`/commercial-policies/${id}/owner`, { method: "PUT", body: jsonBody(input) }),
+  commercialPolicyAccountChoices: (query: { query?: string; active?: boolean; page?: number; size?: number }) =>
+    admin<PageResponse<AccountDirectoryEntry>>("/commercial-policies/account-choices", { query }),
+  resolveCommercialPolicyAccountChoices: (ids: UUID[]) =>
+    admin<AccountDirectoryEntry[]>("/commercial-policies/account-choices/selected", { query: { ids } }),
   subscription: (accountId: UUID) => admin<AdminSubscription>(`/subscriptions/account/${accountId}`),
   accounts: (query: {
     query?: string;

@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { AppProviders } from "@/app/providers";
 import {
+  adminCommercialPolicyDetailSurfacePermissions,
   adminOverviewSurfacePermissions,
   adminPermissions,
   adminPriceBookDetailSurfacePermissions,
@@ -24,6 +25,12 @@ import {
   AdminOperationalQuotaPackagesPage,
 } from "@/features/admin/commercial/admin-commercial-catalog-pages";
 import { AdminAddOnsPage, AdminQuotaPackagesPage } from "@/features/admin/commercial/admin-commercial-pages";
+import { AdminCommercialPoliciesPage } from "@/features/admin/commercial-policies/admin-commercial-policies-page";
+import { AdminCommercialPolicyDetailPage } from "@/features/admin/commercial-policies/admin-commercial-policy-detail-page";
+import {
+  AdminCommercialPolicyCreatePage,
+  AdminCommercialPolicyEditPage,
+} from "@/features/admin/commercial-policies/commercial-policy-editor";
 import { AdminMePage } from "@/features/admin/me/admin-me-page";
 import { AdminOperatorDetailPage } from "@/features/admin/operators/admin-operator-detail-page";
 import { AdminOperatorsPage } from "@/features/admin/operators/admin-operators-page";
@@ -212,6 +219,40 @@ const router = createBrowserRouter([
         element: (
           <AdminReadPermissionGate anyOf={adminPriceBookDetailSurfacePermissions}>
             <AdminProductPriceDetailPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "commercial-policies",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.commercialPoliciesList]}>
+            <AdminCommercialPoliciesPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "commercial-policies/new",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.commercialPoliciesCreate]}>
+            <AdminCommercialPolicyCreatePage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "commercial-policies/:policyId/edit",
+        element: (
+          <AdminReadPermissionGate
+            allOf={[adminPermissions.commercialPoliciesRead, adminPermissions.commercialPoliciesUpdateDraft]}
+          >
+            <AdminCommercialPolicyEditPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "commercial-policies/:policyId/:tab?",
+        element: (
+          <AdminReadPermissionGate anyOf={adminCommercialPolicyDetailSurfacePermissions}>
+            <AdminCommercialPolicyDetailPage />
           </AdminReadPermissionGate>
         ),
       },
