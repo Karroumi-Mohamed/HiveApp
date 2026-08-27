@@ -92,8 +92,10 @@ class CommercialPolicyControlPlaneIntegrationTest extends PlatformShellIntegrati
     @Test
     void listQueryCountDoesNotGrowWithPolicyRows() throws Exception {
         String token = loginAdminAndGetToken();
+        Account account = registerAccount("policy-query-count");
         for (int index = 0; index < 6; index++) {
-            createPolicy(token, segmentRequest("Query baseline " + index + " " + UUID.randomUUID()));
+            createPolicy(token, accountSetRequest(
+                    "Query baseline " + index + " " + UUID.randomUUID(), Set.of(account.getId())));
         }
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.clear();
@@ -106,7 +108,8 @@ class CommercialPolicyControlPlaneIntegrationTest extends PlatformShellIntegrati
         long baseline = statistics.getPrepareStatementCount();
 
         for (int index = 0; index < 12; index++) {
-            createPolicy(token, segmentRequest("Query growth " + index + " " + UUID.randomUUID()));
+            createPolicy(token, accountSetRequest(
+                    "Query growth " + index + " " + UUID.randomUUID(), Set.of(account.getId())));
         }
         statistics.clear();
         mockMvc.perform(get("/api/admin/commercial-policies")
@@ -293,7 +296,7 @@ class CommercialPolicyControlPlaneIntegrationTest extends PlatformShellIntegrati
     }
 
     @Test
-    void segmentIsStructurallyRepresentedButCannotActivateBeforePhaseEleven() throws Exception {
+    void unknownSegmentReferenceIsRejectedBeforeAPolicyDraftCanPersist() throws Exception {
         String token = loginAdminAndGetToken();
         CommercialPolicyRequests.Create request = new CommercialPolicyRequests.Create(
                 "Future segment policy", null, Instant.now().minusSeconds(5),
@@ -302,23 +305,12 @@ class CommercialPolicyControlPlaneIntegrationTest extends PlatformShellIntegrati
                 new CommercialPolicyRequests.Target(
                         CommercialPolicyTargetKind.SEGMENT, null, Set.of(), null, "LOYAL_CUSTOMERS"),
                 List.of(blockFeature("platform.staff")));
-        JsonNode draft = createPolicy(token, request);
-        UUID id = UUID.fromString(draft.get("summary").get("id").asText());
-        JsonNode preview = activationPreview(token, id);
-        assertThat(preview.get("activatable").asBoolean()).isFalse();
-        assertThat(preview.get("blockers").toString())
-                .contains("SEGMENT_RESOLUTION_UNAVAILABLE");
-
-        mockMvc.perform(post("/api/admin/commercial-policies/{id}/activate", id)
+        mockMvc.perform(post("/api/admin/commercial-policies")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new CommercialPolicyRequests.Activation(
-                                preview.get("expectedVersion").asLong(), "Cannot silently empty segment",
-                                preview.get("previewToken").asText()))))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
-        assertThat(policyRepository.findById(id).orElseThrow().getStatus().name()).isEqualTo("DRAFT");
-        assertThat(activationRepository.findMaximumActivationNumber(id)).isZero();
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test
@@ -552,15 +544,6 @@ class CommercialPolicyControlPlaneIntegrationTest extends PlatformShellIntegrati
                 new CommercialPolicyRequests.Target(
                         CommercialPolicyTargetKind.ACCOUNT_SET, null, accountIds, null, null),
                 List.of(fixedDiscount()));
-    }
-
-    private CommercialPolicyRequests.Create segmentRequest(String name) {
-        return new CommercialPolicyRequests.Create(
-                name, null, Instant.now(), Instant.now().plusSeconds(3600),
-                CommercialPolicySource.MARKETING, 1, "Query-count fixture", null, null,
-                new CommercialPolicyRequests.Target(
-                        CommercialPolicyTargetKind.SEGMENT, null, Set.of(), null, "FUTURE_SEGMENT"),
-                List.of(blockFeature("platform.staff")));
     }
 
     private CommercialPolicyRequests.Effect fixedDiscount() {

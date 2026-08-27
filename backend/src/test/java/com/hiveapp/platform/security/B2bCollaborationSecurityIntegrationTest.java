@@ -795,7 +795,8 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
     }
 
     private SubscriptionEntitlementSnapshot removeFeatureFromActiveSubscription(String token, String featureCode) throws Exception {
-        var subscription = subscriptionRepository.findActiveByAccountId(currentAccountId(token)).orElseThrow();
+        var subscription = subscriptionRepository.findActiveForSnapshotUpdateByAccountId(
+                currentAccountId(token)).orElseThrow();
         SubscriptionEntitlementSnapshot originalSnapshot = subscription.getEntitlementSnapshot();
         var snapshot = subscriptionSnapshotReader.read(originalSnapshot).orElseThrow();
         var updated = new SubscriptionEntitlementSnapshot(
@@ -813,7 +814,8 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
     }
 
     private void restoreActiveSubscriptionSnapshot(String token, SubscriptionEntitlementSnapshot snapshot) throws Exception {
-        var subscription = subscriptionRepository.findActiveByAccountId(currentAccountId(token)).orElseThrow();
+        var subscription = subscriptionRepository.findActiveForSnapshotUpdateByAccountId(
+                currentAccountId(token)).orElseThrow();
         subscription.setEntitlementSnapshot(snapshot);
         subscriptionRepository.saveAndFlush(subscription);
     }

@@ -42,12 +42,14 @@ public class CommercialPolicyAudienceResolver {
     private final AccountRepository accountRepository;
     private final CommercialPolicyRepository policyRepository;
     private final SubscriptionRepository subscriptionRepository;
+    private final CommercialSegmentAudienceResolver segmentAudienceResolver;
 
     public Resolution resolveExact(CommercialPolicy policy) {
-        if (policy.getTargetKind() == CommercialPolicyTargetKind.SEGMENT) {
+        CommercialSegmentAudienceResolver.FrozenAudience segmentAudience = segmentAudience(policy);
+        if (policy.getTargetKind() == CommercialPolicyTargetKind.SEGMENT && !segmentAudience.available()) {
             return new Resolution(List.of(), List.of(CommercialPolicyBlocker.SEGMENT_RESOLUTION_UNAVAILABLE));
         }
-        long count = count(policy);
+        long count = count(policy, segmentAudience);
         if (count > ACTIVATION_ACCOUNT_LIMIT) {
             return new Resolution(List.of(), List.of(CommercialPolicyBlocker.AUDIENCE_EXCEEDS_ACTIVATION_LIMIT));
         }
@@ -56,7 +58,7 @@ public class CommercialPolicyAudienceResolver {
                     ? List.of() : List.of(policy.getTargetAccount().getId());
             case ACCOUNT_SET -> policyRepository.findExplicitAccountIds(policy.getId());
             case PLAN_REVISION_SUBSCRIBERS -> resolvePlanSubscriberIds(policy.getTargetPlan().getId(), count);
-            case SEGMENT -> List.of();
+            case SEGMENT -> segmentAudience.accountIds();
         };
         return new Resolution(ids, List.of());
     }
@@ -70,15 +72,16 @@ public class CommercialPolicyAudienceResolver {
             throw new com.hiveapp.shared.exception.InvalidRequestException(
                     "Page must be non-negative and size must be between 1 and 100.");
         }
-        long total = count(policy);
+        CommercialSegmentAudienceResolver.FrozenAudience segmentAudience = segmentAudience(policy);
+        long total = count(policy, segmentAudience);
         List<CommercialPolicyBlocker> blockers = new ArrayList<>();
-        if (policy.getTargetKind() == CommercialPolicyTargetKind.SEGMENT) {
+        if (policy.getTargetKind() == CommercialPolicyTargetKind.SEGMENT && !segmentAudience.available()) {
             blockers.add(CommercialPolicyBlocker.SEGMENT_RESOLUTION_UNAVAILABLE);
         }
         if (total > ACTIVATION_ACCOUNT_LIMIT) {
             blockers.add(CommercialPolicyBlocker.AUDIENCE_EXCEEDS_ACTIVATION_LIMIT);
         }
-        List<UUID> pageIds = pageIds(policy, page, size, total);
+        List<UUID> pageIds = pageIds(policy, page, size, total, segmentAudience);
         List<CommercialPolicyViews.AudienceAccount> accounts = summaries(pageIds);
         var accountPage = new PageImpl<>(accounts, PageRequest.of(page, size), total);
         return new CommercialPolicyViews.AudiencePreview(
@@ -100,30 +103,57 @@ public class CommercialPolicyAudienceResolver {
         }).toList();
     }
 
-    private long count(CommercialPolicy policy) {
+    private long count(
+            CommercialPolicy policy,
+            CommercialSegmentAudienceResolver.FrozenAudience segmentAudience
+    ) {
         return switch (policy.getTargetKind()) {
             case ACCOUNT -> policy.getTargetAccount() == null ? 0 : 1;
             case ACCOUNT_SET -> policyRepository.countExplicitAccounts(policy.getId());
             case PLAN_REVISION_SUBSCRIBERS -> policy.getTargetPlan() == null ? 0
                     : subscriptionRepository.countDistinctAccountsByPlanAndStatuses(
                             policy.getTargetPlan().getId(), CURRENT_SUBSCRIPTION_STATUSES);
-            case SEGMENT -> 0;
+            case SEGMENT -> segmentAudience.accountIds().size();
         };
     }
 
-    private List<UUID> pageIds(CommercialPolicy policy, int page, int size, long total) {
-        if (policy.getTargetKind() == CommercialPolicyTargetKind.SEGMENT || total == 0) return List.of();
+    private List<UUID> pageIds(
+            CommercialPolicy policy,
+            int page,
+            int size,
+            long total,
+            CommercialSegmentAudienceResolver.FrozenAudience segmentAudience
+    ) {
+        if (total == 0) return List.of();
         if (policy.getTargetKind() == CommercialPolicyTargetKind.PLAN_REVISION_SUBSCRIBERS) {
             return subscriptionRepository.findDistinctAccountIdsByPlanAndStatuses(
                     policy.getTargetPlan().getId(), CURRENT_SUBSCRIPTION_STATUSES,
                     PageRequest.of(page, size)).getContent();
         }
-        List<UUID> all = policy.getTargetKind() == CommercialPolicyTargetKind.ACCOUNT
-                ? List.of(policy.getTargetAccount().getId())
-                : policyRepository.findExplicitAccountIds(policy.getId());
+        List<UUID> all = switch (policy.getTargetKind()) {
+            case ACCOUNT -> List.of(policy.getTargetAccount().getId());
+            case ACCOUNT_SET -> policyRepository.findExplicitAccountIds(policy.getId());
+            case SEGMENT -> segmentAudience.accountIds();
+            case PLAN_REVISION_SUBSCRIBERS -> throw new IllegalStateException("Handled above");
+        };
         int from = (int) Math.min((long) page * size, all.size());
         int to = Math.min(from + size, all.size());
         return all.subList(from, to);
+    }
+
+    public String requireCanonicalSegmentReference(String reference) {
+        return segmentAudienceResolver.requireCanonicalActiveReference(reference);
+    }
+
+    private CommercialSegmentAudienceResolver.FrozenAudience segmentAudience(CommercialPolicy policy) {
+        if (policy.getTargetKind() != CommercialPolicyTargetKind.SEGMENT) {
+            return new CommercialSegmentAudienceResolver.FrozenAudience(null, null, List.of(), false);
+        }
+        try {
+            return segmentAudienceResolver.resolveFrozenReference(policy.getSegmentReference());
+        } catch (com.hiveapp.shared.exception.InvalidRequestException invalid) {
+            return new CommercialSegmentAudienceResolver.FrozenAudience(null, null, List.of(), false);
+        }
     }
 
     private List<UUID> resolvePlanSubscriberIds(UUID planId, long expectedCount) {

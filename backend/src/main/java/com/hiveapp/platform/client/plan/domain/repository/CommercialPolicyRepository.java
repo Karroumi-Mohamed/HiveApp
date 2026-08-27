@@ -24,6 +24,12 @@ public interface CommercialPolicyRepository extends JpaRepository<CommercialPoli
 
     boolean existsByCode(String code);
 
+    long countBySegmentReference(String segmentReference);
+
+    @Query("select policy.segmentReference, count(policy) from CommercialPolicy policy "
+            + "where policy.segmentReference in :references group by policy.segmentReference")
+    List<Object[]> countBySegmentReferences(@Param("references") Collection<String> references);
+
     @Query("select policy.lineageId from CommercialPolicy policy where policy.id = :policyId")
     Optional<UUID> findLineageIdById(@Param("policyId") UUID policyId);
 

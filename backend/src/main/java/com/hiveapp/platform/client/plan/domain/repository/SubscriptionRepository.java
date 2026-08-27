@@ -125,6 +125,23 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
         return findTopByAccountIdAndStatusOrderByCreatedAtDesc(accountId, SubscriptionStatus.ACTIVE);
     }
 
+    @EntityGraph(attributePaths = "currentHoldings")
+    @Query("select subscription from Subscription subscription "
+            + "where subscription.account.id = :accountId and subscription.status = :status")
+    Optional<Subscription> findWithCurrentHoldingsByAccountIdAndStatus(
+            @Param("accountId") UUID accountId,
+            @Param("status") SubscriptionStatus status);
+
+    /**
+     * Mutation-specific lookup for callers that replace the authoritative entitlement snapshot.
+     * Loading the normalized holdings in the same query keeps detached test/support workflows safe
+     * without burdening ordinary subscription reads with the projection collection.
+     */
+    default Optional<Subscription> findActiveForSnapshotUpdateByAccountId(UUID accountId) {
+        return findWithCurrentHoldingsByAccountIdAndStatus(
+                accountId, SubscriptionStatus.ACTIVE);
+    }
+
     default Optional<Subscription> findByAccountIdAndStatus(UUID accountId, SubscriptionStatus status) {
         return findTopByAccountIdAndStatusOrderByCreatedAtDesc(accountId, status);
     }

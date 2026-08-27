@@ -608,7 +608,13 @@ public class CommercialPolicyAdminServiceImpl extends PlatformControlFeatureServ
                                 && request.planRevisionId() == null
                                 && request.segmentReference() != null,
                         "SEGMENT target requires exactly one segmentReference.");
-                segment = request.segmentReference();
+                try {
+                    segment = audienceResolver.requireCanonicalSegmentReference(
+                            request.segmentReference());
+                } catch (InvalidRequestException invalid) {
+                    throw new InvalidRequestException(
+                            "SEGMENT target requires an active Segment revision with an immutable activation audience.");
+                }
             }
         }
         Account finalAccount = account;
@@ -853,9 +859,6 @@ public class CommercialPolicyAdminServiceImpl extends PlatformControlFeatureServ
             int effectCount
     ) {
         List<CommercialPolicyBlocker> blockers = new ArrayList<>();
-        if (policy.getTargetKind() == CommercialPolicyTargetKind.SEGMENT) {
-            blockers.add(CommercialPolicyBlocker.SEGMENT_RESOLUTION_UNAVAILABLE);
-        }
         if (effectCount == 0) blockers.add(CommercialPolicyBlocker.NO_EFFECTS);
         if (policy.getEffectiveUntil() != null && !policy.getEffectiveUntil().isAfter(clock.instant())) {
             blockers.add(CommercialPolicyBlocker.EFFECTIVE_WINDOW_EXPIRED);

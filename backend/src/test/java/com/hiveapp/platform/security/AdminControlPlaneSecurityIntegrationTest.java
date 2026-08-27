@@ -32,6 +32,9 @@ import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyEffectTy
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicySource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyTargetKind;
 import com.hiveapp.platform.client.plan.dto.CommercialPolicyRequests;
+import com.hiveapp.platform.client.plan.dto.CommercialSegmentRequests;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.registry.definition.PriceBooksFeature;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
@@ -1171,6 +1174,85 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void segmentMutationPreviewIdentityAndOwnerSurfacesUseIndependentPermissionNodes()
+            throws Exception {
+        UUID missingSegmentId = UUID.randomUUID();
+        UUID missingActivationId = UUID.randomUUID();
+        LimitedAdmin creator = createLimitedAdmin("platform.segments.create");
+        LimitedAdmin previewer = createLimitedAdmin("platform.segments.preview");
+        LimitedAdmin identityReader = createLimitedAdmin(
+                "platform.segments.read_sample_identities",
+                "platform.segments.read_activation_identities");
+        LimitedAdmin audienceReader = createLimitedAdmin(
+                "platform.segments.read_activation_audience");
+        LimitedAdmin detailReader = createLimitedAdmin("platform.segments.read_detail");
+        LimitedAdmin ownerReader = createLimitedAdmin("platform.segments.read_owner");
+        CommercialSegmentRequests.Create request = new CommercialSegmentRequests.Create(
+                "Permission boundary Segment", null,
+                CommercialSegmentKind.EXPLICIT_ACCOUNTS, CommercialSegmentSource.MANUAL,
+                "Exercise independent Segment nodes", new CommercialSegmentRequests.Definition(
+                        Set.of(UUID.randomUUID()), null));
+
+        mockMvc.perform(post("/api/admin/segments")
+                        .header("Authorization", bearer(previewer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/segments")
+                        .header("Authorization", bearer(creator.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/admin/segments/{id}/preview", missingSegmentId)
+                        .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/segments/{id}/preview", missingSegmentId)
+                        .header("Authorization", bearer(previewer.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/segments/{id}/preview-identities", missingSegmentId)
+                        .header("Authorization", bearer(previewer.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/segments/{id}/preview-identities", missingSegmentId)
+                        .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get(
+                                "/api/admin/segments/{id}/activations/{activationId}/accounts",
+                                missingSegmentId, missingActivationId)
+                        .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get(
+                                "/api/admin/segments/{id}/activations/{activationId}/accounts",
+                                missingSegmentId, missingActivationId)
+                        .header("Authorization", bearer(audienceReader.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get(
+                                "/api/admin/segments/{id}/activations/{activationId}/identities",
+                                missingSegmentId, missingActivationId)
+                        .header("Authorization", bearer(audienceReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get(
+                                "/api/admin/segments/{id}/activations/{activationId}/identities",
+                                missingSegmentId, missingActivationId)
+                        .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/admin/segments/{id}", missingSegmentId)
+                        .header("Authorization", bearer(ownerReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/segments/{id}", missingSegmentId)
+                        .header("Authorization", bearer(detailReader.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/segments/{id}/owner", missingSegmentId)
+                        .header("Authorization", bearer(detailReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/segments/{id}/owner", missingSegmentId)
+                        .header("Authorization", bearer(ownerReader.token())))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void latestRegistrySynchronizationIsPermissionProtectedAndInspectable() throws Exception {
         LimitedAdmin unrelated = createLimitedAdmin("platform.plans.list");
         LimitedAdmin registryOperator = createLimitedAdmin("platform.registry.sync_status");
@@ -1518,12 +1600,18 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     @Test
     void commercialPolicyOwnerIdentityAndOrdinaryDetailHaveIndependentAuthorities() throws Exception {
         String superToken = loginAdminAndGetToken();
+        String clientToken = registerClientAndGetToken();
+        UUID targetAccountId = UUID.fromString(objectMapper.readTree(mockMvc.perform(
+                                get("/api/v1/accounts/me")
+                                        .header("Authorization", bearer(clientToken)))
+                        .andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsString()).get("id").asText());
         CommercialPolicyRequests.Create request = new CommercialPolicyRequests.Create(
                 "Owner privacy policy " + UUID.randomUUID(), null, Instant.now(),
                 Instant.now().plusSeconds(3600), CommercialPolicySource.SUPPORT, 5,
                 "Verify separate owner authority", null, null,
                 new CommercialPolicyRequests.Target(
-                        CommercialPolicyTargetKind.SEGMENT, null, Set.of(), null, "FUTURE_SEGMENT"),
+                        CommercialPolicyTargetKind.ACCOUNT, targetAccountId, Set.of(), null, null),
                 List.of(new CommercialPolicyRequests.Effect(
                         CommercialPolicyEffectType.BLOCK_FEATURE, null, null,
                         "platform.staff", null, null, null, null,
@@ -1538,7 +1626,6 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
         LimitedAdmin detailReader = createLimitedAdmin("platform.commercial_policies.read");
         LimitedAdmin ownerReader = createLimitedAdmin("platform.commercial_policies.read_owner");
-        String clientToken = registerClientAndGetToken();
 
         mockMvc.perform(get("/api/admin/commercial-policies/{id}", policyId)
                         .header("Authorization", bearer(detailReader.token())))
