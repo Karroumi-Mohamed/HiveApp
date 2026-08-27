@@ -1,6 +1,6 @@
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
@@ -26,8 +26,9 @@ import {
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
+import { CommercialPolicyApplicationStatus } from "./commercial-policy-application-notice";
 import {
-  executionBlocker,
+  isPolicyVersionConflict,
   policyBlocker,
   policyMutationMessage,
   reviewedActivationReady,
@@ -49,19 +50,21 @@ const reasonCopy: Record<ReasonAction, { title: string; description: string; con
     },
     PAUSE: {
       title: "Suspendre cette politique ?",
-      description: "La définition restera courante et pourra être réactivée après une nouvelle vérification signée.",
+      description:
+        "Elle ne sera plus évaluée lors des prochaines opérations d’abonnement. Rien de déjà confirmé n’est annulé, et une nouvelle preuve permettra de la reprendre.",
       confirm: "Suspendre",
     },
     END: {
       title: "Terminer définitivement cette politique ?",
       description:
-        "Cette révision ne pourra plus être reprise. Une nouvelle révision restera possible si la lignée le permet.",
+        "Elle ne sera plus évaluée lors des prochaines opérations et ne pourra pas être reprise. Rien de déjà confirmé n’est annulé.",
       confirm: "Terminer",
       destructive: true,
     },
     ARCHIVE: {
       title: "Archiver cette politique ?",
-      description: "L’archive est conservée en lecture seule et disparaît des listes ordinaires.",
+      description:
+        "L’archive est conservée en lecture seule, disparaît des listes ordinaires et ne pourra pas être désarchivée.",
       confirm: "Archiver",
       destructive: true,
     },
@@ -96,10 +99,20 @@ export function CommercialPolicyReasonDialog({
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [name, setName] = useState(`${policy.summary.name} — copie`);
+  const expectedVersion = useRef(policy.summary.version);
   const copy = reasonCopy[action];
+  const resetForm = () => {
+    setReason("");
+    setName(`${policy.summary.name} — copie`);
+  };
+  const changeOpen = (next: boolean) => {
+    if (next) expectedVersion.current = policy.summary.version;
+    setOpen(next);
+    if (!next) resetForm();
+  };
   const mutation = useMutation({
     mutationFn: async () => {
-      const input = { version: policy.summary.version, reason: reason.trim() };
+      const input = { version: expectedVersion.current, reason: reason.trim() };
       if (action === "DUPLICATE")
         return adminApi.duplicateCommercialPolicy(policy.summary.id, { ...input, name: name.trim() });
       if (action === "REVISE") return adminApi.reviseCommercialPolicy(policy.summary.id, input);
@@ -111,8 +124,7 @@ export function CommercialPolicyReasonDialog({
     },
     onSuccess: async (result) => {
       await invalidatePolicy(queryClient, policy.summary.id);
-      setOpen(false);
-      setReason("");
+      changeOpen(false);
       if (action === "DELETE_DRAFT") {
         toast.success("Brouillon supprimé");
         navigate("/admin/commercial-policies");
@@ -124,13 +136,14 @@ export function CommercialPolicyReasonDialog({
       }
     },
     onError: async (error) => {
+      if (isPolicyVersionConflict(error)) changeOpen(false);
       await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.policies.detail(policy.summary.id) });
       toast.error(policyMutationMessage(error));
     },
   });
   const valid = reason.trim() && (action !== "DUPLICATE" || name.trim());
   return (
-    <Dialog onOpenChange={setOpen} open={open}>
+    <Dialog onOpenChange={changeOpen} open={open}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -160,7 +173,7 @@ export function CommercialPolicyReasonDialog({
           <p className="text-end text-xs text-muted-foreground tabular-nums">{reason.trim().length}/500</p>
         </div>
         <DialogFooter>
-          <Button onClick={() => setOpen(false)} variant="outline">
+          <Button onClick={() => changeOpen(false)} variant="outline">
             Annuler
           </Button>
           <Button
@@ -186,6 +199,7 @@ export function CommercialPolicyActivationDialog({
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const openRef = useRef(false);
   const [reason, setReason] = useState("");
   const [clock, setClock] = useState(() => Date.now());
   const action: CommercialPolicyAction = policy.summary.status === "PAUSED" ? "RESUME" : "ACTIVATE";
@@ -196,8 +210,17 @@ export function CommercialPolicyActivationDialog({
     queryKey: previewKey,
     queryFn: () => adminApi.previewCommercialPolicyActivation(policy.summary.id),
     enabled: commercialQueryEnabled(session.can, adminPermissions.commercialPoliciesPreviewActivation, open),
+    gcTime: 0,
     staleTime: 0,
   });
+  useEffect(
+    () => () => {
+      queryClient.removeQueries({
+        queryKey: adminCommercialKeys.policies.activationPreview(policy.summary.id, policy.summary.version),
+      });
+    },
+    [policy.summary.id, policy.summary.version, queryClient],
+  );
   const expiresAt = preview.data?.expiresAt;
   useEffect(() => {
     if (!open || !expiresAt) return;
@@ -207,6 +230,7 @@ export function CommercialPolicyActivationDialog({
     return () => window.clearTimeout(timer);
   }, [expiresAt, open]);
   const changeOpen = (next: boolean) => {
+    openRef.current = next;
     setOpen(next);
     if (next) setClock(Date.now());
     else {
@@ -230,19 +254,30 @@ export function CommercialPolicyActivationDialog({
     onSuccess: async () => {
       changeOpen(false);
       await invalidatePolicy(queryClient, policy.summary.id);
-      toast.success("Définition activée avec preuve — exécution abonnements toujours déconnectée");
+      toast.success(
+        action === "RESUME"
+          ? "Définition reprise avec une nouvelle preuve"
+          : "Définition activée avec une preuve signée",
+      );
     },
     onError: async (error) => {
       queryClient.removeQueries({ queryKey: previewKey });
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: adminCommercialKeys.policies.detail(policy.summary.id) }),
-        preview.refetch(),
-      ]);
-      setClock(Date.now());
+      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.policies.detail(policy.summary.id) });
+      if (openRef.current) {
+        await preview.refetch();
+        setClock(Date.now());
+      }
       toast.error(policyMutationMessage(error));
     },
   });
   const ready = reviewedActivationReady(policy, preview.data, clock);
+  const previewExpiry = preview.data ? Date.parse(preview.data.expiresAt) : Number.NaN;
+  const expired = Boolean(preview.data && (!Number.isFinite(previewExpiry) || previewExpiry <= clock));
+  const refreshPreview = async () => {
+    queryClient.removeQueries({ queryKey: previewKey });
+    await preview.refetch();
+    setClock(Date.now());
+  };
   return (
     <Dialog onOpenChange={changeOpen} open={open}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -261,7 +296,7 @@ export function CommercialPolicyActivationDialog({
             <WarningCircleIcon />
             <AlertTitle>Vérification indisponible</AlertTitle>
             <AlertDescription>
-              <Button onClick={() => void preview.refetch()} size="sm" variant="outline">
+              <Button onClick={() => void refreshPreview()} size="sm" variant="outline">
                 Réessayer
               </Button>
             </AlertDescription>
@@ -294,6 +329,16 @@ export function CommercialPolicyActivationDialog({
                   </ul>
                 </AlertDescription>
               </Alert>
+            ) : expired ? (
+              <Alert className="border-warning/30 bg-warning/5">
+                <WarningCircleIcon />
+                <AlertTitle>Preuve expirée</AlertTitle>
+                <AlertDescription>
+                  <Button onClick={() => void refreshPreview()} size="sm" variant="outline">
+                    Vérifier de nouveau
+                  </Button>
+                </AlertDescription>
+              </Alert>
             ) : (
               <Alert>
                 <AlertTitle>Preuve actuelle</AlertTitle>
@@ -322,19 +367,10 @@ export function CommercialPolicyActivationDialog({
                 </AlertDescription>
               </Alert>
             ) : null}
-            {!preview.data.executionSupported ? (
-              <Alert className="border-warning/30 bg-warning/5">
-                <WarningCircleIcon />
-                <AlertTitle>Cette activation ne modifie aucun abonnement</AlertTitle>
-                <AlertDescription>
-                  <ul className="list-disc ps-4">
-                    {preview.data.executionBlockers.map((blocker) => (
-                      <li key={blocker}>{executionBlocker[blocker]}</li>
-                    ))}
-                  </ul>
-                </AlertDescription>
-              </Alert>
-            ) : null}
+            <CommercialPolicyApplicationStatus
+              blockers={preview.data.executionBlockers}
+              executionSupported={preview.data.executionSupported}
+            />
           </div>
         ) : null}
         <div className="space-y-2">

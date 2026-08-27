@@ -24,6 +24,12 @@ describe("commercial policy list URL state", () => {
     });
   });
 
+  test("bounds oversized URL search and page values before querying", () => {
+    const state = readCommercialPolicyListState(new URLSearchParams(`q=${"x".repeat(300)}&page=999999999999999999999`));
+    expect(state.search).toHaveLength(180);
+    expect(state.page).toBe(0);
+  });
+
   test("writes bounded state without destroying unrelated route state", () => {
     const current = new URLSearchParams("tab=history");
     const state = readCommercialPolicyListState(current);

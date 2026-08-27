@@ -39,12 +39,16 @@ import {
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { CommercialPolicyExplicitApplicationNotice } from "./commercial-policy-application-notice";
+import { validPolicyIdentity } from "./commercial-policy-detail-state";
 import {
   type CommercialPolicyDraft,
   type CommercialPolicyDraftEffect,
   draftFromPolicy,
   effectLabel,
   emptyCommercialPolicyDraft,
+  isPolicyQuotaFeatureChoice,
+  isPolicyVersionConflict,
   newDraftEffect,
   policyMutationMessage,
   policySource,
@@ -128,7 +132,7 @@ function AccountTargetEditor({
     enabled: commercialQueryEnabled(
       session.can,
       adminPermissions.commercialPoliciesResolveAccountChoices,
-      selectedIds.length > 0,
+      canChoose && selectedIds.length > 0,
     ),
   });
   const selectedById = useMemo(
@@ -138,8 +142,14 @@ function AccountTargetEditor({
 
   if (!canChoose) {
     return (
-      <div className="rounded-lg border border-warning/30 bg-warning/5 p-4 text-sm text-muted-foreground">
-        Votre rôle permet de définir la politique, mais pas de parcourir les comptes cibles.
+      <div className="space-y-2 rounded-lg border border-warning/30 bg-warning/5 p-4 text-sm text-muted-foreground">
+        <p>Votre rôle permet de définir la politique, mais pas de parcourir les comptes cibles.</p>
+        {selectedIds.length ? (
+          <p className="break-all text-xs">
+            Sélection conservée sans lecture d’identité : {selectedIds.slice(0, 3).join(", ")}
+            {selectedIds.length > 3 ? ` et ${selectedIds.length - 3} autre(s)` : ""}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -149,6 +159,7 @@ function AccountTargetEditor({
         <Label htmlFor="policy-account-search">Rechercher un compte actif</Label>
         <Input
           id="policy-account-search"
+          maxLength={180}
           onChange={(event) => {
             setSearch(event.target.value);
             setPage(0);
@@ -180,6 +191,11 @@ function AccountTargetEditor({
             </li>
           ))}
         </ul>
+      ) : null}
+      {selected.isError ? (
+        <p className="text-xs text-warning" role="status">
+          Les noms sélectionnés n’ont pas pu être relus ; leurs identifiants restent conservés.
+        </p>
       ) : null}
       {choices.isLoading ? <LoadingState rows={3} /> : null}
       {choices.isError ? <ErrorState retry={() => void choices.refetch()} /> : null}
@@ -262,7 +278,11 @@ function PlanTargetEditor({
   const selectedPlan = useQuery({
     queryKey: [...adminCommercialKeys.plans.all(), "policy-target-selected", draft.planRevisionId],
     queryFn: () => adminApi.selectedPlanChoices([draft.planRevisionId]),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.plansResolveChoices, Boolean(draft.planRevisionId)),
+    enabled: commercialQueryEnabled(
+      session.can,
+      adminPermissions.plansResolveChoices,
+      session.can(adminPermissions.plansChoose) && Boolean(draft.planRevisionId),
+    ),
   });
   const planOptions = useMemo(() => {
     const byId = new Map((selectedPlan.data ?? []).map((plan) => [plan.id, plan]));
@@ -271,13 +291,17 @@ function PlanTargetEditor({
   }, [plans.data, selectedPlan.data]);
   if (!session.can(adminPermissions.plansChoose)) {
     return (
-      <p className="text-sm text-muted-foreground">Votre rôle ne permet pas de choisir une révision de forfait.</p>
+      <div className="space-y-1 text-sm text-muted-foreground">
+        <p>Votre rôle ne permet pas de choisir une révision de forfait.</p>
+        {draft.planRevisionId ? <p className="break-all text-xs">Révision conservée : {draft.planRevisionId}</p> : null}
+      </div>
     );
   }
   return (
     <div className="space-y-3">
       <Input
         aria-label="Rechercher un forfait"
+        maxLength={180}
         onChange={(event) => {
           setSearch(event.target.value);
           setPage(0);
@@ -287,6 +311,11 @@ function PlanTargetEditor({
       />
       {plans.isLoading ? <LoadingState rows={3} /> : null}
       {plans.isError ? <ErrorState retry={() => void plans.refetch()} /> : null}
+      {selectedPlan.isError ? (
+        <p className="text-xs text-warning" role="status">
+          La révision sélectionnée reste conservée, mais son libellé n’a pas pu être relu.
+        </p>
+      ) : null}
       <Select
         onValueChange={(value) => onChange({ ...draft, planRevisionId: value })}
         value={draft.planRevisionId || undefined}
@@ -516,6 +545,8 @@ function ProductRevisionPicker({
   effect: CommercialPolicyDraftEffect;
   onChange: (next: CommercialPolicyDraftEffect) => void;
 }) {
+  const productTypeId = `policy-effect-${effect.key}-product-type`;
+  const productRevisionId = `policy-effect-${effect.key}-product-revision`;
   const session = useAdminSession();
   const type =
     effect.type === "GRANT_ADD_ON"
@@ -566,14 +597,14 @@ function ProductRevisionPicker({
     <div className="grid gap-3 sm:grid-cols-2">
       {effect.type === "ALLOW_PRODUCT_SELECTION" || effect.type === "BLOCK_PRODUCT_SELECTION" ? (
         <div className="space-y-2">
-          <Label>Type de produit</Label>
+          <Label htmlFor={productTypeId}>Type de produit</Label>
           <Select
             onValueChange={(value) =>
               onChange({ ...effect, productType: value as CommercialPolicyProductType, productRevisionId: "" })
             }
             value={effect.productType || undefined}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full" id={productTypeId}>
               <SelectValue placeholder="Choisir" />
             </SelectTrigger>
             <SelectContent>
@@ -587,19 +618,30 @@ function ProductRevisionPicker({
         </div>
       ) : null}
       <div className="space-y-2">
-        <Label>Révision du produit</Label>
+        <Label htmlFor={productRevisionId}>Révision du produit</Label>
         {!type ? (
           <p className="text-sm text-muted-foreground">Choisissez d’abord le type.</p>
         ) : !session.can(permission) ? (
-          <p className="text-sm text-muted-foreground">Votre rôle ne permet pas de parcourir ces produits.</p>
+          <div className="space-y-1 text-sm text-muted-foreground">
+            <p>Votre rôle ne permet pas de parcourir ces produits.</p>
+            {effect.productRevisionId ? (
+              <p className="break-all text-xs">Révision conservée : {effect.productRevisionId}</p>
+            ) : null}
+          </div>
         ) : choices.isError ? (
-          <Button onClick={() => void choices.refetch()} size="sm" variant="outline">
-            Réessayer
-          </Button>
+          <div className="space-y-2">
+            {effect.productRevisionId ? (
+              <p className="break-all text-xs text-muted-foreground">Révision conservée : {effect.productRevisionId}</p>
+            ) : null}
+            <Button onClick={() => void choices.refetch()} size="sm" variant="outline">
+              Réessayer
+            </Button>
+          </div>
         ) : (
           <div className="space-y-2">
             <Input
               aria-label="Rechercher une révision de produit"
+              maxLength={180}
               onChange={(event) => {
                 setSearch(event.target.value);
                 setPage(0);
@@ -611,7 +653,7 @@ function ProductRevisionPicker({
               onValueChange={(value) => onChange({ ...effect, productRevisionId: value })}
               value={effect.productRevisionId || undefined}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full" id={productRevisionId}>
                 <SelectValue placeholder={choices.isLoading ? "Chargement…" : "Choisir une révision"} />
               </SelectTrigger>
               <SelectContent>
@@ -665,6 +707,8 @@ function FeaturePicker({
   onChange: (next: CommercialPolicyDraftEffect) => void;
   quota: boolean;
 }) {
+  const featureId = `policy-effect-${effect.key}-feature`;
+  const quotaResourceId = `policy-effect-${effect.key}-quota-resource`;
   const session = useAdminSession();
   const features = useQuery({
     queryKey: adminCommercialKeys.registry.featureCatalog("PLAN_ASSIGNABLE"),
@@ -672,43 +716,64 @@ function FeaturePicker({
     enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog),
   });
   const flat = useMemo(() => features.data?.flatMap((module) => module.features) ?? [], [features.data]);
+  const choices = quota ? flat.filter(isPolicyQuotaFeatureChoice) : flat;
   const selected = flat.find((feature) => feature.code === effect.featureCode);
   if (!session.can(adminPermissions.registryFeatureCatalog)) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Votre rôle ne permet pas de parcourir le catalogue de fonctionnalités.
-      </p>
+      <div className="space-y-1 text-sm text-muted-foreground">
+        <p>Votre rôle ne permet pas de parcourir le catalogue de fonctionnalités.</p>
+        {effect.featureCode ? <p className="text-xs">Valeur conservée : {effect.featureCode}</p> : null}
+      </div>
     );
   }
+  if (features.isError) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-destructive" role="alert">
+          Le catalogue de fonctionnalités n’a pas pu être chargé.
+        </p>
+        {effect.featureCode ? (
+          <p className="text-xs text-muted-foreground">Valeur conservée : {effect.featureCode}</p>
+        ) : null}
+        <Button onClick={() => void features.refetch()} size="sm" type="button" variant="outline">
+          Réessayer
+        </Button>
+      </div>
+    );
+  }
+  const retainedFeature = effect.featureCode && !choices.some((feature) => feature.code === effect.featureCode);
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="space-y-2">
-        <Label>Fonctionnalité</Label>
+        <Label htmlFor={featureId}>Fonctionnalité</Label>
         <Select
           onValueChange={(value) => onChange({ ...effect, featureCode: value, quotaResource: "" })}
           value={effect.featureCode || undefined}
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger className="w-full" id={featureId}>
             <SelectValue placeholder={features.isLoading ? "Chargement…" : "Choisir"} />
           </SelectTrigger>
           <SelectContent>
-            {flat.map((feature: RegistryFeature) => (
+            {choices.map((feature: RegistryFeature) => (
               <SelectItem key={feature.code} value={feature.code}>
                 {feature.displayName} · {feature.code}
               </SelectItem>
             ))}
+            {retainedFeature ? (
+              <SelectItem value={effect.featureCode}>Fonctionnalité conservée · {effect.featureCode}</SelectItem>
+            ) : null}
           </SelectContent>
         </Select>
       </div>
       {quota ? (
         <div className="space-y-2">
-          <Label>Ressource de capacité</Label>
+          <Label htmlFor={quotaResourceId}>Ressource de capacité</Label>
           <Select
             disabled={!selected?.quotaSchema.length}
             onValueChange={(value) => onChange({ ...effect, quotaResource: value })}
             value={effect.quotaResource || undefined}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full" id={quotaResourceId}>
               <SelectValue placeholder="Choisir une ressource déclarée" />
             </SelectTrigger>
             <SelectContent>
@@ -717,6 +782,9 @@ function FeaturePicker({
                   {slot.resource} · {slot.unit}
                 </SelectItem>
               ))}
+              {effect.quotaResource && !selected?.quotaSchema.some((slot) => slot.resource === effect.quotaResource) ? (
+                <SelectItem value={effect.quotaResource}>Ressource conservée · {effect.quotaResource}</SelectItem>
+              ) : null}
             </SelectContent>
           </Select>
         </div>
@@ -734,12 +802,16 @@ function MoneyFields({
   onChange: (next: CommercialPolicyDraftEffect) => void;
   percentage?: boolean;
 }) {
+  const prefix = `policy-effect-${effect.key}`;
+  const amountId = `${prefix}-${percentage ? "maximum-amount" : "amount"}`;
+  const currencyId = `${prefix}-${percentage ? "maximum-currency" : "currency"}`;
   return (
     <div className="grid gap-3 sm:grid-cols-3">
       {percentage ? (
         <div className="space-y-2">
-          <Label>Pourcentage</Label>
+          <Label htmlFor={`${prefix}-percentage`}>Pourcentage</Label>
           <Input
+            id={`${prefix}-percentage`}
             min="0"
             max="100"
             onChange={(event) => onChange({ ...effect, percentage: event.target.value })}
@@ -750,8 +822,9 @@ function MoneyFields({
         </div>
       ) : null}
       <div className="space-y-2">
-        <Label>{percentage ? "Plafond" : "Montant"}</Label>
+        <Label htmlFor={amountId}>{percentage ? "Plafond" : "Montant"}</Label>
         <Input
+          id={amountId}
           min="0"
           onChange={(event) => onChange({ ...effect, [percentage ? "maximumAmount" : "amount"]: event.target.value })}
           step="0.0001"
@@ -760,8 +833,9 @@ function MoneyFields({
         />
       </div>
       <div className="space-y-2">
-        <Label>Devise</Label>
+        <Label htmlFor={currencyId}>Devise</Label>
         <Input
+          id={currencyId}
           maxLength={3}
           onChange={(event) =>
             onChange({
@@ -774,12 +848,12 @@ function MoneyFields({
       </div>
       {effect.type === "FIXED_SUBSCRIPTION_PRICE" ? (
         <div className="space-y-2">
-          <Label>Cycle</Label>
+          <Label htmlFor={`${prefix}-cycle`}>Cycle</Label>
           <Select
             onValueChange={(value) => onChange({ ...effect, billingCycle: value as "MONTHLY" | "YEARLY" })}
             value={effect.billingCycle || undefined}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full" id={`${prefix}-cycle`}>
               <SelectValue placeholder="Choisir" />
             </SelectTrigger>
             <SelectContent>
@@ -812,8 +886,9 @@ function EffectFields({
     <div className="space-y-3">
       <FeaturePicker effect={effect} onChange={onChange} quota />
       <div className="max-w-xs space-y-2">
-        <Label>Capacité ajoutée</Label>
+        <Label htmlFor={`policy-effect-${effect.key}-quantity`}>Capacité ajoutée</Label>
         <Input
+          id={`policy-effect-${effect.key}-quantity`}
           min={1}
           onChange={(event) => onChange({ ...effect, quantityDelta: event.target.value })}
           step={1}
@@ -838,21 +913,14 @@ function EffectsStep({
     onChange({ ...draft, effects: draft.effects.map((effect) => (effect.key === key ? next : effect)) });
   return (
     <section className="space-y-5">
-      <Alert className="border-warning/30 bg-warning/5">
-        <WarningCircleIcon />
-        <AlertTitle>Définition contrôlée, exécution différée</AlertTitle>
-        <AlertDescription>
-          Ces effets peuvent être révisés et activés avec preuve. Ils ne mutent pas encore les abonnements : le moteur
-          d’exécution reste explicitement déconnecté.
-        </AlertDescription>
-      </Alert>
+      <CommercialPolicyExplicitApplicationNotice />
       <div className="divide-y rounded-xl border bg-card">
         {draft.effects.map((effect, index) => (
           <fieldset className="space-y-4 p-4 sm:p-5" key={effect.key}>
             <legend className="sr-only">Effet {index + 1}</legend>
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1 space-y-2">
-                <Label>Effet {index + 1}</Label>
+                <Label htmlFor={`policy-effect-${effect.key}-type`}>Effet {index + 1}</Label>
                 <Select
                   onValueChange={(value) =>
                     updateEffect(effect.key, {
@@ -862,7 +930,7 @@ function EffectsStep({
                   }
                   value={effect.type}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger className="w-full" id={`policy-effect-${effect.key}-type`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -957,7 +1025,7 @@ function ReviewStep({
         </div>
       </dl>
       <div>
-        <h2 className="text-sm font-semibold">Effets dans l’ordre de précédence</h2>
+        <h2 className="text-sm font-semibold">Effets configurés</h2>
         <ol className="mt-3 divide-y rounded-lg border">
           {draft.effects.map((effect, index) => (
             <li
@@ -975,7 +1043,7 @@ function ReviewStep({
   );
 }
 
-function PolicyEditor({ existing }: { existing?: CommercialPolicyDetail }) {
+export function PolicyEditor({ existing }: { existing?: CommercialPolicyDetail }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [step, setStep] = useState<EditorStep>("target");
@@ -983,15 +1051,18 @@ function PolicyEditor({ existing }: { existing?: CommercialPolicyDetail }) {
     existing ? draftFromPolicy(existing) : emptyCommercialPolicyDraft(),
   );
   const [submitted, setSubmitted] = useState(false);
+  const [versionConflict, setVersionConflict] = useState(false);
   const initialDraft = useRef(JSON.stringify(draft));
+  const expectedVersion = useRef(existing?.summary.version);
   const completed = useRef(false);
+  const editorFocus = useRef<HTMLElement>(null);
   const errors = useMemo(() => validateCommercialPolicyDraft(draft), [draft]);
   const hasErrors = Object.keys(errors).length > 0;
   const mutation = useMutation({
     mutationFn: () => {
       const input = toCommercialPolicyWriteInput(draft);
       return existing
-        ? adminApi.updateCommercialPolicy(existing.summary.id, { ...input, version: existing.summary.version })
+        ? adminApi.updateCommercialPolicy(existing.summary.id, { ...input, version: expectedVersion.current ?? 0 })
         : adminApi.createCommercialPolicy(input);
     },
     onSuccess: async (policy) => {
@@ -1001,10 +1072,31 @@ function PolicyEditor({ existing }: { existing?: CommercialPolicyDetail }) {
       navigate(`/admin/commercial-policies/${policy.summary.id}`);
     },
     onError: async (error) => {
-      if (existing)
+      if (existing) {
+        if (isPolicyVersionConflict(error)) setVersionConflict(true);
         await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.policies.detail(existing.summary.id) });
+      }
       toast.error(policyMutationMessage(error));
     },
+  });
+  const reload = useMutation({
+    mutationFn: () => {
+      if (!existing) throw new Error("Aucune politique à recharger.");
+      return adminApi.commercialPolicy(existing.summary.id);
+    },
+    onSuccess: (fresh) => {
+      const nextDraft = draftFromPolicy(fresh);
+      queryClient.setQueryData(adminCommercialKeys.policies.detail(fresh.summary.id), fresh);
+      setDraft(nextDraft);
+      initialDraft.current = JSON.stringify(nextDraft);
+      expectedVersion.current = fresh.summary.version;
+      setVersionConflict(false);
+      setSubmitted(false);
+      setStep("target");
+      window.requestAnimationFrame(() => editorFocus.current?.focus());
+      toast.success("Nouvelle version chargée");
+    },
+    onError: (error) => toast.error(policyMutationMessage(error)),
   });
   const dirty = !completed.current && JSON.stringify(draft) !== initialDraft.current;
   const dirtyRef = useRef(dirty);
@@ -1033,7 +1125,7 @@ function PolicyEditor({ existing }: { existing?: CommercialPolicyDetail }) {
     mutation.mutate();
   };
   return (
-    <div className="space-y-6">
+    <section aria-label="Éditeur de politique commerciale" className="space-y-6" ref={editorFocus} tabIndex={-1}>
       <Button asChild className="-ms-2" size="sm" variant="ghost">
         <Link to={existing ? `/admin/commercial-policies/${existing.summary.id}` : "/admin/commercial-policies"}>
           <ArrowLeftIcon className="rtl:rotate-180" />
@@ -1058,6 +1150,25 @@ function PolicyEditor({ existing }: { existing?: CommercialPolicyDetail }) {
           <ReviewStep draft={draft} errors={errors} />
         )}
       </div>
+      {versionConflict ? (
+        <Alert variant="destructive">
+          <WarningCircleIcon />
+          <AlertTitle>Le brouillon a changé ailleurs</AlertTitle>
+          <AlertDescription>
+            Vos saisies ne seront pas appliquées sur la nouvelle version sans relecture.
+            <Button
+              className="mt-3"
+              disabled={reload.isPending}
+              onClick={() => reload.mutate()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {reload.isPending ? "Rechargement…" : "Recharger et abandonner mes modifications"}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <footer className="flex flex-col-reverse justify-between gap-3 border-t pt-5 sm:flex-row">
         <Button
           disabled={!previousStep}
@@ -1069,7 +1180,7 @@ function PolicyEditor({ existing }: { existing?: CommercialPolicyDetail }) {
           Précédent
         </Button>
         {step === "review" ? (
-          <Button disabled={mutation.isPending} onClick={submit}>
+          <Button disabled={mutation.isPending || versionConflict} onClick={submit}>
             {mutation.isPending ? "Enregistrement…" : existing ? "Enregistrer le brouillon" : "Créer le brouillon"}
           </Button>
         ) : (
@@ -1079,7 +1190,7 @@ function PolicyEditor({ existing }: { existing?: CommercialPolicyDetail }) {
           </Button>
         )}
       </footer>
-    </div>
+    </section>
   );
 }
 
@@ -1092,13 +1203,21 @@ export function AdminCommercialPolicyCreatePage() {
 export function AdminCommercialPolicyEditPage() {
   const session = useAdminSession();
   const { policyId } = useParams();
-  const id = policyId ?? "";
+  const id = validPolicyIdentity(policyId ?? "");
   const policy = useQuery({
     queryKey: adminCommercialKeys.policies.detail(id),
     queryFn: () => adminApi.commercialPolicy(id),
     enabled: commercialQueryEnabled(session.can, adminPermissions.commercialPoliciesRead, Boolean(id)),
   });
   if (!session.can(adminPermissions.commercialPoliciesUpdateDraft)) return <PermissionState />;
+  if (!id) {
+    return (
+      <ErrorState
+        description="L’identifiant présent dans l’adresse n’est pas un identifiant de politique valide."
+        title="Adresse de politique invalide"
+      />
+    );
+  }
   if (policy.isLoading) return <LoadingState />;
   if (policy.isError || !policy.data) return <ErrorState retry={() => void policy.refetch()} />;
   if (policy.data.summary.status !== "DRAFT" || !policy.data.summary.availableActions.includes("EDIT_DRAFT")) {

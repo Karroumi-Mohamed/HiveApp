@@ -32,8 +32,9 @@ export const commercialPolicySortableFields = new Set([
 ]);
 
 function boundedPage(value: string | null) {
+  if (!value || !/^\d+$/.test(value)) return 0;
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
+  return Number.isSafeInteger(parsed) && parsed <= 10_000 ? parsed : 0;
 }
 
 function member<T extends string>(value: string | null, allowed: Set<string>): T | "ALL" {
@@ -53,7 +54,7 @@ export function readCommercialPolicyListState(params: URLSearchParams): Commerci
   const requestedSize = Number(params.get("size"));
   const requestedSort = params.get("sort") ?? "updatedAt";
   return {
-    search: params.get("q")?.trim() ?? "",
+    search: params.get("q")?.trim().slice(0, 180) ?? "",
     status: member(params.get("status"), statuses),
     targetKind: member(params.get("target"), targets),
     source: member(params.get("source"), sources),

@@ -1,4 +1,10 @@
-import { ArrowRightIcon, MagnifyingGlassIcon, PlusIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import {
+  ArrowClockwiseIcon,
+  ArrowRightIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { SortingState } from "@tanstack/react-table";
 import { useCallback, useEffect, useState } from "react";
@@ -104,9 +110,9 @@ const columns = column.columns([
     cell: ({ row }) => (
       <span className="tabular-nums">
         {row.original.effectCount}
-        {row.original.executionSupported ? null : (
-          <span className="mt-0.5 block text-xs text-warning">Exécution différée</span>
-        )}
+        {!row.original.executionSupported ? (
+          <span className="mt-0.5 block text-xs text-warning">Application indisponible</span>
+        ) : null}
       </span>
     ),
   }),
@@ -256,13 +262,14 @@ export function AdminCommercialPoliciesPage() {
         }
         title="Politiques commerciales"
       />
-      <section className="overflow-hidden rounded-xl border bg-card">
+      <section aria-busy={policies.isFetching} className="overflow-hidden rounded-xl border bg-card">
         <div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_repeat(4,175px)]">
           <div className="relative">
             <MagnifyingGlassIcon className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               aria-label="Rechercher les politiques"
               className="ps-9"
+              maxLength={180}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Nom ou code…"
               value={search}
@@ -329,6 +336,16 @@ export function AdminCommercialPoliciesPage() {
             </Label>
           </div>
           <div className="flex items-center gap-3">
+            <Button
+              aria-label="Actualiser les politiques"
+              disabled={policies.isFetching}
+              onClick={() => void policies.refetch()}
+              size="icon-sm"
+              title="Actualiser les politiques"
+              variant="ghost"
+            >
+              <ArrowClockwiseIcon className={policies.isFetching ? "animate-spin" : undefined} />
+            </Button>
             <Select
               onValueChange={(value) => update({ size: Number(value) as typeof state.size })}
               value={String(state.size)}

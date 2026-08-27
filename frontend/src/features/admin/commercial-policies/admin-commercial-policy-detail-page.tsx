@@ -11,7 +11,7 @@ import {
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
@@ -49,10 +49,17 @@ import {
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { CommercialPolicyApplicationStatus } from "./commercial-policy-application-notice";
+import {
+  boundedPolicyPage,
+  boundedPolicyResponsePage,
+  validPolicyIdentity,
+  withPolicySearchParam,
+} from "./commercial-policy-detail-state";
 import { CommercialPolicyActivationDialog, CommercialPolicyReasonDialog } from "./commercial-policy-dialogs";
 import {
   effectLabel,
-  executionBlocker,
+  isPolicyVersionConflict,
   policyBlocker,
   policyMutationMessage,
   policySource,
@@ -153,7 +160,9 @@ function PolicyEffects({ policy }: { policy: CommercialPolicyDetail }) {
 }
 
 function LifecycleOperations({ policy }: { policy: CommercialPolicyDetail }) {
+  const session = useAdminSession();
   const has = (action: CommercialPolicyAction) => policy.summary.availableActions.includes(action);
+  const canPreviewActivation = session.can(adminPermissions.commercialPoliciesPreviewActivation);
   return (
     <section className="space-y-4 border-t pt-5">
       <div>
@@ -163,7 +172,7 @@ function LifecycleOperations({ policy }: { policy: CommercialPolicyDetail }) {
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
-        {has("ACTIVATE") || has("RESUME") ? (
+        {(has("ACTIVATE") || has("RESUME")) && canPreviewActivation ? (
           <CommercialPolicyActivationDialog
             policy={policy}
             trigger={
@@ -173,6 +182,16 @@ function LifecycleOperations({ policy }: { policy: CommercialPolicyDetail }) {
               </Button>
             }
           />
+        ) : has("ACTIVATE") || has("RESUME") ? (
+          <div className="space-y-1">
+            <Button aria-describedby="commercial-policy-activation-permission" disabled>
+              <PlayIcon />
+              {has("RESUME") ? "Reprendre indisponible" : "Activer indisponible"}
+            </Button>
+            <p className="max-w-64 text-xs text-muted-foreground" id="commercial-policy-activation-permission">
+              La permission de vérifier l’audience signée est requise.
+            </p>
+          </div>
         ) : null}
         {has("PAUSE") ? (
           <CommercialPolicyReasonDialog
@@ -267,23 +286,10 @@ function Overview({ policy }: { policy: CommercialPolicyDetail }) {
           </AlertDescription>
         </Alert>
       ) : null}
-      {!policy.summary.executionSupported ? (
-        <Alert className="border-warning/30 bg-warning/5">
-          <WarningCircleIcon />
-          <AlertTitle>Exécution abonnements indisponible</AlertTitle>
-          <AlertDescription>
-            <ul className="list-disc ps-4">
-              {policy.summary.executionBlockers.map((blocker) => (
-                <li key={blocker}>{executionBlocker[blocker]}</li>
-              ))}
-            </ul>
-            <p>
-              Une activation enregistre la définition et sa preuve ; elle ne prétend pas avoir appliqué ces effets aux
-              abonnements.
-            </p>
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      <CommercialPolicyApplicationStatus
+        blockers={policy.summary.executionBlockers}
+        executionSupported={policy.summary.executionSupported}
+      />
       <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <dt className="text-xs text-muted-foreground">Origine</dt>
@@ -327,12 +333,19 @@ function Overview({ policy }: { policy: CommercialPolicyDetail }) {
 function Audience({ policyId }: { policyId: string }) {
   const session = useAdminSession();
   const [params, setParams] = useSearchParams();
-  const page = Math.max(0, Number(params.get("page")) || 0);
+  const page = boundedPolicyPage(params.get("page"));
   const audience = useQuery({
     queryKey: adminCommercialKeys.policies.audience(policyId, page),
     queryFn: () => adminApi.commercialPolicyAudience(policyId, page),
     enabled: commercialQueryEnabled(session.can, adminPermissions.commercialPoliciesPreviewAudience),
   });
+  useEffect(() => {
+    const raw = params.get("page");
+    const bounded = audience.data ? boundedPolicyResponsePage(page, audience.data.accounts.totalPages) : page;
+    if ((raw && raw !== String(page)) || bounded !== page) {
+      setParams(withPolicySearchParam(params, "page", bounded), { replace: true });
+    }
+  }, [audience.data, page, params, setParams]);
   if (!session.can(adminPermissions.commercialPoliciesPreviewAudience)) return <PermissionState />;
   if (audience.isLoading) return <LoadingState />;
   if (audience.isError || !audience.data) return <ErrorState retry={() => void audience.refetch()} />;
@@ -379,12 +392,12 @@ function Audience({ policyId }: { policyId: string }) {
         </ul>
         {!audience.data.accounts.content.length ? (
           <EmptyState
-            description="La définition reste en brouillon ou nécessite une cible résoluble."
+            description="La cible actuelle ne résout aucun compte pour cette vérification."
             title="Aucun compte résolu"
           />
         ) : null}
         <PaginationBar
-          onPageChange={(next) => setParams(next ? { page: String(next) } : {}, { replace: true })}
+          onPageChange={(next) => setParams(withPolicySearchParam(params, "page", next), { replace: true })}
           page={audience.data.accounts.page}
           totalElements={audience.data.accounts.totalElements}
           totalPages={audience.data.accounts.totalPages}
@@ -413,8 +426,8 @@ function Revisions({ policyId }: { policyId: string }) {
   const canReadRevisions = session.can(adminPermissions.commercialPoliciesReadRevisions);
   const canCompare = session.can(adminPermissions.commercialPoliciesCompare);
   const [params, setParams] = useSearchParams();
-  const page = Math.max(0, Number(params.get("page")) || 0);
-  const compared = params.get("against") ?? "";
+  const page = boundedPolicyPage(params.get("page"));
+  const compared = validPolicyIdentity(params.get("against"));
   const [compareCandidate, setCompareCandidate] = useState(compared);
   const chooseComparison = (candidateId: string) => {
     setCompareCandidate(candidateId);
@@ -432,6 +445,17 @@ function Revisions({ policyId }: { policyId: string }) {
     queryFn: () => adminApi.compareCommercialPolicies(policyId, compared),
     enabled: commercialQueryEnabled(session.can, adminPermissions.commercialPoliciesCompare, Boolean(compared)),
   });
+  useEffect(() => setCompareCandidate(compared), [compared]);
+  useEffect(() => {
+    let next = params;
+    const rawPage = params.get("page");
+    const bounded = revisions.data ? boundedPolicyResponsePage(page, revisions.data.totalPages) : page;
+    if ((rawPage && rawPage !== String(page)) || bounded !== page) {
+      next = withPolicySearchParam(next, "page", bounded);
+    }
+    if (params.get("against") && !compared) next = withPolicySearchParam(next, "against", null);
+    if (next !== params) setParams(next, { replace: true });
+  }, [compared, page, params, revisions.data, setParams]);
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(320px,0.8fr)_1.2fr]">
       <section className="overflow-hidden rounded-xl border bg-card">
@@ -485,13 +509,14 @@ function Revisions({ policyId }: { policyId: string }) {
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   id="commercial-policy-compared-id"
+                  maxLength={36}
                   onChange={(event) => setCompareCandidate(event.target.value)}
                   placeholder="Choisissez dans la lignée ou collez un identifiant connu"
                   value={compareCandidate}
                 />
                 <Button
-                  disabled={!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(compareCandidate) || compareCandidate === policyId}
-                  onClick={() => chooseComparison(compareCandidate)}
+                  disabled={!validPolicyIdentity(compareCandidate) || compareCandidate === policyId}
+                  onClick={() => chooseComparison(validPolicyIdentity(compareCandidate))}
                   variant="outline"
                 >
                   Comparer
@@ -580,12 +605,19 @@ function Revisions({ policyId }: { policyId: string }) {
 function HistoryList({ policyId }: { policyId: string }) {
   const session = useAdminSession();
   const [params, setParams] = useSearchParams();
-  const page = Math.max(0, Number(params.get("page")) || 0);
+  const page = boundedPolicyPage(params.get("page"));
   const history = useQuery({
     queryKey: adminCommercialKeys.policies.history(policyId, page),
     queryFn: () => adminApi.commercialPolicyHistory(policyId, page),
     enabled: commercialQueryEnabled(session.can, adminPermissions.commercialPoliciesReadHistory),
   });
+  useEffect(() => {
+    const raw = params.get("page");
+    const bounded = history.data ? boundedPolicyResponsePage(page, history.data.totalPages) : page;
+    if ((raw && raw !== String(page)) || bounded !== page) {
+      setParams(withPolicySearchParam(params, "page", bounded), { replace: true });
+    }
+  }, [history.data, page, params, setParams]);
   if (!session.can(adminPermissions.commercialPoliciesReadHistory)) return <PermissionState />;
   if (history.isLoading) return <LoadingState />;
   if (history.isError || !history.data) return <ErrorState retry={() => void history.refetch()} />;
@@ -609,7 +641,7 @@ function HistoryList({ policyId }: { policyId: string }) {
         ))}
       </ol>
       <PaginationBar
-        onPageChange={(next) => setParams(next ? { page: String(next) } : {}, { replace: true })}
+        onPageChange={(next) => setParams(withPolicySearchParam(params, "page", next), { replace: true })}
         page={history.data.page}
         totalElements={history.data.totalElements}
         totalPages={history.data.totalPages}
@@ -623,9 +655,10 @@ function Activations({ policyId }: { policyId: string }) {
   const canReadActivations = session.can(adminPermissions.commercialPoliciesReadActivations);
   const canReadAccounts = session.can(adminPermissions.commercialPoliciesReadActivationAccounts);
   const [params, setParams] = useSearchParams();
-  const page = Math.max(0, Number(params.get("page")) || 0);
-  const selected = params.get("activation") ?? "";
-  const accountsPage = Math.max(0, Number(params.get("accountsPage")) || 0);
+  const page = boundedPolicyPage(params.get("page"));
+  const selected = validPolicyIdentity(params.get("activation"));
+  const [activationCandidate, setActivationCandidate] = useState(selected);
+  const accountsPage = boundedPolicyPage(params.get("accountsPage"));
   const activations = useQuery({
     queryKey: adminCommercialKeys.policies.activations(policyId, page),
     queryFn: () => adminApi.commercialPolicyActivations(policyId, page),
@@ -640,6 +673,34 @@ function Activations({ policyId }: { policyId: string }) {
       Boolean(selected),
     ),
   });
+  const chooseActivation = (activationId: string) => {
+    const normalized = validPolicyIdentity(activationId);
+    if (!normalized) return;
+    let next = withPolicySearchParam(params, "activation", normalized);
+    next = withPolicySearchParam(next, "accountsPage", null);
+    setParams(next, { replace: true });
+  };
+  useEffect(() => setActivationCandidate(selected), [selected]);
+  useEffect(() => {
+    let next = params;
+    const rawPage = params.get("page");
+    const rawAccountsPage = params.get("accountsPage");
+    const finalPage = activations.data ? boundedPolicyResponsePage(page, activations.data.totalPages) : page;
+    const finalAccountsPage = accounts.data
+      ? boundedPolicyResponsePage(accountsPage, accounts.data.accounts.totalPages)
+      : accountsPage;
+    if ((rawPage && rawPage !== String(page)) || finalPage !== page) {
+      next = withPolicySearchParam(next, "page", finalPage);
+    }
+    if ((rawAccountsPage && rawAccountsPage !== String(accountsPage)) || finalAccountsPage !== accountsPage) {
+      next = withPolicySearchParam(next, "accountsPage", finalAccountsPage);
+    }
+    if (!selected) {
+      if (params.get("activation")) next = withPolicySearchParam(next, "activation", null);
+      if (params.get("accountsPage")) next = withPolicySearchParam(next, "accountsPage", null);
+    }
+    if (next !== params) setParams(next, { replace: true });
+  }, [accounts.data, accountsPage, activations.data, page, params, selected, setParams]);
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(340px,0.9fr)_1.1fr]">
       <section className="overflow-hidden rounded-xl border bg-card">
@@ -662,16 +723,7 @@ function Activations({ policyId }: { policyId: string }) {
                       </p>
                     </div>
                     {canReadAccounts ? (
-                      <Button
-                        onClick={() => {
-                          const next = new URLSearchParams(params);
-                          next.set("activation", activation.id);
-                          next.delete("accountsPage");
-                          setParams(next, { replace: true });
-                        }}
-                        size="sm"
-                        variant="ghost"
-                      >
+                      <Button onClick={() => chooseActivation(activation.id)} size="sm" variant="ghost">
                         Voir l’audience figée
                       </Button>
                     ) : null}
@@ -700,44 +752,71 @@ function Activations({ policyId }: { policyId: string }) {
       <section className="min-h-56 overflow-hidden rounded-xl border bg-card">
         {!canReadAccounts ? (
           <PermissionState />
-        ) : !selected ? (
-          <EmptyState
-            description="Une activation conserve la liste exacte des comptes examinés."
-            title="Choisissez une activation"
-          />
-        ) : accounts.isLoading ? (
-          <div className="p-4">
-            <LoadingState />
-          </div>
-        ) : accounts.isError || !accounts.data ? (
-          <ErrorState retry={() => void accounts.refetch()} />
         ) : (
-          <>
-            <div className="border-b p-4">
-              <h2 className="text-sm font-semibold">Audience figée · activation #{accounts.data.activationNumber}</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {accounts.data.immutableAccountCount} compte(s) enregistrés
-              </p>
+          <div>
+            <div className="space-y-2 border-b p-4">
+              <Label htmlFor="commercial-policy-activation-id">Activation à examiner</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  id="commercial-policy-activation-id"
+                  maxLength={36}
+                  onChange={(event) => setActivationCandidate(event.target.value)}
+                  placeholder={
+                    canReadActivations ? "Choisissez à gauche ou collez un identifiant" : "Collez un identifiant connu"
+                  }
+                  value={activationCandidate}
+                />
+                <Button
+                  disabled={!validPolicyIdentity(activationCandidate)}
+                  onClick={() => chooseActivation(activationCandidate)}
+                  variant="outline"
+                >
+                  Examiner
+                </Button>
+              </div>
             </div>
-            <ul className="divide-y">
-              {accounts.data.accounts.content.map((account) => (
-                <li className="px-4 py-3" key={account.id}>
-                  <p className="text-sm font-medium">{account.name ?? account.id}</p>
-                  <p className="text-xs text-muted-foreground">{account.slug ?? account.id}</p>
-                </li>
-              ))}
-            </ul>
-            <PaginationBar
-              onPageChange={(nextPage) => {
-                const value = new URLSearchParams(params);
-                nextPage ? value.set("accountsPage", String(nextPage)) : value.delete("accountsPage");
-                setParams(value, { replace: true });
-              }}
-              page={accounts.data.accounts.page}
-              totalElements={accounts.data.accounts.totalElements}
-              totalPages={accounts.data.accounts.totalPages}
-            />
-          </>
+            {!selected ? (
+              <EmptyState
+                description="Une activation conserve la liste exacte des comptes examinés."
+                title="Choisissez une activation"
+              />
+            ) : accounts.isLoading ? (
+              <div className="p-4">
+                <LoadingState />
+              </div>
+            ) : accounts.isError || !accounts.data ? (
+              <ErrorState retry={() => void accounts.refetch()} />
+            ) : (
+              <>
+                <div className="border-b p-4">
+                  <h2 className="text-sm font-semibold">
+                    Audience figée · activation #{accounts.data.activationNumber}
+                  </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {accounts.data.immutableAccountCount} compte(s) enregistrés
+                  </p>
+                </div>
+                <ul className="divide-y">
+                  {accounts.data.accounts.content.map((account) => (
+                    <li className="px-4 py-3" key={account.id}>
+                      <p className="text-sm font-medium">{account.name ?? account.id}</p>
+                      <p className="text-xs text-muted-foreground">{account.slug ?? account.id}</p>
+                    </li>
+                  ))}
+                </ul>
+                <PaginationBar
+                  onPageChange={(nextPage) => {
+                    const value = new URLSearchParams(params);
+                    nextPage ? value.set("accountsPage", String(nextPage)) : value.delete("accountsPage");
+                    setParams(value, { replace: true });
+                  }}
+                  page={accounts.data.accounts.page}
+                  totalElements={accounts.data.accounts.totalElements}
+                  totalPages={accounts.data.accounts.totalPages}
+                />
+              </>
+            )}
+          </div>
         )}
       </section>
     </div>
@@ -753,6 +832,18 @@ function ReassignOwnerDialog({ policy, trigger }: { policy: CommercialPolicyDeta
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [page, setPage] = useState(0);
+  const expectedVersion = useRef(policy.summary.version);
+  const resetForm = () => {
+    setOwnerId("");
+    setReason("");
+    setSearch("");
+    setPage(0);
+  };
+  const changeOpen = (next: boolean) => {
+    if (next) expectedVersion.current = policy.summary.version;
+    setOpen(next);
+    if (!next) resetForm();
+  };
   const operators = useQuery({
     queryKey: ["admin", "users", "policy-owner-choices", debouncedSearch, page],
     queryFn: () =>
@@ -769,7 +860,7 @@ function ReassignOwnerDialog({ policy, trigger }: { policy: CommercialPolicyDeta
   const selectedOperator = useQuery({
     queryKey: ["admin", "users", "policy-owner-selected", ownerId],
     queryFn: () => adminApi.user(ownerId),
-    enabled: open && Boolean(ownerId) && session.can(adminPermissions.usersRead),
+    enabled: open && Boolean(validPolicyIdentity(ownerId)) && session.can(adminPermissions.usersRead),
   });
   const operatorOptions = [...(operators.data?.content ?? [])];
   if (selectedOperator.data && !operatorOptions.some((operator) => operator.id === selectedOperator.data?.id)) {
@@ -778,7 +869,7 @@ function ReassignOwnerDialog({ policy, trigger }: { policy: CommercialPolicyDeta
   const mutation = useMutation({
     mutationFn: () =>
       adminApi.reassignCommercialPolicyOwner(policy.summary.id, {
-        version: policy.summary.version,
+        version: expectedVersion.current,
         ownerAdminUserId: ownerId,
         reason: reason.trim(),
       }),
@@ -789,18 +880,17 @@ function ReassignOwnerDialog({ policy, trigger }: { policy: CommercialPolicyDeta
         adminCommercialKeys.policies.detail(policy.summary.id),
         adminCommercialKeys.policies.owner(policy.summary.id),
       );
-      setOpen(false);
-      setOwnerId("");
-      setReason("");
+      changeOpen(false);
       toast.success("Responsable réassigné");
     },
     onError: async (error) => {
+      if (isPolicyVersionConflict(error)) changeOpen(false);
       await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.policies.detail(policy.summary.id) });
       toast.error(policyMutationMessage(error));
     },
   });
   return (
-    <Dialog onOpenChange={setOpen} open={open}>
+    <Dialog onOpenChange={changeOpen} open={open}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -816,6 +906,7 @@ function ReassignOwnerDialog({ policy, trigger }: { policy: CommercialPolicyDeta
             <div className="space-y-2">
               <Input
                 aria-label="Rechercher un responsable"
+                maxLength={180}
                 onChange={(event) => {
                   setSearch(event.target.value);
                   setPage(0);
@@ -841,6 +932,11 @@ function ReassignOwnerDialog({ policy, trigger }: { policy: CommercialPolicyDeta
                   </SelectContent>
                 </Select>
               )}
+              {selectedOperator.isError ? (
+                <p className="text-xs text-destructive" role="alert">
+                  L’opérateur sélectionné n’a pas pu être relu. Choisissez-le de nouveau avant de confirmer.
+                </p>
+              ) : null}
               {operators.data ? (
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>{operators.data.totalElements} opérateur(s)</span>
@@ -869,6 +965,7 @@ function ReassignOwnerDialog({ policy, trigger }: { policy: CommercialPolicyDeta
             <div className="space-y-2">
               <Input
                 id="policy-owner-choice"
+                maxLength={36}
                 onChange={(event) => setOwnerId(event.target.value)}
                 placeholder="Identifiant administrateur"
                 value={ownerId}
@@ -890,10 +987,13 @@ function ReassignOwnerDialog({ policy, trigger }: { policy: CommercialPolicyDeta
           />
         </div>
         <DialogFooter>
-          <Button onClick={() => setOpen(false)} variant="outline">
+          <Button onClick={() => changeOpen(false)} variant="outline">
             Annuler
           </Button>
-          <Button disabled={!ownerId || !reason.trim() || mutation.isPending} onClick={() => mutation.mutate()}>
+          <Button
+            disabled={!validPolicyIdentity(ownerId) || !reason.trim() || selectedOperator.isError || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
             Réassigner
           </Button>
         </DialogFooter>
@@ -955,13 +1055,21 @@ function standaloneSurface(tab: string | undefined, policyId: string) {
 export function AdminCommercialPolicyDetailPage() {
   const session = useAdminSession();
   const { policyId, tab } = useParams();
-  const id = policyId ?? "";
+  const id = validPolicyIdentity(policyId ?? "");
   const canRead = session.can(adminPermissions.commercialPoliciesRead);
   const policy = useQuery({
     queryKey: adminCommercialKeys.policies.detail(id),
     queryFn: () => adminApi.commercialPolicy(id),
     enabled: commercialQueryEnabled(session.can, adminPermissions.commercialPoliciesRead, Boolean(id)),
   });
+  if (!id) {
+    return (
+      <ErrorState
+        description="L’identifiant présent dans l’adresse n’est pas un identifiant de politique valide."
+        title="Adresse de politique invalide"
+      />
+    );
+  }
   if (!canRead) {
     const surface = standaloneSurface(tab, id);
     if (!surface) return <Navigate replace to="/admin" />;

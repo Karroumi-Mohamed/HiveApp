@@ -11,7 +11,9 @@ import type {
   CommercialPolicyTargetKind,
   CommercialPolicyWriteInput,
   ProductPriceBillingCycle,
+  RegistryFeature,
 } from "@/api/contracts";
+import { ApiError } from "@/api/http";
 import { isCommercialAmount } from "@/lib/exact-decimal";
 
 export const policyStatus: Record<
@@ -53,6 +55,17 @@ export const effectLabel: Record<CommercialPolicyEffectType, string> = {
   GRANT_QUOTA_PACKAGE: "Accorder un pack de capacité",
   BLOCK_FEATURE: "Bloquer une fonctionnalité",
 };
+
+export function isPolicyQuotaFeatureChoice(
+  feature: Pick<RegistryFeature, "status" | "publicVisible" | "newGrantsEnabled" | "runtimeEnabled">,
+) {
+  return (
+    (feature.status === "PUBLIC" || feature.status === "BETA") &&
+    feature.publicVisible &&
+    feature.newGrantsEnabled &&
+    feature.runtimeEnabled
+  );
+}
 
 export const policyBlocker: Record<CommercialPolicyBlocker, string> = {
   WRONG_LIFECYCLE_STATE: "Le cycle de vie actuel ne permet pas cette activation.",
@@ -393,6 +406,7 @@ export function reviewedActivationReady(
     preview &&
       preview.policyId === policy.summary.id &&
       preview.expectedVersion === policy.summary.version &&
+      Boolean(preview.previewToken) &&
       preview.activatable &&
       preview.blockers.length === 0 &&
       Date.parse(preview.expiresAt) > now,
@@ -400,12 +414,19 @@ export function reviewedActivationReady(
 }
 
 export function policyMutationMessage(error: unknown) {
-  if (!(error instanceof Error)) return "L’opération n’a pas pu être exécutée.";
-  const code = "code" in error ? String(error.code) : "";
-  if (code === "STALE_ACTIVATION_PREVIEW") {
+  if (error instanceof ApiError && error.code === "STALE_ACTIVATION_PREVIEW") {
     return "La vérification n’est plus actuelle. Relisez le nouveau résultat avant de confirmer.";
   }
-  if (code === "STALE_RESOURCE_VERSION") return "La politique a changé. Les données ont été rechargées.";
-  if (code === "DRAFT_SUCCESSOR_EXISTS") return "Cette lignée possède déjà un brouillon de révision.";
+  if (error instanceof ApiError && error.code === "STALE_RESOURCE_VERSION") {
+    return "La politique a changé. Rechargez sa nouvelle version avant de réessayer.";
+  }
+  if (error instanceof ApiError && error.code === "DRAFT_SUCCESSOR_EXISTS") {
+    return "Cette lignée possède déjà un brouillon de révision.";
+  }
+  if (!(error instanceof Error)) return "L’opération n’a pas pu être exécutée.";
   return error.message || "L’opération n’a pas pu être exécutée.";
+}
+
+export function isPolicyVersionConflict(error: unknown) {
+  return error instanceof ApiError && error.code === "STALE_RESOURCE_VERSION";
 }

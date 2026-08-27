@@ -74,8 +74,8 @@ const policy: CommercialPolicyDetail = {
     availableActions: ["PREVIEW_ACTIVATION", "ACTIVATE"],
     blockers: [],
     ownerIdentityRestricted: true,
-    executionSupported: false,
-    executionBlockers: ["SUBSCRIPTION_OPERATION_ENGINE_NOT_CONNECTED"],
+    executionSupported: true,
+    executionBlockers: ["SCHEDULED_EXECUTION_NOT_AVAILABLE"],
   },
   description: null,
   reason: "Contrat signé",
@@ -109,8 +109,8 @@ function activationPreview(token: string): CommercialPolicyActivationPreview {
     affectedAccountCount: 1,
     sampleAccounts: [{ id: "account-1", name: "Acme", slug: "acme", active: true }],
     policyRevisionToEnd: null,
-    executionSupported: false,
-    executionBlockers: ["SUBSCRIPTION_OPERATION_ENGINE_NOT_CONNECTED"],
+    executionSupported: true,
+    executionBlockers: ["SCHEDULED_EXECUTION_NOT_AVAILABLE"],
   };
 }
 
@@ -184,9 +184,8 @@ describe("signed commercial-policy activation", () => {
     const view = renderDialog();
     const user = userEvent.setup({ document: view.container.ownerDocument });
     await user.click(view.getByRole("button", { name: "Vérifier" }));
-    expect(
-      await view.findByText("Le moteur qui applique ces effets aux abonnements n’est pas encore connecté."),
-    ).toBeTruthy();
+    expect(await view.findByText("L’exécution planifiée des effets n’est pas encore disponible.")).toBeTruthy();
+    expect(view.getByText(/La politique est évaluée pendant une opération d’abonnement/)).toBeTruthy();
 
     const confirm = view.getByRole("button", { name: "Activer la définition" });
     expect(confirm.hasAttribute("disabled")).toBeTrue();
@@ -205,5 +204,64 @@ describe("signed commercial-policy activation", () => {
     await user.click(confirm);
     await waitFor(() => expect(bodies).toHaveLength(2));
     expect(bodies[1]?.activationPreviewToken).toBe("fresh.signed.token");
+  });
+
+  test("discards signed evidence when the dialog closes", async () => {
+    let previewCalls = 0;
+    const bodies: Array<Record<string, unknown>> = [];
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/api/admin/commercial-policies/policy-1/activation-preview")) {
+        previewCalls += 1;
+        return response(activationPreview(`signed.token.${previewCalls}`));
+      }
+      if (url.endsWith("/api/admin/commercial-policies/policy-1/activate")) {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return response({ ...policy, summary: { ...policy.summary, status: "ACTIVE", version: 5 } });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const view = renderDialog();
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(view.getByRole("button", { name: "Vérifier" }));
+    await waitFor(() => expect(previewCalls).toBe(1));
+    await user.click(view.getByRole("button", { name: "Annuler" }));
+    await user.click(view.getByRole("button", { name: "Vérifier" }));
+    await waitFor(() => expect(previewCalls).toBe(2));
+    await user.type(view.getByLabelText("Motif de l’activation"), "Nouvelle vérification");
+    await user.click(view.getByRole("button", { name: "Activer la définition" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]?.activationPreviewToken).toBe("signed.token.2");
+  });
+
+  test("does not mint replacement evidence after the dialog closes", async () => {
+    let previewCalls = 0;
+    let finishActivation: ((response: Response) => void) | undefined;
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/admin/commercial-policies/policy-1/activation-preview")) {
+        previewCalls += 1;
+        return response(activationPreview("one.use.token"));
+      }
+      if (url.endsWith("/api/admin/commercial-policies/policy-1/activate")) {
+        return await new Promise<Response>((resolve) => {
+          finishActivation = resolve;
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const view = renderDialog();
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(view.getByRole("button", { name: "Vérifier" }));
+    await view.findByText("Preuve actuelle");
+    await user.type(view.getByLabelText("Motif de l’activation"), "Approbation");
+    await user.click(view.getByRole("button", { name: "Activer la définition" }));
+    await waitFor(() => expect(finishActivation).toBeDefined());
+    await user.click(view.getByRole("button", { name: "Annuler" }));
+    finishActivation?.(response({ code: "STALE_ACTIVATION_PREVIEW", message: "Stale" }, 409));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(previewCalls).toBe(1);
   });
 });

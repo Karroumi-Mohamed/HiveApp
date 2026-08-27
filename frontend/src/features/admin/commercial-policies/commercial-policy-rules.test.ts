@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { CommercialPolicyActivationPreview, CommercialPolicyDetail } from "@/api/contracts";
+import { ApiError } from "@/api/http";
 import {
   emptyCommercialPolicyDraft,
+  isPolicyQuotaFeatureChoice,
+  isPolicyVersionConflict,
   newDraftEffect,
+  policyMutationMessage,
   reviewedActivationReady,
   toCommercialPolicyWriteInput,
   validateCommercialPolicyDraft,
@@ -83,6 +87,23 @@ describe("commercial policy typed editor", () => {
     ];
     expect(validateCommercialPolicyDraft(draft).effects).toContain("même devise");
   });
+
+  test("offers quota bonuses only for features that activation can commercially grant", () => {
+    const available = { status: "PUBLIC", publicVisible: true, newGrantsEnabled: true, runtimeEnabled: true } as const;
+    expect(isPolicyQuotaFeatureChoice(available)).toBeTrue();
+    expect(isPolicyQuotaFeatureChoice({ ...available, status: "INTERNAL" })).toBeFalse();
+    expect(isPolicyQuotaFeatureChoice({ ...available, newGrantsEnabled: false })).toBeFalse();
+    expect(isPolicyQuotaFeatureChoice({ ...available, runtimeEnabled: false })).toBeFalse();
+  });
+});
+
+describe("commercial policy mutation errors", () => {
+  test("uses stable error codes instead of backend message wording", () => {
+    const stale = new ApiError(409, "STALE_RESOURCE_VERSION", "arbitrary server wording");
+    expect(isPolicyVersionConflict(stale)).toBeTrue();
+    expect(policyMutationMessage(stale)).toContain("Rechargez");
+    expect(isPolicyVersionConflict(new ApiError(409, "OTHER_CONFLICT", "STALE_RESOURCE_VERSION"))).toBeFalse();
+  });
 });
 
 describe("commercial policy signed activation", () => {
@@ -92,6 +113,7 @@ describe("commercial policy signed activation", () => {
   const preview = {
     policyId: "policy-1",
     expectedVersion: 4,
+    previewToken: "signed.preview.token",
     activatable: true,
     blockers: [],
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -101,6 +123,7 @@ describe("commercial policy signed activation", () => {
     expect(reviewedActivationReady(policy, preview)).toBeTrue();
     expect(reviewedActivationReady(policy, { ...preview, expectedVersion: 3 })).toBeFalse();
     expect(reviewedActivationReady(policy, { ...preview, policyId: "other" })).toBeFalse();
+    expect(reviewedActivationReady(policy, { ...preview, previewToken: "" })).toBeFalse();
     expect(reviewedActivationReady(policy, { ...preview, expiresAt: new Date(0).toISOString() })).toBeFalse();
     expect(reviewedActivationReady(policy, { ...preview, blockers: ["INVALID_EFFECT"] })).toBeFalse();
   });
