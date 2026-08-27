@@ -94,6 +94,13 @@ public class SubscriptionChangeActivationService {
 
     private String unavailableCommercialItem(SubscriptionChangeOperation operation) {
         for (var snapshot : operation.getTargetSnapshot().addOns()) {
+            // Existing subscribers retain the exact commercial snapshot they already bought.
+            // Requiring the catalogue entry to remain active here would turn an intentional
+            // "no new sales" lifecycle transition into an involuntary removal on any later
+            // subscription change. Only newly selected or changed items are revalidated.
+            if (operation.getBeforeSnapshot().addOns().contains(snapshot)) {
+                continue;
+            }
             var current = addOnRepository.findByCode(snapshot.code()).orElse(null);
             if (current == null || current.getStatus() != AddOnStatus.ACTIVE
                     || current.getDefinitionVersion() != snapshot.definitionVersion()) {
@@ -101,6 +108,12 @@ public class SubscriptionChangeActivationService {
             }
         }
         for (var snapshot : operation.getTargetSnapshot().quotaPackages()) {
+            // Equality includes quantity, capacity, price and definition version. Increasing
+            // an inactive package therefore remains a new commercial selection and is denied;
+            // only the exact already-held purchase may pass through unchanged.
+            if (operation.getBeforeSnapshot().quotaPackages().contains(snapshot)) {
+                continue;
+            }
             var current = quotaPackageRepository.findByCode(snapshot.code()).orElse(null);
             if (current == null || current.getStatus() != QuotaPackageStatus.ACTIVE
                     || current.getDefinitionVersion() != snapshot.definitionVersion()) {

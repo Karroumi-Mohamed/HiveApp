@@ -4,7 +4,7 @@ import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.platform.client.company.dto.CreateCompanyRequest;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
-import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
@@ -197,9 +197,10 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
         String token = registerClientAndGetToken();
         assignPlan(token, "PRO");
         String packageCode = createCompanyQuotaPackage(loginAdminAndGetToken());
-        applyCompanyQuotaPackage(token, packageCode)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.currentPrice").value(34.99));
+        var operation = applyCompanyQuotaPackage(token, packageCode);
+        assertThat(new java.math.BigDecimal(
+                operation.path("preview").path("previewPrice").asText()))
+                .isEqualByComparingTo("34.99");
 
         for (int index = 1; index <= 6; index++) {
             createCompany(token, "Overridden Company " + index);
@@ -251,11 +252,10 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
     private void assignPlan(String clientToken, String planCode) throws Exception {
         String adminToken = loginAdminAndGetToken();
         UUID accountId = currentAccountId(clientToken);
-        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", accountId)
-                .param("planCode", planCode)
-                .header("Authorization", bearer(adminToken)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.plan.code").value(planCode));
+        applyReviewedAdminSubscriptionChange(adminToken, accountId,
+                new com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest(
+                        planCode, java.util.Set.of(), java.util.List.of(),
+                        com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming.IMMEDIATE));
     }
 
     private UUID currentAccountId(String token) throws Exception {
@@ -298,16 +298,13 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
         return created.get("code").asText();
     }
 
-    private org.springframework.test.web.servlet.ResultActions applyCompanyQuotaPackage(
+    private com.fasterxml.jackson.databind.JsonNode applyCompanyQuotaPackage(
             String clientToken, String packageCode) throws Exception {
-        UpdateSubscriptionOverridesRequest request = new UpdateSubscriptionOverridesRequest(
-                java.util.Set.of(),
-                java.util.List.of(new QuotaPackageSelection(packageCode, 1))
-        );
-        return mockMvc.perform(patch("/api/admin/subscriptions/account/{accountId}/overrides", currentAccountId(clientToken))
-                .header("Authorization", bearer(loginAdminAndGetToken()))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)));
+        return applyReviewedAdminSubscriptionChange(
+                loginAdminAndGetToken(), currentAccountId(clientToken),
+                new SubscriptionChangeRequest(
+                        "PRO", java.util.Set.of(),
+                        java.util.List.of(new QuotaPackageSelection(packageCode, 1))));
     }
 
     private org.springframework.test.web.servlet.ResultActions createCompanyRequest(

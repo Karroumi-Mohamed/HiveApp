@@ -18,7 +18,7 @@ import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceActivationRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
-import com.hiveapp.platform.client.plan.dto.UpdateSubscriptionOverridesRequest;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.quota.QuotaLimitMode;
@@ -98,17 +98,13 @@ class QuotaPackageRevisionIntegrationTest extends PlatformShellIntegrationTestSu
 
         String clientToken = registerClientAndGetToken();
         UUID accountId = currentAccountId(clientToken);
-        mockMvc.perform(post("/api/admin/subscriptions/account/{id}", accountId)
-                        .param("planCode", "FLEX")
-                        .header("Authorization", bearer(token)))
-                .andExpect(status().isCreated());
-        mockMvc.perform(patch("/api/admin/subscriptions/account/{id}/overrides", accountId)
-                        .header("Authorization", bearer(token))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new UpdateSubscriptionOverridesRequest(
-                                Set.of(), List.of(new QuotaPackageSelection(
-                                        sourceBefore.getCode(), 1))))))
-                .andExpect(status().isOk());
+        applyReviewedAdminSubscriptionChange(token, accountId,
+                new SubscriptionChangeRequest(
+                        "FLEX", Set.of(), List.of(),
+                        com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming.IMMEDIATE));
+        applyReviewedAdminSubscriptionChange(token, accountId, new SubscriptionChangeRequest(
+                "FLEX", Set.of(), List.of(new QuotaPackageSelection(
+                        sourceBefore.getCode(), 1))));
         var snapshotBefore = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow()
                 .getEntitlementSnapshot();
         assertThat(snapshotBefore.quotaPackages()).singleElement().satisfies(item -> {
