@@ -26,6 +26,7 @@ import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageLifecycleRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaLimitRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceActivationRequest;
 import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
@@ -792,11 +793,12 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
     }
 
     private void publishPrice(String token, UUID priceId, long version) throws Exception {
+        String previewToken = fetchProductPriceActivationToken(token, priceId);
         mockMvc.perform(post("/api/admin/product-prices/{id}/activate", priceId)
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ProductPriceVersionRequest(
-                                version, "Publish test price"))))
+                        .content(objectMapper.writeValueAsString(new ProductPriceActivationRequest(
+                                version, "Publish test price", previewToken))))
                 .andExpect(status().isOk());
     }
 }

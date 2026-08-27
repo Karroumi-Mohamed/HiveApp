@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus;
 import com.hiveapp.platform.client.plan.dto.CreateProductPriceRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceActivationPreview;
+import com.hiveapp.platform.client.plan.dto.ProductPriceActivationRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceHistoryEntryDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreview;
@@ -110,8 +111,8 @@ public class ProductPriceAdminController {
 
     @PostMapping("/{priceId}/activate")
     public ProductPriceDto activate(@PathVariable UUID priceId,
-                                    @Valid @RequestBody ProductPriceVersionRequest request) {
-        return productPriceAdminService.activate(priceId, request.version(), request.reason());
+                                    @Valid @RequestBody ProductPriceActivationRequest request) {
+        return productPriceAdminService.activate(priceId, request);
     }
 
     @PostMapping("/{priceId}/pause")
@@ -122,8 +123,8 @@ public class ProductPriceAdminController {
 
     @PostMapping("/{priceId}/reactivate")
     public ProductPriceDto reactivate(@PathVariable UUID priceId,
-                                      @Valid @RequestBody ProductPriceVersionRequest request) {
-        return productPriceAdminService.reactivate(priceId, request.version(), request.reason());
+                                      @Valid @RequestBody ProductPriceActivationRequest request) {
+        return productPriceAdminService.reactivate(priceId, request);
     }
 
     @PostMapping("/{priceId}/revisions")

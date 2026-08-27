@@ -129,6 +129,12 @@ public abstract class PlatformShellIntegrationTestSupport {
                 adminToken, "/api/admin/quota-packages/{id}/activation-preview", quotaPackageId);
     }
 
+    protected String fetchProductPriceActivationToken(String adminToken, UUID priceId)
+            throws Exception {
+        return fetchActivationToken(
+                adminToken, "/api/admin/product-prices/{id}/activation-preview", priceId);
+    }
+
     private String fetchActivationToken(String adminToken, String path, UUID id) throws Exception {
         String response = mockMvc.perform(get(path, id)
                         .header("Authorization", bearer(adminToken)))
