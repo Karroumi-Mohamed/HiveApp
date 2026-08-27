@@ -6,15 +6,9 @@ import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { StatusBadge } from "@/components/patterns/status-badge";
+import { featureModePresentation, planTone, statusText } from "@/features/admin/plans/plan-presentation";
 import {
-  cycleText,
-  featureModePresentation,
-  money,
-  planTone,
-  statusText,
-} from "@/features/admin/plans/plan-presentation";
-import {
-  buildPlanSchemaModel,
+  buildPlanSchemaCompatibilityModel,
   SCHEMA,
   shouldShowNoCommercialExtensions,
 } from "@/features/admin/plans/plan-schema-model";
@@ -26,13 +20,6 @@ import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commerci
  * this plan, including packages sold through an add-on. Isolating a feature keeps its whole
  * chain lit (packages, carrying add-ons) and expands its permissions into a connected node.
  */
-
-const extensionStatusText: Record<string, string> = {
-  DRAFT: "Brouillon",
-  ACTIVE: "Actif",
-  INACTIVE: "Inactif",
-  ARCHIVED: "Archivé",
-};
 
 function edgePath(x1: number, y1: number, x2: number, y2: number) {
   const bend = (x2 - x1) / 2;
@@ -55,45 +42,24 @@ export function PlanSchema({ plan }: { plan: Plan }) {
     queryFn: () => adminApi.featureCatalog("PLAN_ASSIGNABLE"),
     enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog),
   });
-  const canSeePackages = session.can(adminPermissions.quotaPackagesList);
-  const packages = useQuery({
-    queryKey: adminCommercialKeys.quotaPackages.list(),
-    queryFn: adminApi.quotaPackages,
-    enabled: commercialQueryEnabled(session.can, adminPermissions.quotaPackagesList),
-  });
-  const canSeeAddOns = session.can(adminPermissions.addOnsList);
-  const addOns = useQuery({
-    queryKey: adminCommercialKeys.addOns.list(),
-    queryFn: adminApi.addOns,
-    enabled: commercialQueryEnabled(session.can, adminPermissions.addOnsList),
+  const canInspectExtensions = session.can(adminPermissions.commercialInspectCompatibility);
+  const extensions = useQuery({
+    queryKey: ["admin", "commercial", "plan", plan.id, "extension-compatibility", "schema"],
+    queryFn: () => adminApi.inspectPlanCompatibility(plan.id, { page: 0, size: 100 }),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.commercialInspectCompatibility),
   });
 
   const model = useMemo(
     () =>
-      buildPlanSchemaModel({
-        plan: { code: plan.code, currencyCode: plan.currencyCode, billingCycle: plan.billingCycle },
+      buildPlanSchemaCompatibilityModel({
         features: features.data ?? [],
         catalogFeatures: (canReadCatalog ? (catalog.data ?? []) : []).flatMap((module) => module.features),
-        catalogComplete: canReadCatalog && catalog.isSuccess,
-        packages: canSeePackages ? (packages.data ?? []) : [],
-        addOns: canSeeAddOns ? (addOns.data ?? []) : [],
+        extensions: canInspectExtensions ? (extensions.data?.content ?? []) : [],
       }),
-    [
-      plan.code,
-      plan.currencyCode,
-      plan.billingCycle,
-      features.data,
-      catalog.data,
-      canReadCatalog,
-      canSeePackages,
-      canSeeAddOns,
-      catalog.isSuccess,
-      packages.data,
-      addOns.data,
-    ],
+    [features.data, catalog.data, canReadCatalog, canInspectExtensions, extensions.data],
   );
 
-  const extensionsLoading = (canSeePackages && packages.isLoading) || (canSeeAddOns && addOns.isLoading);
+  const extensionsLoading = canInspectExtensions && extensions.isLoading;
   if (features.isLoading || (canReadCatalog && catalog.isLoading) || extensionsLoading) {
     return <LoadingState rows={4} />;
   }
@@ -113,13 +79,11 @@ export function PlanSchema({ plan }: { plan: Plan }) {
   const focusedPermissions = model.permissionsNodes.find((node) => node.featureCode === focus);
   const hiddenParts = [
     canReadCatalog ? null : "permissions et unités (catalogue non lisible)",
-    canSeePackages ? null : "paquets de quotas",
-    canSeeAddOns ? null : "add-ons",
+    canInspectExtensions ? null : "extensions commerciales",
   ].filter((part): part is string => part !== null);
   // A failed extension query must read as a failure, never as "this plan has no extensions".
   const failedParts = [
-    canSeePackages && packages.isError ? "paquets de quotas" : null,
-    canSeeAddOns && addOns.isError ? "add-ons" : null,
+    canInspectExtensions && extensions.isError ? "extensions commerciales" : null,
     canReadCatalog && catalog.isError ? "catalogue des fonctionnalités" : null,
   ].filter((part): part is string => part !== null);
 
@@ -138,14 +102,19 @@ export function PlanSchema({ plan }: { plan: Plan }) {
             <button
               className="underline underline-offset-2"
               onClick={() => {
-                if (packages.isError) void packages.refetch();
-                if (addOns.isError) void addOns.refetch();
+                if (extensions.isError) void extensions.refetch();
                 if (catalog.isError) void catalog.refetch();
               }}
               type="button"
             >
               Réessayer
             </button>
+          </p>
+        ) : null}
+        {extensions.data && extensions.data.totalElements > extensions.data.content.length ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Le schéma affiche les {extensions.data.content.length} premières extensions. La table Compatibilité donne
+            accès à l’ensemble paginé.
           </p>
         ) : null}
       </div>
@@ -167,7 +136,7 @@ export function PlanSchema({ plan }: { plan: Plan }) {
               const start =
                 node.via.type === "feature"
                   ? model.rows.find((entry) => entry.feature.featureCode === node.via.code)
-                  : model.addOnNodes.find((entry) => entry.addOn.code === node.via.code);
+                  : undefined;
               if (!start) return null;
               return (
                 <path
@@ -180,7 +149,7 @@ export function PlanSchema({ plan }: { plan: Plan }) {
                     node.y + node.height / 2,
                   )}
                   fill="none"
-                  key={node.pkg.id}
+                  key={node.extension.productId}
                   stroke="currentColor"
                   strokeDasharray="4 3"
                   strokeWidth={focus !== null && node.relatedFeatureCodes.includes(focus) ? 2 : 1.25}
@@ -192,7 +161,7 @@ export function PlanSchema({ plan }: { plan: Plan }) {
                 className={litRelated(node.featureCodes) ? "" : "opacity-25"}
                 d={edgePath(SCHEMA.planX + SCHEMA.planW, planCy, SCHEMA.extensionX, node.y + node.height / 2)}
                 fill="none"
-                key={node.addOn.id}
+                key={node.extension.productId}
                 stroke="currentColor"
                 strokeDasharray="2 4"
                 strokeWidth={1.25}
@@ -221,10 +190,7 @@ export function PlanSchema({ plan }: { plan: Plan }) {
               <h3 className="min-w-0 truncate text-sm font-semibold">{plan.name}</h3>
               <StatusBadge tone={planTone[plan.status]}>{statusText[plan.status]}</StatusBadge>
             </div>
-            <p className="mt-2 text-lg font-semibold tabular-nums">
-              {money(plan.price, plan.currencyCode)}
-              <span className="ms-1 text-xs font-normal text-muted-foreground">/ {cycleText[plan.billingCycle]}</span>
-            </p>
+            <p className="mt-2 text-xs text-muted-foreground">Révision {plan.revisionNumber}</p>
           </article>
 
           {model.rows.map(({ feature, definition, quotaLines, permissionPreview, permissionOverflow, y, height }) => (
@@ -239,8 +205,8 @@ export function PlanSchema({ plan }: { plan: Plan }) {
               type="button"
             >
               <span className="flex items-start justify-between gap-2">
-                <span className="min-w-0 truncate text-sm font-medium" title={feature.featureCode}>
-                  {definition?.displayName ?? feature.featureCode}
+                <span className="min-w-0 truncate text-sm font-medium">
+                  {definition?.displayName ?? "Fonctionnalité indisponible"}
                 </span>
                 <span className="shrink-0 text-[10px] text-muted-foreground">
                   {featureModePresentation[feature.mode]?.label ?? feature.mode}
@@ -277,8 +243,8 @@ export function PlanSchema({ plan }: { plan: Plan }) {
             <article
               className={`absolute rounded-lg border border-dashed bg-background p-3 transition-opacity ${
                 litRelated(node.relatedFeatureCodes) ? "" : "opacity-40"
-              } ${node.pkg.status !== "ACTIVE" ? "opacity-55" : ""}`}
-              key={`${node.pkg.id}-${node.via.type}-${node.via.code}`}
+              } ${node.extension.operatorSelectable ? "" : "opacity-55"}`}
+              key={`${node.extension.productId}-${node.via.type}-${node.via.code}`}
               style={{
                 insetInlineStart: SCHEMA.extensionX,
                 top: node.y,
@@ -287,17 +253,18 @@ export function PlanSchema({ plan }: { plan: Plan }) {
               }}
             >
               <div className="flex items-start justify-between gap-2">
-                <h3 className="min-w-0 truncate text-sm font-medium">{node.pkg.name}</h3>
+                <h3 className="min-w-0 truncate text-sm font-medium">{node.extension.name}</h3>
                 <span className="shrink-0 text-[10px] text-muted-foreground">
-                  {extensionStatusText[node.pkg.status] ?? node.pkg.status}
+                  {node.extension.operatorSelectable ? "Sélectionnable" : "À vérifier"}
                 </span>
               </div>
               <p className="mt-1 text-xs tabular-nums">
-                +{node.pkg.capacityPerUnit} {node.resourceLabel}
-                {node.via.type === "addOn" ? <span className="text-muted-foreground"> · via add-on</span> : null}
+                +{node.extension.capacityPerUnit ?? "—"} {node.resourceLabel}
               </p>
               <p className="text-xs text-muted-foreground">
-                {money(node.pkg.price, node.pkg.currencyCode)} / {cycleText[node.pkg.billingCycle]}
+                {node.extension.applicablePriceCount > 0
+                  ? `${node.extension.applicablePriceCount} tarif${node.extension.applicablePriceCount > 1 ? "s" : ""} applicable${node.extension.applicablePriceCount > 1 ? "s" : ""}`
+                  : "Aucun tarif applicable"}
               </p>
             </article>
           ))}
@@ -306,8 +273,8 @@ export function PlanSchema({ plan }: { plan: Plan }) {
             <article
               className={`absolute rounded-lg border border-dashed bg-background p-3 transition-opacity ${
                 litRelated(node.featureCodes) ? "" : "opacity-40"
-              } ${node.availability !== "AVAILABLE" ? "opacity-55" : ""}`}
-              key={node.addOn.id}
+              } ${node.extension.operatorSelectable ? "" : "opacity-55"}`}
+              key={node.extension.productId}
               style={{
                 insetInlineStart: SCHEMA.extensionX,
                 top: node.y,
@@ -316,14 +283,9 @@ export function PlanSchema({ plan }: { plan: Plan }) {
               }}
             >
               <div className="flex items-start justify-between gap-2">
-                <h3 className="min-w-0 truncate text-sm font-medium">{node.addOn.name}</h3>
+                <h3 className="min-w-0 truncate text-sm font-medium">{node.extension.name}</h3>
                 <span className="shrink-0 text-[10px] text-muted-foreground">
-                  Add-on · {extensionStatusText[node.addOn.status] ?? node.addOn.status}
-                  {node.availability === "UNAVAILABLE"
-                    ? " · Indisponible"
-                    : node.availability === "UNKNOWN"
-                      ? " · Non vérifié"
-                      : ""}
+                  Add-on · {node.extension.operatorSelectable ? "Sélectionnable" : "À vérifier"}
                 </span>
               </div>
               <p className="mt-1 truncate text-xs text-muted-foreground" title={node.featureNames.join(", ")}>
@@ -336,7 +298,9 @@ export function PlanSchema({ plan }: { plan: Plan }) {
                 </p>
               ))}
               <p className="text-xs text-muted-foreground">
-                {money(node.addOn.price, node.addOn.currencyCode)} / {cycleText[node.addOn.billingCycle]}
+                {node.extension.applicablePriceCount > 0
+                  ? `${node.extension.applicablePriceCount} tarif${node.extension.applicablePriceCount > 1 ? "s" : ""} applicable${node.extension.applicablePriceCount > 1 ? "s" : ""}`
+                  : "Aucun tarif applicable"}
               </p>
             </article>
           ))}
@@ -373,8 +337,8 @@ export function PlanSchema({ plan }: { plan: Plan }) {
       {shouldShowNoCommercialExtensions({
         packageNodeCount: model.packageNodes.length,
         addOnNodeCount: model.addOnNodes.length,
-        canSeePackages,
-        canSeeAddOns,
+        canSeePackages: canInspectExtensions,
+        canSeeAddOns: canInspectExtensions,
         extensionsLoading,
         hasFailures: failedParts.length > 0,
       }) ? (

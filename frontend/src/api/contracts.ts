@@ -324,6 +324,40 @@ export type AssignablePlanPrice = {
   effectiveUntil: Instant | null;
 };
 export type PlanStatus = "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
+export type ProductSalesVisibility = "PUBLIC" | "DIRECT_ONLY";
+export type PlanExtensionPolicy = "CLOSED" | "ALLOW_LIST" | "OPEN_COMPATIBLE";
+export type CommercialTargetingMode = "OPEN_COMPATIBLE" | "TARGETED";
+export type CommercialChoiceState = "SELECTABLE" | "NO_LONGER_ACTIVE" | "MISSING";
+export type CommercialProductType = "ADD_ON" | "QUOTA_PACKAGE";
+export type CommercialProductAction =
+  | "EDIT_DRAFT"
+  | "MANAGE_COMPOSITION"
+  | "MANAGE_PRICES"
+  | "PREVIEW_ACTIVATION"
+  | "ACTIVATE"
+  | "DEACTIVATE"
+  | "ARCHIVE"
+  | "DELETE_DRAFT"
+  | "REVISE"
+  | "COMPARE"
+  | "READ_HISTORY";
+export type CommercialProductBlocker =
+  | "NOT_PUBLISHED"
+  | "PAUSED"
+  | "ARCHIVED_TERMINAL"
+  | "NO_ACTIVE_PRICE"
+  | "NO_PRICE_STARTING_POINT"
+  | "PUBLISHED_PRICE_HISTORY"
+  | "REFERENCED_BY_ADD_ON"
+  | "REFERENCED_BY_QUOTA_PACKAGE"
+  | "NO_FEATURES"
+  | "NO_INCLUDED_FEATURES"
+  | "DRAFT_SUCCESSOR_EXISTS"
+  | "NOT_LATEST_REVISION"
+  | "DEFAULT_PLAN_LOCKED";
+export type CommercialAvailabilityBlocker = "ARCHIVED_PRODUCT" | "NO_CHANGE";
+export type CommercialAvailabilityAction = "APPLY_PLAN_AVAILABILITY" | "APPLY_SALES_VISIBILITY";
+export type RetainedEntitlementState = "SELECTABLE" | "RETAINED_ONLY" | "HISTORICAL_ONLY";
 export type SubscriptionStatus = "TRIALING" | "ACTIVE" | "PAST_DUE" | "SUSPENDED" | "CANCELLED" | "EXPIRED";
 export type PlanFeatureMode = "INCLUDED" | "OPTIONAL_ADD_ON" | "BLOCKED_FOR_PLAN";
 export type QuotaLimitMode = "FINITE" | "UNLIMITED";
@@ -347,9 +381,13 @@ export type CreatePlanInput = {
   currencyCode: string;
   billingCycle: BillingCycle;
   features: AssignPlanFeatureInput[];
+  extensionPolicy?: PlanExtensionPolicy;
+  salesVisibility?: ProductSalesVisibility;
 };
 
-export type UpdatePlanInput = Omit<CreatePlanInput, "features">;
+export type UpdatePlanInput = Omit<CreatePlanInput, "features" | "extensionPolicy" | "salesVisibility"> & {
+  expectedVersion?: number;
+};
 export type PlanBranchInput = UpdatePlanInput;
 
 export type Plan = {
@@ -365,6 +403,9 @@ export type Plan = {
   revisionNumber: number;
   sourcePlanId: UUID | null;
   creationReason: "CREATED" | "DUPLICATED" | "REVISED";
+  extensionPolicy: PlanExtensionPolicy;
+  salesVisibility: ProductSalesVisibility;
+  version: number;
 };
 
 export type PlanDetail = Plan & {
@@ -374,9 +415,79 @@ export type PlanDetail = Plan & {
   trialingSubscriberCount: number;
   currentSubscriberCount: number;
   historicalSubscriberCount: number;
+  affectedSubscriptionCount: number;
   configuredRecurringPriceTotal: ExactDecimal;
   configuredRecurringPriceCurrencyCode: string;
   warnings: string[];
+};
+
+export type CommercialOperationalItem = {
+  id: UUID;
+  code: string;
+  name: string;
+  status: PlanStatus;
+  lineageId: UUID;
+  revisionNumber: number;
+  salesVisibility: ProductSalesVisibility;
+  version: number;
+  createdAt: Instant;
+  updatedAt: Instant;
+  applicablePriceCount: number;
+  draftPriceCount: number;
+  publishedPriceCount: number;
+  availableActions: CommercialProductAction[];
+  blockers: CommercialProductBlocker[];
+};
+
+export type PlanOperationalItem = CommercialOperationalItem & {
+  sourcePlanId: UUID | null;
+  creationReason: "CREATED" | "DUPLICATED" | "REVISED";
+  extensionPolicy: PlanExtensionPolicy;
+  featureCount: number;
+  includedFeatureCount: number;
+  currentSubscriberCount: number;
+  affectedSubscriptionCount: number;
+};
+
+export type AddOnOperationalItem = CommercialOperationalItem & {
+  sourceAddOnId: UUID | null;
+  creationReason: "CREATED" | "REVISED";
+  featureCount: number;
+  targetingMode: CommercialTargetingMode;
+  targetPlanCount: number;
+  blockedPlanCount: number;
+  dependencyCount: number;
+  exclusionCount: number;
+  referencedByAddOnCount: number;
+  referencedByQuotaPackageCount: number;
+};
+
+export type QuotaPackageOperationalItem = CommercialOperationalItem & {
+  sourceQuotaPackageId: UUID | null;
+  creationReason: "CREATED" | "REVISED";
+  featureCode: string;
+  resource: string;
+  targetingMode: CommercialTargetingMode;
+  targetPlanCount: number;
+  targetAddOnCount: number;
+};
+
+export type CommercialChooserItem = {
+  id: UUID;
+  code: string;
+  name: string;
+  status: PlanStatus;
+  lineageId: UUID;
+  revisionNumber: number;
+  salesVisibility: ProductSalesVisibility;
+  choiceState: CommercialChoiceState;
+};
+export type PlanChooserItem = CommercialChooserItem & { extensionPolicy: PlanExtensionPolicy };
+export type AddOnChooserItem = CommercialChooserItem & { targetingMode: CommercialTargetingMode };
+export type QuotaPackageChooserItem = CommercialChooserItem & {
+  featureCode: string;
+  resource: string;
+  targetingMode: CommercialTargetingMode;
 };
 
 export type QuotaLimit = { resource: string; mode: QuotaLimitMode; limit: number | null };
@@ -432,6 +543,8 @@ export type AddOn = {
   dependencyCodes: string[];
   exclusionCodes: string[];
   features: Array<{ id: UUID; featureCode: string; quotaConfigs: QuotaLimit[] }>;
+  salesVisibility: ProductSalesVisibility;
+  version: number;
 };
 
 export type AddOnInput = {
@@ -444,6 +557,8 @@ export type AddOnInput = {
   blockedPlanCodes: string[];
   dependencyCodes: string[];
   exclusionCodes: string[];
+  salesVisibility?: ProductSalesVisibility;
+  expectedVersion?: number;
 };
 
 export type AssignAddOnFeatureInput = {
@@ -468,6 +583,12 @@ export type QuotaPackage = {
   definitionVersion: number;
   allowedPlanCodes: string[];
   allowedAddOnCodes: string[];
+  salesVisibility: ProductSalesVisibility;
+  version: number;
+  lineageId: UUID;
+  revisionNumber: number;
+  sourceQuotaPackageId: UUID | null;
+  creationReason: "CREATED" | "REVISED";
 };
 
 export type QuotaPackageInput = {
@@ -483,6 +604,188 @@ export type QuotaPackageInput = {
   maximumQuantity: number;
   allowedPlanCodes: string[];
   allowedAddOnCodes: string[];
+  salesVisibility?: ProductSalesVisibility;
+  expectedVersion?: number;
+};
+
+export type ExtensionAvailabilityIssue = {
+  reason: string;
+  source: string;
+  sourceCode: string | null;
+};
+export type ExtensionCompatibility = {
+  productType: CommercialProductType;
+  productId: UUID;
+  code: string;
+  name: string;
+  salesVisibility: ProductSalesVisibility;
+  operatorSelectable: boolean;
+  clientCatalogVisible: boolean;
+  issues: ExtensionAvailabilityIssue[];
+  applicablePriceCount: number;
+  directlySelectable: boolean;
+  requiredAddOnCodes: string[];
+  featureCodes: string[];
+  quotaFeatureCode: string | null;
+  quotaResource: string | null;
+  capacityPerUnit: number | null;
+  repeatable: boolean | null;
+  maximumQuantity: number | null;
+};
+export type PlanAvailabilityPreview = {
+  planId: UUID;
+  planCode: string;
+  expectedVersion: number;
+  currentExtensionPolicy: PlanExtensionPolicy;
+  targetExtensionPolicy: PlanExtensionPolicy;
+  currentSalesVisibility: ProductSalesVisibility;
+  targetSalesVisibility: ProductSalesVisibility;
+  affectedSubscriptionCount: number;
+  totalExtensions: number;
+  operatorSelectableBefore: number;
+  operatorSelectableAfter: number;
+  clientVisibleBefore: number;
+  clientVisibleAfter: number;
+  changedCount: number;
+  changesTruncated: boolean;
+  changedExtensions: ExtensionCompatibility[];
+  applicable: boolean;
+  blockers: CommercialAvailabilityBlocker[];
+  availableActions: CommercialAvailabilityAction[];
+  previewToken: string;
+};
+export type ProductVisibilityPreview = {
+  productType: CommercialProductType;
+  productId: UUID;
+  productCode: string;
+  expectedVersion: number;
+  currentSalesVisibility: ProductSalesVisibility;
+  targetSalesVisibility: ProductSalesVisibility;
+  compatiblePlanCount: number;
+  clientVisiblePlanCountBefore: number;
+  clientVisiblePlanCountAfter: number;
+  applicable: boolean;
+  blockers: CommercialAvailabilityBlocker[];
+  availableActions: CommercialAvailabilityAction[];
+  previewToken: string;
+};
+export type CommercialAvailabilityHistoryEntry = {
+  id: UUID;
+  occurredAt: Instant;
+  actorUserId: UUID | null;
+  actorEmail: string | null;
+  action: string;
+  outcome: "SUCCEEDED" | "FAILED";
+  failureType: string | null;
+  reason: string | null;
+  productType: CommercialProductType;
+  productCode: string;
+  previousExtensionPolicy: PlanExtensionPolicy | null;
+  resultingExtensionPolicy: PlanExtensionPolicy | null;
+  previousSalesVisibility: ProductSalesVisibility | null;
+  resultingSalesVisibility: ProductSalesVisibility | null;
+};
+export type QuotaPackagePriceDraft = {
+  id: UUID;
+  amount: ExactDecimal;
+  currencyCode: string;
+  billingCycle: BillingCycle;
+  status: ProductPriceStatus;
+  effectiveFrom: Instant;
+  effectiveUntil: Instant | null;
+  lineageId: UUID;
+  revisionNumber: number;
+  version: number;
+  compatibilityDefault: boolean;
+};
+export type QuotaPackageActivationPreview = {
+  quotaPackageId: UUID;
+  expectedVersion: number;
+  previewToken: string;
+  activatable: boolean;
+  blockers: string[];
+  reviewedPrices: QuotaPackagePriceDraft[];
+  packagesToDeactivate: UUID[];
+};
+
+export type CommercialLifecycleAction = "ACTIVATE" | "DEACTIVATE" | "ARCHIVE";
+export type CommercialLifecycleInput = {
+  action: CommercialLifecycleAction;
+  expectedVersion: number;
+  reason: string;
+  activationPreviewToken?: string | null;
+};
+export type ProductActivationPrice = {
+  id: UUID;
+  amount: ExactDecimal;
+  currencyCode: string;
+  billingCycle: BillingCycle;
+  status: string;
+  effectiveFrom: Instant | null;
+  effectiveUntil: Instant | null;
+  lineageId: UUID;
+  revisionNumber: number;
+  version: number;
+  compatibilityDefault: boolean;
+};
+export type PlanActivationPreview = {
+  planId: UUID;
+  expectedVersion: number;
+  catalogRevision: number;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
+  previewToken: string;
+  activatable: boolean;
+  blockers: string[];
+  includedFeatureCount: number;
+  optionalAddOnFeatureCount: number;
+  blockedFeatureCount: number;
+  reviewedPrices: ProductActivationPrice[];
+};
+export type AddOnActivationPreview = {
+  addOnId: UUID;
+  expectedVersion: number;
+  catalogRevision: number;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
+  previewToken: string;
+  activatable: boolean;
+  blockers: string[];
+  featureCount: number;
+  evaluatedPlanCount: number;
+  compatiblePlanCount: number;
+  explicitTargetPlanCount: number;
+  reviewedPrices: ProductActivationPrice[];
+  addOnsToDeactivate: UUID[];
+};
+export type QuotaPackageComparison = {
+  base: QuotaPackage;
+  candidate: QuotaPackage;
+  directSuccessor: boolean;
+  changedFields: string[];
+  basePrices: QuotaPackagePriceDraft[];
+  candidatePrices: QuotaPackagePriceDraft[];
+};
+export type QuotaPackageRevisionResult = {
+  successor: QuotaPackage;
+  copiedPriceDrafts: QuotaPackagePriceDraft[];
+  warnings: string[];
+};
+export type QuotaPackageHistoryEntry = {
+  id: UUID;
+  occurredAt: Instant;
+  actorUserId: UUID | null;
+  actorEmail: string | null;
+  action: string;
+  outcome: "SUCCEEDED" | "FAILED";
+  failureType: string | null;
+  reason: string | null;
+  resourceId: UUID | null;
+  revisionNumber: number | null;
+  lifecycleAction: "ACTIVATE" | "DEACTIVATE" | "ARCHIVE" | null;
+  resultingStatus: PlanStatus | null;
+  successorId: UUID | null;
+  successorRevisionNumber: number | null;
 };
 
 export type FeatureCatalogAudience = "ALL" | "PLAN_ASSIGNABLE" | "PUBLIC_CATALOG";
@@ -817,6 +1120,36 @@ export type ClientPlanCatalog = {
     cancelAtPeriodEnd: boolean;
     addOnCodes: string[];
     quotaPackages: Array<{ packageCode: string; quantity: number }>;
+    retainedAddOns: Array<{
+      code: string;
+      name: string;
+      definitionVersion: number;
+      unitPrice: ExactDecimal;
+      currencyCode: string;
+      billingCycle: BillingCycle;
+      featureCodes: string[];
+      priceEntryId: UUID;
+      state: RetainedEntitlementState;
+      removable: boolean;
+      selectableForNewSale: boolean;
+    }>;
+    retainedQuotaPackages: Array<{
+      code: string;
+      name: string;
+      definitionVersion: number;
+      featureCode: string;
+      resource: string;
+      capacityPerUnit: number;
+      quantity: number;
+      unitPrice: ExactDecimal;
+      currencyCode: string;
+      billingCycle: BillingCycle;
+      priceEntryId: UUID;
+      state: RetainedEntitlementState;
+      removable: boolean;
+      quantityEditable: boolean;
+      maximumSelectableQuantity: number | null;
+    }>;
   } | null;
   plans: Array<{
     code: string;
@@ -826,6 +1159,7 @@ export type ClientPlanCatalog = {
     currencyCode: string;
     billingCycle: BillingCycle;
     current: boolean;
+    selectable: boolean;
     features: Array<{
       featureCode: string;
       displayName: string;
@@ -869,6 +1203,8 @@ export type ClientPlanCatalog = {
       allowedPlanCodes: string[];
       allowedAddOnCodes: string[];
       prices: CatalogPrice[];
+      directlyAvailable: boolean;
+      requiresAddOnCodes: string[];
     }>;
     prices: CatalogPrice[];
   }>;
@@ -1002,6 +1338,50 @@ export type SubscriptionChangeApplyResponse = {
 export type SubscriptionOverridesInput = {
   addOnCodes: string[];
   quotaPackages: QuotaPackageSelection[];
+};
+
+export type SubscriptionOverrideChoicePage<T> = {
+  content: T[];
+  retainedSelections: T[];
+  page: number;
+  size: number;
+  hasMoreCandidates: boolean;
+};
+export type SubscriptionAddOnOverrideChoice = {
+  productId: UUID;
+  code: string;
+  name: string;
+  featureCodes: string[];
+  requiredAddOnCodes: string[];
+  priceEntryId: UUID;
+  unitPrice: ExactDecimal;
+  currencyCode: string;
+  billingCycle: BillingCycle;
+  state: RetainedEntitlementState;
+  retained: boolean;
+  removable: boolean;
+  unavailabilityReasons: ExtensionAvailabilityIssue[];
+};
+export type SubscriptionQuotaPackageOverrideChoice = {
+  productId: UUID;
+  code: string;
+  name: string;
+  featureCode: string;
+  resource: string;
+  capacityPerUnit: number;
+  repeatable: boolean;
+  maximumQuantity: number;
+  retainedQuantity: number | null;
+  requiredAddOnCodes: string[];
+  priceEntryId: UUID;
+  unitPrice: ExactDecimal;
+  currencyCode: string;
+  billingCycle: BillingCycle;
+  state: RetainedEntitlementState;
+  retained: boolean;
+  removable: boolean;
+  quantityEditable: boolean;
+  unavailabilityReasons: ExtensionAvailabilityIssue[];
 };
 
 export type ManualCheckoutConfirmationInput = {

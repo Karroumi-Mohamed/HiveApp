@@ -6,6 +6,7 @@ import {
   defaultCatalogPrice,
   initialCatalogPlanCode,
   matchingCatalogPrice,
+  preserveRetainedSelection,
   pruneCommercialSelection,
 } from "@/features/commercial/catalog-price-rules";
 import {
@@ -25,6 +26,17 @@ const price = (id: string, billingCycle: "MONTHLY" | "YEARLY", amount: string): 
   billingCycle,
   effectiveFrom: "2026-01-01T00:00:00Z",
   effectiveUntil: null,
+});
+
+describe("retained commercial selections", () => {
+  test("keeps an already-held hidden add-on only on the current plan", () => {
+    expect(preserveRetainedSelection(["PUBLIC"], ["PUBLIC", "HIDDEN"], ["HIDDEN"], true)).toEqual(["PUBLIC", "HIDDEN"]);
+    expect(preserveRetainedSelection(["PUBLIC"], ["PUBLIC", "HIDDEN"], ["HIDDEN"], false)).toEqual(["PUBLIC"]);
+  });
+
+  test("does not silently re-add a retained item the client removed", () => {
+    expect(preserveRetainedSelection(["PUBLIC"], ["PUBLIC"], ["HIDDEN"], true)).toEqual(["PUBLIC"]);
+  });
 });
 
 describe("product price lifecycle actions", () => {

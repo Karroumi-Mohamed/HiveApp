@@ -70,3 +70,15 @@ export function sameStringSet(left: readonly string[], right: readonly string[])
   const rightSet = new Set(right);
   return left.every((value) => rightSet.has(value));
 }
+
+/** Hidden entitlements are carried only while editing the current plan; they are never added to a new sale. */
+export function preserveRetainedSelection(
+  selectable: readonly string[],
+  previousSelection: readonly string[],
+  retainedCodes: readonly string[],
+  editingCurrentPlan: boolean,
+): string[] {
+  if (!editingCurrentPlan) return [...selectable];
+  const retained = new Set(retainedCodes);
+  return [...new Set([...selectable, ...previousSelection.filter((code) => retained.has(code))])];
+}

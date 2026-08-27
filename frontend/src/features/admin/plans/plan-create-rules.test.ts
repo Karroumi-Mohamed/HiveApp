@@ -17,6 +17,9 @@ const plan = (overrides: Partial<Plan> = {}): Plan => ({
   revisionNumber: 1,
   sourcePlanId: null,
   creationReason: "CREATED",
+  extensionPolicy: "OPEN_COMPATIBLE",
+  salesVisibility: "PUBLIC",
+  version: 0,
   ...overrides,
 });
 

@@ -46,16 +46,22 @@ export function AdminPlanCreatePage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [step, setStep] = useState(0);
+  const [sourceSearch, setSourceSearch] = useState("");
 
   const canListPlans = session.can(adminPermissions.plansList);
   const plans = useQuery({
-    queryKey: adminCommercialKeys.plans.list(),
-    queryFn: adminApi.plans,
+    queryKey: [...adminCommercialKeys.plans.list(), "chooser", sourceSearch],
+    queryFn: () => adminApi.planChoices({ search: sourceSearch || undefined, size: 50 }),
     enabled: commercialQueryEnabled(session.can, adminPermissions.plansList),
   });
   const [sourceId, setSourceId] = useState(params.get("from") ?? "");
-  const visiblePlans = canListPlans ? (plans.data ?? []) : [];
-  const source = visiblePlans.find((plan) => plan.id === sourceId);
+  const visiblePlans = canListPlans ? (plans.data?.content ?? []) : [];
+  const sourceQuery = useQuery({
+    queryKey: adminCommercialKeys.plans.detail(sourceId),
+    queryFn: () => adminApi.plan(sourceId),
+    enabled: Boolean(sourceId) && session.can(adminPermissions.plansReadDetail),
+  });
+  const source = sourceQuery.data;
   // The URL selection is authoritative. Resolving source metadata is optional and must never
   // turn a duplicate endpoint into create merely because plans.list is unavailable.
   const duplicatesExisting = Boolean(sourceId);
@@ -208,6 +214,19 @@ export function AdminPlanCreatePage() {
             attaches d’add-ons ni de paquets de quotas, ni ses abonnés. La duplication demande l’autorisation
             correspondante.
           </p>
+          {canListPlans ? (
+            <div className="max-w-md">
+              <Label className="sr-only" htmlFor="plan-source-search">
+                Rechercher un forfait de départ
+              </Label>
+              <Input
+                id="plan-source-search"
+                onChange={(event) => setSourceSearch(event.target.value)}
+                placeholder="Rechercher un forfait…"
+                value={sourceSearch}
+              />
+            </div>
+          ) : null}
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             <button
               aria-pressed={sourceId === ""}
@@ -224,9 +243,9 @@ export function AdminPlanCreatePage() {
             </button>
             {sourceId && !source ? (
               <div className="rounded-lg border border-primary p-4 ring-1 ring-primary">
-                <span className="block truncate text-sm font-medium">Forfait source {sourceId}</span>
+                <span className="block truncate text-sm font-medium">Forfait de départ sélectionné</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  Ses détails ne sont pas lisibles ; la duplication utilisera directement cette référence.
+                  Ses détails ne sont pas accessibles, mais la duplication peut encore utiliser cette sélection.
                 </span>
               </div>
             ) : null}
@@ -240,7 +259,6 @@ export function AdminPlanCreatePage() {
                 key={plan.id}
                 onClick={() => {
                   setSourceId(plan.id);
-                  setFields(prefillFromSource(plan));
                 }}
                 title={
                   session.can(adminPermissions.plansDuplicate)
@@ -251,11 +269,16 @@ export function AdminPlanCreatePage() {
               >
                 <span className="block truncate text-sm font-medium">{plan.name}</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  {money(plan.price, plan.currencyCode)} / {cycleText[plan.billingCycle]}
+                  Révision {plan.revisionNumber} · {plan.choiceState === "SELECTABLE" ? "disponible" : "plus active"}
                 </span>
               </button>
             ))}
           </div>
+          {plans.data && plans.data.totalElements > visiblePlans.length ? (
+            <p className="text-xs text-muted-foreground">
+              Seuls les 50 premiers résultats sont affichés. Affinez la recherche pour retrouver un forfait précis.
+            </p>
+          ) : null}
           {canListPlans && plans.isLoading ? <LoadingState rows={2} /> : null}
           {canListPlans && plans.isError ? <ErrorState retry={() => void plans.refetch()} /> : null}
           {!canUseSelectedMode ? (
@@ -351,8 +374,8 @@ export function AdminPlanCreatePage() {
             <>
               <p className="text-sm text-muted-foreground">
                 La composition ci-dessous sera copiée de{" "}
-                <span className="font-medium text-foreground">{source?.name ?? sourceId}</span>. Elle restera modifiable
-                sur le brouillon.
+                <span className="font-medium text-foreground">{source?.name ?? "ce forfait"}</span>. Elle restera
+                modifiable sur le brouillon.
               </p>
               {canPreviewSource ? (
                 sourceFeatures.isLoading ? (
@@ -363,7 +386,7 @@ export function AdminPlanCreatePage() {
                   <ul className="divide-y border-y text-sm">
                     {sourceFeatures.data.map((feature) => (
                       <li className="flex items-center justify-between gap-3 py-2.5" key={feature.id}>
-                        <span>{definitionOf(feature.featureCode)?.displayName ?? feature.featureCode}</span>
+                        <span>{definitionOf(feature.featureCode)?.displayName ?? "Fonctionnalité indisponible"}</span>
                         <span className="text-xs text-muted-foreground">
                           {featureModePresentation[feature.mode]?.label ?? feature.mode}
                         </span>
@@ -422,7 +445,9 @@ export function AdminPlanCreatePage() {
                       <li className="space-y-3 py-4" key={entry.featureCode}>
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-sm font-medium">{definition?.displayName ?? entry.featureCode}</p>
+                            <p className="text-sm font-medium">
+                              {definition?.displayName ?? "Fonctionnalité indisponible"}
+                            </p>
                             {definition?.description ? (
                               <p className="mt-0.5 text-xs text-muted-foreground">{definition.description}</p>
                             ) : null}
@@ -454,7 +479,7 @@ export function AdminPlanCreatePage() {
                               </SelectContent>
                             </Select>
                             <Button
-                              aria-label={`Retirer ${definition?.displayName ?? entry.featureCode}`}
+                              aria-label={`Retirer ${definition?.displayName ?? "la fonctionnalité indisponible"}`}
                               onClick={() => setStaged((current) => current.filter((_, at) => at !== index))}
                               size="icon-sm"
                               type="button"
@@ -513,12 +538,12 @@ export function AdminPlanCreatePage() {
                 <dt className="text-muted-foreground">Ce que le client reçoit</dt>
                 <dd>
                   {duplicatesExisting ? (
-                    `La composition et les quotas de base de ${source?.name ?? sourceId} — sans ses attaches d'add-ons ni de paquets de quotas.`
+                    `La composition et les quotas de base de ${source?.name ?? "ce forfait"} — sans ses attaches d'add-ons ni de paquets de quotas.`
                   ) : staged.length ? (
                     <ul className="space-y-1">
                       {staged.map((entry) => (
                         <li key={entry.featureCode}>
-                          {definitionOf(entry.featureCode)?.displayName ?? entry.featureCode}
+                          {definitionOf(entry.featureCode)?.displayName ?? "Fonctionnalité indisponible"}
                           <span className="text-xs text-muted-foreground">
                             {" "}
                             · {featureModePresentation[entry.mode]?.label ?? entry.mode}
