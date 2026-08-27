@@ -152,6 +152,30 @@ export const adminPermissions = {
   commercialPoliciesReassignOwner: permission("commercial_policies", "reassign_owner"),
   commercialPoliciesChooseAccounts: permission("commercial_policies", "choose_accounts"),
   commercialPoliciesResolveAccountChoices: permission("commercial_policies", "resolve_account_choices"),
+  commercialPoliciesChooseSegments: permission("commercial_policies", "choose_segments"),
+  commercialPoliciesResolveSegmentChoices: permission("commercial_policies", "resolve_segment_choices"),
+  segmentsList: permission("segments", "list"),
+  segmentsRead: permission("segments", "read_detail"),
+  segmentsCreate: permission("segments", "create"),
+  segmentsUpdateDraft: permission("segments", "update_draft"),
+  segmentsDuplicate: permission("segments", "duplicate"),
+  segmentsRevise: permission("segments", "revise"),
+  segmentsCompare: permission("segments", "compare"),
+  segmentsReadRevisions: permission("segments", "read_revisions"),
+  segmentsReadHistory: permission("segments", "read_history"),
+  segmentsCount: permission("segments", "count"),
+  segmentsPreview: permission("segments", "preview"),
+  segmentsReadSampleIdentities: permission("segments", "read_sample_identities"),
+  segmentsActivate: permission("segments", "activate"),
+  segmentsArchive: permission("segments", "archive"),
+  segmentsDeleteDraft: permission("segments", "delete_draft"),
+  segmentsReadActivations: permission("segments", "read_activations"),
+  segmentsReadActivationAudience: permission("segments", "read_activation_audience"),
+  segmentsReadActivationIdentities: permission("segments", "read_activation_identities"),
+  segmentsReadOwner: permission("segments", "read_owner"),
+  segmentsReassignOwner: permission("segments", "reassign_owner"),
+  segmentsChooseAccounts: permission("segments", "choose_accounts"),
+  segmentsResolveAccountChoices: permission("segments", "resolve_account_choices"),
 } as const;
 
 export const clientPermissions = {
@@ -270,6 +294,20 @@ export const adminCommercialPolicyDetailSurfacePermissions = [
   adminPermissions.commercialPoliciesReadActivationAccounts,
   adminPermissions.commercialPoliciesPreviewAudience,
   adminPermissions.commercialPoliciesReadOwner,
+] as const;
+
+export const adminCommercialSegmentDetailSurfacePermissions = [
+  adminPermissions.segmentsRead,
+  adminPermissions.segmentsCount,
+  adminPermissions.segmentsPreview,
+  adminPermissions.segmentsReadSampleIdentities,
+  adminPermissions.segmentsReadRevisions,
+  adminPermissions.segmentsCompare,
+  adminPermissions.segmentsReadHistory,
+  adminPermissions.segmentsReadActivations,
+  adminPermissions.segmentsReadActivationAudience,
+  adminPermissions.segmentsReadActivationIdentities,
+  adminPermissions.segmentsReadOwner,
 ] as const;
 
 /** Each overview card family is independently readable, including registry sync on its own. */

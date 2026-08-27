@@ -6,6 +6,7 @@ import {
   CurrencyCircleDollarIcon,
   EnvelopeSimpleIcon,
   FadersHorizontalIcon,
+  FunnelIcon,
   GaugeIcon,
   HandshakeIcon,
   HeartbeatIcon,
@@ -113,6 +114,12 @@ export function AdminLayout() {
           to: "/admin/price-books",
           icon: CurrencyCircleDollarIcon,
           visible: session.can(adminPermissions.priceBooksList),
+        },
+        {
+          label: "Segments",
+          to: "/admin/segments",
+          icon: FunnelIcon,
+          visible: session.can(adminPermissions.segmentsList),
         },
         {
           label: "Politiques commerciales",

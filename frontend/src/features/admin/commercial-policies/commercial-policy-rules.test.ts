@@ -60,7 +60,7 @@ describe("commercial policy typed editor", () => {
     expect(validateDraftEffect(effect, true)).not.toBeNull();
   });
 
-  test("target validation is kind-specific and segment drafts remain explicit", () => {
+  test("target validation is kind-specific and Segment targets require a canonical reference", () => {
     const draft = emptyCommercialPolicyDraft();
     draft.name = "Segment à préparer";
     draft.reason = "Campagne";

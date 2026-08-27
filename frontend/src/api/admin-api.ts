@@ -37,12 +37,29 @@ import type {
   CommercialPolicyHistory,
   CommercialPolicyOwner,
   CommercialPolicyRevision,
+  CommercialPolicySegmentChoice,
   CommercialPolicySource,
   CommercialPolicyStatus,
   CommercialPolicySummary,
   CommercialPolicyTargetKind,
   CommercialPolicyWriteInput,
   CommercialProductType,
+  CommercialSegmentActivation,
+  CommercialSegmentActivationAudience,
+  CommercialSegmentActivationIdentityAudience,
+  CommercialSegmentComparison,
+  CommercialSegmentCount,
+  CommercialSegmentDetail,
+  CommercialSegmentHistory,
+  CommercialSegmentIdentitySample,
+  CommercialSegmentKind,
+  CommercialSegmentOwner,
+  CommercialSegmentPreview,
+  CommercialSegmentRevision,
+  CommercialSegmentSource,
+  CommercialSegmentStatus,
+  CommercialSegmentSummary,
+  CommercialSegmentWriteInput,
   CreatePlanInput,
   ExtensionCompatibility,
   FeatureCatalogAudience,
@@ -597,6 +614,65 @@ export const adminApi = {
     admin<PageResponse<AccountDirectoryEntry>>("/commercial-policies/account-choices", { query }),
   resolveCommercialPolicyAccountChoices: (ids: UUID[]) =>
     admin<AccountDirectoryEntry[]>("/commercial-policies/account-choices/selected", { query: { ids } }),
+  commercialPolicySegmentChoices: (query: { query?: string; page?: number; size?: number }) =>
+    admin<PageResponse<CommercialPolicySegmentChoice>>("/commercial-policies/segment-choices", { query }),
+  resolveCommercialPolicySegmentChoices: (references: string[]) =>
+    admin<CommercialPolicySegmentChoice[]>("/commercial-policies/segment-choices/selected", {
+      query: { references },
+    }),
+  commercialSegments: (query: {
+    search?: string;
+    status?: CommercialSegmentStatus;
+    kind?: CommercialSegmentKind;
+    source?: CommercialSegmentSource;
+    includeArchived?: boolean;
+    page?: number;
+    size?: number;
+    sort?: string;
+    direction?: "asc" | "desc";
+  }) => admin<PageResponse<CommercialSegmentSummary>>("/segments", { query }),
+  commercialSegment: (id: UUID) => admin<CommercialSegmentDetail>(`/segments/${id}`),
+  createCommercialSegment: (input: CommercialSegmentWriteInput) =>
+    admin<CommercialSegmentDetail>("/segments", { method: "POST", body: jsonBody(input) }),
+  updateCommercialSegment: (id: UUID, input: CommercialSegmentWriteInput & { version: number }) =>
+    admin<CommercialSegmentDetail>(`/segments/${id}`, { method: "PUT", body: jsonBody(input) }),
+  duplicateCommercialSegment: (id: UUID, input: { version: number; name: string; reason: string }) =>
+    admin<CommercialSegmentDetail>(`/segments/${id}/duplicate`, { method: "POST", body: jsonBody(input) }),
+  reviseCommercialSegment: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialSegmentDetail>(`/segments/${id}/revisions`, { method: "POST", body: jsonBody(input) }),
+  commercialSegmentRevisions: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<CommercialSegmentRevision>>(`/segments/${id}/revisions`, { query: { page, size } }),
+  compareCommercialSegments: (id: UUID, comparedId: UUID) =>
+    admin<CommercialSegmentComparison>(`/segments/${id}/compare/${comparedId}`),
+  commercialSegmentHistory: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<CommercialSegmentHistory>>(`/segments/${id}/history`, { query: { page, size } }),
+  countCommercialSegment: (id: UUID) => admin<CommercialSegmentCount>(`/segments/${id}/count`),
+  previewCommercialSegment: (id: UUID) => admin<CommercialSegmentPreview>(`/segments/${id}/preview`),
+  commercialSegmentIdentitySample: (id: UUID) =>
+    admin<CommercialSegmentIdentitySample>(`/segments/${id}/preview-identities`),
+  activateCommercialSegment: (id: UUID, input: { version: number; reason: string; previewToken: string }) =>
+    admin<CommercialSegmentDetail>(`/segments/${id}/activate`, { method: "POST", body: jsonBody(input) }),
+  archiveCommercialSegment: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialSegmentDetail>(`/segments/${id}/archive`, { method: "POST", body: jsonBody(input) }),
+  deleteCommercialSegment: (id: UUID, input: { version: number; reason: string }) =>
+    admin<void>(`/segments/${id}`, { method: "DELETE", body: jsonBody(input) }),
+  commercialSegmentActivations: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<CommercialSegmentActivation>>(`/segments/${id}/activations`, { query: { page, size } }),
+  commercialSegmentActivationAudience: (id: UUID, activationId: UUID, page = 0, size = 20) =>
+    admin<CommercialSegmentActivationAudience>(`/segments/${id}/activations/${activationId}/accounts`, {
+      query: { page, size },
+    }),
+  commercialSegmentActivationIdentities: (id: UUID, activationId: UUID, page = 0, size = 20) =>
+    admin<CommercialSegmentActivationIdentityAudience>(`/segments/${id}/activations/${activationId}/identities`, {
+      query: { page, size },
+    }),
+  commercialSegmentOwner: (id: UUID) => admin<CommercialSegmentOwner>(`/segments/${id}/owner`),
+  reassignCommercialSegmentOwner: (id: UUID, input: { version: number; ownerAdminUserId: UUID; reason: string }) =>
+    admin<CommercialSegmentDetail>(`/segments/${id}/owner`, { method: "PUT", body: jsonBody(input) }),
+  commercialSegmentAccountChoices: (query: { query?: string; active?: boolean; page?: number; size?: number }) =>
+    admin<PageResponse<AccountDirectoryEntry>>("/segments/account-choices", { query }),
+  resolveCommercialSegmentAccountChoices: (ids: UUID[]) =>
+    admin<AccountDirectoryEntry[]>("/segments/account-choices/selected", { query: { ids } }),
   subscription: (accountId: UUID) => admin<AdminSubscription>(`/subscriptions/account/${accountId}`),
   accounts: (query: {
     query?: string;

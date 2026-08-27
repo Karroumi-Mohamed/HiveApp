@@ -41,7 +41,7 @@ export const policyTarget: Record<CommercialPolicyTargetKind, string> = {
   ACCOUNT: "Un compte",
   ACCOUNT_SET: "Plusieurs comptes",
   PLAN_REVISION_SUBSCRIBERS: "Abonnés d’une révision de forfait",
-  SEGMENT: "Segment (résolution indisponible)",
+  SEGMENT: "Segment de comptes activé",
 };
 
 export const effectLabel: Record<CommercialPolicyEffectType, string> = {
@@ -70,7 +70,7 @@ export function isPolicyQuotaFeatureChoice(
 export const policyBlocker: Record<CommercialPolicyBlocker, string> = {
   WRONG_LIFECYCLE_STATE: "Le cycle de vie actuel ne permet pas cette activation.",
   EFFECTIVE_WINDOW_EXPIRED: "La période d’effet est déjà terminée.",
-  SEGMENT_RESOLUTION_UNAVAILABLE: "La résolution des segments n’est pas encore connectée.",
+  SEGMENT_RESOLUTION_UNAVAILABLE: "Le Segment est absent, inactif ou ne possède plus d’audience figée exploitable.",
   TARGET_NOT_CONFIGURED: "La cible n’est pas configurée.",
   TARGET_ACCOUNT_MISSING: "Le compte ciblé n’existe plus.",
   PLAN_REVISION_MISSING: "La révision de forfait ciblée n’existe plus.",

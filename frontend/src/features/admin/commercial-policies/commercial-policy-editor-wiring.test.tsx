@@ -138,6 +138,75 @@ afterEach(() => {
 });
 
 describe("commercial policy editor conflict wiring", () => {
+  test("uses the policy-scoped executable Segment chooser instead of the general Segment catalogue", async () => {
+    const requests: string[] = [];
+    const choice = {
+      id: "50db9575-bf1c-4a30-8b82-e82d9c14d836",
+      code: "LOYAL_CUSTOMERS",
+      name: "Clients fidèles",
+      revisionNumber: 2,
+      kind: "TYPED_CRITERIA",
+      immutableAccountCount: 42,
+    };
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith(`/api/admin/commercial-policies/${policyId}`) && (!init?.method || init.method === "GET")) {
+        return response(originalPolicy);
+      }
+      if (url.includes("/api/admin/commercial-policies/segment-choices/selected")) {
+        return response([choice]);
+      }
+      if (url.includes("/api/admin/commercial-policies/segment-choices")) {
+        return response({
+          content: [choice],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+          first: true,
+          last: true,
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(["admin", "me", "admin-token"], {
+      id: "admin-1",
+      email: "admin@hiveapp.test",
+      emailVerified: true,
+      isSuperAdmin: false,
+      isActive: true,
+      permissions: [
+        adminPermissions.commercialPoliciesRead,
+        adminPermissions.commercialPoliciesUpdateDraft,
+        adminPermissions.commercialPoliciesChooseSegments,
+        adminPermissions.commercialPoliciesResolveSegmentChoices,
+      ],
+    });
+    const router = createMemoryRouter(
+      [{ path: "/admin/commercial-policies/:policyId/edit", element: <AdminCommercialPolicyEditPage /> }],
+      { initialEntries: [`/admin/commercial-policies/${policyId}/edit`] },
+    );
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <AdminSessionProvider>
+          <RouterProvider router={router} />
+        </AdminSessionProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await view.findByLabelText("Segment actif avec audience figée")).toBeTruthy();
+    await waitFor(() => {
+      expect(requests.some((request) => request.includes("/commercial-policies/segment-choices?"))).toBeTrue();
+      expect(requests.some((request) => request.includes("/commercial-policies/segment-choices/selected?"))).toBeTrue();
+    });
+    expect(requests.some((request) => request.includes("/api/admin/segments"))).toBeFalse();
+  });
+
   test("requires an explicit reload and never retries stale edits with a refreshed version", async () => {
     let detailReads = 0;
     const updateBodies: Array<Record<string, unknown>> = [];

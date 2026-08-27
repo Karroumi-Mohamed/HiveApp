@@ -18,6 +18,7 @@ const addOnsRoot = [...adminRoot, "add-ons"] as const;
 const quotaPackagesRoot = [...adminRoot, "quota-packages"] as const;
 const priceBooksRoot = [...adminRoot, "price-books"] as const;
 const policiesRoot = [...adminRoot, "commercial-policies"] as const;
+const segmentsRoot = [...adminRoot, "segments"] as const;
 const subscriptionsRoot = [...adminRoot, "subscriptions"] as const;
 const registryRoot = [...adminRoot, "registry"] as const;
 
@@ -81,6 +82,37 @@ export const adminCommercialKeys = {
     owner: (policyId: string) => [...policiesRoot, "detail", policyId, "owner"] as const,
     accountChoices: (filters: Readonly<Record<string, unknown>>) =>
       [...policiesRoot, "account-choices", filters] as const,
+    segmentChoices: (filters: Readonly<Record<string, unknown>>) =>
+      [...policiesRoot, "segment-choices", filters] as const,
+  },
+  segments: {
+    all: () => segmentsRoot,
+    list: (filters: Readonly<Record<string, unknown>>) => [...segmentsRoot, "list", filters] as const,
+    detail: (segmentId: string) => [...segmentsRoot, "detail", segmentId] as const,
+    count: (segmentId: string, version: number) => [...segmentsRoot, "detail", segmentId, "count", version] as const,
+    preview: (segmentId: string, version: number) =>
+      [...segmentsRoot, "detail", segmentId, "preview", version] as const,
+    identitySample: (segmentId: string, version: number) =>
+      [...segmentsRoot, "detail", segmentId, "identity-sample", version] as const,
+    revisions: (segmentId: string, page: number) => [...segmentsRoot, "detail", segmentId, "revisions", page] as const,
+    comparison: (segmentId: string, comparedId: string) =>
+      [...segmentsRoot, "detail", segmentId, "comparison", comparedId] as const,
+    history: (segmentId: string, page: number) => [...segmentsRoot, "detail", segmentId, "history", page] as const,
+    activations: (segmentId: string, page: number) =>
+      [...segmentsRoot, "detail", segmentId, "activations", page] as const,
+    activationAudience: (segmentId: string, activationId: string, page: number, identities: boolean) =>
+      [
+        ...segmentsRoot,
+        "detail",
+        segmentId,
+        "activations",
+        activationId,
+        identities ? "identities" : "accounts",
+        page,
+      ] as const,
+    owner: (segmentId: string) => [...segmentsRoot, "detail", segmentId, "owner"] as const,
+    accountChoices: (filters: Readonly<Record<string, unknown>>) =>
+      [...segmentsRoot, "account-choices", filters] as const,
   },
   subscriptions: {
     all: () => subscriptionsRoot,

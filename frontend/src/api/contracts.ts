@@ -431,6 +431,15 @@ export type CommercialPolicyTargetInput = {
   segmentReference: string | null;
 };
 
+export type CommercialPolicySegmentChoice = {
+  id: UUID;
+  code: string;
+  name: string;
+  revisionNumber: number;
+  kind: CommercialSegmentKind;
+  immutableAccountCount: number;
+};
+
 export type CommercialPolicyEffectInput = {
   type: CommercialPolicyEffectType;
   productType: CommercialPolicyProductType | null;
@@ -554,6 +563,194 @@ export type CommercialPolicyRevision = {
   createdAt: Instant;
 };
 export type CommercialPolicyHistory = {
+  id: UUID;
+  action: string;
+  outcome: "SUCCEEDED" | "FAILED";
+  actorUserId: UUID | null;
+  actorEmail: string | null;
+  reason: string | null;
+  occurredAt: Instant;
+};
+
+export type CommercialSegmentStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
+export type CommercialSegmentKind = "EXPLICIT_ACCOUNTS" | "TYPED_CRITERIA";
+export type CommercialSegmentSource = "MANUAL" | "IMPORTED" | "SUPPORT";
+export type CommercialSegmentProductType = "PLAN" | "ADD_ON" | "QUOTA_PACKAGE";
+export type CommercialSegmentCreationReason = "CREATED" | "DUPLICATED" | "REVISED";
+export type CommercialSegmentAction =
+  | "EDIT_DRAFT"
+  | "DUPLICATE"
+  | "COUNT"
+  | "PREVIEW"
+  | "READ_SAMPLE_IDENTITIES"
+  | "ACTIVATE"
+  | "REVISE"
+  | "COMPARE"
+  | "ARCHIVE"
+  | "DELETE_DRAFT"
+  | "READ_HISTORY"
+  | "READ_REVISIONS"
+  | "READ_ACTIVATIONS"
+  | "READ_ACTIVATION_AUDIENCE"
+  | "READ_ACTIVATION_IDENTITIES"
+  | "READ_OWNER"
+  | "REASSIGN_OWNER";
+export type CommercialSegmentBlocker =
+  | "EMPTY_AUDIENCE"
+  | "AUDIENCE_EXCEEDS_ACTIVATION_LIMIT"
+  | "NOT_DRAFT"
+  | "NOT_ACTIVE"
+  | "ALREADY_ARCHIVED"
+  | "NOT_LATEST_REVISION"
+  | "HAS_POLICY_REFERENCES"
+  | "HAS_ACTIVATION_HISTORY"
+  | "ACTIVE_SUCCESSOR_EXISTS";
+
+export type CommercialSegmentProductHolding = {
+  type: CommercialSegmentProductType;
+  code: string;
+};
+
+export type CommercialSegmentCriteria = {
+  currentPlanRevisionIds: UUID[];
+  subscriptionStatuses: SubscriptionStatus[];
+  currencyCodes: string[];
+  billingCycles: BillingCycle[];
+  accountCreatedFrom: Instant | null;
+  accountCreatedUntil: Instant | null;
+  productHoldings: CommercialSegmentProductHolding[];
+  semantics?: string;
+};
+
+export type CommercialSegmentDefinition = {
+  explicitAccountIds: UUID[];
+  criteria: CommercialSegmentCriteria | null;
+};
+
+export type CommercialSegmentSummary = {
+  id: UUID;
+  code: string;
+  name: string;
+  status: CommercialSegmentStatus;
+  kind: CommercialSegmentKind;
+  source: CommercialSegmentSource;
+  configuredAccountCount: number;
+  latestActivationAccountCount: number | null;
+  lineageId: UUID;
+  revisionNumber: number;
+  creationReason: CommercialSegmentCreationReason;
+  version: number;
+  createdAt: Instant;
+  updatedAt: Instant;
+  availableActions: CommercialSegmentAction[];
+  blockedActions: Partial<Record<CommercialSegmentAction, CommercialSegmentBlocker[]>>;
+  ownerIdentityRestricted: boolean;
+  audienceIdentityRestricted: boolean;
+};
+
+export type CommercialSegmentDetail = {
+  summary: CommercialSegmentSummary;
+  description: string | null;
+  reason: string;
+  definition: CommercialSegmentDefinition;
+  sourceSegmentId: UUID | null;
+};
+
+export type CommercialSegmentWriteInput = {
+  name: string;
+  description: string | null;
+  kind: CommercialSegmentKind;
+  source: CommercialSegmentSource;
+  reason: string;
+  definition: CommercialSegmentDefinition;
+};
+
+export type CommercialSegmentCount = {
+  segmentId: UUID;
+  criteriaVersion: number;
+  evaluatedAt: Instant;
+  totalAccounts: number;
+  activationAccountLimit: number;
+  withinActivationLimit: boolean;
+};
+
+export type CommercialSegmentAudienceReference = { accountId: UUID };
+export type CommercialSegmentAudienceIdentity = {
+  accountId: UUID;
+  accountName: string;
+  accountSlug: string;
+  ownerEmail: string;
+  active: boolean;
+};
+export type CommercialSegmentPreview = {
+  segmentId: UUID;
+  criteriaVersion: number;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
+  previewToken: string;
+  totalAccounts: number;
+  activationAccountLimit: number;
+  activatable: boolean;
+  blockers: CommercialSegmentBlocker[];
+  sample: CommercialSegmentAudienceReference[];
+};
+export type CommercialSegmentIdentitySample = {
+  segmentId: UUID;
+  criteriaVersion: number;
+  evaluatedAt: Instant;
+  totalAccounts: number;
+  sample: CommercialSegmentAudienceIdentity[];
+};
+export type CommercialSegmentActivation = {
+  id: UUID;
+  activationNumber: number;
+  segmentId: UUID;
+  actorUserId: UUID;
+  evaluatedAt: Instant;
+  evidenceExpiresAt: Instant;
+  criteriaVersion: number;
+  affectedAccountCount: number;
+  reason: string;
+  recordedAt: Instant;
+};
+export type CommercialSegmentActivationAudience = {
+  segmentId: UUID;
+  activationId: UUID;
+  activationNumber: number;
+  immutableAccountCount: number;
+  accounts: PageResponse<CommercialSegmentAudienceReference>;
+};
+export type CommercialSegmentActivationIdentityAudience = Omit<CommercialSegmentActivationAudience, "accounts"> & {
+  accounts: PageResponse<CommercialSegmentAudienceIdentity>;
+};
+export type CommercialSegmentOwner = {
+  segmentId: UUID;
+  adminUserId: UUID;
+  userId: UUID;
+  email: string;
+  username: string;
+  displayName: string | null;
+  active: boolean;
+};
+export type CommercialSegmentRevision = {
+  id: UUID;
+  code: string;
+  status: CommercialSegmentStatus;
+  revisionNumber: number;
+  sourceSegmentId: UUID | null;
+  version: number;
+  createdAt: Instant;
+};
+export type CommercialSegmentComparison = {
+  sourceSegmentId: UUID;
+  comparedSegmentId: UUID;
+  sameLineage: boolean;
+  directSuccessor: boolean;
+  changedFields: string[];
+  source: CommercialSegmentDetail;
+  compared: CommercialSegmentDetail;
+};
+export type CommercialSegmentHistory = {
   id: UUID;
   action: string;
   outcome: "SUCCEEDED" | "FAILED";

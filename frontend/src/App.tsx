@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { AppProviders } from "@/app/providers";
 import {
   adminCommercialPolicyDetailSurfacePermissions,
+  adminCommercialSegmentDetailSurfacePermissions,
   adminOverviewSurfacePermissions,
   adminPermissions,
   adminPriceBookDetailSurfacePermissions,
@@ -32,6 +33,12 @@ import {
   AdminCommercialPolicyCreatePage,
   AdminCommercialPolicyEditPage,
 } from "@/features/admin/commercial-policies/commercial-policy-editor";
+import { AdminCommercialSegmentDetailPage } from "@/features/admin/commercial-segments/admin-commercial-segment-detail-page";
+import { AdminCommercialSegmentsPage } from "@/features/admin/commercial-segments/admin-commercial-segments-page";
+import {
+  AdminCommercialSegmentCreatePage,
+  AdminCommercialSegmentEditPage,
+} from "@/features/admin/commercial-segments/commercial-segment-editor";
 import { AdminMePage } from "@/features/admin/me/admin-me-page";
 import { AdminOperatorDetailPage } from "@/features/admin/operators/admin-operator-detail-page";
 import { AdminOperatorsPage } from "@/features/admin/operators/admin-operators-page";
@@ -220,6 +227,38 @@ const router = createBrowserRouter([
         element: (
           <AdminReadPermissionGate anyOf={adminPriceBookDetailSurfacePermissions}>
             <AdminProductPriceDetailPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "segments",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.segmentsList]}>
+            <AdminCommercialSegmentsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "segments/new",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.segmentsCreate]}>
+            <AdminCommercialSegmentCreatePage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "segments/:segmentId/edit",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.segmentsRead, adminPermissions.segmentsUpdateDraft]}>
+            <AdminCommercialSegmentEditPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "segments/:segmentId/:tab?",
+        element: (
+          <AdminReadPermissionGate anyOf={adminCommercialSegmentDetailSurfacePermissions}>
+            <AdminCommercialSegmentDetailPage />
           </AdminReadPermissionGate>
         ),
       },

@@ -17,6 +17,7 @@ import type {
   CommercialPolicyDetail,
   CommercialPolicyEffectType,
   CommercialPolicyProductType,
+  CommercialPolicySegmentChoice,
   PageResponse,
   RegistryFeature,
 } from "@/api/contracts";
@@ -115,6 +116,7 @@ function AccountTargetEditor({
   const debounced = useDebouncedValue(search);
   const [page, setPage] = useState(0);
   const canChoose = session.can(adminPermissions.commercialPoliciesChooseAccounts);
+  const canResolve = session.can(adminPermissions.commercialPoliciesResolveAccountChoices);
   const selectedIds = draft.targetKind === "ACCOUNT" ? (draft.accountId ? [draft.accountId] : []) : draft.accountIds;
   const choices = useQuery({
     queryKey: adminCommercialKeys.policies.accountChoices({ search: debounced, page }),
@@ -132,7 +134,7 @@ function AccountTargetEditor({
     enabled: commercialQueryEnabled(
       session.can,
       adminPermissions.commercialPoliciesResolveAccountChoices,
-      canChoose && selectedIds.length > 0,
+      selectedIds.length > 0,
     ),
   });
   const selectedById = useMemo(
@@ -146,9 +148,16 @@ function AccountTargetEditor({
         <p>Votre rôle permet de définir la politique, mais pas de parcourir les comptes cibles.</p>
         {selectedIds.length ? (
           <p className="break-all text-xs">
-            Sélection conservée sans lecture d’identité : {selectedIds.slice(0, 3).join(", ")}
+            Sélection conservée{canResolve ? "" : " sans lecture d’identité"} :{" "}
+            {selectedIds
+              .slice(0, 3)
+              .map((id) => selectedById.get(id)?.name ?? id)
+              .join(", ")}
             {selectedIds.length > 3 ? ` et ${selectedIds.length - 3} autre(s)` : ""}
           </p>
+        ) : null}
+        {selected.isError ? (
+          <p className="text-xs text-warning">Les libellés conservés n’ont pas pu être relus.</p>
         ) : null}
       </div>
     );
@@ -278,11 +287,7 @@ function PlanTargetEditor({
   const selectedPlan = useQuery({
     queryKey: [...adminCommercialKeys.plans.all(), "policy-target-selected", draft.planRevisionId],
     queryFn: () => adminApi.selectedPlanChoices([draft.planRevisionId]),
-    enabled: commercialQueryEnabled(
-      session.can,
-      adminPermissions.plansResolveChoices,
-      session.can(adminPermissions.plansChoose) && Boolean(draft.planRevisionId),
-    ),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.plansResolveChoices, Boolean(draft.planRevisionId)),
   });
   const planOptions = useMemo(() => {
     const byId = new Map((selectedPlan.data ?? []).map((plan) => [plan.id, plan]));
@@ -290,10 +295,19 @@ function PlanTargetEditor({
     return [...byId.values()];
   }, [plans.data, selectedPlan.data]);
   if (!session.can(adminPermissions.plansChoose)) {
+    const retained = planOptions.find((plan) => plan.id === draft.planRevisionId);
     return (
       <div className="space-y-1 text-sm text-muted-foreground">
         <p>Votre rôle ne permet pas de choisir une révision de forfait.</p>
-        {draft.planRevisionId ? <p className="break-all text-xs">Révision conservée : {draft.planRevisionId}</p> : null}
+        {draft.planRevisionId ? (
+          <p className="break-all text-xs">
+            Révision conservée :{" "}
+            {retained ? `${retained.name} · ${retained.code} · R${retained.revisionNumber}` : draft.planRevisionId}
+          </p>
+        ) : null}
+        {selectedPlan.isError ? (
+          <p className="text-xs text-warning">Le libellé conservé n’a pas pu être relu.</p>
+        ) : null}
       </div>
     );
   }
@@ -351,6 +365,125 @@ function PlanTargetEditor({
   );
 }
 
+function SegmentTargetEditor({
+  draft,
+  onChange,
+}: {
+  draft: CommercialPolicyDraft;
+  onChange: (next: CommercialPolicyDraft) => void;
+}) {
+  const session = useAdminSession();
+  const [search, setSearch] = useState("");
+  const debounced = useDebouncedValue(search);
+  const [page, setPage] = useState(0);
+  const canChoose = session.can(adminPermissions.commercialPoliciesChooseSegments);
+  const canResolve = session.can(adminPermissions.commercialPoliciesResolveSegmentChoices);
+  const choices = useQuery({
+    queryKey: adminCommercialKeys.policies.segmentChoices({ search: debounced, page }),
+    queryFn: () => adminApi.commercialPolicySegmentChoices({ query: debounced || undefined, page, size: 20 }),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.commercialPoliciesChooseSegments),
+  });
+  const selected = useQuery({
+    queryKey: adminCommercialKeys.policies.segmentChoices({ selected: draft.segmentReference }),
+    queryFn: () => adminApi.resolveCommercialPolicySegmentChoices([draft.segmentReference]),
+    enabled: commercialQueryEnabled(
+      session.can,
+      adminPermissions.commercialPoliciesResolveSegmentChoices,
+      Boolean(draft.segmentReference),
+    ),
+  });
+  const options = useMemo(() => {
+    const byCode = new Map<string, CommercialPolicySegmentChoice>();
+    for (const segment of selected.data ?? []) byCode.set(segment.code, segment);
+    for (const segment of choices.data?.content ?? []) byCode.set(segment.code, segment);
+    return [...byCode.values()];
+  }, [choices.data, selected.data]);
+  const label = (segment: CommercialPolicySegmentChoice) =>
+    `${segment.name} · ${segment.code} · R${segment.revisionNumber} · ${segment.immutableAccountCount} compte(s)`;
+
+  if (!canChoose) {
+    const retained = options.find((segment) => segment.code === draft.segmentReference);
+    return (
+      <div className="space-y-1 border-y py-4 text-sm text-muted-foreground">
+        <p>Votre rôle ne permet pas de parcourir les Segments exécutables.</p>
+        {draft.segmentReference ? (
+          <p className="text-xs">
+            Cible conservée : {retained ? label(retained) : draft.segmentReference}
+            {!canResolve ? " (identité masquée)" : ""}
+          </p>
+        ) : null}
+        {selected.isError ? <p className="text-xs text-warning">Le libellé conservé n’a pas pu être relu.</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <Label htmlFor="policy-segment-search">Segment actif avec audience figée</Label>
+        <Input
+          id="policy-segment-search"
+          maxLength={180}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(0);
+          }}
+          placeholder="Rechercher par nom ou code…"
+          value={search}
+        />
+      </div>
+      {choices.isLoading ? <LoadingState rows={3} /> : null}
+      {choices.isError ? <ErrorState retry={() => void choices.refetch()} /> : null}
+      {selected.isError ? (
+        <p className="text-xs text-warning" role="status">
+          La référence reste conservée, mais son Segment n’a pas pu être relu.
+        </p>
+      ) : null}
+      <Select
+        onValueChange={(value) => onChange({ ...draft, segmentReference: value })}
+        value={draft.segmentReference || undefined}
+      >
+        <SelectTrigger className="w-full" aria-label="Segment ciblé">
+          <SelectValue placeholder="Choisir un Segment exécutable" />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((segment) => (
+            <SelectItem key={segment.id} value={segment.code}>
+              {label(segment)}
+            </SelectItem>
+          ))}
+          {draft.segmentReference && !options.some((segment) => segment.code === draft.segmentReference) ? (
+            <SelectItem value={draft.segmentReference}>Référence conservée · non résolue</SelectItem>
+          ) : null}
+        </SelectContent>
+      </Select>
+      {choices.data ? (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{choices.data.totalElements} Segment(s) exécutable(s)</span>
+          <div className="flex gap-1">
+            <Button
+              disabled={choices.data.first}
+              onClick={() => setPage((value) => value - 1)}
+              size="sm"
+              variant="ghost"
+            >
+              Précédent
+            </Button>
+            <Button
+              disabled={choices.data.last}
+              onClick={() => setPage((value) => value + 1)}
+              size="sm"
+              variant="ghost"
+            >
+              Suivant
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function TargetStep({
   draft,
   onChange,
@@ -395,25 +528,7 @@ function TargetStep({
       ) : draft.targetKind === "PLAN_REVISION_SUBSCRIBERS" ? (
         <PlanTargetEditor draft={draft} onChange={onChange} />
       ) : (
-        <div className="space-y-3">
-          <Alert className="border-warning/30 bg-warning/5">
-            <WarningCircleIcon />
-            <AlertTitle>Segment non exécutable dans cette version</AlertTitle>
-            <AlertDescription>
-              Vous pouvez préparer le brouillon, mais la résolution de l’audience et l’activation resteront bloquées.
-            </AlertDescription>
-          </Alert>
-          <div className="max-w-xl space-y-2">
-            <Label htmlFor="policy-segment">Référence du segment futur</Label>
-            <Input
-              id="policy-segment"
-              maxLength={100}
-              onChange={(event) => onChange({ ...draft, segmentReference: event.target.value })}
-              placeholder="LOYAL_CUSTOMERS"
-              value={draft.segmentReference}
-            />
-          </div>
-        </div>
+        <SegmentTargetEditor draft={draft} onChange={onChange} />
       )}
     </section>
   );
