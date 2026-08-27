@@ -20,6 +20,28 @@ export function subscriptionChangeFailureMessage(error: unknown): string {
   }
 }
 
+type SubscriptionChangeConflict = SubscriptionChangePreview["conflicts"][number];
+
+/** Operational conflict copy is keyed only by the backend's stable code. */
+export function subscriptionChangeConflictText(conflict: SubscriptionChangeConflict): string {
+  const feature = conflict.featureCode ?? "cette fonctionnalité";
+  const resource = conflict.resource ? ` / ${conflict.resource}` : "";
+  switch (conflict.code) {
+    case "IMPACT_UNKNOWN":
+      return `L’impact de la suppression de ${feature} ne peut pas être mesuré. Le changement reste bloqué.`;
+    case "FEATURE_IN_USE":
+      return conflict.currentUsage === null
+        ? `${feature} est encore utilisée.`
+        : `${feature} est encore utilisée par ${conflict.currentUsage.toLocaleString("fr-MA")} élément(s) actif(s).`;
+    case "QUOTA_USAGE_UNKNOWN":
+      return `L’utilisation de ${feature}${resource} ne peut pas être mesurée. La réduction reste bloquée.`;
+    case "QUOTA_BELOW_USAGE":
+      return `La limite demandée pour ${feature}${resource} est inférieure à l’utilisation actuelle.`;
+    default:
+      return "Cette sélection a un impact non résolu. Modifiez-la avant de continuer.";
+  }
+}
+
 /** Stable comparison key for the exact commercial selection covered by signed preview evidence. */
 export function subscriptionChangeSelectionKey(selection: SubscriptionChangeInput): string {
   return JSON.stringify({
@@ -34,7 +56,7 @@ export function subscriptionChangeSelectionKey(selection: SubscriptionChangeInpu
 }
 
 export function subscriptionChangePreviewIsCurrent(
-  preview: SubscriptionChangePreview | null,
+  preview: { expiresAt: string; targetPlanCode: string } | null,
   selection: SubscriptionChangeInput | null,
   previewSelectionKey: string | null,
   now = Date.now(),

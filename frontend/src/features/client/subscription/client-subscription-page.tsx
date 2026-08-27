@@ -6,9 +6,9 @@ import { toast } from "sonner";
 import { clientApi } from "@/api/client-api";
 import type {
   ClientPlanCatalog,
+  ClientSubscriptionChangePreview,
   SubscriptionChangeInput,
   SubscriptionChangeOperation,
-  SubscriptionChangePreview,
 } from "@/api/contracts";
 import { clientPermissions } from "@/auth/permissions";
 import { useClientSession } from "@/auth/session-provider";
@@ -27,6 +27,7 @@ import {
   catalogAddOnSelectionState,
   currentCatalogPrice,
   defaultCatalogPrice,
+  effectiveCatalogAddOnCodes,
   initialCatalogPlanCode,
   matchingCatalogPrice,
   preserveRetainedSelection,
@@ -34,6 +35,13 @@ import {
   sameStringSet,
   updateCatalogAddOnSelection,
 } from "@/features/commercial/catalog-price-rules";
+import {
+  ClientCommercialPolicyTerms,
+  hasAvailableCommercialPolicyTerms,
+  isPolicyBlockedProduct,
+  isPolicyGrantedProduct,
+  PolicyGrantedProductText,
+} from "@/features/commercial/commercial-policy-terms";
 import {
   clientCommercialKeys,
   commercialQueryEnabled,
@@ -58,6 +66,7 @@ import {
 } from "@/features/commercial/subscription-quantity-control";
 import { formatExactMoney } from "@/lib/exact-decimal";
 import {
+  subscriptionChangeConflictText,
   subscriptionChangeFailureMessage,
   subscriptionChangePreviewIsCurrent,
   subscriptionChangeSelectionKey,
@@ -83,7 +92,7 @@ function PreviewDialog({
   targetPlanName,
   featureNames,
 }: {
-  preview: SubscriptionChangePreview | null;
+  preview: ClientSubscriptionChangePreview | null;
   open: boolean;
   onOpenChange: (value: boolean) => void;
   timing: "IMMEDIATE" | "AT_RENEWAL";
@@ -108,16 +117,23 @@ function PreviewDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-6">
-          <div className="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-2">
+          <div
+            className={`grid gap-px overflow-hidden rounded-lg border bg-border ${preview.commercialPolicyEvaluation ? "sm:grid-cols-1" : "sm:grid-cols-2"}`}
+          >
             <div className="bg-card p-4">
               <p className="text-xs text-muted-foreground">Prix actuel</p>
               <p className="mt-1 text-xl font-semibold">{money(preview.currentPrice, preview.currencyCode)}</p>
             </div>
-            <div className="bg-card p-4">
-              <p className="text-xs text-muted-foreground">Nouveau prix</p>
-              <p className="mt-1 text-xl font-semibold">{money(preview.previewPrice, preview.currencyCode)}</p>
-            </div>
+            {!preview.commercialPolicyEvaluation ? (
+              <div className="bg-card p-4">
+                <p className="text-xs text-muted-foreground">Nouveau prix</p>
+                <p className="mt-1 text-xl font-semibold">{money(preview.previewPrice, preview.currencyCode)}</p>
+              </div>
+            ) : null}
           </div>
+          {preview.commercialPolicyEvaluation ? (
+            <ClientCommercialPolicyTerms evaluation={preview.commercialPolicyEvaluation} />
+          ) : null}
           {preview.conflicts.length ? (
             <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
@@ -126,7 +142,9 @@ function PreviewDialog({
               </div>
               <ul className="mt-3 list-disc space-y-1 ps-5 text-sm">
                 {preview.conflicts.map((conflict) => (
-                  <li key={`${conflict.code}-${conflict.featureCode}-${conflict.resource}`}>{conflict.message}</li>
+                  <li key={`${conflict.code}-${conflict.featureCode}-${conflict.resource}`}>
+                    {subscriptionChangeConflictText(conflict)}
+                  </li>
                 ))}
               </ul>
             </section>
@@ -166,6 +184,7 @@ function PreviewDialog({
                 disabled={
                   !previewReady ||
                   Boolean(preview.conflicts.length) ||
+                  Boolean(preview.commercialPolicyEvaluation?.conflicts.length) ||
                   applying ||
                   (timing === "IMMEDIATE" && !preview.immediateAllowed)
                 }
@@ -197,7 +216,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
     Object.fromEntries((current?.quotaPackages ?? []).map((item) => [item.packageCode, item.quantity])),
   );
   const [timing, setTiming] = useState<"IMMEDIATE" | "AT_RENEWAL">("IMMEDIATE");
-  const [preview, setPreview] = useState<SubscriptionChangePreview | null>(null);
+  const [preview, setPreview] = useState<ClientSubscriptionChangePreview | null>(null);
   const [previewSelectionKey, setPreviewSelectionKey] = useState<string | null>(null);
   const [previewClock, setPreviewClock] = useState(() => Date.now());
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -224,14 +243,25 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
     () => plan?.addOns.filter((item) => matchingCatalogPrice(item.prices, selectedPlanPrice)) ?? [],
     [plan, selectedPlanPrice],
   );
+  const effectiveAddOns = useMemo(
+    () =>
+      effectiveCatalogAddOnCodes(addOns, compatibleAddOns, (item) =>
+        isPolicyGrantedProduct(item.commercialPolicyDecisions),
+      ),
+    [addOns, compatibleAddOns],
+  );
+  const automaticallyIncludedAddOns = useMemo(
+    () => effectiveAddOns.filter((code) => !addOns.includes(code)),
+    [addOns, effectiveAddOns],
+  );
   const compatibleQuotaPackages = useMemo(
     () =>
       plan?.quotaPackages.filter(
         (item) =>
           matchingCatalogPrice(item.prices, selectedPlanPrice) &&
-          (item.directlyAvailable || item.requiresAddOnCodes.some((code) => addOns.includes(code))),
+          (item.directlyAvailable || item.requiresAddOnCodes.some((code) => effectiveAddOns.includes(code))),
       ) ?? [],
-    [addOns, plan, selectedPlanPrice],
+    [effectiveAddOns, plan, selectedPlanPrice],
   );
   const hiddenRetainedAddOns = useMemo(() => {
     const visible = new Set(compatibleAddOns.map((item) => item.code));
@@ -249,6 +279,14 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
         ),
       ),
     [catalog.plans],
+  );
+  const retainedAddOnsByCode = useMemo(
+    () => new Map(retainedAddOns.map((item) => [item.code, item] as const)),
+    [retainedAddOns],
+  );
+  const retainedQuotaPackagesByCode = useMemo(
+    () => new Map(retainedQuotaPackages.map((item) => [item.code, item] as const)),
+    [retainedQuotaPackages],
   );
   const currentPlanName =
     catalog.plans.find((catalogPlan) => catalogPlan.code === current?.planCode)?.name ?? "Forfait actuel";
@@ -299,7 +337,9 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
         : null,
     [planCode, addOns, quantities, timing, selectedPlanPrice],
   );
-  const requestIsNoOp = subscriptionChangeSelectionMatchesCurrent(request, current);
+  const requestIsNoOp =
+    subscriptionChangeSelectionMatchesCurrent(request, current) &&
+    !hasAvailableCommercialPolicyTerms(catalog.commercialPolicyDecisions);
   const previewReady = subscriptionChangePreviewIsCurrent(preview, request, previewSelectionKey, previewClock);
   useEffect(() => {
     if (!preview) return;
@@ -433,30 +473,58 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             <div className="mt-4 divide-y rounded-lg border">
               {compatibleAddOns.map((item) => {
                 const itemPrice = matchingCatalogPrice(item.prices, selectedPlanPrice);
+                const policyGranted = isPolicyGrantedProduct(item.commercialPolicyDecisions);
+                const policyBlocked = isPolicyBlockedProduct(item.commercialPolicyDecisions);
+                const retained =
+                  plan.current && addOns.includes(item.code) ? retainedAddOnsByCode.get(item.code) : null;
                 const { selected, excludedBy, missingDependency, requiredBy } = catalogAddOnSelectionState(
                   item,
                   compatibleAddOns,
-                  addOns,
+                  effectiveAddOns,
                 );
                 return (
                   <div className="flex items-start gap-3 p-4" key={item.code}>
                     <Checkbox
-                      checked={selected}
-                      disabled={selected ? Boolean(requiredBy) : Boolean(missingDependency || excludedBy)}
+                      checked={policyGranted || selected}
+                      disabled={
+                        policyGranted ||
+                        policyBlocked ||
+                        !item.selectable ||
+                        Boolean(retained && !retained.removable) ||
+                        (selected ? Boolean(requiredBy) : Boolean(missingDependency || excludedBy))
+                      }
                       id={`client-addon-${item.code}`}
                       onCheckedChange={(checked) =>
                         setAddOns((currentItems) =>
-                          updateCatalogAddOnSelection(currentItems, item, compatibleAddOns, Boolean(checked)),
+                          updateCatalogAddOnSelection(
+                            currentItems,
+                            item,
+                            compatibleAddOns,
+                            Boolean(checked),
+                            automaticallyIncludedAddOns,
+                          ),
                         )
                       }
                     />
                     <Label className="min-w-0 flex-1 font-normal" htmlFor={`client-addon-${item.code}`}>
                       <span className="block text-sm font-medium">{item.name}</span>
                       <span className="mt-1 block text-xs text-muted-foreground">
-                        {itemPrice ? money(itemPrice.amount, itemPrice.currencyCode) : "Indisponible"}
+                        {policyGranted
+                          ? "Inclus"
+                          : retained
+                            ? `${money(retained.unitPrice, retained.currencyCode)} · conditions détenues`
+                            : itemPrice
+                              ? money(itemPrice.amount, itemPrice.currencyCode)
+                              : "Indisponible"}
                         {item.description ? ` · ${item.description}` : ""}
                       </span>
-                      {missingDependency || excludedBy || requiredBy ? (
+                      {policyGranted ? (
+                        <PolicyGrantedProductText className="mt-1 block" />
+                      ) : policyBlocked || !item.selectable ? (
+                        <span className="mt-1 block text-xs text-destructive">
+                          Indisponible selon vos conditions commerciales
+                        </span>
+                      ) : missingDependency || excludedBy || requiredBy ? (
                         <span className="mt-1 block text-xs text-muted-foreground">
                           {missingDependency
                             ? `Dépendance indisponible : ${missingDependency}`
@@ -519,21 +587,52 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             <div className="mt-4 divide-y rounded-lg border">
               {compatibleQuotaPackages.map((item) => {
                 const itemPrice = matchingCatalogPrice(item.prices, selectedPlanPrice);
+                const policyGranted = isPolicyGrantedProduct(item.commercialPolicyDecisions);
+                const policyBlocked = isPolicyBlockedProduct(item.commercialPolicyDecisions);
+                const retained =
+                  plan.current && (quantities[item.code] ?? 0) > 0 ? retainedQuotaPackagesByCode.get(item.code) : null;
                 return (
                   <div className="flex items-center justify-between gap-4 p-4" key={item.code}>
                     <div>
                       <p className="text-sm font-medium">{item.name}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         +{item.capacityPerUnit} {capacityUnitLabel(item.resource)} ·{" "}
-                        {itemPrice ? money(itemPrice.amount, itemPrice.currencyCode) : "Indisponible"} par unité
+                        {policyGranted
+                          ? "1 unité incluse"
+                          : retained
+                            ? `${money(retained.unitPrice, retained.currencyCode)} par unité · conditions détenues`
+                            : itemPrice
+                              ? `${money(itemPrice.amount, itemPrice.currencyCode)} par unité`
+                              : "Indisponible"}
                       </p>
+                      {policyGranted ? <PolicyGrantedProductText className="mt-1 block" /> : null}
+                      {policyBlocked || !item.selectable ? (
+                        <span className="mt-1 block text-xs text-destructive">
+                          Indisponible selon vos conditions commerciales
+                        </span>
+                      ) : null}
                     </div>
-                    <SubscriptionQuantityControl
-                      label={item.name}
-                      maximum={item.maximumQuantity}
-                      onChange={(value) => setQuantities((currentItems) => ({ ...currentItems, [item.code]: value }))}
-                      value={quantities[item.code] ?? 0}
-                    />
+                    {policyGranted && (quantities[item.code] ?? 0) <= 1 ? (
+                      <span className="text-sm font-semibold tabular-nums">1 incluse</span>
+                    ) : retained ? (
+                      <RetainedSubscriptionQuantityControl
+                        label={item.name}
+                        maximum={retained.maximumSelectableQuantity ?? retained.quantity}
+                        onChange={(value) => setQuantities((currentItems) => ({ ...currentItems, [item.code]: value }))}
+                        quantityEditable={retained.quantityEditable}
+                        removable={retained.removable}
+                        retainedQuantity={retained.quantity}
+                        value={quantities[item.code] ?? retained.quantity}
+                      />
+                    ) : (
+                      <SubscriptionQuantityControl
+                        disabled={policyBlocked || !item.selectable}
+                        label={item.name}
+                        maximum={item.maximumQuantity}
+                        onChange={(value) => setQuantities((currentItems) => ({ ...currentItems, [item.code]: value }))}
+                        value={quantities[item.code] ?? 0}
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -622,6 +721,18 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
   );
 }
 
+function ClientOperationDetails({ operation }: { operation: SubscriptionChangeOperation }) {
+  if (!operation.commercialPolicyEvaluation) {
+    return <p className="text-sm text-muted-foreground">Aucun ajustement commercial enregistré.</p>;
+  }
+  return (
+    <ClientCommercialPolicyTerms
+      evaluation={operation.commercialPolicyEvaluation}
+      title="Conditions acceptées avec ce changement"
+    />
+  );
+}
+
 function ChangeHistory() {
   const session = useClientSession();
   const queryClient = useQueryClient();
@@ -676,6 +787,7 @@ function ChangeHistory() {
           )
         }
         operations={changes.data.content}
+        renderDetails={(operation) => <ClientOperationDetails operation={operation} />}
         renderAction={(operation) =>
           ["PENDING", "AWAITING_CONFIRMATION"].includes(operation.status) &&
           session.can(clientPermissions.subscriptionCancel) ? (

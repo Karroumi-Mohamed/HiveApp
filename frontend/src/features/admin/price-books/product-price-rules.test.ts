@@ -54,6 +54,7 @@ describe("retained commercial selections", () => {
     if (!core || !exportAddOn) throw new Error("Expected the add-on fixtures");
 
     expect(updateCatalogAddOnSelection([], exportAddOn, candidates, true)).toEqual(["EXPORT", "AUDIT", "CORE"]);
+    expect(updateCatalogAddOnSelection(["CORE"], exportAddOn, candidates, true, ["AUDIT"])).toEqual(["CORE", "EXPORT"]);
     expect(catalogAddOnSelectionState(exportAddOn, candidates, ["LEGACY"]).excludedBy?.code).toBe("LEGACY");
     expect(catalogAddOnSelectionState(core, candidates, ["AUDIT"]).requiredBy?.code).toBe("AUDIT");
   });

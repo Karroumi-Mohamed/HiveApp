@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SubscriptionChangeInput, SubscriptionChangePreview } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import {
+  subscriptionChangeConflictText,
   subscriptionChangeFailureMessage,
   subscriptionChangePreviewIsCurrent,
   subscriptionChangeSelectionKey,
@@ -35,6 +36,19 @@ describe("subscription price failure feedback", () => {
     expect(subscriptionChangeFailureMessage(error)).toBe(
       "La sélection n’est plus applicable. Corrigez-la puis prévisualisez à nouveau.",
     );
+  });
+
+  test("maps review conflicts by stable code without displaying backend prose", () => {
+    expect(
+      subscriptionChangeConflictText({
+        code: "QUOTA_BELOW_USAGE",
+        featureCode: "STAFF",
+        resource: "members",
+        currentUsage: 14,
+        requestedLimit: 10,
+        message: "Backend prose that must not become UI copy",
+      }),
+    ).toBe("La limite demandée pour STAFF / members est inférieure à l’utilisation actuelle.");
   });
 
   test("treats unordered add-ons and packages as the same signed selection", () => {

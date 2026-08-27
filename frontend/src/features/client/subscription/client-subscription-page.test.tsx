@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
+import type {
+  ClientCommercialPolicyDecision,
+  ClientCommercialPolicyEvaluation,
+  ClientSubscriptionChangePreview,
+  SubscriptionChangeOperation,
+} from "@/api/contracts";
 
 const browser = new Window({ url: "http://localhost:3000/app/subscription" });
 for (const key of [
@@ -47,6 +53,7 @@ const { clientPermissions } = await import("@/auth/permissions");
 const { ClientSessionProvider } = await import("@/auth/session-provider");
 const { clearSession, writeSession } = await import("@/auth/session-store");
 const { ClientSubscriptionPage } = await import("./client-subscription-page");
+const { ClientCommercialPolicyTerms } = await import("@/features/commercial/commercial-policy-terms");
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -118,6 +125,8 @@ const addOn = (code: string, name: string, dependencyCodes: string[] = []) => ({
   exclusionCodes: [],
   features: [],
   prices: [{ ...price, priceEntryId: `${code}-price`, amount: "10.0000" }],
+  selectable: true,
+  commercialPolicyDecisions: [],
 });
 
 const catalog = {
@@ -151,6 +160,7 @@ const catalog = {
     ],
     retainedQuotaPackages: [],
   },
+  commercialPolicyDecisions: [],
   plans: [
     {
       code: "PRO",
@@ -161,6 +171,7 @@ const catalog = {
       billingCycle: "MONTHLY" as const,
       current: true,
       selectable: true,
+      commercialPolicyDecisions: [],
       features: [],
       addOns: [
         addOn("AUDIT", "Audit avancé"),
@@ -172,6 +183,108 @@ const catalog = {
     },
   ],
 };
+
+const policyGrant: ClientCommercialPolicyDecision = {
+  effectType: "GRANT_ADD_ON",
+  productType: "ADD_ON",
+  productCode: "GIFT",
+  featureCode: null,
+  quotaResource: null,
+  quantityDelta: null,
+  outcome: "AVAILABLE",
+  evaluatedAmount: "0.0000",
+  evaluatedCurrencyCode: "MAD",
+  explanation: "internal explanation that must remain hidden",
+};
+
+const policyQuotaGrant: ClientCommercialPolicyDecision = {
+  ...policyGrant,
+  effectType: "GRANT_QUOTA_PACKAGE",
+  productType: "QUOTA_PACKAGE",
+  productCode: "GIFT_CAPACITY",
+};
+
+const policyCatalog = {
+  ...catalog,
+  commercialPolicyDecisions: [policyGrant, policyQuotaGrant],
+  plans: catalog.plans.map((plan) => ({
+    ...plan,
+    commercialPolicyDecisions: [policyGrant, policyQuotaGrant],
+    addOns: [
+      ...plan.addOns,
+      {
+        ...addOn("GIFT", "Assistance incluse"),
+        price: "0.0000",
+        prices: [{ ...price, priceEntryId: "GIFT-price", amount: "0.0000" }],
+        commercialPolicyDecisions: [policyGrant],
+      },
+    ],
+    quotaPackages: [
+      {
+        code: "GIFT_CAPACITY",
+        name: "Capacité incluse",
+        description: null,
+        definitionVersion: 1,
+        featureCode: "STAFF",
+        resource: "members",
+        capacityPerUnit: 5,
+        price: "5.0000",
+        currencyCode: "MAD",
+        billingCycle: "MONTHLY" as const,
+        repeatable: false,
+        maximumQuantity: 1,
+        allowedPlanCodes: ["PRO"],
+        allowedAddOnCodes: [],
+        prices: [{ ...price, priceEntryId: "GIFT_CAPACITY-price", amount: "5.0000" }],
+        directlyAvailable: false,
+        requiresAddOnCodes: ["GIFT"],
+        selectable: true,
+        commercialPolicyDecisions: [policyQuotaGrant],
+      },
+    ],
+  })),
+};
+
+function clientPolicyEvaluation(
+  conflicts: ClientCommercialPolicyEvaluation["conflicts"] = [],
+): ClientCommercialPolicyEvaluation {
+  return {
+    evaluatedAt: "2026-08-27T10:00:00Z",
+    catalogueRecurringPrice: "150.0000",
+    fixedRecurringPrice: "120.0000",
+    discountAmount: "20.0000",
+    finalRecurringPrice: "100.0000",
+    currencyCode: "MAD",
+    decisions: [{ ...policyGrant, outcome: "APPLIED" }],
+    conflicts,
+  };
+}
+
+function clientPolicyPreview(
+  commercialPolicyEvaluation: ClientCommercialPolicyEvaluation,
+): ClientSubscriptionChangePreview {
+  return {
+    subscriptionId: "subscription-1",
+    expectedSubscriptionVersion: 4,
+    catalogRevision: 9,
+    registryVersion: "registry-v1",
+    evaluatedAt: "2026-08-27T10:00:00Z",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    previewToken: "safe.preview.token",
+    currentPlanCode: "PRO",
+    targetPlanCode: "PRO",
+    currentPrice: "110.0000",
+    previewPrice: "100.0000",
+    currencyCode: "MAD",
+    immediateAllowed: true,
+    effectiveFeatureCodes: [],
+    effectiveQuotaLimits: [],
+    addOnCodes: ["AUDIT", "GIFT"],
+    quotaPackages: [],
+    conflicts: [],
+    commercialPolicyEvaluation,
+  };
+}
 
 beforeEach(() => {
   cleanup();
@@ -192,6 +305,58 @@ afterEach(() => {
 });
 
 describe("client subscription operations", () => {
+  test("orders exact commercial pricing while keeping the rendered client terms privacy-safe", () => {
+    const evaluation = {
+      ...clientPolicyEvaluation(),
+      decisions: [
+        ...clientPolicyEvaluation().decisions,
+        {
+          ...policyGrant,
+          effectType: "BLOCK_FEATURE" as const,
+          productType: null,
+          productCode: null,
+          featureCode: "REJECTED_SECRET_FEATURE",
+          outcome: "REJECTED_LOWER_PRECEDENCE" as const,
+        },
+      ],
+    };
+    const view = render(<ClientCommercialPolicyTerms evaluation={evaluation} />);
+    const text = (view.container.textContent ?? "").replaceAll("\u00a0", " ");
+
+    expect(text.indexOf("Sous-total catalogue")).toBeLessThan(text.indexOf("Tarif fixe retenu"));
+    expect(text.indexOf("Tarif fixe retenu")).toBeLessThan(text.indexOf("Remise non cumulable"));
+    expect(text.indexOf("Remise non cumulable")).toBeLessThan(text.indexOf("Prix récurrent final"));
+    expect(text).toContain("100,00 MAD");
+    expect(text).toContain("Add-on GIFT inclus sans coût récurrent");
+    expect(text).not.toContain("Fonctionnalité REJECTED_SECRET_FEATURE indisponible pour ce compte");
+    expect(text).not.toContain("REJECTED_SECRET_FEATURE");
+    expect(text).not.toContain("policy-secret-id");
+    expect(text).not.toContain("internal explanation");
+  });
+
+  test("names an applied fixed recurring price even when it equals the catalogue subtotal", () => {
+    const evaluation: ClientCommercialPolicyEvaluation = {
+      ...clientPolicyEvaluation(),
+      fixedRecurringPrice: "150.0000",
+      discountAmount: "0.0000",
+      finalRecurringPrice: "150.0000",
+      decisions: [
+        {
+          ...policyGrant,
+          effectType: "FIXED_SUBSCRIPTION_PRICE",
+          productType: null,
+          productCode: null,
+          outcome: "APPLIED",
+          evaluatedAmount: "150.0000",
+        },
+      ],
+    };
+
+    const view = render(<ClientCommercialPolicyTerms evaluation={evaluation} />);
+    expect(view.getByText("Tarif fixe retenu")).toBeTruthy();
+    expect(view.getAllByText("150,00 MAD").length).toBeGreaterThanOrEqual(3);
+  });
+
   test("confirms cancellation before sending the destructive request", async () => {
     let deleteCalls = 0;
     const pending = {
@@ -203,8 +368,9 @@ describe("client subscription operations", () => {
       effectiveAt: "2026-09-01T00:00:00Z",
       sourcePlanCode: "PRO",
       targetPlanCode: "BUSINESS",
-      attentionReason: null,
+      attentionCode: null,
       checkout: null,
+      commercialPolicyEvaluation: null,
     };
     globalThis.fetch = (async (input, init) => {
       const url = new URL(String(input));
@@ -255,5 +421,170 @@ describe("client subscription operations", () => {
     await user.click(view.getByRole("checkbox", { name: /Module avancé/ }));
     expect(view.getByRole("checkbox", { name: /Module socle/ }).getAttribute("aria-checked")).toBe("true");
     expect(view.getByRole("button", { name: "Prévisualiser" }).hasAttribute("disabled")).toBeFalse();
+  });
+
+  test("locks a zero-price policy grant while still allowing an exact selection to be reviewed", async () => {
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/subscriptions/catalog") return jsonResponse(policyCatalog);
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderClient("/app/subscription?tab=catalog", [
+      clientPermissions.subscriptionCatalog,
+      clientPermissions.subscriptionPreview,
+    ]);
+
+    await view.findByText("Assistance incluse");
+    const granted = view.getByRole("checkbox", { name: /Assistance incluse/ });
+    expect(granted.getAttribute("aria-checked")).toBe("true");
+    expect(granted.hasAttribute("disabled")).toBeTrue();
+    expect(view.getAllByText("Inclus par condition commerciale")).toHaveLength(2);
+    expect(view.getByText("Capacité incluse")).toBeTruthy();
+    expect(view.getByText("1 incluse")).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Réduire Capacité incluse" })).toBeNull();
+    expect(view.queryByRole("button", { name: "Augmenter Capacité incluse" })).toBeNull();
+    expect(view.getByRole("button", { name: "Prévisualiser" }).hasAttribute("disabled")).toBeFalse();
+  });
+
+  test("keeps accepted zero-price snapshot terms visible after the granting policy pauses", async () => {
+    const heldCatalog = {
+      ...catalog,
+      currentSubscription: {
+        ...catalog.currentSubscription,
+        quotaPackages: [{ packageCode: "HELD_CAPACITY", quantity: 1 }],
+        retainedAddOns: catalog.currentSubscription.retainedAddOns.map((item) => ({
+          ...item,
+          unitPrice: "0.0000",
+        })),
+        retainedQuotaPackages: [
+          {
+            code: "HELD_CAPACITY",
+            name: "Capacité contractuelle",
+            definitionVersion: 1,
+            featureCode: "STAFF",
+            resource: "members",
+            capacityPerUnit: 5,
+            quantity: 1,
+            unitPrice: "0.0000",
+            currencyCode: "MAD",
+            billingCycle: "MONTHLY" as const,
+            priceEntryId: "HELD_CAPACITY-price",
+            state: "SELECTABLE" as const,
+            removable: false,
+            quantityEditable: false,
+            maximumSelectableQuantity: 1,
+          },
+        ],
+      },
+      plans: catalog.plans.map((plan) => ({
+        ...plan,
+        quotaPackages: [
+          {
+            code: "HELD_CAPACITY",
+            name: "Capacité contractuelle",
+            description: null,
+            definitionVersion: 2,
+            featureCode: "STAFF",
+            resource: "members",
+            capacityPerUnit: 5,
+            price: "5.0000",
+            currencyCode: "MAD",
+            billingCycle: "MONTHLY" as const,
+            repeatable: true,
+            maximumQuantity: 10,
+            allowedPlanCodes: ["PRO"],
+            allowedAddOnCodes: [],
+            prices: [{ ...price, priceEntryId: "HELD_CAPACITY-price", amount: "5.0000" }],
+            directlyAvailable: true,
+            requiresAddOnCodes: [],
+            selectable: true,
+            commercialPolicyDecisions: [],
+          },
+        ],
+      })),
+    };
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/subscriptions/catalog") return jsonResponse(heldCatalog);
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderClient("/app/subscription?tab=catalog", [clientPermissions.subscriptionCatalog]);
+
+    await view.findByText("Audit avancé");
+    const text = (view.container.textContent ?? "").replaceAll("\u00a0", " ");
+    expect(text).toContain("0,00 MAD · conditions détenues");
+    expect(text).toContain("0,00 MAD par unité · conditions détenues");
+    expect(view.getByText("× 1")).toBeTruthy();
+    expect(view.queryByText("Inclus par condition commerciale")).toBeNull();
+  });
+
+  test("shows only safe policy terms and blocks confirmation when the reviewed selection conflicts", async () => {
+    const evaluation = clientPolicyEvaluation([
+      {
+        code: "POLICY_FEATURE_BLOCKED",
+        productCode: null,
+        featureCode: "PAYROLL",
+        quotaResource: null,
+        message: "server wording and policy-secret-id must not be rendered",
+      },
+    ]);
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/subscriptions/catalog") return jsonResponse(policyCatalog);
+      if (url.pathname === "/api/v1/subscriptions/preview") return jsonResponse(clientPolicyPreview(evaluation));
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderClient("/app/subscription?tab=catalog", [
+      clientPermissions.subscriptionCatalog,
+      clientPermissions.subscriptionPreview,
+      clientPermissions.subscriptionApply,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await view.findByText("Assistance incluse");
+    await user.click(view.getByRole("button", { name: "Prévisualiser" }));
+
+    expect(await view.findByRole("heading", { name: "Vérifier le changement" })).toBeTruthy();
+    expect(view.getByText("Prix récurrent final")).toBeTruthy();
+    expect(view.getByText("La fonctionnalité PAYROLL n’est pas disponible pour ce compte.")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Confirmer le changement" }).hasAttribute("disabled")).toBeTrue();
+    expect(view.container.textContent).not.toContain("server wording");
+    expect(view.container.textContent).not.toContain("policy-secret-id");
+  });
+
+  test("renders the immutable privacy-safe terms stored with change history", async () => {
+    const operation: SubscriptionChangeOperation = {
+      id: "operation-policy",
+      createdAt: "2026-08-27T10:00:00Z",
+      updatedAt: "2026-08-27T10:00:00Z",
+      timing: "IMMEDIATE",
+      status: "APPLIED",
+      effectiveAt: "2026-08-27T10:00:00Z",
+      sourcePlanCode: "PRO",
+      targetPlanCode: "PRO",
+      attentionCode: "OPERATOR_ASSISTANCE_REQUIRED",
+      checkout: null,
+      commercialPolicyEvaluation: clientPolicyEvaluation(),
+    };
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/subscriptions/changes") return jsonResponse(pageResponse([operation]));
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderClient("/app/subscription?tab=changes", [clientPermissions.subscriptionReadChanges]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    const disclosure = await view.findByRole("button", { name: "Afficher la traçabilité de PRO vers PRO" });
+    await user.click(disclosure);
+
+    expect((await view.findAllByText("Conditions acceptées avec ce changement")).length).toBeGreaterThan(0);
+    expect(view.getAllByText("Prix récurrent final").length).toBeGreaterThan(0);
+    expect(
+      view.getAllByText("Ce changement nécessite l’aide d’un opérateur. Contactez le support.").length,
+    ).toBeGreaterThan(0);
+    expect(view.container.textContent).not.toContain("policy-secret-id");
+    expect(view.container.textContent).not.toContain("internal explanation");
   });
 });

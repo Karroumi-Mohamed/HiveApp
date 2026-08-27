@@ -1,7 +1,7 @@
 import { ArrowRightIcon } from "@phosphor-icons/react";
 import type { SortingState } from "@tanstack/react-table";
 import { type ReactNode, useMemo } from "react";
-import type { SubscriptionChangeOperation } from "@/api/contracts";
+import type { AdminSubscriptionChangeOperation, SubscriptionChangeOperation } from "@/api/contracts";
 import { createDataColumns, DataTable, DataTableExpander, SortHeader } from "@/components/patterns/data-table";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { subscriptionChangeStatusPresentation } from "./subscription-presentation";
@@ -12,12 +12,22 @@ const date = (value: string | null) =>
 const timingLabel = (timing: SubscriptionChangeOperation["timing"]) =>
   timing === "IMMEDIATE" ? "Immédiat" : "Au renouvellement";
 
-function OperationStatus({ operation }: { operation: SubscriptionChangeOperation }) {
+type SubscriptionChangeListOperation = SubscriptionChangeOperation | AdminSubscriptionChangeOperation;
+
+function OperationStatus({ operation }: { operation: SubscriptionChangeListOperation }) {
   const presentation = subscriptionChangeStatusPresentation[operation.status];
   return <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>;
 }
 
-function ChangeIdentity({ operation }: { operation: SubscriptionChangeOperation }) {
+function attentionText(operation: SubscriptionChangeListOperation) {
+  if ("attentionReason" in operation) return operation.attentionReason;
+  return operation.attentionCode === "OPERATOR_ASSISTANCE_REQUIRED"
+    ? "Ce changement nécessite l’aide d’un opérateur. Contactez le support."
+    : null;
+}
+
+function ChangeIdentity({ operation }: { operation: SubscriptionChangeListOperation }) {
+  const attention = attentionText(operation);
   return (
     <div className="min-w-0">
       <p className="inline-flex items-center gap-1.5 font-medium">
@@ -26,29 +36,27 @@ function ChangeIdentity({ operation }: { operation: SubscriptionChangeOperation 
         <span>{operation.targetPlanCode}</span>
       </p>
       <p className="mt-1 text-xs text-muted-foreground">Demandé le {date(operation.createdAt)}</p>
-      {operation.attentionReason ? (
-        <p className="mt-1 max-w-sm whitespace-pre-wrap break-words text-xs text-destructive">
-          {operation.attentionReason}
-        </p>
+      {attention ? (
+        <p className="mt-1 max-w-sm whitespace-pre-wrap break-words text-xs text-destructive">{attention}</p>
       ) : null}
     </div>
   );
 }
 
-export function SubscriptionChangeList({
+export function SubscriptionChangeList<T extends SubscriptionChangeListOperation>({
   operations,
   sorting,
   onSortingChange,
   renderAction,
   renderDetails,
 }: {
-  operations: SubscriptionChangeOperation[];
+  operations: T[];
   sorting: SortingState;
   onSortingChange: (next: SortingState) => void;
-  renderAction?: (operation: SubscriptionChangeOperation) => ReactNode;
-  renderDetails?: (operation: SubscriptionChangeOperation) => ReactNode;
+  renderAction?: (operation: T) => ReactNode;
+  renderDetails?: (operation: T) => ReactNode;
 }) {
-  const column = useMemo(() => createDataColumns<SubscriptionChangeOperation>(), []);
+  const column = useMemo(() => createDataColumns<T>(), []);
   const columns = useMemo(
     () =>
       column.columns([
@@ -68,22 +76,26 @@ export function SubscriptionChangeList({
               }),
             ]
           : []),
-        column.accessor("createdAt", {
+        column.accessor((operation) => operation.createdAt, {
+          id: "createdAt",
           meta: { headerClassName: "min-w-52" },
           header: ({ column: item }) => <SortHeader column={item}>Changement</SortHeader>,
           cell: ({ row }) => <ChangeIdentity operation={row.original} />,
         }),
-        column.accessor("timing", {
+        column.accessor((operation) => operation.timing, {
+          id: "timing",
           meta: { headerClassName: "w-44", cellClassName: "w-44" },
           header: ({ column: item }) => <SortHeader column={item}>Moment</SortHeader>,
           cell: ({ row }) => timingLabel(row.original.timing),
         }),
-        column.accessor("status", {
+        column.accessor((operation) => operation.status, {
+          id: "status",
           meta: { headerClassName: "w-48", cellClassName: "w-48" },
           header: ({ column: item }) => <SortHeader column={item}>Statut</SortHeader>,
           cell: ({ row }) => <OperationStatus operation={row.original} />,
         }),
-        column.accessor("effectiveAt", {
+        column.accessor((operation) => operation.effectiveAt, {
+          id: "effectiveAt",
           meta: { headerClassName: "w-40", cellClassName: "w-40" },
           header: ({ column: item }) => <SortHeader column={item}>Effet</SortHeader>,
           cell: ({ row }) => date(row.original.effectiveAt),

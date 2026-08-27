@@ -123,18 +123,45 @@ export function updateCatalogAddOnSelection<T extends CatalogAddOnLike>(
   item: T,
   candidates: readonly T[],
   checked: boolean,
+  automaticallyIncludedCodes: readonly string[] = [],
 ) {
   if (!checked) return selectedCodes.filter((code) => code !== item.code);
   const candidatesByCode = new Map(candidates.map((candidate) => [candidate.code, candidate]));
   const selected = new Set(selectedCodes);
+  const automaticallyIncluded = new Set(automaticallyIncludedCodes);
   const pending = [item.code];
   while (pending.length) {
     const code = pending.pop();
-    if (!code || selected.has(code)) continue;
+    if (!code || selected.has(code) || automaticallyIncluded.has(code)) continue;
     selected.add(code);
     for (const dependencyCode of candidatesByCode.get(code)?.dependencyCodes ?? []) {
-      if (!selected.has(dependencyCode)) pending.push(dependencyCode);
+      if (!selected.has(dependencyCode) && !automaticallyIncluded.has(dependencyCode)) pending.push(dependencyCode);
     }
   }
   return [...selected];
+}
+
+/**
+ * Policy-included Add-ons participate in dependency ownership even though they are not written
+ * into the user's paid selection. Grants whose own dependencies are unresolved stay excluded.
+ */
+export function effectiveCatalogAddOnCodes<T extends CatalogAddOnLike>(
+  selectedCodes: readonly string[],
+  candidates: readonly T[],
+  automaticallyIncluded: (item: T) => boolean,
+) {
+  const effective = new Set(selectedCodes);
+  const pending = candidates.filter(automaticallyIncluded);
+  let progressed = true;
+  while (progressed && pending.length) {
+    progressed = false;
+    for (let index = pending.length - 1; index >= 0; index -= 1) {
+      const item = pending[index];
+      if (!item?.dependencyCodes.every((code) => effective.has(code))) continue;
+      effective.add(item.code);
+      pending.splice(index, 1);
+      progressed = true;
+    }
+  }
+  return [...effective];
 }
