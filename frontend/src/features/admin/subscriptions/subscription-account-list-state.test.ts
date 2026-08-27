@@ -40,6 +40,16 @@ describe("subscription account list state", () => {
     ).toMatchObject({ subscriptionStatus: undefined, hasSubscription: false });
   });
 
+  test("keeps owner identity out of the ordinary Account URL and request contract", () => {
+    const state = readSubscriptionAccountListState(new URLSearchParams("q=Acme&sort=ownerEmail&direction=desc"));
+    const query = subscriptionAccountQuery(state);
+
+    expect(state.sort).toBe("name");
+    expect(query.query).toBe("Acme");
+    expect(Object.hasOwn(query, "ownerEmail")).toBeFalse();
+    expect(query.sort).toBe("name");
+  });
+
   test("sorting resets the page and URL writes preserve unrelated deep-link state", () => {
     const current = readSubscriptionAccountListState(new URLSearchParams("page=4"));
     const sorted = subscriptionAccountStateFromSorting(current, [{ id: "createdAt", desc: true }]);

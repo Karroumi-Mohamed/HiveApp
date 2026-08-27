@@ -73,6 +73,7 @@ import type {
   RoleHolder,
   Subscription,
   SubscriptionAccountListItem,
+  SubscriptionAccountOwnerLookup,
   SubscriptionAddOnOverrideChoice,
   SubscriptionChangeOperation,
   SubscriptionCheckout,
@@ -233,8 +234,14 @@ export const adminApi = {
   planFeatures: (id: UUID) => admin<PlanFeature[]>(`/plans/${id}/features`),
   planSubscribers: (id: UUID, query: { search?: string; status?: string; page?: number; size?: number }) =>
     admin<PageResponse<PlanSubscriber>>(`/plans/${id}/subscribers`, { query }),
-  planSubscribersByOwnerEmail: (id: UUID, query: { ownerEmail: string; page?: number; size?: number }) =>
-    admin<PageResponse<PlanSubscriberOwnerLookup>>(`/plans/${id}/subscribers/by-owner-email`, { query }),
+  planSubscribersByOwnerEmail: (id: UUID, input: { ownerEmail: string; page?: number; size?: number }) => {
+    const { ownerEmail, ...query } = input;
+    return admin<PageResponse<PlanSubscriberOwnerLookup>>(`/plans/${id}/subscribers/by-owner-email`, {
+      method: "POST",
+      query,
+      body: jsonBody({ ownerEmail }),
+    });
+  },
   createPlan: (input: CreatePlanInput) => admin<Plan>("/plans", { method: "POST", body: jsonBody(input) }),
   updatePlan: (id: UUID, input: UpdatePlanInput) =>
     admin<Plan>(`/plans/${id}`, { method: "PUT", body: jsonBody(input) }),
@@ -513,15 +520,33 @@ export const adminApi = {
     hasSubscription?: boolean;
     page?: number;
     size?: number;
-    sort?: "name" | "slug" | "ownerEmail" | "active" | "createdAt";
+    sort?: "name" | "slug" | "active" | "createdAt";
     direction?: "asc" | "desc";
   }) => admin<PageResponse<SubscriptionAccountListItem>>("/subscriptions/accounts/search", { query }),
+  subscriptionAccountsByOwnerEmail: (input: {
+    ownerEmail: string;
+    accountActive?: boolean;
+    subscriptionStatus?: SubscriptionStatus;
+    hasSubscription?: boolean;
+    planCode?: string;
+    page?: number;
+    size?: number;
+    sort?: "name" | "slug" | "active" | "createdAt";
+    direction?: "asc" | "desc";
+  }) => {
+    const { ownerEmail, ...query } = input;
+    return admin<PageResponse<SubscriptionAccountOwnerLookup>>("/subscriptions/accounts/by-owner-email", {
+      method: "POST",
+      query,
+      body: jsonBody({ ownerEmail }),
+    });
+  },
   chooseSubscriptionAccounts: (query: {
     query?: string;
     active?: boolean;
     page?: number;
     size?: number;
-    sort?: "name" | "slug" | "ownerEmail";
+    sort?: "name" | "slug";
     direction?: "asc" | "desc";
   }) => admin<PageResponse<AccountDirectoryEntry>>("/subscriptions/accounts/chooser", { query }),
   resolveSubscriptionAccounts: (ids: UUID[]) =>

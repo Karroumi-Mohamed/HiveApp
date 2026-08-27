@@ -53,6 +53,7 @@ import {
   subscriptionAccountStateFromSorting,
   writeSubscriptionAccountListState,
 } from "./subscription-account-list-state";
+import { SubscriptionOwnerEmailLookup } from "./subscription-owner-email-lookup";
 
 const money = formatExactMoney;
 const date = (value: string | null) =>
@@ -169,7 +170,7 @@ function CreateSubscription({ accountId }: { accountId: string }) {
   );
 }
 
-function OverridesEditor({ subscription }: { subscription: AdminSubscription }) {
+export function OverridesEditor({ subscription }: { subscription: AdminSubscription }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -627,10 +628,6 @@ export function AdminSubscriptionsPage() {
             </span>
           ),
         }),
-        column.accessor("ownerEmail", {
-          meta: { headerClassName: "min-w-52" },
-          header: ({ column: item }) => <SortHeader column={item}>Propriétaire</SortHeader>,
-        }),
         column.display({
           id: "plan",
           header: "Dernier forfait",
@@ -671,7 +668,7 @@ export function AdminSubscriptionsPage() {
         }),
         column.accessor("active", {
           meta: { headerClassName: "w-28", cellClassName: "w-28" },
-          header: ({ column: item }) => <SortHeader column={item}>Compte</SortHeader>,
+          header: ({ column: item }) => <SortHeader column={item}>État du compte</SortHeader>,
           cell: ({ row }) => (
             <StatusBadge tone={row.original.active ? "success" : "danger"}>
               {row.original.active ? "Actif" : "Inactif"}
@@ -715,7 +712,14 @@ export function AdminSubscriptionsPage() {
     );
   return (
     <div className="space-y-7">
-      <PageHeader title="Abonnements" />
+      <PageHeader
+        actions={
+          session.can(adminPermissions.subscriptionsLookupAccountOwnerEmail) ? (
+            <SubscriptionOwnerEmailLookup />
+          ) : undefined
+        }
+        title="Abonnements"
+      />
       <section className="overflow-hidden rounded-xl border bg-card">
         <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(240px,1fr)_180px_210px]">
           <div className="relative">
@@ -727,7 +731,7 @@ export function AdminSubscriptionsPage() {
               aria-label="Rechercher des comptes"
               className="ps-9"
               onChange={(event) => setState({ ...state, search: event.target.value, page: 0 })}
-              placeholder="Compte, slug ou email du propriétaire…"
+              placeholder="Nom, slug ou identifiant du compte…"
               value={state.search}
             />
           </div>
@@ -794,7 +798,7 @@ export function AdminSubscriptionsPage() {
                 <article className="flex items-center justify-between gap-4 p-4" key={account.id}>
                   <div className="min-w-0">
                     <p className="truncate font-medium">{account.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{account.ownerEmail}</p>
+                    <p className="truncate text-xs text-muted-foreground">{account.slug}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {account.latestSubscription
                         ? `${account.latestSubscription.planName} · ${subscriptionState[account.latestSubscription.status].label}`

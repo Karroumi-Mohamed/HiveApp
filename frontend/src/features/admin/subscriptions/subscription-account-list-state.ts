@@ -10,7 +10,7 @@ export type SubscriptionAccountListState = {
   subscription: SubscriptionFilter;
   page: number;
   size: number;
-  sort: "name" | "slug" | "ownerEmail" | "active" | "createdAt";
+  sort: "name" | "slug" | "active" | "createdAt";
   direction: "asc" | "desc";
 };
 
@@ -26,7 +26,7 @@ const subscriptionFilters = new Set<SubscriptionFilter>([
   "CANCELLED",
   "EXPIRED",
 ]);
-const sorts = new Set<SubscriptionAccountListState["sort"]>(["name", "slug", "ownerEmail", "active", "createdAt"]);
+const sorts = new Set<SubscriptionAccountListState["sort"]>(["name", "slug", "active", "createdAt"]);
 
 const nonNegativeInteger = (value: string | null) => {
   const parsed = Number(value);
