@@ -49,6 +49,7 @@ import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.OperationBlockedException;
+import com.hiveapp.shared.exception.StaleResourceVersionException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
@@ -571,7 +572,51 @@ class SubscriptionServiceImplTest {
         verify(subscriptionCheckoutService).initiate(
                 any(), org.mockito.ArgumentMatchers.eq(Money.of(BigDecimal.valueOf(29), "USD")),
                 org.mockito.ArgumentMatchers.eq(actorUserId));
+        verify(registryCatalogVersionService).requireCurrent("registry:1");
         verify(subscriptionChangeActivationService, never()).activate(any(), any());
+    }
+
+    @Test
+    void registryChangeDuringFinalizationReturnsStalePreviewWithoutWriting() {
+        UUID accountId = UUID.randomUUID();
+        UUID actorUserId = UUID.randomUUID();
+        Account account = new Account();
+        ReflectionTestUtils.setField(account, "id", accountId);
+        Plan currentPlan = plan("FREE", true);
+        Plan targetPlan = plan("PRO", true);
+        ReflectionTestUtils.setField(targetPlan, "id", UUID.randomUUID());
+        Subscription current = subscription(currentPlan, SubscriptionStatus.ACTIVE);
+        current.setAccount(account);
+        current.setEntitlementSnapshot(SubscriptionEntitlementSnapshot.empty(
+                "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY));
+        current.setCustomOverrides(SubscriptionOverrides.empty());
+        current.setCurrentMoney(Money.zero("USD"));
+        SubscriptionEntitlementSnapshot targetSnapshot = SubscriptionEntitlementSnapshot.empty(
+                "PRO", BigDecimal.valueOf(29), "USD", BillingCycle.MONTHLY);
+
+        when(accountRepository.findByIdForSubscriptionUpdate(accountId)).thenReturn(Optional.of(account));
+        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
+        allowClientPlan(targetPlan, List.of(), List.of(), List.of());
+        when(commercialSelectionFinalizer.finalizeSelection(
+                eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
+                eq(Set.of()), eq(List.of()), eq(CommercialCatalogResolver.Audience.CLIENT_CATALOG),
+                any(CommercialCatalogResolver.RetainedSelection.class), eq(current.getEntitlementSnapshot())))
+                .thenReturn(finalized(
+                        targetPlan, successfulResolution(targetPlan, Set.of(), List.of()), targetSnapshot));
+        when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.valueOf(29), "USD"));
+        doThrow(new InvalidStateException("Registry catalog changed"))
+                .when(registryCatalogVersionService).requireCurrent("registry:1");
+
+        assertThatThrownBy(() -> subscriptionService.applyChange(
+                accountId, actorUserId,
+                new SubscriptionChangeApplyRequest(
+                        new SubscriptionChangeRequest("PRO", Set.of(), List.of()),
+                        "preview-token")))
+                .isInstanceOf(StaleResourceVersionException.class)
+                .hasMessage("Subscription-change preview is stale. Review the selection again and retry.");
+
+        verify(subscriptionChangeOperationRepository, never()).saveAndFlush(any());
+        verify(subscriptionCheckoutService, never()).initiate(any(), any(), any());
     }
 
     private void allowClientPlan(

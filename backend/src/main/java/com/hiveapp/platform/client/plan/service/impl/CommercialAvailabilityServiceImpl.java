@@ -173,6 +173,7 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     @CommercialCatalogMutation
     @PermissionNode(key = "update_plan_policy", description = "Apply a previewed Plan availability change")
     public PlanDto updatePlan(UUID planId, PlanAvailabilityMutationRequest request) {
+        String registryVersion = lockRegistryVersion();
         Plan plan = planRepository.findByIdForUpdate(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
         var previousPolicy = plan.getExtensionPolicy();
@@ -180,7 +181,6 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
         requireVersion(plan.getVersion(), request.expectedVersion(), "Plan availability");
         requireReason(request.reason());
         long catalogRevision = commercialCatalogVersionService.currentRevision();
-        String registryVersion = registryCatalogVersionService.currentVersion();
         UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
         PlanAvailabilityAssessment assessment = assessPlanAvailability(
                 plan, request.extensionPolicy(), request.salesVisibility());
@@ -225,13 +225,13 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     @CommercialCatalogMutation
     @PermissionNode(key = "update_add_on_visibility", description = "Change AddOn sales visibility")
     public AddOnDto updateAddOn(UUID addOnId, ProductVisibilityMutationRequest request) {
+        String registryVersion = lockRegistryVersion();
         AddOn addOn = addOnRepository.findByIdForUpdate(addOnId)
                 .orElseThrow(() -> new ResourceNotFoundException("AddOn", "id", addOnId));
         var previousVisibility = addOn.getSalesVisibility();
         requireVersion(addOn.getRowVersion(), request.expectedVersion(), "AddOn visibility");
         requireReason(request.reason());
         long catalogRevision = commercialCatalogVersionService.currentRevision();
-        String registryVersion = registryCatalogVersionService.currentVersion();
         UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
         ProductVisibilityAssessment assessment = assessAddOnVisibility(
                 addOn, request.salesVisibility());
@@ -276,13 +276,13 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     @PermissionNode(key = "update_quota_visibility", description = "Change quota-package sales visibility")
     public QuotaPackageDto updateQuotaPackage(
             UUID quotaPackageId, ProductVisibilityMutationRequest request) {
+        String registryVersion = lockRegistryVersion();
         QuotaPackage item = quotaPackageRepository.findByIdForUpdate(quotaPackageId)
                 .orElseThrow(() -> new ResourceNotFoundException("QuotaPackage", "id", quotaPackageId));
         var previousVisibility = item.getSalesVisibility();
         requireVersion(item.getRowVersion(), request.expectedVersion(), "Quota-package visibility");
         requireReason(request.reason());
         long catalogRevision = commercialCatalogVersionService.currentRevision();
-        String registryVersion = registryCatalogVersionService.currentVersion();
         UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
         ProductVisibilityAssessment assessment = assessQuotaVisibility(
                 item, request.salesVisibility());
@@ -524,6 +524,16 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
     private StaleResourceVersionException staleAvailabilityPreview() {
         return new StaleResourceVersionException(
                 "Commercial availability preview is stale. Reload the preview and retry.");
+    }
+
+    /**
+     * The commercial mutation aspect already owns the commercial catalogue singleton. Pin the
+     * registry singleton before product rows so a concurrent registry-only control change cannot
+     * land between the version read and the reviewed decision.
+     */
+    private String lockRegistryVersion() {
+        registryCatalogVersionService.lockForMutation();
+        return registryCatalogVersionService.currentVersion();
     }
 
     private List<ExtensionAvailabilityIssue> operatorIssues(
