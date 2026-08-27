@@ -1,5 +1,6 @@
 import {
   ArrowLeftIcon,
+  ArrowRightIcon,
   CopyIcon,
   GitBranchIcon,
   MagnifyingGlassIcon,
@@ -8,8 +9,8 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useDeferredValue, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { type FormEvent, useEffect, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
 import type {
@@ -17,11 +18,13 @@ import type {
   CommercialProductAction,
   ExtensionCompatibility,
   Plan,
+  PlanDeletionPreview,
   PlanFeature,
   PlanFeatureMode,
   QuotaLimit,
   RegistryFeature,
 } from "@/api/contracts";
+import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { createDataColumns, DataTable, DataTableExpander } from "@/components/patterns/data-table";
@@ -34,6 +37,7 @@ import { RowAction } from "@/components/patterns/row-action";
 import { SectionTabs } from "@/components/patterns/section-tabs";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { StatusText } from "@/components/patterns/status-text";
+import { TableActionsCell } from "@/components/patterns/table-actions-cell";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -53,6 +57,7 @@ import {
   CommercialAvailabilityPanel,
   PlanCompatibilityPanel,
 } from "@/features/admin/commercial/commercial-detail-panels";
+import { ChoiceLoadState } from "@/features/admin/commercial/commercial-form-primitives";
 import { CommercialLifecycleDialog } from "@/features/admin/commercial/commercial-lifecycle-dialog";
 import { PlanSchema } from "@/features/admin/plans/admin-plan-schema";
 import {
@@ -65,13 +70,19 @@ import {
   statusText,
 } from "@/features/admin/plans/plan-presentation";
 import { quotaLinesOf } from "@/features/admin/plans/plan-schema-model";
+import {
+  readPlanSubscriberListState,
+  writePlanSubscriberListState,
+} from "@/features/admin/plans/plan-subscriber-list-state";
 import { ProductPricePanel } from "@/features/admin/price-books/product-price-panel";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
+import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
 import { commercialAmount, isCommercialAmount } from "@/lib/exact-decimal";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 type PlanFeatureCommercialRow = {
   feature: PlanFeature;
@@ -361,7 +372,7 @@ function PlanFeatureDialog({
             ) : null}
           </div>
           <div className="flex justify-end">
-            <Button disabled={!featureCode || save.isPending} onClick={() => save.mutate()}>
+            <Button disabled={!featureCode || !definition || save.isPending} onClick={() => save.mutate()}>
               Enregistrer
             </Button>
           </div>
@@ -375,6 +386,8 @@ function PlanFeatures({ plan }: { plan: Plan }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const canInspectExtensions = session.can(adminPermissions.commercialInspectCompatibility);
+  const canReadCatalog = session.can(adminPermissions.registryFeatureCatalog);
+  const canAssignFeature = session.can(adminPermissions.plansAssignFeature);
   const features = useQuery({
     queryKey: adminCommercialKeys.plans.features(plan.id),
     queryFn: () => adminApi.planFeatures(plan.id),
@@ -403,9 +416,7 @@ function PlanFeatures({ plan }: { plan: Plan }) {
   });
   if (features.isLoading) return <LoadingState />;
   if (features.isError) return <ErrorState retry={() => void features.refetch()} />;
-  const catalogFeatures = (session.can(adminPermissions.registryFeatureCatalog) ? (catalog.data ?? []) : []).flatMap(
-    (module) => module.features,
-  );
+  const catalogFeatures = (canReadCatalog ? (catalog.data ?? []) : []).flatMap((module) => module.features);
   // The display join uses the whole catalogue: an already-assigned feature must keep its name
   // even if it is no longer offered for new assignment.
   const byCode = new Map(catalogFeatures.map((feature) => [feature.code, feature]));
@@ -436,8 +447,8 @@ function PlanFeatures({ plan }: { plan: Plan }) {
       meta: { headerClassName: "w-12", cellClassName: "w-12 ps-3 pe-0" },
       cell: ({ row }) => (
         <DataTableExpander
-          collapseLabel={`Masquer les offres associées à ${row.original.definition?.displayName ?? "la fonctionnalité indisponible"}`}
-          expandLabel={`Afficher les offres associées à ${row.original.definition?.displayName ?? "la fonctionnalité indisponible"}`}
+          collapseLabel={`Masquer les offres associées à ${row.original.definition?.displayName ?? row.original.feature.featureCode}`}
+          expandLabel={`Afficher les offres associées à ${row.original.definition?.displayName ?? row.original.feature.featureCode}`}
           row={row}
         />
       ),
@@ -449,7 +460,7 @@ function PlanFeatures({ plan }: { plan: Plan }) {
       cell: ({ row }) => (
         <>
           <span className="block font-medium">
-            {row.original.definition?.displayName ?? "Fonctionnalité indisponible"}
+            {row.original.definition?.displayName ?? row.original.feature.featureCode}
           </span>
           {row.original.definition?.description ? (
             <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
@@ -516,6 +527,15 @@ function PlanFeatures({ plan }: { plan: Plan }) {
       cell: ({ row }) => (
         <PlanFeatureActions
           available={available}
+          catalogBlockedBy={
+            !canReadCatalog
+              ? "Votre rôle ne permet pas de consulter le catalogue des fonctionnalités"
+              : catalog.isPending
+                ? "Catalogue des fonctionnalités en cours de chargement…"
+                : catalog.isError
+                  ? "Le catalogue des fonctionnalités n’a pas pu être chargé"
+                  : null
+          }
           feature={row.original.feature}
           frozen={frozen}
           onRemove={() => remove.mutate(row.original.feature.id)}
@@ -541,8 +561,25 @@ function PlanFeatures({ plan }: { plan: Plan }) {
               Compatibilité pour la liste complète.
             </p>
           ) : null}
+          {!frozen && canAssignFeature ? (
+            <ChoiceLoadState
+              error={catalog.isError}
+              loading={canReadCatalog && catalog.isPending}
+              onRetry={() => void catalog.refetch()}
+              unavailable={
+                canReadCatalog ? null : "Votre rôle ne permet pas de consulter le catalogue des fonctionnalités."
+              }
+            />
+          ) : null}
         </div>
-        {frozen ? null : <PlanFeatureDialog available={addable} plan={plan} />}
+        {frozen || !canAssignFeature ? null : canReadCatalog && catalog.isSuccess ? (
+          <PlanFeatureDialog available={addable} plan={plan} />
+        ) : (
+          <Button disabled size="sm">
+            <PlusIcon />
+            Ajouter
+          </Button>
+        )}
       </div>
       {features.data?.length ? (
         <DataTable
@@ -728,6 +765,7 @@ function PlanFeatureActions({
   feature,
   plan,
   available,
+  catalogBlockedBy,
   frozen,
   removing,
   onRemove,
@@ -735,6 +773,7 @@ function PlanFeatureActions({
   feature: PlanFeature;
   plan: Plan;
   available: RegistryFeature[];
+  catalogBlockedBy: string | null;
   frozen: boolean;
   removing: boolean;
   onRemove: () => void;
@@ -743,9 +782,10 @@ function PlanFeatureActions({
   const [editOpen, setEditOpen] = useState(false);
   const editBlockedBy = frozen
     ? "La composition ne se modifie qu’à l’état brouillon — créez une révision"
-    : !session.can(adminPermissions.plansUpdateFeature)
-      ? "Vous n’êtes pas autorisé à configurer les fonctionnalités"
-      : null;
+    : (catalogBlockedBy ??
+      (!session.can(adminPermissions.plansUpdateFeature)
+        ? "Vous n’êtes pas autorisé à configurer les fonctionnalités"
+        : null));
   const removeBlockedBy = frozen
     ? "La composition ne se modifie qu’à l’état brouillon — créez une révision"
     : !session.can(adminPermissions.plansRemoveFeature)
@@ -788,21 +828,33 @@ function PlanFeatureActions({
 
 function PlanSubscribers({ plan }: { plan: Plan }) {
   const session = useAdminSession();
-  const [search, setSearch] = useState("");
-  const deferred = useDeferredValue(search);
-  const [status, setStatus] = useState("all");
-  const [page, setPage] = useState(0);
+  const [params, setParams] = useSearchParams();
+  const state = readPlanSubscriberListState(params);
+  const deferred = useDebouncedValue(state.search);
+  const setState = (next: typeof state) => setParams(writePlanSubscriberListState(params, next), { replace: true });
+  const canOpenSubscriber = session.can(adminPermissions.subscriptionsRead);
   const subscribers = useQuery({
-    queryKey: adminCommercialKeys.plans.subscribers(plan.id, { search: deferred, status, page }),
+    queryKey: adminCommercialKeys.plans.subscribers(plan.id, {
+      search: deferred,
+      status: state.status,
+      page: state.page,
+    }),
     queryFn: () =>
       adminApi.planSubscribers(plan.id, {
         search: deferred || undefined,
-        status: status === "all" ? undefined : status,
-        page,
+        status: state.status === "all" ? undefined : state.status,
+        page: state.page,
         size: 20,
       }),
     enabled: commercialQueryEnabled(session.can, adminPermissions.plansListSubscribers),
   });
+  useEffect(() => {
+    if (!subscribers.data) return;
+    const boundedPage = subscribers.data.totalPages === 0 ? 0 : Math.min(state.page, subscribers.data.totalPages - 1);
+    if (boundedPage !== state.page) {
+      setParams(writePlanSubscriberListState(params, { ...state, page: boundedPage }), { replace: true });
+    }
+  }, [params, setParams, state, subscribers.data]);
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
       <div className="flex flex-col gap-3 border-b p-4 sm:flex-row">
@@ -815,28 +867,26 @@ function PlanSubscribers({ plan }: { plan: Plan }) {
             aria-label="Rechercher des abonnés"
             className="ps-9"
             onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(0);
+              setState({ ...state, search: event.target.value, page: 0 });
             }}
             placeholder="Nom du compte…"
-            value={search}
+            value={state.search}
           />
         </div>
         <Select
           onValueChange={(value) => {
-            setStatus(value);
-            setPage(0);
+            setState({ ...state, status: value as typeof state.status, page: 0 });
           }}
-          value={status}
+          value={state.status}
         >
           <SelectTrigger aria-label="Statut de l’abonnement" className="w-full sm:w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tous les statuts</SelectItem>
-            {["ACTIVE", "TRIALING", "PAST_DUE", "SUSPENDED", "CANCELLED", "EXPIRED"].map((value) => (
+            {Object.entries(subscriptionStatusPresentation).map(([value, presentation]) => (
               <SelectItem key={value} value={value}>
-                {value}
+                {presentation.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -852,48 +902,95 @@ function PlanSubscribers({ plan }: { plan: Plan }) {
         <EmptyState title="Aucun abonné" />
       ) : (
         <>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Compte</TableHead>
-                <TableHead>Statut</TableHead>
-                <TableHead>Prix configuré</TableHead>
-                <TableHead>Fin de période</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {subscribers.data.content.map((subscriber) => (
-                <TableRow key={subscriber.subscriptionId}>
-                  <TableCell>
-                    <p className="font-medium">{subscriber.accountName}</p>
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge
-                      tone={
-                        subscriber.status === "ACTIVE"
-                          ? "success"
-                          : subscriber.status === "PAST_DUE" || subscriber.status === "SUSPENDED"
-                            ? "danger"
-                            : "warning"
-                      }
-                    >
-                      {subscriber.status}
-                    </StatusBadge>
-                  </TableCell>
-                  <TableCell>
-                    {money(subscriber.configuredRecurringPrice, subscriber.configuredRecurringPriceCurrencyCode)}
-                  </TableCell>
-                  <TableCell>
-                    {subscriber.currentPeriodEnd
-                      ? new Intl.DateTimeFormat("fr-MA").format(new Date(subscriber.currentPeriodEnd))
-                      : "—"}
-                  </TableCell>
+          <div className="divide-y md:hidden">
+            {subscribers.data.content.map((subscriber) => {
+              const presentation = subscriptionStatusPresentation[subscriber.status];
+              return (
+                <article className="space-y-3 p-4" key={subscriber.subscriptionId}>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="min-w-0 truncate font-medium">{subscriber.accountName}</p>
+                    <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <dt className="text-muted-foreground">Prix configuré</dt>
+                      <dd className="mt-0.5 font-medium">
+                        {money(subscriber.configuredRecurringPrice, subscriber.configuredRecurringPriceCurrencyCode)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Fin de période</dt>
+                      <dd className="mt-0.5 font-medium">
+                        {subscriber.currentPeriodEnd
+                          ? new Intl.DateTimeFormat("fr-MA").format(new Date(subscriber.currentPeriodEnd))
+                          : "—"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="flex justify-end">
+                    <TableActionsCell label={`Actions pour ${subscriber.accountName}`}>
+                      <RowAction
+                        disabled={!canOpenSubscriber}
+                        disabledLabel="Votre rôle ne permet pas d’ouvrir cet abonnement"
+                        icon={<ArrowRightIcon className="rtl:rotate-180" />}
+                        label="Ouvrir l’abonnement"
+                        to={canOpenSubscriber ? `/admin/subscriptions/${subscriber.accountId}` : undefined}
+                      />
+                    </TableActionsCell>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Compte</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead>Prix configuré</TableHead>
+                  <TableHead>Fin de période</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {subscribers.data.content.map((subscriber) => {
+                  const presentation = subscriptionStatusPresentation[subscriber.status];
+                  return (
+                    <TableRow key={subscriber.subscriptionId}>
+                      <TableCell>
+                        <p className="font-medium">{subscriber.accountName}</p>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge tone={presentation.tone}>{presentation.label}</StatusBadge>
+                      </TableCell>
+                      <TableCell>
+                        {money(subscriber.configuredRecurringPrice, subscriber.configuredRecurringPriceCurrencyCode)}
+                      </TableCell>
+                      <TableCell>
+                        {subscriber.currentPeriodEnd
+                          ? new Intl.DateTimeFormat("fr-MA").format(new Date(subscriber.currentPeriodEnd))
+                          : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <TableActionsCell label={`Actions pour ${subscriber.accountName}`}>
+                          <RowAction
+                            disabled={!canOpenSubscriber}
+                            disabledLabel="Votre rôle ne permet pas d’ouvrir cet abonnement"
+                            icon={<ArrowRightIcon className="rtl:rotate-180" />}
+                            label="Ouvrir l’abonnement"
+                            to={canOpenSubscriber ? `/admin/subscriptions/${subscriber.accountId}` : undefined}
+                          />
+                        </TableActionsCell>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
           <PaginationBar
-            onPageChange={setPage}
+            onPageChange={(page) => setState({ ...state, page })}
             page={subscribers.data.page}
             totalElements={subscribers.data.totalElements}
             totalPages={subscribers.data.totalPages}
@@ -904,33 +1001,86 @@ function PlanSubscribers({ plan }: { plan: Plan }) {
   );
 }
 
-function DeletePlanDialog({ plan }: { plan: Plan }) {
+function planDeletionEvidenceIsCurrent(plan: Plan, preview: PlanDeletionPreview | undefined, now: number) {
+  if (!preview) return false;
+  const expiresAt = Date.parse(preview.expiresAt);
+  return Boolean(
+    preview.previewToken &&
+      preview.planId === plan.id &&
+      preview.expectedVersion === plan.version &&
+      Number.isFinite(expiresAt) &&
+      expiresAt > now,
+  );
+}
+
+export function DeletePlanDialog({ plan }: { plan: Plan }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState("");
+  const [evidenceClock, setEvidenceClock] = useState(() => Date.now());
+  const previewKey = adminCommercialKeys.plans.deletePreview(plan.id);
   const preview = useQuery({
-    queryKey: adminCommercialKeys.plans.deletePreview(plan.id),
+    queryKey: previewKey,
     queryFn: () => adminApi.previewPlanDeletion(plan.id),
     enabled: commercialQueryEnabled(session.can, adminPermissions.plansPreviewDelete, open),
+    staleTime: 0,
   });
+  const evidenceCurrent =
+    !preview.isFetching && !preview.isError && planDeletionEvidenceIsCurrent(plan, preview.data, evidenceClock);
+  useEffect(() => {
+    if (!open || !preview.data?.expiresAt) return;
+    const expiresAt = Date.parse(preview.data.expiresAt);
+    if (!Number.isFinite(expiresAt)) return;
+    const timer = window.setTimeout(() => setEvidenceClock(Date.now()), Math.max(0, expiresAt - Date.now() + 1));
+    return () => window.clearTimeout(timer);
+  }, [open, preview.data?.expiresAt]);
+  const refreshPreview = () => {
+    setEvidenceClock(Date.now());
+    void preview.refetch();
+  };
   const remove = useMutation({
-    mutationFn: () =>
-      adminApi.deletePlan(plan.id, {
+    mutationFn: () => {
+      if (!preview.data || !planDeletionEvidenceIsCurrent(plan, preview.data, Date.now())) {
+        throw new Error("La vérification de suppression n’est plus actuelle.");
+      }
+      return adminApi.deletePlan(plan.id, {
         confirmationName: confirmation,
-        expectedVersion: preview.data?.expectedVersion ?? 0,
-        previewToken: preview.data?.previewToken ?? "",
-      }),
+        expectedVersion: preview.data.expectedVersion,
+        previewToken: preview.data.previewToken,
+      });
+    },
     onSuccess: () => {
       void invalidateAdminCommercial(queryClient, adminCommercialKeys.plans.all());
       toast.success("Forfait supprimé");
       navigate("/admin/plans");
     },
+    onError: (error) => {
+      const rejectedEvidence =
+        error.message === "La vérification de suppression n’est plus actuelle." ||
+        (error instanceof ApiError &&
+          ["STALE_IMPACT_PREVIEW", "STALE_RESOURCE_VERSION", "STALE_ACTIVATION_PREVIEW"].includes(error.code));
+      if (rejectedEvidence) {
+        setEvidenceClock(Date.now());
+        void preview.refetch();
+        toast.warning("Le forfait a changé ou la vérification a expiré. La suppression est recalculée.");
+        return;
+      }
+      toast.error(error.message);
+    },
   });
   if (!session.can(adminPermissions.plansDelete)) return null;
   return (
-    <Dialog onOpenChange={setOpen} open={open}>
+    <Dialog
+      onOpenChange={(next) => {
+        setOpen(next);
+        setConfirmation("");
+        if (next) setEvidenceClock(Date.now());
+        else queryClient.removeQueries({ queryKey: previewKey, exact: true });
+      }}
+      open={open}
+    >
       <DialogTrigger asChild>
         <Button variant="destructive">
           <TrashIcon />
@@ -942,8 +1092,17 @@ function DeletePlanDialog({ plan }: { plan: Plan }) {
           <DialogTitle>Supprimer {plan.name}</DialogTitle>
           <DialogDescription>Seul un brouillon inutilisé et sans dépendance peut être supprimé.</DialogDescription>
         </DialogHeader>
-        {preview.isLoading ? (
+        {preview.isFetching ? (
           <LoadingState rows={3} />
+        ) : preview.isError ? (
+          <ErrorState retry={refreshPreview} title="Vérification de suppression indisponible" />
+        ) : preview.data && !evidenceCurrent ? (
+          <div className="space-y-3 rounded-lg border border-warning/30 bg-warning/5 p-4 text-sm" role="status">
+            <p>La vérification a expiré ou le forfait affiché a changé.</p>
+            <Button onClick={refreshPreview} variant="outline">
+              Recalculer la suppression
+            </Button>
+          </div>
         ) : preview.data ? (
           <div className="space-y-4">
             {preview.data.blockers.length ? (
@@ -980,7 +1139,12 @@ function DeletePlanDialog({ plan }: { plan: Plan }) {
             ) : null}
             <div className="flex justify-end">
               <Button
-                disabled={!preview.data.deletable || confirmation !== preview.data.planName || remove.isPending}
+                disabled={
+                  !evidenceCurrent ||
+                  !preview.data.deletable ||
+                  confirmation !== preview.data.planName ||
+                  remove.isPending
+                }
                 onClick={() => remove.mutate()}
                 variant="destructive"
               >

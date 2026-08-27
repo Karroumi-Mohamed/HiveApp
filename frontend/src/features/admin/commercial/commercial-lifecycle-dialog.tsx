@@ -1,6 +1,6 @@
 import { ArchiveIcon, CheckCircleIcon, PauseIcon, PlayIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
 import type {
@@ -55,6 +55,24 @@ function reviewedPrices(preview: Preview) {
   return preview.reviewedPrices ?? [];
 }
 
+function previewProductId(preview: Preview) {
+  if ("planId" in preview) return preview.planId;
+  if ("addOnId" in preview) return preview.addOnId;
+  return preview.quotaPackageId;
+}
+
+function activationEvidenceIsCurrent(product: Product, preview: Preview | null, now: number) {
+  if (!preview) return false;
+  const expiresAt = Date.parse(preview.expiresAt);
+  return Boolean(
+    preview.previewToken &&
+      previewProductId(preview) === product.id &&
+      preview.expectedVersion === product.version &&
+      Number.isFinite(expiresAt) &&
+      expiresAt > now,
+  );
+}
+
 export function CommercialLifecycleDialog({
   action,
   kind,
@@ -71,19 +89,39 @@ export function CommercialLifecycleDialog({
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [evidenceClock, setEvidenceClock] = useState(() => Date.now());
   const copy = actionCopy[action];
 
-  const previewMutation = useMutation({
+  const previewMutation = useMutation<Preview, Error, void>({
     mutationFn: () => {
       if (kind === "plan") return adminApi.previewPlanActivation(product.id);
       if (kind === "add-on") return adminApi.previewAddOnActivation(product.id);
       return adminApi.previewQuotaPackageActivation(product.id);
     },
-    onSuccess: setPreview,
+    onMutate: () => setPreview(null),
+    onSuccess: (result) => {
+      setEvidenceClock(Date.now());
+      setPreview(result);
+    },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Prévisualisation impossible"),
   });
+  const refreshPreview = () => {
+    setEvidenceClock(Date.now());
+    previewMutation.mutate();
+  };
+  const evidenceCurrent = activationEvidenceIsCurrent(product, preview, evidenceClock);
+  useEffect(() => {
+    if (!open || action !== "ACTIVATE" || !preview?.expiresAt) return;
+    const expiresAt = Date.parse(preview.expiresAt);
+    if (!Number.isFinite(expiresAt)) return;
+    const timer = window.setTimeout(() => setEvidenceClock(Date.now()), Math.max(0, expiresAt - Date.now() + 1));
+    return () => window.clearTimeout(timer);
+  }, [action, open, preview?.expiresAt]);
   const transition = useMutation<unknown, Error, void>({
     mutationFn: () => {
+      if (action === "ACTIVATE" && !activationEvidenceIsCurrent(product, preview, Date.now())) {
+        throw new Error("La vérification d’activation n’est plus actuelle.");
+      }
       const input = {
         action,
         expectedVersion: action === "ACTIVATE" && preview ? preview.expectedVersion : product.version,
@@ -107,6 +145,7 @@ export function CommercialLifecycleDialog({
         ["STALE_ACTIVATION_PREVIEW", "STALE_IMPACT_PREVIEW", "STALE_RESOURCE_VERSION"].includes(error.code)
       ) {
         setPreview(null);
+        setEvidenceClock(Date.now());
         toast.warning("La révision a changé. Recalculez l’activation.");
         return;
       }
@@ -115,7 +154,10 @@ export function CommercialLifecycleDialog({
   });
 
   const blockers = action === "ACTIVATE" ? (preview?.blockers ?? []) : [];
-  const canConfirm = reason.trim().length > 0 && (action !== "ACTIVATE" || Boolean(preview?.activatable));
+  const canConfirm =
+    reason.trim().length > 0 &&
+    (action !== "ACTIVATE" ||
+      (evidenceCurrent && !previewMutation.isPending && !previewMutation.isError && Boolean(preview?.activatable)));
   const stats = useMemo(() => {
     if (!preview) return [];
     if ("includedFeatureCount" in preview)
@@ -138,8 +180,10 @@ export function CommercialLifecycleDialog({
     <Dialog
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setPreview(null);
-        else if (action === "ACTIVATE") previewMutation.mutate();
+        if (!next) {
+          setPreview(null);
+          setReason("");
+        } else if (action === "ACTIVATE") refreshPreview();
       }}
       open={open}
     >
@@ -160,9 +204,16 @@ export function CommercialLifecycleDialog({
             {previewMutation.isPending ? (
               <p className="text-sm text-muted-foreground">Vérification en cours…</p>
             ) : previewMutation.isError ? (
-              <Button onClick={() => previewMutation.mutate()} variant="outline">
+              <Button onClick={refreshPreview} variant="outline">
                 Réessayer la vérification
               </Button>
+            ) : preview && !evidenceCurrent ? (
+              <div className="space-y-3 text-sm" role="status">
+                <p>La vérification a expiré ou ne correspond plus à cette révision.</p>
+                <Button onClick={refreshPreview} variant="outline">
+                  Recalculer l’activation
+                </Button>
+              </div>
             ) : preview ? (
               <>
                 <div className="flex items-start gap-3 text-sm">
@@ -217,7 +268,11 @@ export function CommercialLifecycleDialog({
                   </ul>
                 ) : null}
               </>
-            ) : null}
+            ) : (
+              <Button onClick={refreshPreview} variant="outline">
+                Recalculer l’activation
+              </Button>
+            )}
           </div>
         ) : null}
         <div className="space-y-2">

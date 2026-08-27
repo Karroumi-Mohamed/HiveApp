@@ -226,6 +226,20 @@ export function AdminProductPricesPage() {
     enabled: commercialQueryEnabled(session.can, adminPermissions.priceBooksList),
     placeholderData: keepPreviousData,
   });
+  useEffect(() => {
+    if (!prices.data || prices.isPlaceholderData) return;
+    const boundedPage = prices.data.totalPages === 0 ? 0 : Math.min(page, prices.data.totalPages - 1);
+    if (boundedPage === page) return;
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (boundedPage === 0) next.delete("page");
+        else next.set("page", String(boundedPage));
+        return next;
+      },
+      { replace: true },
+    );
+  }, [page, prices.data, prices.isPlaceholderData, setParams]);
 
   return (
     <div className="space-y-7">
