@@ -69,6 +69,8 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
     queryFn: () => adminApi.featureCatalog("PLAN_ASSIGNABLE"),
     enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog, open),
   });
+  const canReadRegistry = session.can(adminPermissions.registryFeatureCatalog);
+  const registryReady = canReadRegistry && registry.isSuccess;
   const [name, setName] = useState(item?.name ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
   const [featureCode, setFeatureCode] = useState(item?.featureCode ?? "");
@@ -101,6 +103,10 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
     .flatMap((module) => module.features)
     .filter((feature) => feature.quotaSchema.length > 0);
   const selectedFeature = featureOptions.find((feature) => feature.code === featureCode);
+  const quotaTargetReady = Boolean(
+    registryReady && selectedFeature?.quotaSchema.some((slot) => slot.resource === resource),
+  );
+  const numericLimitsValid = Number(capacity) >= 1 && Number(maximum) >= 1;
   const input = {
     name,
     description,
@@ -141,7 +147,7 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
           className="grid gap-4 sm:grid-cols-2"
           onSubmit={(event: FormEvent) => {
             event.preventDefault();
-            if (!isCommercialAmount(amount)) return;
+            if (!quotaTargetReady || !numericLimitsValid || !isCommercialAmount(amount)) return;
             save.mutate();
           }}
         >
@@ -155,6 +161,7 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
           </div>
           <Field label="Fonctionnalité">
             <Select
+              disabled={!registryReady}
               onValueChange={(value) => {
                 setFeatureCode(value);
                 setResource("");
@@ -174,7 +181,7 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
             </Select>
           </Field>
           <Field label="Ressource">
-            <Select disabled={!selectedFeature} onValueChange={setResource} value={resource}>
+            <Select disabled={!registryReady || !selectedFeature} onValueChange={setResource} value={resource}>
               <SelectTrigger aria-label="Ressource mesurée">
                 <SelectValue placeholder="Sélectionner" />
               </SelectTrigger>
@@ -187,6 +194,16 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
               </SelectContent>
             </Select>
           </Field>
+          <div className="sm:col-span-2">
+            <ChoiceLoadState
+              error={registry.isError}
+              loading={canReadRegistry && registry.isPending}
+              onRetry={() => void registry.refetch()}
+              unavailable={
+                canReadRegistry ? null : "Votre rôle ne permet pas de consulter le catalogue des fonctionnalités."
+              }
+            />
+          </div>
           <Field label="Capacité par unité">
             <Input min="1" onChange={(event) => setCapacity(event.target.value)} type="number" value={capacity} />
           </Field>
@@ -301,7 +318,10 @@ export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: Rea
             <Button onClick={() => setOpen(false)} type="button" variant="outline">
               Annuler
             </Button>
-            <Button disabled={save.isPending || !isCommercialAmount(amount)} type="submit">
+            <Button
+              disabled={save.isPending || !quotaTargetReady || !numericLimitsValid || !isCommercialAmount(amount)}
+              type="submit"
+            >
               Enregistrer
             </Button>
           </div>

@@ -341,7 +341,7 @@ export function AddOnForm({ item, trigger }: { item?: AddOn; trigger: React.Reac
   );
 }
 
-function AddOnFeatureDialog({ item, addOn }: { item?: AddOn["features"][number]; addOn: AddOn }) {
+export function AddOnFeatureDialog({ item, addOn }: { item?: AddOn["features"][number]; addOn: AddOn }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -352,6 +352,8 @@ function AddOnFeatureDialog({ item, addOn }: { item?: AddOn["features"][number];
     queryFn: () => adminApi.featureCatalog("PLAN_ASSIGNABLE"),
     enabled: commercialQueryEnabled(session.can, adminPermissions.registryFeatureCatalog, open),
   });
+  const canReadCatalog = session.can(adminPermissions.registryFeatureCatalog);
+  const catalogReady = canReadCatalog && catalog.isSuccess;
   const available = (catalog.data ?? [])
     .flatMap((module) => module.features)
     .filter(
@@ -399,7 +401,7 @@ function AddOnFeatureDialog({ item, addOn }: { item?: AddOn["features"][number];
         <div className="space-y-5">
           <div className="space-y-2">
             <Label>Fonctionnalité</Label>
-            <Select disabled={Boolean(item)} onValueChange={setFeatureCode} value={featureCode}>
+            <Select disabled={Boolean(item) || !catalogReady} onValueChange={setFeatureCode} value={featureCode}>
               <SelectTrigger aria-label="Fonctionnalité">
                 <SelectValue placeholder="Sélectionner" />
               </SelectTrigger>
@@ -411,10 +413,18 @@ function AddOnFeatureDialog({ item, addOn }: { item?: AddOn["features"][number];
                 ))}
               </SelectContent>
             </Select>
+            <ChoiceLoadState
+              error={catalog.isError}
+              loading={canReadCatalog && catalog.isPending}
+              onRetry={() => void catalog.refetch()}
+              unavailable={
+                canReadCatalog ? null : "Votre rôle ne permet pas de consulter le catalogue des fonctionnalités."
+              }
+            />
           </div>
           <QuotaEditor onChange={setQuotas} slots={definition?.quotaSchema ?? []} value={quotas} />
           <div className="flex justify-end">
-            <Button disabled={!featureCode || save.isPending} onClick={() => save.mutate()}>
+            <Button disabled={!catalogReady || !definition || save.isPending} onClick={() => save.mutate()}>
               Enregistrer
             </Button>
           </div>

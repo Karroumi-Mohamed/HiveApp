@@ -168,11 +168,18 @@ export function DataTable<T extends RowData>({
       <TableHeader>
         {table.getHeaderGroups().map((group) => (
           <TableRow key={group.id}>
-            {group.headers.map((header) => (
-              <TableHead className={header.column.columnDef.meta?.headerClassName} key={header.id}>
-                {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-              </TableHead>
-            ))}
+            {group.headers.map((header) => {
+              const sorted = header.column.getIsSorted();
+              return (
+                <TableHead
+                  aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : undefined}
+                  className={header.column.columnDef.meta?.headerClassName}
+                  key={header.id}
+                >
+                  {header.isPlaceholder ? null : <table.FlexRender header={header} />}
+                </TableHead>
+              );
+            })}
           </TableRow>
         ))}
       </TableHeader>
