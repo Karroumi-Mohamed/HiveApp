@@ -64,6 +64,14 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(409, ErrorCode.STALE_RESOURCE_VERSION, "Conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(StaleActivationPreviewException.class)
+    public ResponseEntity<ApiError> handleStaleActivationPreview(StaleActivationPreviewException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.STALE_ACTIVATION_PREVIEW,
+                        "Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ResponseEntity<ApiError> handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
         return ResponseEntity

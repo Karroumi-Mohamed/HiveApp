@@ -4,14 +4,18 @@ import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageActivationBl
 
 import java.util.List;
 import java.util.UUID;
+import java.time.Instant;
 
 public record QuotaPackageActivationPreviewDto(
         UUID quotaPackageId,
         long expectedVersion,
+        long catalogRevision,
+        Instant evaluatedAt,
+        Instant expiresAt,
         String previewToken,
         boolean activatable,
         List<QuotaPackageActivationBlocker> blockers,
-        List<QuotaPackagePriceDraftDto> reviewedPrices,
+        List<ProductActivationPriceDto> reviewedPrices,
         List<UUID> packagesToDeactivate
 ) {
     public QuotaPackageActivationPreviewDto {

@@ -1,7 +1,6 @@
 package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
-import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageLifecycleAction;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageOperationalListItemDto;
@@ -14,7 +13,6 @@ import com.hiveapp.platform.client.plan.dto.QuotaPackageComparisonDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageHistoryEntryDto;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.shared.api.PageResponse;
-import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
 import jakarta.validation.Valid;
@@ -22,7 +20,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -168,29 +165,6 @@ public class QuotaPackageAdminController {
             @Valid @RequestBody UpdateQuotaPackageRequest request
     ) {
         return planAdminService.updateQuotaPackage(quotaPackageId, request);
-    }
-
-    @PatchMapping("/{quotaPackageId}/status")
-    public QuotaPackageDto transitionStatus(
-            @PathVariable UUID quotaPackageId,
-            @RequestParam QuotaPackageStatus status,
-            @RequestParam long expectedVersion,
-            @RequestParam String reason,
-            @RequestParam(required = false) String activationPreviewToken
-    ) {
-        if (status == QuotaPackageStatus.DRAFT) {
-            throw new InvalidRequestException("A capacity package cannot transition back to DRAFT.");
-        }
-        QuotaPackageLifecycleAction action = switch (status) {
-            case ACTIVE -> QuotaPackageLifecycleAction.ACTIVATE;
-            case INACTIVE -> QuotaPackageLifecycleAction.DEACTIVATE;
-            case ARCHIVED -> QuotaPackageLifecycleAction.ARCHIVE;
-            case DRAFT -> throw new IllegalStateException("Handled above");
-        };
-        return planAdminService.changeQuotaPackageLifecycle(
-                quotaPackageId,
-                new QuotaPackageLifecycleRequest(
-                        action, expectedVersion, reason, activationPreviewToken));
     }
 
     @DeleteMapping("/{quotaPackageId}")

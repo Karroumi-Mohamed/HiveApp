@@ -9,13 +9,14 @@ import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
+import com.hiveapp.platform.client.plan.dto.AddOnActivationPreviewDto;
+import com.hiveapp.platform.client.plan.dto.AddOnLifecycleRequest;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -120,13 +121,18 @@ public class AddOnAdminController {
         return planAdminService.updateAddOn(addOnId, request);
     }
 
-    @PatchMapping("/{addOnId}/status")
+    @PostMapping("/{addOnId}/lifecycle")
     public AddOnDto transitionStatus(
             @PathVariable UUID addOnId,
-            @RequestParam AddOnStatus status,
-            @RequestParam long expectedVersion,
-            @RequestParam(required = false) String reason) {
-        return planAdminService.transitionAddOnStatus(addOnId, status, expectedVersion, reason);
+            @Valid @RequestBody AddOnLifecycleRequest request) {
+        return planAdminService.transitionAddOnStatus(
+                addOnId, request.action().targetStatus(), request.expectedVersion(), request.reason(),
+                request.activationPreviewToken());
+    }
+
+    @GetMapping("/{addOnId}/activation-preview")
+    public AddOnActivationPreviewDto activationPreview(@PathVariable UUID addOnId) {
+        return planAdminService.previewAddOnActivation(addOnId);
     }
 
     @DeleteMapping("/{addOnId}")

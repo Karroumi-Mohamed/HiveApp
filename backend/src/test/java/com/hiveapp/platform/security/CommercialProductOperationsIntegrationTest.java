@@ -3,6 +3,8 @@ package com.hiveapp.platform.security;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
+import com.hiveapp.platform.client.plan.domain.constant.PlanLifecycleAction;
+import com.hiveapp.platform.client.plan.domain.constant.AddOnLifecycleAction;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
@@ -18,9 +20,12 @@ import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.DeletePlanRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
 import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
+import com.hiveapp.platform.client.plan.dto.PlanLifecycleRequest;
+import com.hiveapp.platform.client.plan.dto.AddOnLifecycleRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaLimitRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import com.hiveapp.shared.money.Money;
 import org.junit.jupiter.api.AfterEach;
@@ -34,6 +39,9 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -65,6 +73,9 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
 
     @Autowired
     private ProductPriceRepository productPriceRepository;
+
+    @Autowired
+    private CommercialCatalogVersionService commercialCatalogVersionService;
 
     @AfterEach
     void removeFixtures() {
@@ -196,8 +207,7 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
         assertThat(page.get("content").get(0).get("targetingMode").asText()).isEqualTo("TARGETED");
         assertThat(page.get("content").get(0).get("blockedPlanCount").asInt()).isZero();
         assertThat(page.get("content").get(0).get("availableActions").toString())
-                .contains("MANAGE_PRICES")
-                .doesNotContain("ACTIVATE");
+                .contains("MANAGE_PRICES", "PREVIEW_ACTIVATION", "ACTIVATE");
 
         mockMvc.perform(get("/api/admin/add-ons/chooser")
                         .header("Authorization", bearer(token))
@@ -267,8 +277,7 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
                                 .header("Authorization", bearer(token)))
                 .andExpect(status().isOk()));
         assertThat(draftOperations.get("availableActions").toString())
-                .contains("MANAGE_PRICES")
-                .doesNotContain("ACTIVATE");
+                .contains("MANAGE_PRICES", "PREVIEW_ACTIVATION", "ACTIVATE");
 
         JsonNode firstPlanUpdate = responseJson(mockMvc.perform(put("/api/admin/plans/{id}", planId)
                         .header("Authorization", bearer(token))
@@ -297,10 +306,8 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
                                 BillingCycle.MONTHLY, initialPlanVersion))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
-        mockMvc.perform(patch("/api/admin/plans/{id}/status", planId)
-                        .header("Authorization", bearer(token))
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", String.valueOf(initialPlanVersion)))
+        planLifecycle(token, planId, PlanLifecycleAction.ACTIVATE,
+                        initialPlanVersion, null, null)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
 
@@ -328,10 +335,8 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
                                 initialAddOnVersion))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
-        mockMvc.perform(patch("/api/admin/add-ons/{id}/status", addOnId)
-                        .header("Authorization", bearer(token))
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", String.valueOf(initialAddOnVersion)))
+        addOnLifecycle(token, addOnId, AddOnLifecycleAction.ACTIVATE,
+                        initialAddOnVersion, null, null)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
         mockMvc.perform(delete("/api/admin/add-ons/{id}", addOnId)
@@ -370,23 +375,19 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
 
         long afterComposition = planRepository.findById(planId).orElseThrow().getVersion();
         assertThat(afterComposition).isGreaterThan(beforeComposition);
-        mockMvc.perform(patch("/api/admin/plans/{id}/status", planId)
-                        .header("Authorization", bearer(token))
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", String.valueOf(beforeComposition)))
+        planLifecycle(token, planId, PlanLifecycleAction.ACTIVATE,
+                        beforeComposition, null, null)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
-        mockMvc.perform(patch("/api/admin/plans/{id}/status", planId)
-                        .header("Authorization", bearer(token))
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", String.valueOf(afterComposition)))
+        planLifecycle(token, planId, PlanLifecycleAction.ACTIVATE,
+                        afterComposition, null, fetchPlanActivationToken(token, planId))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+                .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
+                .andExpect(jsonPath("$.details",
+                        org.hamcrest.Matchers.hasItem("NO_APPLICABLE_PRICE")));
         activateInitialPrice(token, productPriceRepository.findAllByPlanId(planId).getFirst());
-        mockMvc.perform(patch("/api/admin/plans/{id}/status", planId)
-                        .header("Authorization", bearer(token))
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", String.valueOf(afterComposition)))
+        planLifecycle(token, planId, PlanLifecycleAction.ACTIVATE,
+                        afterComposition, null, fetchPlanActivationToken(token, planId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
     }
@@ -424,7 +425,7 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
                 .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
                 .andExpect(jsonPath("$.details",
                         org.hamcrest.Matchers.hasItem("PUBLISHED_PRICE_HISTORY")));
-        assertReasonedArchive(token, "/api/admin/plans/{id}/status", planId,
+        assertReasonedArchive(token, "/api/admin/plans/{id}/lifecycle", planId,
                 plan.get("version").asLong());
         assertThat(productPriceRepository.findAllByPlanId(planId)).singleElement()
                 .satisfies(price -> assertThat(price.getStatus().name()).isEqualTo("ACTIVE"));
@@ -479,7 +480,7 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
                                 "PUBLISHED_PRICE_HISTORY",
                                 "REFERENCED_BY_ADD_ON",
                                 "REFERENCED_BY_QUOTA_PACKAGE")));
-        assertReasonedArchive(token, "/api/admin/add-ons/{id}/status", addOnId,
+        assertReasonedArchive(token, "/api/admin/add-ons/{id}/lifecycle", addOnId,
                 addOn.get("version").asLong());
         assertThat(productPriceRepository.findAllApplicable(
                 com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.ADD_ON,
@@ -583,10 +584,9 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
         annualPlanPrice.activate();
         productPriceRepository.saveAndFlush(annualPlanPrice);
         long planVersion = planRepository.findById(planId).orElseThrow().getVersion();
-        JsonNode activePlan = responseJson(mockMvc.perform(patch("/api/admin/plans/{id}/status", planId)
-                        .header("Authorization", bearer(token))
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", Long.toString(planVersion)))
+        JsonNode activePlan = responseJson(planLifecycle(
+                        token, planId, PlanLifecycleAction.ACTIVATE, planVersion, null,
+                        fetchPlanActivationToken(token, planId))
                 .andExpect(status().isOk()));
         List<com.hiveapp.platform.client.plan.domain.entity.ProductPrice> sourcePlanPrices =
                 List.copyOf(productPriceRepository.findAllByPlanId(planId));
@@ -628,12 +628,13 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
                 .andExpect(status().isCreated());
         long unpublishedAddOnVersion = addOnRepository.findById(addOnId)
                 .orElseThrow().getRowVersion();
-        mockMvc.perform(patch("/api/admin/add-ons/{id}/status", addOnId)
-                        .header("Authorization", bearer(token))
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", Long.toString(unpublishedAddOnVersion)))
+        addOnLifecycle(token, addOnId, AddOnLifecycleAction.ACTIVATE,
+                        unpublishedAddOnVersion, null,
+                        fetchAddOnActivationToken(token, addOnId))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+                .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
+                .andExpect(jsonPath("$.details",
+                        org.hamcrest.Matchers.hasItem("NO_APPLICABLE_PRICE")));
         activateInitialPrice(token, productPriceRepository.findAllByAddOnId(addOnId).getFirst());
         var annualAddOnPrice = com.hiveapp.platform.client.plan.domain.entity.ProductPrice.draft(
                 addOnRepository.findById(addOnId).orElseThrow(),
@@ -642,11 +643,9 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
         annualAddOnPrice.activate();
         productPriceRepository.saveAndFlush(annualAddOnPrice);
         long addOnVersion = addOnRepository.findById(addOnId).orElseThrow().getRowVersion();
-        JsonNode activeAddOn = responseJson(mockMvc.perform(
-                        patch("/api/admin/add-ons/{id}/status", addOnId)
-                                .header("Authorization", bearer(token))
-                                .param("status", "ACTIVE")
-                                .param("expectedVersion", Long.toString(addOnVersion)))
+        JsonNode activeAddOn = responseJson(addOnLifecycle(
+                        token, addOnId, AddOnLifecycleAction.ACTIVATE, addOnVersion, null,
+                        fetchAddOnActivationToken(token, addOnId))
                 .andExpect(status().isOk()));
         List<com.hiveapp.platform.client.plan.domain.entity.ProductPrice> sourceAddOnPrices =
                 List.copyOf(productPriceRepository.findAllByAddOnId(addOnId));
@@ -770,11 +769,9 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
                 .andExpect(status().isCreated());
         activateInitialPrice(token, productPriceRepository.findAllByAddOnId(sourceId).getFirst());
         long sourceVersion = addOnRepository.findById(sourceId).orElseThrow().getRowVersion();
-        JsonNode activeSource = responseJson(mockMvc.perform(
-                        patch("/api/admin/add-ons/{id}/status", sourceId)
-                                .header("Authorization", bearer(token))
-                                .param("status", "ACTIVE")
-                                .param("expectedVersion", Long.toString(sourceVersion)))
+        JsonNode activeSource = responseJson(addOnLifecycle(
+                        token, sourceId, AddOnLifecycleAction.ACTIVATE, sourceVersion, null,
+                        fetchAddOnActivationToken(token, sourceId))
                 .andExpect(status().isOk()));
         String sourceCode = activeSource.get("code").asText();
 
@@ -813,10 +810,9 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
             activateInitialPrice(token, price);
         }
 
-        mockMvc.perform(patch("/api/admin/add-ons/{id}/status", successorId)
-                        .header("Authorization", bearer(token))
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", successor.get("version").asText()))
+        addOnLifecycle(token, successorId, AddOnLifecycleAction.ACTIVATE,
+                        successor.get("version").asLong(), null,
+                        fetchAddOnActivationToken(token, successorId))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("OPERATION_BLOCKED"))
                 .andExpect(jsonPath("$.details", org.hamcrest.Matchers.hasItems(
@@ -829,11 +825,201 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
                 .isEqualTo(com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.DRAFT);
     }
 
+    @Test
+    void planActivationPreviewPinsActorVersionCatalogueAndExactReviewedPrices() throws Exception {
+        String token = loginAdminAndGetToken();
+        JsonNode created = responseJson(mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                marker + " Reviewed activation", null, new BigDecimal("12.3400"),
+                                "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isCreated()));
+        UUID planId = UUID.fromString(created.get("id").asText());
+        planIds.add(planId);
+        mockMvc.perform(post("/api/admin/plans/{id}/features", planId)
+                        .param("expectedVersion", created.get("version").asText())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AssignPlanFeatureRequest(
+                                "platform.workspace", PlanFeatureMode.INCLUDED, List.of()))))
+                .andExpect(status().isCreated());
+        activateInitialPrice(token, productPriceRepository.findAllByPlanId(planId).getFirst());
+
+        JsonNode preview = responseJson(mockMvc.perform(
+                        get("/api/admin/plans/{id}/activation-preview", planId)
+                                .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activatable").value(true))
+                .andExpect(jsonPath("$.blockers").isEmpty())
+                .andExpect(jsonPath("$.includedFeatureCount").value(1))
+                .andExpect(jsonPath("$.reviewedPrices[0].amount").value("12.3400"))
+                .andExpect(jsonPath("$.catalogRevision").isNumber())
+                .andExpect(jsonPath("$.evaluatedAt").isNotEmpty())
+                .andExpect(jsonPath("$.expiresAt").isNotEmpty()));
+        long expectedVersion = preview.get("expectedVersion").asLong();
+        String reviewedToken = preview.get("previewToken").asText();
+
+        mockMvc.perform(post("/api/admin/plans/{id}/lifecycle", planId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "action", "ACTIVATE",
+                                "activationPreviewToken", reviewedToken))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
+        planLifecycle(token, planId, PlanLifecycleAction.ACTIVATE,
+                        expectedVersion, null, null)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        int offset = reviewedToken.indexOf('.') + 5;
+        char replacement = reviewedToken.charAt(offset) == 'A' ? 'B' : 'A';
+        String tampered = reviewedToken.substring(0, offset) + replacement
+                + reviewedToken.substring(offset + 1);
+        planLifecycle(token, planId, PlanLifecycleAction.ACTIVATE,
+                        expectedVersion, null, tampered)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_ACTIVATION_PREVIEW"));
+        assertThat(planRepository.findById(planId).orElseThrow().getStatus())
+                .isEqualTo(com.hiveapp.platform.client.plan.domain.constant.PlanStatus.DRAFT);
+
+        JsonNode unrelated = createAddOn(token, marker + " Unrelated mutation");
+        addOnIds.add(UUID.fromString(unrelated.get("id").asText()));
+        planLifecycle(token, planId, PlanLifecycleAction.ACTIVATE,
+                        expectedVersion, null, reviewedToken)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_ACTIVATION_PREVIEW"));
+        assertThat(planRepository.findById(planId).orElseThrow().getStatus())
+                .isEqualTo(com.hiveapp.platform.client.plan.domain.constant.PlanStatus.DRAFT);
+
+        planLifecycle(token, planId, PlanLifecycleAction.ACTIVATE,
+                        expectedVersion, null, fetchPlanActivationToken(token, planId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    @Test
+    void concurrentReplayOfOnePlanActivationPreviewMutatesExactlyOnce() throws Exception {
+        String token = loginAdminAndGetToken();
+        JsonNode created = responseJson(mockMvc.perform(post("/api/admin/plans")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreatePlanRequest(
+                                marker + " Concurrent activation", null, BigDecimal.ONE,
+                                "USD", BillingCycle.MONTHLY))))
+                .andExpect(status().isCreated()));
+        UUID planId = UUID.fromString(created.get("id").asText());
+        planIds.add(planId);
+        mockMvc.perform(post("/api/admin/plans/{id}/features", planId)
+                        .param("expectedVersion", created.get("version").asText())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AssignPlanFeatureRequest(
+                                "platform.workspace", PlanFeatureMode.INCLUDED, List.of()))))
+                .andExpect(status().isCreated());
+        activateInitialPrice(token, productPriceRepository.findAllByPlanId(planId).getFirst());
+
+        JsonNode preview = responseJson(mockMvc.perform(
+                        get("/api/admin/plans/{id}/activation-preview", planId)
+                                .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activatable").value(true)));
+        String requestBody = objectMapper.writeValueAsString(new PlanLifecycleRequest(
+                PlanLifecycleAction.ACTIVATE,
+                preview.get("expectedVersion").asLong(),
+                null,
+                preview.get("previewToken").asText()));
+        long revisionBefore = commercialCatalogVersionService.currentRevision();
+        CountDownLatch start = new CountDownLatch(1);
+
+        CompletableFuture<HttpResult> first = CompletableFuture.supplyAsync(
+                () -> activatePlanAfter(start, token, planId, requestBody));
+        CompletableFuture<HttpResult> second = CompletableFuture.supplyAsync(
+                () -> activatePlanAfter(start, token, planId, requestBody));
+        start.countDown();
+        HttpResult left = first.get(15, TimeUnit.SECONDS);
+        HttpResult right = second.get(15, TimeUnit.SECONDS);
+
+        assertThat(List.of(left.status(), right.status())).containsExactlyInAnyOrder(200, 409);
+        HttpResult conflict = left.status() == 409 ? left : right;
+        assertThat(conflict.code()).isEqualTo("STALE_RESOURCE_VERSION");
+        assertThat(planRepository.findById(planId).orElseThrow().getStatus())
+                .isEqualTo(com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ACTIVE);
+        assertThat(commercialCatalogVersionService.currentRevision()).isEqualTo(revisionBefore + 1);
+    }
+
+    @Test
+    void addOnActivationPreviewPinsCompatibilityAndChangedDependencies() throws Exception {
+        String token = loginAdminAndGetToken();
+        CreateAddOnRequest request = new CreateAddOnRequest(
+                marker + " Dependency review", null, new BigDecimal("6.7800"), "USD",
+                BillingCycle.MONTHLY, Set.of("FLEX"), Set.of(), Set.of("CUSTOM_ROLES"),
+                Set.of(), ProductSalesVisibility.PUBLIC);
+        JsonNode created = responseJson(mockMvc.perform(post("/api/admin/add-ons")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated()));
+        UUID addOnId = UUID.fromString(created.get("id").asText());
+        addOnIds.add(addOnId);
+        mockMvc.perform(post("/api/admin/add-ons/{id}/features", addOnId)
+                        .param("expectedVersion", created.get("version").asText())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AssignAddOnFeatureRequest(
+                                "platform.organization", List.of()))))
+                .andExpect(status().isCreated());
+        activateInitialPrice(token, productPriceRepository.findAllByAddOnId(addOnId).getFirst());
+
+        JsonNode preview = responseJson(mockMvc.perform(
+                        get("/api/admin/add-ons/{id}/activation-preview", addOnId)
+                                .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activatable").value(true))
+                .andExpect(jsonPath("$.featureCount").value(1))
+                .andExpect(jsonPath("$.explicitTargetPlanCount").value(1))
+                .andExpect(jsonPath("$.evaluatedPlanCount").value(1))
+                .andExpect(jsonPath("$.compatiblePlanCount").value(1))
+                .andExpect(jsonPath("$.reviewedPrices[0].amount").value("6.7800")));
+
+        var dependency = addOnRepository.findByCode("CUSTOM_ROLES").orElseThrow();
+        UUID dependencyId = dependency.getId();
+        try {
+            addOnLifecycle(token, dependencyId, AddOnLifecycleAction.DEACTIVATE,
+                            dependency.getRowVersion(), null, null)
+                    .andExpect(status().isOk());
+
+            addOnLifecycle(token, addOnId, AddOnLifecycleAction.ACTIVATE,
+                            preview.get("expectedVersion").asLong(), null,
+                            preview.get("previewToken").asText())
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("STALE_ACTIVATION_PREVIEW"));
+            assertThat(addOnRepository.findById(addOnId).orElseThrow().getStatus())
+                    .isEqualTo(com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.DRAFT);
+        } finally {
+            var inactiveDependency = addOnRepository.findById(dependencyId).orElseThrow();
+            if (inactiveDependency.getStatus()
+                    == com.hiveapp.platform.client.plan.domain.constant.AddOnStatus.INACTIVE) {
+                addOnLifecycle(token, dependencyId, AddOnLifecycleAction.ACTIVATE,
+                                inactiveDependency.getRowVersion(), null,
+                                fetchAddOnActivationToken(token, dependencyId))
+                        .andExpect(status().isOk());
+            }
+        }
+
+        long expectedVersion = addOnRepository.findById(addOnId).orElseThrow().getRowVersion();
+        addOnLifecycle(token, addOnId, AddOnLifecycleAction.ACTIVATE,
+                        expectedVersion, null, fetchAddOnActivationToken(token, addOnId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
     private void assertNoPriceStartingPoint(JsonNode operations) {
         assertThat(operations.get("blockers").toString()).contains("NO_PRICE_STARTING_POINT");
         assertThat(operations.get("availableActions").toString())
-                .contains("MANAGE_PRICES")
-                .doesNotContain("ACTIVATE");
+                .contains("MANAGE_PRICES", "PREVIEW_ACTIVATION", "ACTIVATE");
     }
 
     private void activateInitialPrice(
@@ -915,26 +1101,88 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
             UUID id,
             long version
     ) throws Exception {
-        mockMvc.perform(patch(path, id)
+        mockMvc.perform(post(path, id)
                         .header("Authorization", bearer(token))
-                        .param("status", "ARCHIVED")
-                        .param("expectedVersion", Long.toString(version)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "action", "ARCHIVE",
+                                "expectedVersion", version))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        mockMvc.perform(patch(path, id)
+        mockMvc.perform(post(path, id)
                         .header("Authorization", bearer(token))
-                        .param("status", "ARCHIVED")
-                        .param("expectedVersion", Long.toString(version + 1))
-                        .param("reason", "Stale archival intent"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "action", "ARCHIVE",
+                                "expectedVersion", version + 1,
+                                "reason", "Stale archival intent"))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
-        mockMvc.perform(patch(path, id)
+        mockMvc.perform(post(path, id)
                         .header("Authorization", bearer(token))
-                        .param("status", "ARCHIVED")
-                        .param("expectedVersion", Long.toString(version))
-                        .param("reason", "Abandon draft with published price history"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of(
+                                "action", "ARCHIVE",
+                                "expectedVersion", version,
+                                "reason", "Abandon draft with published price history"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ARCHIVED"));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions planLifecycle(
+            String token,
+            UUID planId,
+            PlanLifecycleAction action,
+            long expectedVersion,
+            String reason,
+            String previewToken
+    ) throws Exception {
+        return mockMvc.perform(post("/api/admin/plans/{id}/lifecycle", planId)
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new PlanLifecycleRequest(
+                        action, expectedVersion, reason, previewToken))));
+    }
+
+    private HttpResult activatePlanAfter(
+            CountDownLatch start,
+            String token,
+            UUID planId,
+            String requestBody
+    ) {
+        try {
+            if (!start.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("Concurrent activation start was not released");
+            }
+            var response = mockMvc.perform(post("/api/admin/plans/{id}/lifecycle", planId)
+                            .header("Authorization", bearer(token))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(requestBody))
+                    .andReturn().getResponse();
+            JsonNode body = response.getContentAsString().isBlank()
+                    ? null : objectMapper.readTree(response.getContentAsString());
+            return new HttpResult(response.getStatus(),
+                    body == null || body.get("code") == null ? null : body.get("code").asText());
+        } catch (Exception exception) {
+            throw new RuntimeException(exception);
+        }
+    }
+
+    private record HttpResult(int status, String code) {}
+
+    private org.springframework.test.web.servlet.ResultActions addOnLifecycle(
+            String token,
+            UUID addOnId,
+            AddOnLifecycleAction action,
+            long expectedVersion,
+            String reason,
+            String previewToken
+    ) throws Exception {
+        return mockMvc.perform(post("/api/admin/add-ons/{id}/lifecycle", addOnId)
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new AddOnLifecycleRequest(
+                        action, expectedVersion, reason, previewToken))));
     }
 
     private JsonNode createQuotaPackage(

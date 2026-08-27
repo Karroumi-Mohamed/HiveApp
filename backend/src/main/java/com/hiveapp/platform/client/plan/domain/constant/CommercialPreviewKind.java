@@ -1,0 +1,11 @@
+package com.hiveapp.platform.client.plan.domain.constant;
+
+/**
+ * Typed commercial review operations whose evidence can be signed by the shared preview-token
+ * protocol. New commercial preview flows add a kind here instead of introducing another signer.
+ */
+public enum CommercialPreviewKind {
+    PLAN_ACTIVATION,
+    ADD_ON_ACTIVATION,
+    QUOTA_PACKAGE_ACTIVATION
+}

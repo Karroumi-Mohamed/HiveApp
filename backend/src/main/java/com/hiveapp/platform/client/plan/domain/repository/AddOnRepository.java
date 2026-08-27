@@ -46,6 +46,10 @@ public interface AddOnRepository extends JpaRepository<AddOn, UUID>, JpaSpecific
     @Query("select addOn from AddOn addOn where addOn.lineageId = :lineageId order by addOn.revisionNumber")
     List<AddOn> findLineageForUpdate(@Param("lineageId") UUID lineageId);
 
+    @Query("select addOn from AddOn addOn where addOn.lineageId = :lineageId "
+            + "order by addOn.revisionNumber, addOn.id")
+    List<AddOn> findAllByLineageId(@Param("lineageId") UUID lineageId);
+
     @Query("select coalesce(max(addOn.revisionNumber), 0) from AddOn addOn where addOn.lineageId = :lineageId")
     int findMaximumRevisionNumber(@Param("lineageId") UUID lineageId);
 

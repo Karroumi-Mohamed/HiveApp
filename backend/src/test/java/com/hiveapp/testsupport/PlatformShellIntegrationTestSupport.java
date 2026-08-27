@@ -115,6 +115,28 @@ public abstract class PlatformShellIntegrationTestSupport {
         return UUID.fromString(objectMapper.readTree(response).get("member").get("id").asText());
     }
 
+    protected String fetchPlanActivationToken(String adminToken, UUID planId) throws Exception {
+        return fetchActivationToken(adminToken, "/api/admin/plans/{id}/activation-preview", planId);
+    }
+
+    protected String fetchAddOnActivationToken(String adminToken, UUID addOnId) throws Exception {
+        return fetchActivationToken(adminToken, "/api/admin/add-ons/{id}/activation-preview", addOnId);
+    }
+
+    protected String fetchQuotaPackageActivationToken(String adminToken, UUID quotaPackageId)
+            throws Exception {
+        return fetchActivationToken(
+                adminToken, "/api/admin/quota-packages/{id}/activation-preview", quotaPackageId);
+    }
+
+    private String fetchActivationToken(String adminToken, String path, UUID id) throws Exception {
+        String response = mockMvc.perform(get(path, id)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).get("previewToken").asText();
+    }
+
     private String accessToken(ResultActions resultActions) throws Exception {
         String response = resultActions
                 .andReturn()

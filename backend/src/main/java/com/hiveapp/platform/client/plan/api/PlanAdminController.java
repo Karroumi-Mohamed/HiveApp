@@ -16,6 +16,8 @@ import com.hiveapp.platform.client.plan.dto.PlanChooserItemDto;
 import com.hiveapp.platform.client.plan.dto.PlanFeatureDto;
 import com.hiveapp.platform.client.plan.dto.PlanSubscriberDto;
 import com.hiveapp.platform.client.plan.dto.PlanSubscriberOwnerLookupDto;
+import com.hiveapp.platform.client.plan.dto.PlanActivationPreviewDto;
+import com.hiveapp.platform.client.plan.dto.PlanLifecycleRequest;
 import com.hiveapp.platform.client.plan.dto.UpdatePlanRequest;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
@@ -140,14 +142,18 @@ public class PlanAdminController {
         return planAdminService.updatePlan(planId, request);
     }
 
-    @PatchMapping("/{planId}/status")
+    @PostMapping("/{planId}/lifecycle")
     public PlanDto transitionStatus(
             @PathVariable UUID planId,
-            @RequestParam PlanStatus status,
-            @RequestParam long expectedVersion,
-            @RequestParam(required = false) String reason) {
-        var p = planAdminService.transitionStatus(planId, status, expectedVersion, reason);
-        return p;
+            @Valid @RequestBody PlanLifecycleRequest request) {
+        return planAdminService.transitionStatus(
+                planId, request.action().targetStatus(), request.expectedVersion(), request.reason(),
+                request.activationPreviewToken());
+    }
+
+    @GetMapping("/{planId}/activation-preview")
+    public PlanActivationPreviewDto activationPreview(@PathVariable UUID planId) {
+        return planAdminService.previewPlanActivation(planId);
     }
 
     @GetMapping("/{planId}/deletion-preview")

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
+import com.hiveapp.platform.client.plan.domain.constant.PlanLifecycleAction;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
@@ -18,6 +19,7 @@ import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.PlanBranchRequest;
+import com.hiveapp.platform.client.plan.dto.PlanLifecycleRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementPreviewRequest;
@@ -739,10 +741,12 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         JsonNode revisionJson = objectMapper.readTree(revisionResponse);
         UUID revisionId = UUID.fromString(revisionJson.get("id").asText());
         publishPlanPriceDrafts(adminToken, revisionId);
-        mockMvc.perform(patch("/api/admin/plans/{id}/status", revisionId)
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", revisionJson.get("version").asText())
-                        .header("Authorization", bearer(adminToken)))
+        mockMvc.perform(post("/api/admin/plans/{id}/lifecycle", revisionId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PlanLifecycleRequest(
+                                PlanLifecycleAction.ACTIVATE, revisionJson.get("version").asLong(), null,
+                                fetchPlanActivationToken(adminToken, revisionId)))))
                 .andExpect(status().isOk());
         var revision = planRepository.findById(revisionId).orElseThrow();
         assertThat(revision.getLineageId()).isEqualTo(source.getLineageId());
@@ -812,10 +816,12 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         JsonNode created = objectMapper.readTree(response);
         UUID id = UUID.fromString(created.get("id").asText());
         publishPlanPriceDrafts(token, id);
-        mockMvc.perform(patch("/api/admin/plans/{id}/status", id)
-                        .param("status", "ACTIVE")
-                        .param("expectedVersion", created.get("version").asText())
-                        .header("Authorization", bearer(token)))
+        mockMvc.perform(post("/api/admin/plans/{id}/lifecycle", id)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PlanLifecycleRequest(
+                                PlanLifecycleAction.ACTIVATE, created.get("version").asLong(), null,
+                                fetchPlanActivationToken(token, id)))))
                 .andExpect(status().isOk());
         return id;
     }

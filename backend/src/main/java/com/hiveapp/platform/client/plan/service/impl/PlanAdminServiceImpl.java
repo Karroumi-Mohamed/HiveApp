@@ -4,9 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
-import com.hiveapp.platform.client.plan.domain.constant.AddOnActivationBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialProductBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCodes;
 import com.hiveapp.platform.client.plan.domain.constant.PlanCreationReason;
@@ -15,10 +15,8 @@ import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
 import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
-import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceAudit;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus;
-import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageActivationBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageComparisonField;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageLifecycleAction;
@@ -57,8 +55,13 @@ import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.CreateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateQuotaPackageRequest;
 import com.hiveapp.platform.client.plan.service.BillingConfigurationValidator;
+import com.hiveapp.platform.client.plan.service.AddOnActivationAssessor;
 import com.hiveapp.platform.client.plan.service.CommercialCodeGenerator;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogMutation;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
+import com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService;
+import com.hiveapp.platform.client.plan.service.PlanActivationAssessor;
+import com.hiveapp.platform.client.plan.service.QuotaPackageActivationAssessor;
 import com.hiveapp.platform.client.plan.dto.PlanDto;
 import com.hiveapp.platform.client.plan.dto.PlanFeatureDto;
 import com.hiveapp.platform.client.plan.dto.AddOnDto;
@@ -76,18 +79,17 @@ import com.hiveapp.platform.client.plan.dto.QuotaPackageLifecycleRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageComparisonDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageHistoryEntryDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackagePriceDraftDto;
+import com.hiveapp.platform.client.plan.dto.ProductActivationPriceDto;
+import com.hiveapp.platform.client.plan.dto.PlanActivationPreviewDto;
+import com.hiveapp.platform.client.plan.dto.AddOnActivationPreviewDto;
 import com.hiveapp.platform.client.plan.service.CommercialProductOperationsService;
 import com.hiveapp.platform.client.plan.service.CrossFeatureCommercialAuthorizer;
 import com.hiveapp.platform.client.plan.service.PlanAdminReadModels;
 import com.hiveapp.platform.client.plan.service.PlanAdminService;
-import com.hiveapp.platform.client.plan.service.ProductPriceResolver;
-import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.CommercialAvailabilityFeature;
 import com.hiveapp.platform.registry.definition.PlansFeature;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
-import com.hiveapp.platform.registry.domain.entity.Feature;
-import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.exception.BusinessException;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.DraftSuccessorExistsException;
@@ -97,12 +99,12 @@ import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.OperationBlockedException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.exception.StaleResourceVersionException;
+import com.hiveapp.shared.exception.StaleActivationPreviewException;
 import com.hiveapp.shared.audit.domain.AuditLog;
 import com.hiveapp.shared.audit.domain.AuditLogRepository;
 import com.hiveapp.shared.audit.AuditTrail;
 import com.hiveapp.shared.audit.domain.AuditActorSurface;
 import com.hiveapp.shared.money.Money;
-import com.hiveapp.shared.quota.QuotaLimitMode;
 import dev.karroumi.permissionizer.PermissionNode;
 import dev.karroumi.permissionizer.Permission;
 import dev.karroumi.permissionizer.PermissionGuard;
@@ -113,7 +115,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
@@ -124,7 +125,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -145,7 +145,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     private static final Pattern COMMERCIAL_CODE = Pattern.compile("^[A-Z][A-Z0-9_]*$");
     private static final String QUOTA_AUDIT_RESOURCE_TYPE = "PLAN_ADMIN";
-    private static final UUID EMPTY_QUERY_SENTINEL = new UUID(0L, 0L);
 
     private final PlanRepository planRepository;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
@@ -158,17 +157,19 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final AddOnRepository addOnRepository;
     private final AddOnFeatureRepository addOnFeatureRepository;
     private final QuotaPackageRepository quotaPackageRepository;
-    private final ProductPriceResolver productPriceResolver;
-    private final CommercialCatalogResolver commercialCatalogResolver;
     private final CommercialProductOperationsService productOperationsService;
     private final ProductPriceRepository productPriceRepository;
     private final CrossFeatureCommercialAuthorizer crossFeatureCommercialAuthorizer;
-    private final FeatureRepository featureRepository;
     private final AuditLogRepository auditLogRepository;
     private final AuditTrail auditTrail;
     private final AdminUserRepository adminUserRepository;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final CommercialCatalogVersionService commercialCatalogVersionService;
+    private final CommercialPreviewTokenService previewTokenService;
+    private final PlanActivationAssessor planActivationAssessor;
+    private final AddOnActivationAssessor addOnActivationAssessor;
+    private final QuotaPackageActivationAssessor quotaPackageActivationAssessor;
 
     @Override
     @PermissionNode(key = "overview", description = "View commercial operations overview")
@@ -441,7 +442,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             UUID planId,
             PlanStatus targetStatus,
             long expectedVersion,
-            String reason
+            String reason,
+            String activationPreviewToken
     ) {
         var plan = planRepository.findByIdForUpdate(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
@@ -468,11 +470,54 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             throw new BusinessException("The default FREE plan must remain ACTIVE because workspace provisioning requires it.");
         }
         if (targetStatus == PlanStatus.ACTIVE) {
-            validateActivation(plan);
+            requireActivationToken(activationPreviewToken, "Plan");
+            long catalogRevision = commercialCatalogVersionService.currentRevision();
+            UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+            var assessment = planActivationAssessor.assess(plan, clock.instant());
+            previewTokenService.requireValid(
+                    activationPreviewToken,
+                    CommercialPreviewKind.PLAN_ACTIVATION,
+                    plan.getId(),
+                    plan.getVersion(),
+                    actorUserId,
+                    catalogRevision,
+                    assessment.fingerprint());
+            if (!assessment.blockers().isEmpty()) {
+                throw new OperationBlockedException(
+                        "The Plan cannot be activated.",
+                        assessment.blockers().stream().map(Enum::name).toList());
+            }
         }
         plan.setStatus(targetStatus);
         Plan saved = planRepository.saveAndFlush(plan);
         return readModels.toDto(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "preview_plan_activation",
+            description = "Preview exact Plan activation blockers and commercial impact")
+    public PlanActivationPreviewDto previewPlanActivation(UUID planId) {
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        return commercialCatalogVersionService.readConsistently(catalogRevision -> {
+            Plan plan = requirePlan(planId);
+            Instant evaluatedAt = clock.instant();
+            var assessment = planActivationAssessor.assess(plan, evaluatedAt);
+            var evidence = previewTokenService.issue(
+                    CommercialPreviewKind.PLAN_ACTIVATION,
+                    plan.getId(),
+                    plan.getVersion(),
+                    actorUserId,
+                    catalogRevision,
+                    assessment.fingerprint(),
+                    evaluatedAt);
+            return new PlanActivationPreviewDto(
+                    plan.getId(), plan.getVersion(), catalogRevision,
+                    evidence.evaluatedAt(), evidence.expiresAt(), evidence.token(),
+                    assessment.blockers().isEmpty(), assessment.blockers(),
+                    assessment.includedFeatureCount(), assessment.optionalAddOnFeatureCount(),
+                    assessment.blockedFeatureCount(), assessment.reviewedPrices());
+        }, StaleActivationPreviewException::new);
     }
 
     @Override
@@ -848,7 +893,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
             UUID addOnId,
             AddOnStatus targetStatus,
             long expectedVersion,
-            String reason
+            String reason,
+            String activationPreviewToken
     ) {
         if (targetStatus == null) {
             throw new InvalidRequestException("Target AddOn status is required.");
@@ -887,12 +933,28 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                     "An AddOn draft may only be published, archived, or deleted.");
         }
         if (targetStatus == AddOnStatus.ACTIVE) {
-            validateAddOnActivation(addOn);
+            requireActivationToken(activationPreviewToken, "AddOn");
+            long catalogRevision = commercialCatalogVersionService.currentRevision();
+            UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+            var assessment = addOnActivationAssessor.assess(
+                    addOn, lockedLineage, clock.instant());
+            previewTokenService.requireValid(
+                    activationPreviewToken,
+                    CommercialPreviewKind.ADD_ON_ACTIVATION,
+                    addOn.getId(),
+                    addOn.getRowVersion(),
+                    actorUserId,
+                    catalogRevision,
+                    assessment.fingerprint());
+            if (!assessment.blockers().isEmpty()) {
+                throw new OperationBlockedException(
+                        "The AddOn cannot be activated.",
+                        assessment.blockers().stream().map(Enum::name).toList());
+            }
+            Set<UUID> toDeactivate = Set.copyOf(assessment.addOnsToDeactivate());
             List<AddOn> previouslyActive = lockedLineage.stream()
-                    .filter(candidate -> !candidate.getId().equals(addOn.getId()))
-                    .filter(candidate -> candidate.getStatus() == AddOnStatus.ACTIVE)
+                    .filter(candidate -> toDeactivate.contains(candidate.getId()))
                     .toList();
-            requirePriorAddOnRevisionsCanRetire(previouslyActive);
             previouslyActive.forEach(candidate -> candidate.setStatus(AddOnStatus.INACTIVE));
             if (!previouslyActive.isEmpty()) {
                 addOnRepository.saveAllAndFlush(previouslyActive);
@@ -903,26 +965,34 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         return readModels.toDto(addOnRepository.findDetailedById(addOnId).orElseThrow());
     }
 
-    private void requirePriorAddOnRevisionsCanRetire(List<AddOn> previouslyActive) {
-        if (previouslyActive.isEmpty()) return;
-        Set<UUID> ids = previouslyActive.stream().map(AddOn::getId).collect(Collectors.toSet());
-        boolean dependentAddOns = !addOnRepository.countInboundAddOnReferencesByStatusIn(
-                ids, List.of(AddOnStatus.ACTIVE, AddOnStatus.INACTIVE, AddOnStatus.DRAFT)).isEmpty();
-        boolean targetedPackages = !quotaPackageRepository.countAddOnReferencesByStatusIn(
-                ids, List.of(QuotaPackageStatus.ACTIVE, QuotaPackageStatus.INACTIVE,
-                        QuotaPackageStatus.DRAFT)).isEmpty();
-        List<String> blockers = new ArrayList<>();
-        if (dependentAddOns) {
-            blockers.add(AddOnActivationBlocker.DEPENDENT_ADD_ON_REQUIRES_MIGRATION.name());
-        }
-        if (targetedPackages) {
-            blockers.add(AddOnActivationBlocker.TARGETED_QUOTA_PACKAGE_REQUIRES_MIGRATION.name());
-        }
-        if (!blockers.isEmpty()) {
-            throw new OperationBlockedException(
-                    "Non-archived products still reference the currently published AddOn revision.",
-                    blockers);
-        }
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "preview_add_on_activation",
+            description = "Preview exact AddOn activation blockers and compatible Plan impact")
+    public AddOnActivationPreviewDto previewAddOnActivation(UUID addOnId) {
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        return commercialCatalogVersionService.readConsistently(catalogRevision -> {
+            AddOn addOn = requireAddOn(addOnId);
+            List<AddOn> lineage = addOnRepository.findAllByLineageId(addOn.getLineageId());
+            Instant evaluatedAt = clock.instant();
+            var assessment = addOnActivationAssessor.assess(addOn, lineage, evaluatedAt);
+            var evidence = previewTokenService.issue(
+                    CommercialPreviewKind.ADD_ON_ACTIVATION,
+                    addOn.getId(),
+                    addOn.getRowVersion(),
+                    actorUserId,
+                    catalogRevision,
+                    assessment.fingerprint(),
+                    evaluatedAt);
+            return new AddOnActivationPreviewDto(
+                    addOn.getId(), addOn.getRowVersion(), catalogRevision,
+                    evidence.evaluatedAt(), evidence.expiresAt(), evidence.token(),
+                    assessment.blockers().isEmpty(), assessment.blockers(),
+                    assessment.featureCount(), assessment.evaluatedPlanCount(),
+                    assessment.compatiblePlanCount(), addOn.getAllowedPlanCodes().size(),
+                    assessment.reviewedPrices(),
+                    assessment.addOnsToDeactivate());
+        }, StaleActivationPreviewException::new);
     }
 
     @Override
@@ -1271,12 +1341,25 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @PermissionNode(key = "preview_quota_package_activation",
             description = "Preview exact package and price blockers before publication")
     public QuotaPackageActivationPreviewDto previewQuotaPackageActivation(UUID quotaPackageId) {
-        QuotaPackage item = requireDetailedQuotaPackage(quotaPackageId);
-        List<QuotaPackage> lineage = quotaPackageRepository
-                .findAllByLineageIdOrderByRevisionNumberDesc(item.getLineageId());
-        List<ProductPrice> prices = productPriceRepository.findAllByQuotaPackageId(quotaPackageId);
-        QuotaActivationDependencies dependencies = quotaActivationDependencies(item, false);
-        return buildQuotaActivationPreview(item, lineage, prices, dependencies);
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        return commercialCatalogVersionService.readConsistently(catalogRevision -> {
+            QuotaPackage item = requireDetailedQuotaPackage(quotaPackageId);
+            List<QuotaPackage> lineage = quotaPackageRepository
+                    .findAllByLineageIdOrderByRevisionNumberDesc(item.getLineageId());
+            List<ProductPrice> prices = productPriceRepository.findAllByQuotaPackageId(quotaPackageId);
+            Instant evaluatedAt = clock.instant();
+            var assessment = quotaPackageActivationAssessor.assessPreview(
+                    item, lineage, prices, evaluatedAt);
+            var evidence = previewTokenService.issue(
+                    CommercialPreviewKind.QUOTA_PACKAGE_ACTIVATION,
+                    item.getId(), item.getRowVersion(), actorUserId, catalogRevision,
+                    assessment.fingerprint(), evaluatedAt);
+            return new QuotaPackageActivationPreviewDto(
+                    item.getId(), item.getRowVersion(), catalogRevision,
+                    evidence.evaluatedAt(), evidence.expiresAt(), evidence.token(),
+                    assessment.blockers().isEmpty(), assessment.blockers(),
+                    assessment.reviewedPrices(), assessment.packagesToDeactivate());
+        }, StaleActivationPreviewException::new);
     }
 
     @Override
@@ -1439,17 +1522,23 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         }
         List<ProductPrice> prices = productPriceRepository
                 .findAllByQuotaPackageIdForUpdate(item.getId());
-        QuotaActivationDependencies dependencies = quotaActivationDependencies(item, true);
-        QuotaPackageActivationPreviewDto preview = buildQuotaActivationPreview(
-                item, lineage, prices, dependencies);
-        if (!preview.previewToken().equals(previewToken)) {
-            throw new StaleResourceVersionException(
-                    "The package, its lineage, or its reviewed prices changed; request a fresh preview.");
-        }
-        if (!preview.blockers().isEmpty()) {
+        long catalogRevision = commercialCatalogVersionService.currentRevision();
+        UUID actorUserId = adminMutationAuthorizer.currentActorUserId();
+        Instant evaluatedAt = clock.instant();
+        var assessment = quotaPackageActivationAssessor.assessForMutation(
+                item, lineage, prices, evaluatedAt);
+        previewTokenService.requireValid(
+                previewToken,
+                CommercialPreviewKind.QUOTA_PACKAGE_ACTIVATION,
+                item.getId(),
+                item.getRowVersion(),
+                actorUserId,
+                catalogRevision,
+                assessment.fingerprint());
+        if (!assessment.blockers().isEmpty()) {
             throw new OperationBlockedException(
                     "The capacity-package revision cannot be activated.",
-                    preview.blockers().stream().map(Enum::name).toList());
+                    assessment.blockers().stream().map(Enum::name).toList());
         }
         // This is a deliberate composite command: it publishes the exact price drafts pinned by
         // the preview. Enforce the complete Price-books policy chain as well as this method's
@@ -1458,8 +1547,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 "platform.price_books.activate",
                 "Publishing a capacity-package revision and its reviewed prices");
 
-        Set<UUID> reviewedIds = preview.reviewedPrices().stream()
-                .map(QuotaPackagePriceDraftDto::id)
+        Set<UUID> reviewedIds = assessment.reviewedPrices().stream()
+                .map(ProductActivationPriceDto::id)
                 .collect(Collectors.toSet());
         List<ProductPrice> draftsToActivate = prices.stream()
                 .filter(price -> reviewedIds.contains(price.getId()))
@@ -1482,396 +1571,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                     Map.of("status", ProductPriceStatus.ACTIVE.name())));
         }
     }
-
-    private QuotaPackageActivationPreviewDto buildQuotaActivationPreview(
-            QuotaPackage item,
-            List<QuotaPackage> lineage,
-            List<ProductPrice> prices,
-            QuotaActivationDependencies dependencies
-    ) {
-        EnumSet<QuotaPackageActivationBlocker> blockers =
-                EnumSet.noneOf(QuotaPackageActivationBlocker.class);
-        if (item.getStatus() == QuotaPackageStatus.ARCHIVED) {
-            blockers.add(QuotaPackageActivationBlocker.ARCHIVED_TERMINAL);
-        } else if (item.getStatus() != QuotaPackageStatus.DRAFT
-                && item.getStatus() != QuotaPackageStatus.INACTIVE) {
-            blockers.add(QuotaPackageActivationBlocker.WRONG_LIFECYCLE_STATE);
-        }
-        int maximumRevision = lineage.stream().mapToInt(QuotaPackage::getRevisionNumber).max().orElse(0);
-        if (item.getRevisionNumber() != maximumRevision) {
-            blockers.add(QuotaPackageActivationBlocker.NOT_LATEST_REVISION);
-        }
-
-        List<ProductPrice> draftPrices = prices.stream()
-                .filter(price -> price.getStatus() == ProductPriceStatus.DRAFT)
-                .sorted(Comparator.comparing(ProductPrice::getId))
-                .toList();
-        Instant now = clock.instant();
-        List<ProductPrice> activePrices = prices.stream()
-                .filter(price -> price.getStatus() == ProductPriceStatus.ACTIVE)
-                .filter(price -> price.getEffectiveUntil() == null
-                        || price.getEffectiveUntil().isAfter(now))
-                .sorted(Comparator.comparing(ProductPrice::getId))
-                .toList();
-        List<ProductPrice> reviewed = !draftPrices.isEmpty() ? draftPrices : activePrices;
-        if (reviewed.isEmpty()) {
-            blockers.add(QuotaPackageActivationBlocker.NO_REVIEWABLE_PRICE);
-        }
-        boolean applicableAfterPublication = prices.stream().anyMatch(price ->
-                (price.getStatus() == ProductPriceStatus.ACTIVE
-                        || price.getStatus() == ProductPriceStatus.DRAFT)
-                        && !price.getEffectiveFrom().isAfter(now)
-                        && (price.getEffectiveUntil() == null
-                            || price.getEffectiveUntil().isAfter(now)));
-        if (!applicableAfterPublication) {
-            blockers.add(QuotaPackageActivationBlocker.NO_APPLICABLE_PRICE);
-        }
-        if (reviewed.stream().anyMatch(price -> price.getEffectiveUntil() != null
-                && !price.getEffectiveUntil().isAfter(now))) {
-            blockers.add(QuotaPackageActivationBlocker.EXPIRED_PRICE_WINDOW);
-        }
-        if (hasPriceOverlap(reviewed, prices)) {
-            blockers.add(QuotaPackageActivationBlocker.OVERLAPPING_PRICE_DRAFTS);
-        }
-
-        if (!reviewed.isEmpty()
-                && !blockers.contains(QuotaPackageActivationBlocker.EXPIRED_PRICE_WINDOW)
-                && !blockers.contains(QuotaPackageActivationBlocker.OVERLAPPING_PRICE_DRAFTS)) {
-            List<ProductPrice> catalog = dependencies.prices().stream()
-                    .filter(price -> price.isApplicableAt(now))
-                    .collect(Collectors.toCollection(ArrayList::new));
-            prices.stream()
-                    .filter(price -> price.isApplicableAt(now))
-                    .forEach(catalog::add);
-            reviewed.stream()
-                    .filter(price -> price.getStatus() == ProductPriceStatus.DRAFT)
-                    .forEach(catalog::add);
-            try {
-                validateQuotaPackageActivation(item, catalog, dependencies);
-            } catch (BusinessException exception) {
-                blockers.add(QuotaPackageActivationBlocker.TARGET_COMPATIBILITY_INVALID);
-            }
-        }
-        List<UUID> packagesToDeactivate = lineage.stream()
-                .filter(candidate -> !candidate.getId().equals(item.getId()))
-                .filter(candidate -> candidate.getStatus() == QuotaPackageStatus.ACTIVE)
-                .map(QuotaPackage::getId)
-                .sorted()
-                .toList();
-        String token = quotaActivationToken(item, lineage, prices, dependencies, blockers, now);
-        return new QuotaPackageActivationPreviewDto(
-                item.getId(), item.getRowVersion(), token, blockers.isEmpty(), List.copyOf(blockers),
-                reviewed.stream().map(this::toQuotaPriceDto).toList(), packagesToDeactivate);
-    }
-
-    private boolean hasPriceOverlap(List<ProductPrice> reviewed, List<ProductPrice> allPrices) {
-        List<ProductPrice> candidates = new ArrayList<>(reviewed);
-        allPrices.stream()
-                .filter(price -> price.getStatus() == ProductPriceStatus.ACTIVE)
-                .filter(price -> reviewed.stream().noneMatch(selected -> selected.getId().equals(price.getId())))
-                .forEach(candidates::add);
-        for (int left = 0; left < candidates.size(); left++) {
-            for (int right = left + 1; right < candidates.size(); right++) {
-                ProductPrice first = candidates.get(left);
-                ProductPrice second = candidates.get(right);
-                if (first.getCurrencyCode().equals(second.getCurrencyCode())
-                        && first.getBillingCycle() == second.getBillingCycle()
-                        && windowsOverlap(first, second)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean windowsOverlap(ProductPrice left, ProductPrice right) {
-        return (right.getEffectiveUntil() == null
-                    || left.getEffectiveFrom().isBefore(right.getEffectiveUntil()))
-                && (left.getEffectiveUntil() == null
-                    || left.getEffectiveUntil().isAfter(right.getEffectiveFrom()));
-    }
-
-    private String quotaActivationToken(
-            QuotaPackage item,
-            List<QuotaPackage> lineage,
-            List<ProductPrice> prices,
-            QuotaActivationDependencies dependencies,
-            Collection<QuotaPackageActivationBlocker> blockers,
-            Instant evaluatedAt
-    ) {
-        String lineageState = lineage.stream()
-                .sorted(Comparator.comparing(QuotaPackage::getId))
-                .map(candidate -> candidate.getId() + ":" + candidate.getRowVersion() + ":"
-                        + candidate.getStatus() + ":" + candidate.getRevisionNumber())
-                .collect(Collectors.joining(","));
-        String priceState = prices.stream()
-                .sorted(Comparator.comparing(ProductPrice::getId))
-                .map(price -> String.join(":",
-                        price.getId().toString(), Long.toString(price.getVersion()),
-                        price.getStatus().name(), price.getAmount().toPlainString(),
-                        price.getCurrencyCode(), price.getBillingCycle().name(),
-                        price.getEffectiveFrom().toString(),
-                        price.getEffectiveUntil() == null ? "OPEN" : price.getEffectiveUntil().toString()))
-                .collect(Collectors.joining(","));
-        String temporalState = temporalPriceFingerprint(
-                java.util.stream.Stream.concat(prices.stream(), dependencies.prices().stream())
-                        .distinct()
-                        .toList(),
-                evaluatedAt);
-        String blockerState = blockers.stream()
-                .map(Enum::name)
-                .sorted()
-                .collect(Collectors.joining(","));
-        return sha256(String.join("|",
-                item.getId().toString(), Long.toString(item.getRowVersion()), item.getStatus().name(),
-                item.getLineageId().toString(), Integer.toString(item.getRevisionNumber()),
-                lineageState, priceState, dependencies.fingerprint(), temporalState, blockerState));
-    }
-
-    static String temporalPriceFingerprint(
-            Collection<ProductPrice> prices, Instant evaluatedAt) {
-        return prices.stream()
-                .sorted(Comparator.comparing(ProductPrice::getId))
-                .map(price -> price.getId() + ":" + priceWindowState(price, evaluatedAt))
-                .collect(Collectors.joining(","));
-    }
-
-    private static String priceWindowState(ProductPrice price, Instant evaluatedAt) {
-        if (price.getEffectiveFrom().isAfter(evaluatedAt)) return "FUTURE";
-        if (price.getEffectiveUntil() != null && !price.getEffectiveUntil().isAfter(evaluatedAt)) {
-            return "EXPIRED";
-        }
-        return "CURRENT";
-    }
-
-    /**
-     * Captures every mutable catalogue fact consulted by quota-package compatibility. Activation
-     * takes row locks in a deterministic product -> composition -> registry -> price order and
-     * recomputes the same digest, so a preview cannot authorize publication against a different
-     * target/dependency graph that merely happens to remain broadly valid.
-     */
-    private QuotaActivationDependencies quotaActivationDependencies(
-            QuotaPackage item,
-            boolean forUpdate
-    ) {
-        List<String> requestedPlanCodes = item.getAllowedPlanCodes().stream().sorted().toList();
-        List<String> requestedAddOnCodes = item.getAllowedAddOnCodes().stream().sorted().toList();
-        List<String> addOnClosureCodes = discoverAddOnClosureCodes(requestedAddOnCodes);
-
-        List<Plan> plans = requestedPlanCodes.isEmpty() ? List.of()
-                : forUpdate
-                        ? planRepository.findAllByCodeInForUpdate(requestedPlanCodes)
-                        : planRepository.findAllByCodeInOrderByIdAsc(requestedPlanCodes);
-        List<AddOn> addOns = addOnClosureCodes.isEmpty() ? List.of()
-                : forUpdate
-                        ? addOnRepository.findAllByCodeInForUpdate(addOnClosureCodes)
-                        : addOnRepository.findAllByCodeIn(addOnClosureCodes);
-        plans = plans.stream().sorted(Comparator.comparing(plan -> plan.getId().toString())).toList();
-        addOns = addOns.stream().sorted(Comparator.comparing(addOn -> addOn.getId().toString())).toList();
-
-        List<UUID> planIds = plans.stream().map(Plan::getId).toList();
-        List<UUID> addOnIds = addOns.stream().map(AddOn::getId).toList();
-        List<PlanFeature> planFeatures = planIds.isEmpty() ? List.of()
-                : forUpdate
-                        ? planFeatureRepository.findAllByPlanIdsForUpdate(planIds)
-                        : planFeatureRepository.findAllByPlanIds(planIds);
-        List<AddOnFeature> addOnFeatures = addOnIds.isEmpty() ? List.of()
-                : forUpdate
-                        ? addOnFeatureRepository.findAllByAddOnIdsForUpdate(addOnIds)
-                        : addOnFeatureRepository.findAllByAddOnIds(addOnIds);
-
-        Set<UUID> featureIds = new LinkedHashSet<>();
-        featureIds.add(item.getFeature().getId());
-        planFeatures.stream().map(feature -> feature.getFeature().getId()).forEach(featureIds::add);
-        addOnFeatures.stream().map(feature -> feature.getFeature().getId()).forEach(featureIds::add);
-        List<Feature> features = forUpdate
-                ? featureRepository.findAllByIdInForUpdate(featureIds)
-                : featureRepository.findAllById(featureIds);
-        features = features.stream()
-                .sorted(Comparator.comparing(feature -> feature.getId().toString()))
-                .toList();
-
-        Collection<UUID> pricePlanIds = planIds.isEmpty() ? List.of(EMPTY_QUERY_SENTINEL) : planIds;
-        Collection<UUID> priceAddOnIds = addOnIds.isEmpty() ? List.of(EMPTY_QUERY_SENTINEL) : addOnIds;
-        List<ProductPrice> dependencyPrices = forUpdate
-                ? productPriceRepository.findAllCompatibilityDependencyPricesForUpdate(
-                        pricePlanIds, priceAddOnIds)
-                : productPriceRepository.findAllCompatibilityDependencyPrices(
-                        pricePlanIds, priceAddOnIds);
-
-        Map<String, Plan> plansByCode = plans.stream().collect(Collectors.toUnmodifiableMap(
-                Plan::getCode, plan -> plan));
-        Map<String, AddOn> addOnsByCode = addOns.stream().collect(Collectors.toUnmodifiableMap(
-                AddOn::getCode, addOn -> addOn));
-        String fingerprint = quotaDependencyFingerprint(
-                requestedPlanCodes, requestedAddOnCodes, addOnClosureCodes,
-                plans, addOns, planFeatures, addOnFeatures, features, dependencyPrices);
-        return new QuotaActivationDependencies(
-                List.copyOf(requestedPlanCodes), List.copyOf(requestedAddOnCodes),
-                List.copyOf(addOnClosureCodes), List.copyOf(plans), List.copyOf(addOns),
-                List.copyOf(planFeatures), List.copyOf(addOnFeatures), List.copyOf(features),
-                List.copyOf(dependencyPrices), plansByCode, addOnsByCode, fingerprint);
-    }
-
-    private List<String> discoverAddOnClosureCodes(Collection<String> rootCodes) {
-        Set<String> discovered = new java.util.TreeSet<>(rootCodes);
-        Set<String> expanded = new LinkedHashSet<>();
-        while (expanded.size() < discovered.size()) {
-            List<String> batch = discovered.stream().filter(code -> !expanded.contains(code)).toList();
-            List<AddOn> found = addOnRepository.findAllByCodeIn(batch);
-            expanded.addAll(batch);
-            found.stream()
-                    .flatMap(addOn -> addOn.getDependencyCodes().stream())
-                    .forEach(discovered::add);
-        }
-        return List.copyOf(discovered);
-    }
-
-    private String quotaDependencyFingerprint(
-            List<String> requestedPlanCodes,
-            List<String> requestedAddOnCodes,
-            List<String> addOnClosureCodes,
-            List<Plan> plans,
-            List<AddOn> addOns,
-            List<PlanFeature> planFeatures,
-            List<AddOnFeature> addOnFeatures,
-            List<Feature> features,
-            List<ProductPrice> prices
-    ) {
-        StringBuilder state = new StringBuilder();
-        appendValues(state, "requested-plans", requestedPlanCodes);
-        appendValues(state, "requested-add-ons", requestedAddOnCodes);
-        appendValues(state, "add-on-closure", addOnClosureCodes);
-        plans.stream().sorted(Comparator.comparing(plan -> plan.getId().toString())).forEach(plan -> {
-            appendValue(state, "plan");
-            appendValue(state, plan.getId());
-            appendValue(state, plan.getVersion());
-            appendValue(state, plan.getCode());
-            appendValue(state, plan.getStatus());
-            appendValue(state, plan.getExtensionPolicy());
-            appendValue(state, plan.getSalesVisibility());
-            appendValue(state, plan.getCurrencyCode());
-            appendValue(state, plan.getBillingCycle());
-        });
-        addOns.stream().sorted(Comparator.comparing(addOn -> addOn.getId().toString())).forEach(addOn -> {
-            appendValue(state, "add-on");
-            appendValue(state, addOn.getId());
-            appendValue(state, addOn.getRowVersion());
-            appendValue(state, addOn.getDefinitionVersion());
-            appendValue(state, addOn.getCode());
-            appendValue(state, addOn.getStatus());
-            appendValue(state, addOn.getSalesVisibility());
-            appendValue(state, addOn.getCurrencyCode());
-            appendValue(state, addOn.getBillingCycle());
-            appendValues(state, "allowed-plans", addOn.getAllowedPlanCodes().stream().sorted().toList());
-            appendValues(state, "blocked-plans", addOn.getBlockedPlanCodes().stream().sorted().toList());
-            appendValues(state, "dependencies", addOn.getDependencyCodes().stream().sorted().toList());
-            appendValues(state, "exclusions", addOn.getExclusionCodes().stream().sorted().toList());
-        });
-        planFeatures.stream().sorted(Comparator.comparing(feature -> feature.getId().toString()))
-                .forEach(feature -> {
-                    appendValue(state, "plan-feature");
-                    appendValue(state, feature.getId());
-                    appendValue(state, feature.getPlan().getId());
-                    appendValue(state, feature.getFeature().getId());
-                    appendValue(state, feature.getFeature().getCode());
-                    appendValue(state, feature.getMode());
-                    appendQuotaEntries(state, feature.getQuotaConfigs());
-                });
-        addOnFeatures.stream().sorted(Comparator.comparing(feature -> feature.getId().toString()))
-                .forEach(feature -> {
-                    appendValue(state, "add-on-feature");
-                    appendValue(state, feature.getId());
-                    appendValue(state, feature.getAddOn().getId());
-                    appendValue(state, feature.getFeature().getId());
-                    appendValue(state, feature.getFeature().getCode());
-                    appendQuotaEntries(state, feature.getQuotaConfigs());
-                });
-        features.stream().sorted(Comparator.comparing(feature -> feature.getId().toString()))
-                .forEach(feature -> {
-                    appendValue(state, "registry-feature");
-                    appendValue(state, feature.getId());
-                    appendValue(state, feature.getCode());
-                    appendValue(state, feature.getStatus());
-                    appendValue(state, feature.getSortOrder());
-                    appendValue(state, feature.isPublicVisible());
-                    appendValue(state, feature.isNewSalesEnabled());
-                    appendValue(state, feature.isNewGrantsEnabled());
-                    appendValue(state, feature.isRuntimeEnabled());
-                    appendValue(state, feature.getUpdatedAt());
-                    List<com.hiveapp.shared.quota.QuotaSlot> schema = feature.getQuotaSchema() == null
-                            ? List.of() : feature.getQuotaSchema().stream()
-                                    .sorted(Comparator.comparing(com.hiveapp.shared.quota.QuotaSlot::resource)
-                                            .thenComparing(slot -> slot.type().name())
-                                            .thenComparing(com.hiveapp.shared.quota.QuotaSlot::unit))
-                                    .toList();
-                    for (com.hiveapp.shared.quota.QuotaSlot slot : schema) {
-                        appendValue(state, slot.resource());
-                        appendValue(state, slot.type());
-                        appendValue(state, slot.unit());
-                    }
-                });
-        prices.stream().sorted(Comparator.comparing(price -> price.getId().toString())).forEach(price -> {
-            appendValue(state, "dependency-price");
-            appendValue(state, price.getId());
-            appendValue(state, price.getVersion());
-            appendValue(state, price.getOwnerType());
-            appendValue(state, price.ownerId());
-            appendValue(state, price.getStatus());
-            appendValue(state, price.getAmount().toPlainString());
-            appendValue(state, price.getCurrencyCode());
-            appendValue(state, price.getBillingCycle());
-            appendValue(state, price.getEffectiveFrom());
-            appendValue(state, price.getEffectiveUntil());
-            appendValue(state, price.getLineageId());
-            appendValue(state, price.getRevisionNumber());
-            appendValue(state, price.isCompatibilityDefault());
-        });
-        return sha256(state.toString());
-    }
-
-    private void appendQuotaEntries(
-            StringBuilder state,
-            List<com.hiveapp.shared.quota.QuotaLimitEntry> entries
-    ) {
-        List<com.hiveapp.shared.quota.QuotaLimitEntry> sorted = entries == null ? List.of()
-                : entries.stream()
-                        .sorted(Comparator.comparing(com.hiveapp.shared.quota.QuotaLimitEntry::resource)
-                                .thenComparing(entry -> entry.mode().name())
-                                .thenComparing(entry -> entry.limit() == null ? Long.MIN_VALUE : entry.limit()))
-                        .toList();
-        for (com.hiveapp.shared.quota.QuotaLimitEntry entry : sorted) {
-            appendValue(state, entry.resource());
-            appendValue(state, entry.mode());
-            appendValue(state, entry.limit());
-        }
-    }
-
-    private void appendValues(StringBuilder state, String label, Collection<?> values) {
-        appendValue(state, label);
-        appendValue(state, values.size());
-        values.forEach(value -> appendValue(state, value));
-    }
-
-    private void appendValue(StringBuilder state, Object value) {
-        String encoded = value == null ? "<null>" : value.toString();
-        state.append(encoded.length()).append(':').append(encoded).append(';');
-    }
-
-    private record QuotaActivationDependencies(
-            List<String> requestedPlanCodes,
-            List<String> requestedAddOnCodes,
-            List<String> addOnClosureCodes,
-            List<Plan> plans,
-            List<AddOn> addOns,
-            List<PlanFeature> planFeatures,
-            List<AddOnFeature> addOnFeatures,
-            List<Feature> features,
-            List<ProductPrice> prices,
-            Map<String, Plan> plansByCode,
-            Map<String, AddOn> addOnsByCode,
-            String fingerprint
-    ) {}
 
     private List<QuotaPackageComparisonField> comparisonFields(
             QuotaPackage base,
@@ -1936,6 +1635,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 price.getLineageId(), price.getRevisionNumber(), price.getVersion(),
                 price.isCompatibilityDefault());
     }
+
 
     private QuotaPackage requireDetailedQuotaPackage(UUID quotaPackageId) {
         return quotaPackageRepository.findDetailedById(quotaPackageId)
@@ -2161,23 +1861,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         }
     }
 
-    private void validateActivation(Plan plan) {
-        List<PlanFeature> features = planFeatureRepository.findAllByPlanId(plan.getId());
-        if (features.stream().noneMatch(feature -> feature.getMode() == PlanFeatureMode.INCLUDED)) {
-            throw new BusinessException("A Plan requires at least one included feature before activation.");
-        }
-        for (PlanFeature feature : features) {
-            billingConfigurationValidator.validatePlanFeature(
-                    feature.getFeature().getCode(), feature.getMode(),
-                    feature.getQuotaConfigs(), plan.getCurrencyCode());
-            if (feature.getMode() == PlanFeatureMode.INCLUDED) {
-                billingConfigurationValidator.requireCompleteQuotaConfiguration(
-                        feature.getFeature().getCode(), feature.getQuotaConfigs());
-            }
-        }
-        requireActivePrice(ProductPriceOwnerType.PLAN, plan.getId(), "Plan");
-    }
-
     private Plan requirePlan(UUID planId) {
         return planRepository.findById(planId)
                 .orElseThrow(() -> new ResourceNotFoundException("Plan", "id", planId));
@@ -2288,75 +1971,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         item.setAllowedAddOnCodes(addOns);
     }
 
-    private void validateQuotaPackageActivation(
-            QuotaPackage item,
-            List<ProductPrice> catalogPrices,
-            QuotaActivationDependencies dependencies
-    ) {
-        // Empty targeting is the OPEN_COMPATIBLE default: the central catalogue resolver still
-        // requires an exact already-entitled finite quota before the package can be selected.
-        // Non-empty Plan/AddOn targets only narrow that mandatory compatibility set.
-        Set<CommercialCatalogResolver.PriceTuple> packageTuples = priceTuples(
-                catalogPrices, ProductPriceOwnerType.QUOTA_PACKAGE, item.getId());
-        if (packageTuples.isEmpty()) {
-            throw new BusinessException("A quota package requires at least one active price before activation.");
-        }
-        for (String planCode : item.getAllowedPlanCodes()) {
-            Plan plan = dependencies.plansByCode().get(planCode);
-            if (plan == null) {
-                throw new BusinessException("Allowed Plan no longer exists: " + planCode);
-            }
-            if (!plan.isActive() || java.util.Collections.disjoint(
-                    packageTuples, priceTuples(catalogPrices, ProductPriceOwnerType.PLAN, plan.getId()))) {
-                throw new BusinessException(
-                        "Plan " + planCode + " is not active or has no compatible active price tuple.");
-            }
-            PlanFeature owner = dependencies.planFeatures().stream()
-                    .filter(feature -> feature.getPlan().getId().equals(plan.getId()))
-                    .filter(feature -> feature.getFeature().getCode().equals(item.getFeature().getCode()))
-                    .findFirst()
-                    .orElseThrow(() -> new BusinessException(
-                            "Plan " + planCode + " does not own quota "
-                                    + item.getFeature().getCode() + "." + item.getResource() + "."));
-            if (owner.getMode() != PlanFeatureMode.INCLUDED
-                    || !hasFiniteQuota(owner.getQuotaConfigs(), item.getResource())) {
-                throw new BusinessException(
-                        "Plan " + planCode + " must include a finite base quota for "
-                                + item.getFeature().getCode() + "." + item.getResource() + ".");
-            }
-        }
-        for (String addOnCode : item.getAllowedAddOnCodes()) {
-            AddOn addOn = dependencies.addOnsByCode().get(addOnCode);
-            if (addOn == null) {
-                throw new BusinessException("Allowed AddOn no longer exists: " + addOnCode);
-            }
-            Set<CommercialCatalogResolver.PriceTuple> addOnTuples = compatibleAddOnPriceTuples(
-                    addOn, catalogPrices, new LinkedHashSet<>(), dependencies.addOnsByCode());
-            if (!addOn.isActive() || java.util.Collections.disjoint(packageTuples, addOnTuples)) {
-                throw new BusinessException(
-                        "AddOn " + addOnCode + " is not active or has no compatible active price tuple.");
-            }
-            AddOnFeature owner = dependencies.addOnFeatures().stream()
-                    .filter(feature -> feature.getAddOn().getId().equals(addOn.getId()))
-                    .filter(feature -> feature.getFeature().getCode().equals(item.getFeature().getCode()))
-                    .findFirst()
-                    .orElseThrow(() -> new BusinessException(
-                            "AddOn " + addOnCode + " does not own quota "
-                                    + item.getFeature().getCode() + "." + item.getResource() + "."));
-            if (!hasFiniteQuota(owner.getQuotaConfigs(), item.getResource())) {
-                throw new BusinessException(
-                        "AddOn " + addOnCode + " must include a finite base quota for "
-                                + item.getFeature().getCode() + "." + item.getResource() + ".");
-            }
-        }
-    }
-
-    private boolean hasFiniteQuota(List<com.hiveapp.shared.quota.QuotaLimitEntry> quotas, String resource) {
-        return quotas != null && quotas.stream()
-                .anyMatch(quota -> quota.resource().equals(resource)
-                        && quota.mode() == QuotaLimitMode.FINITE);
-    }
-
     private void applyAddOnBasics(
             AddOn addOn,
             String name,
@@ -2444,97 +2058,6 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 .ifPresent(code -> {
                     throw new InvalidRequestException(missingPrefix + code);
                 });
-    }
-
-    private void validateAddOnActivation(AddOn addOn) {
-        requireActivePrice(ProductPriceOwnerType.ADD_ON, addOn.getId(), "AddOn");
-        List<AddOnFeature> features = addOnFeatureRepository.findAllByAddOnId(addOn.getId());
-        if (features.isEmpty()) {
-            throw new BusinessException("An AddOn requires at least one feature before activation.");
-        }
-        for (AddOnFeature feature : features) {
-            billingConfigurationValidator.validateAddOnFeature(
-                    feature.getFeature().getCode(), feature.getQuotaConfigs(), addOn.getCurrencyCode());
-        }
-        if (!addOn.getAllowedPlanCodes().isEmpty()) {
-            List<Plan> candidates = planRepository.findAllByCodeInOrderByIdAsc(
-                    addOn.getAllowedPlanCodes().stream().sorted().toList());
-            Set<String> foundCodes = candidates.stream().map(Plan::getCode).collect(Collectors.toSet());
-            addOn.getAllowedPlanCodes().stream().sorted()
-                    .filter(code -> !foundCodes.contains(code))
-                    .findFirst()
-                    .ifPresent(code -> {
-                        throw new BusinessException("Allowed Plan no longer exists: " + code);
-                    });
-            Map<UUID, CommercialCatalogResolver.AddOnActivationResolution> results =
-                    commercialCatalogResolver.resolveAddOnActivation(addOn.getId(), candidates);
-            candidates.stream()
-                    .map(plan -> results.get(plan.getId()))
-                    .filter(result -> result == null || !result.selectable())
-                    .findFirst()
-                    .ifPresent(result -> {
-                        String details = result == null ? "TARGET_PLAN_MISSING" : result.issues().toString();
-                        throw new BusinessException(
-                                "An explicitly targeted Plan is incompatible with this AddOn: " + details);
-                    });
-            return;
-        }
-
-        int page = 0;
-        Slice<Plan> candidates;
-        do {
-            candidates = planRepository.findAllByStatus(
-                    PlanStatus.ACTIVE,
-                    PageRequest.of(page++, 100, Sort.by(Sort.Direction.ASC, "id")));
-            List<Plan> batch = candidates.getContent().stream()
-                    .filter(plan -> !addOn.getBlockedPlanCodes().contains(plan.getCode()))
-                    .toList();
-            if (!batch.isEmpty() && commercialCatalogResolver
-                    .resolveAddOnActivation(addOn.getId(), batch)
-                    .values().stream().anyMatch(
-                            CommercialCatalogResolver.AddOnActivationResolution::selectable)) {
-                return;
-            }
-        } while (candidates.hasNext());
-        throw new BusinessException(
-                "An AddOn must be genuinely selectable on at least one active Plan.");
-    }
-
-    private Set<CommercialCatalogResolver.PriceTuple> compatibleAddOnPriceTuples(
-            AddOn addOn,
-            List<ProductPrice> catalogPrices,
-            Set<String> visited,
-            Map<String, AddOn> addOnsByCode
-    ) {
-        if (!visited.add(addOn.getCode())) {
-            throw new BusinessException("Cyclic AddOn dependency detected at " + addOn.getCode() + ".");
-        }
-        if (!addOn.isActive()) {
-            throw new BusinessException("AddOn dependency " + addOn.getCode() + " must be ACTIVE.");
-        }
-        Set<CommercialCatalogResolver.PriceTuple> supported = new LinkedHashSet<>(priceTuples(
-                catalogPrices, ProductPriceOwnerType.ADD_ON, addOn.getId()));
-        for (String dependencyCode : addOn.getDependencyCodes()) {
-            AddOn dependency = addOnsByCode.get(dependencyCode);
-            if (dependency == null) {
-                throw new BusinessException("Missing AddOn dependency " + dependencyCode + ".");
-            }
-            supported.retainAll(compatibleAddOnPriceTuples(
-                    dependency, catalogPrices, visited, addOnsByCode));
-        }
-        visited.remove(addOn.getCode());
-        return Set.copyOf(supported);
-    }
-
-    private Set<CommercialCatalogResolver.PriceTuple> priceTuples(
-            List<ProductPrice> catalogPrices,
-            ProductPriceOwnerType ownerType,
-            UUID ownerId
-    ) {
-        return catalogPrices.stream()
-                .filter(price -> price.getOwnerType() == ownerType && ownerId.equals(price.ownerId()))
-                .map(CommercialCatalogResolver.PriceTuple::from)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     }
 
     private void requirePlanSupportsAddOn(Plan plan, List<AddOnFeature> features) {
@@ -2699,14 +2222,10 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
                 afterPayload);
     }
 
-    private void requireActivePrice(
-            ProductPriceOwnerType ownerType,
-            UUID ownerId,
-            String ownerLabel
-    ) {
-        if (productPriceRepository.findAllApplicable(ownerType, ownerId, clock.instant()).isEmpty()) {
-            throw new InvalidStateException(
-                    ownerLabel + " activation requires a separately reviewed active ProductPrice.");
+    private void requireActivationToken(String token, String productLabel) {
+        if (token == null || token.isBlank()) {
+            throw new InvalidRequestException(
+                    productLabel + " activation requires a fresh activation preview token.");
         }
     }
 

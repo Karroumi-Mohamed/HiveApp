@@ -22,6 +22,7 @@ public final class ErrorCodes {
             case DuplicateResourceException ignored -> ErrorCode.RESOURCE_ALREADY_EXISTS;
             case PriceEntryOverlapException ignored -> ErrorCode.PRICE_ENTRY_OVERLAP;
             case DraftSuccessorExistsException ignored -> ErrorCode.DRAFT_SUCCESSOR_EXISTS;
+            case StaleActivationPreviewException ignored -> ErrorCode.STALE_ACTIVATION_PREVIEW;
             case StaleResourceVersionException ignored -> ErrorCode.STALE_RESOURCE_VERSION;
             case ObjectOptimisticLockingFailureException ignored -> ErrorCode.STALE_RESOURCE_VERSION;
             case DataIntegrityViolationException ignored -> ErrorCode.DATA_CONFLICT;

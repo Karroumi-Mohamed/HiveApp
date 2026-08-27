@@ -1,12 +1,8 @@
 package com.hiveapp.platform.client.plan.service;
 
-import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
-import com.hiveapp.platform.client.plan.domain.entity.PlanFeature;
-import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
-import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.dto.AssignAddOnFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreateAddOnRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateAddOnRequest;
@@ -38,6 +34,8 @@ import com.hiveapp.platform.client.plan.dto.QuotaPackageActivationPreviewDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageLifecycleRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageComparisonDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageHistoryEntryDto;
+import com.hiveapp.platform.client.plan.dto.PlanActivationPreviewDto;
+import com.hiveapp.platform.client.plan.dto.AddOnActivationPreviewDto;
 
 import java.util.List;
 import java.util.Collection;
@@ -78,8 +76,16 @@ public interface PlanAdminService {
 
     PlanDto updatePlan(UUID planId, UpdatePlanRequest request);
 
+    default PlanDto transitionStatus(
+            UUID planId, PlanStatus targetStatus, long expectedVersion, String reason) {
+        return transitionStatus(planId, targetStatus, expectedVersion, reason, null);
+    }
+
     PlanDto transitionStatus(
-            UUID planId, PlanStatus targetStatus, long expectedVersion, String reason);
+            UUID planId, PlanStatus targetStatus, long expectedVersion, String reason,
+            String activationPreviewToken);
+
+    PlanActivationPreviewDto previewPlanActivation(UUID planId);
 
     PlanDeletionPreview previewPlanDeletion(UUID planId);
 
@@ -122,8 +128,16 @@ public interface PlanAdminService {
 
     AddOnDto updateAddOn(UUID addOnId, UpdateAddOnRequest request);
 
+    default AddOnDto transitionAddOnStatus(
+            UUID addOnId, AddOnStatus targetStatus, long expectedVersion, String reason) {
+        return transitionAddOnStatus(addOnId, targetStatus, expectedVersion, reason, null);
+    }
+
     AddOnDto transitionAddOnStatus(
-            UUID addOnId, AddOnStatus targetStatus, long expectedVersion, String reason);
+            UUID addOnId, AddOnStatus targetStatus, long expectedVersion, String reason,
+            String activationPreviewToken);
+
+    AddOnActivationPreviewDto previewAddOnActivation(UUID addOnId);
 
     void deleteAddOn(UUID addOnId, long expectedVersion);
 

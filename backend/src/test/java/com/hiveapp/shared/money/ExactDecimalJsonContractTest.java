@@ -17,6 +17,7 @@ import com.hiveapp.platform.client.plan.dto.PlanDto;
 import com.hiveapp.platform.client.plan.dto.PlanSubscriberDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackagePriceDraftDto;
+import com.hiveapp.platform.client.plan.dto.ProductActivationPriceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
@@ -117,6 +118,7 @@ class ExactDecimalJsonContractTest {
                         AddOnDto.class,
                         QuotaPackageDto.class,
                         QuotaPackagePriceDraftDto.class,
+                        ProductActivationPriceDto.class,
                         ClientPlanCatalogResponse.CurrentSubscription.class,
                         ClientPlanCatalogResponse.RetainedAddOn.class,
                         ClientPlanCatalogResponse.RetainedQuotaPackage.class,
