@@ -6,10 +6,12 @@ import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.registry.definition.StaffFeature;
@@ -17,6 +19,8 @@ import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.money.Money;
+import com.hiveapp.shared.audit.domain.AuditLogRepository;
+import com.hiveapp.shared.audit.domain.AuditOutcome;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +60,12 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
 
     @Autowired
     private FeatureRepository featureRepository;
+
+    @Autowired
+    private SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
+
+    @Autowired
+    private AuditLogRepository auditLogRepository;
 
     @Test
     void removedLegacyPlanCatalogueCannotBypassTheGuardedClientCatalogue() throws Exception {
@@ -238,11 +248,11 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         mockMvc.perform(get("/api/v1/subscriptions/changes")
                         .header("Authorization", bearer(firstClient)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isEmpty());
+                .andExpect(jsonPath("$.content").isEmpty());
         mockMvc.perform(get("/api/v1/subscriptions/changes")
                         .header("Authorization", bearer(secondClient)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isEmpty());
+                .andExpect(jsonPath("$.content").isEmpty());
     }
 
     @Test
@@ -335,7 +345,7 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         mockMvc.perform(get("/api/admin/subscriptions/account/{accountId}/changes", accountId)
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].checkout.id").value(checkoutId.toString()));
+                .andExpect(jsonPath("$.content[0].checkout.id").value(checkoutId.toString()));
 
         var confirmation = Map.of(
                 "reference", "manual-contract-" + checkoutId,
@@ -404,8 +414,9 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         mockMvc.perform(get("/api/v1/subscriptions/changes")
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(operationId.toString()))
-                .andExpect(jsonPath("$[0].status").value("AWAITING_CONFIRMATION"));
+                .andExpect(jsonPath("$.content[0].id").value(operationId.toString()))
+                .andExpect(jsonPath("$.content[0].createdAt").isNotEmpty())
+                .andExpect(jsonPath("$.content[0].status").value("AWAITING_CONFIRMATION"));
 
         mockMvc.perform(delete("/api/v1/subscriptions/changes/{operationId}", operationId)
                         .header("Authorization", bearer(token)))
@@ -464,6 +475,13 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andReturn().getResponse().getContentAsString();
         UUID operationId = UUID.fromString(
                 objectMapper.readTree(applyBody).path("operation").path("id").asText());
+        var createdOperation = subscriptionChangeOperationRepository.findById(operationId).orElseThrow();
+        assertThat(createdOperation.getRequestOrigin())
+                .isEqualTo(SubscriptionChangeOrigin.PLATFORM_ADMIN);
+        assertThat(createdOperation.getRequestedByUserId()).isNotNull();
+        UUID adminActorId = createdOperation.getRequestedByUserId();
+        assertThat(createdOperation.getRequestReason())
+                .isEqualTo("Customer contract approved by the commercial operator");
 
         mockMvc.perform(post(
                                 "/api/admin/subscriptions/account/{accountId}/changes/{operationId}/cancel",
@@ -484,10 +502,123 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andExpect(jsonPath("$.status").value("CANCELLED"))
                 .andExpect(jsonPath("$.checkout.status").value("CANCELLED"));
 
+        var cancelledOperation = subscriptionChangeOperationRepository.findById(operationId).orElseThrow();
+        assertThat(cancelledOperation.getCancellationOrigin())
+                .isEqualTo(SubscriptionChangeOrigin.PLATFORM_ADMIN);
+        assertThat(cancelledOperation.getCancelledByUserId()).isEqualTo(adminActorId);
+        assertThat(cancelledOperation.getCancellationReason())
+                .isEqualTo("Customer withdrew the approved change");
+        assertThat(cancelledOperation.getCancelledAt()).isNotNull();
+
+        mockMvc.perform(get("/api/admin/subscriptions/account/{accountId}/changes", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .param("page", "0")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(operationId.toString()))
+                .andExpect(jsonPath("$.content[0].createdAt").isNotEmpty())
+                .andExpect(jsonPath("$.content[0].requestOrigin").value("PLATFORM_ADMIN"))
+                .andExpect(jsonPath("$.content[0].requestedByUserId").isNotEmpty())
+                .andExpect(jsonPath("$.content[0].requestReason").value(
+                        "Customer contract approved by the commercial operator"))
+                .andExpect(jsonPath("$.content[0].cancellationOrigin").value("PLATFORM_ADMIN"))
+                .andExpect(jsonPath("$.content[0].cancellationReason").value(
+                        "Customer withdrew the approved change"))
+                .andExpect(jsonPath("$.totalElements").value(1));
+        mockMvc.perform(get("/api/admin/subscriptions/account/{accountId}/changes", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .param("size", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{accountId}/changes/{operationId}/cancel",
+                                accountId, operationId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Repeated cancellation must be audited\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+
+        var auditLogs = auditLogRepository.findAllByTargetAccountIdOrderByOccurredAtDesc(accountId);
+        assertThat(auditLogs).anySatisfy(log -> {
+            assertThat(log.getAction()).isEqualTo("platform.subscriptions.apply_change");
+            assertThat(log.getOutcome()).isEqualTo(AuditOutcome.SUCCEEDED);
+            assertThat(log.getActorUserId()).isEqualTo(adminActorId);
+            assertThat(log.getRequestData())
+                    .contains("Customer contract approved by the commercial operator")
+                    .contains("[REDACTED]")
+                    .doesNotContain(previewToken);
+        });
+        assertThat(auditLogs).anySatisfy(log -> {
+            assertThat(log.getAction()).isEqualTo("platform.subscriptions.cancel_change");
+            assertThat(log.getOutcome()).isEqualTo(AuditOutcome.SUCCEEDED);
+            assertThat(log.getActorUserId()).isEqualTo(adminActorId);
+            assertThat(log.getRequestData()).contains("Customer withdrew the approved change");
+        });
+        assertThat(auditLogs).anySatisfy(log -> {
+            assertThat(log.getAction()).isEqualTo("platform.subscriptions.cancel_change");
+            assertThat(log.getOutcome()).isEqualTo(AuditOutcome.FAILED);
+            assertThat(log.getRequestData()).contains("Repeated cancellation must be audited");
+        });
+
         mockMvc.perform(get("/api/v1/subscriptions/me")
                         .header("Authorization", bearer(clientToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plan.code").value("FREE"));
+        mockMvc.perform(get("/api/v1/subscriptions/changes")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(operationId.toString()))
+                .andExpect(jsonPath("$.content[0].requestReason").doesNotExist())
+                .andExpect(jsonPath("$.content[0].requestedByUserId").doesNotExist())
+                .andExpect(jsonPath("$.content[0].cancellationReason").doesNotExist());
+        mockMvc.perform(get("/api/v1/subscriptions/changes")
+                        .header("Authorization", bearer(clientToken))
+                        .param("size", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void clientAndAdminSubscriptionEvidenceCannotReplayAcrossSurfaces() throws Exception {
+        String clientToken = registerClientAndGetToken();
+        UUID accountId = currentAccountId(clientToken);
+        String adminToken = loginAdminAndGetToken();
+        var selection = new SubscriptionChangeRequest(
+                "PRO", Set.of(), List.of(), SubscriptionChangeTiming.AT_RENEWAL);
+
+        String clientPreview = preview(clientToken, selection)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String clientEvidence = objectMapper.readTree(clientPreview).path("previewToken").asText();
+        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}/changes/apply", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "selection", selection,
+                                "previewToken", clientEvidence,
+                                "reason", "Cross-surface replay must fail"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
+
+        String adminPreview = mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{accountId}/changes/preview", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(selection)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String adminEvidence = objectMapper.readTree(adminPreview).path("previewToken").asText();
+        applyWithToken(clientToken, selection, adminEvidence)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
+
+        assertThat(subscriptionChangeOperationRepository
+                .findAllByAccountId(
+                        accountId,
+                        org.springframework.data.domain.PageRequest.of(0, 1)))
+                .isEmpty();
     }
 
     @Test

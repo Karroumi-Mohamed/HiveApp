@@ -8,26 +8,35 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
+import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
 import java.util.UUID;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/subscriptions")
 @RequiredArgsConstructor
 public class SubscriptionController {
+
+    private static final Map<String, String> CHANGE_OPERATION_SORTS = Map.of(
+            "createdAt", "createdAt",
+            "effectiveAt", "effectiveAt",
+            "status", "status",
+            "timing", "timing");
 
     private final SubscriptionService subscriptionService;
 
@@ -60,14 +69,24 @@ public class SubscriptionController {
     }
 
     @GetMapping("/changes")
-    public List<SubscriptionChangeOperationDto> changes() {
+    public PageResponse<SubscriptionChangeOperationDto> changes(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction
+    ) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionService.listChangeOperations(accountId);
+        return PageResponse.from(subscriptionService.listChangeOperations(
+                accountId,
+                CommercialProductPageRequest.of(
+                        page, size, sort, direction, CHANGE_OPERATION_SORTS,
+                        "createdAt", Sort.Direction.DESC)));
     }
 
     @DeleteMapping("/changes/{operationId}")
     public SubscriptionChangeOperationDto cancelChange(@PathVariable UUID operationId) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionService.cancelPendingChange(accountId, operationId);
+        var context = HiveAppContextHolder.getContext();
+        return subscriptionService.cancelPendingChange(
+                context.currentAccountId(), operationId, context.actorUserId());
     }
 }

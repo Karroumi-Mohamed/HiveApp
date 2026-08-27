@@ -193,7 +193,9 @@ Every chart endpoint accepts a bounded time range, timezone, interval, and safe 
 
 - Every read/mutation surface has a distinct Permissionizer node; sensitive identity and settlement evidence use narrower permissions than ordinary list access.
 - UI permission checks only hide or disable controls. The backend always enforces authorization, target scope, lifecycle, stale version, and commercial invariants.
-- Mutations use optimistic versions or preview tokens and stable machine-readable error codes.
+- Reviewed cross-aggregate mutations use short-lived signed evidence binding operation kind, exact target/version, actor, commercial-catalogue revision, registry version, evaluation/expiry, and assessment fingerprint. Apply reauthorizes and recomputes under locks; the evidence is neither authorization nor payment and never appears in URLs/logs/audit/errors.
+- Registry-affecting commercial writes lock the commercial catalogue before the registry singleton and product/price rows. Subscription finalization locks the Account before those commercial/registry locks and exact product/price rows. A strictly row-local mutation may use an optimistic version plus locked recomputation when it cannot affect a different target or result.
+- Stale, malformed, expired, cross-actor, or cross-operation review evidence returns a stable conflict and performs no write.
 - Bulk actions never trust client-submitted hidden populations; the backend snapshots and signs/resolves the affected set.
 - Audit stores actor, action, target, reason, before/after identifiers, outcome, and correlation id without secrets or raw provider payloads.
 - Client APIs expose only their Account's eligible catalog, offers, snapshots, invoices, and operations.
@@ -220,3 +222,5 @@ Commercial screens are operational tools, not entity CRUD forms.
 7. Cross-surface consistency, performance, accessibility, and adversarial security review.
 
 Each slice requires backend and frontend real-life workflow audits before the next slice is considered complete.
+
+**Delivered through Phase 9 (2026-08-27):** operational Plan/AddOn/capacity-package/Price-book catalogues, product revision and availability/visibility controls, exact-price subscription review/apply, quota-package revisions, bounded subscription Account discovery, signed reviewed mutations, and their admin/client surfaces are implemented and independently audited. Typed policies, Segments/Campaigns/Offers, execution jobs/renewals, settlement ledgers, and durable analytics remain the numbered later slices and are not represented as complete.

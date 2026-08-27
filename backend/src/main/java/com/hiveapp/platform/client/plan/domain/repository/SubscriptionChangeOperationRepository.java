@@ -3,14 +3,17 @@ package com.hiveapp.platform.client.plan.domain.repository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.entity.SubscriptionChangeOperation;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -25,7 +28,8 @@ public interface SubscriptionChangeOperationRepository extends JpaRepository<Sub
 
     Optional<SubscriptionChangeOperation> findByIdAndAccountId(UUID id, UUID accountId);
 
-    List<SubscriptionChangeOperation> findAllByAccountIdOrderByCreatedAtDesc(UUID accountId);
+    @EntityGraph(attributePaths = {"sourceSubscription.plan", "targetPlan", "checkout"})
+    Page<SubscriptionChangeOperation> findAllByAccountId(UUID accountId, Pageable pageable);
 
     long countByTargetPlan_Id(UUID planId);
 

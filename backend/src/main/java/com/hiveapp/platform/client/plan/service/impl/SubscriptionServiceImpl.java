@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin;
 import com.hiveapp.platform.client.plan.domain.constant.RetainedEntitlementState;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
@@ -67,6 +68,8 @@ import com.hiveapp.shared.quota.QuotaLimitMode;
 import dev.karroumi.permissionizer.PermissionNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -364,7 +367,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return applyChangeInternal(
                 accountId, actorUserId, applyRequest,
                 CommercialCatalogResolver.Audience.CLIENT_CATALOG,
-                CommercialPreviewKind.SUBSCRIPTION_CHANGE);
+                CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                null);
     }
 
     @Override
@@ -373,12 +377,14 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     public SubscriptionChangeApplyResponse applyChangeAsOperator(
             UUID accountId,
             UUID actorUserId,
-            SubscriptionChangeApplyRequest applyRequest
+            SubscriptionChangeApplyRequest applyRequest,
+            String reason
     ) {
         return applyChangeInternal(
                 accountId, actorUserId, applyRequest,
                 CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
-                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE);
+                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE,
+                reason);
     }
 
     private SubscriptionChangeApplyResponse applyChangeInternal(
@@ -386,7 +392,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             UUID actorUserId,
             SubscriptionChangeApplyRequest applyRequest,
             CommercialCatalogResolver.Audience audience,
-            CommercialPreviewKind previewKind
+            CommercialPreviewKind previewKind,
+            String requestReason
     ) {
         accountRepository.findByIdForSubscriptionUpdate(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
@@ -438,7 +445,11 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         SubscriptionOverrides requestedSelection = new SubscriptionOverrides(
                 selection.addOnCodes(), selection.quotaPackages());
         SubscriptionChangeOperation operation = newChangeOperation(
-                current, targetPlan, requestedSelection, targetSnapshot, request.effectiveTiming());
+                current, targetPlan, requestedSelection, targetSnapshot, request.effectiveTiming(),
+                audience == CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR
+                        ? SubscriptionChangeOrigin.PLATFORM_ADMIN
+                        : SubscriptionChangeOrigin.CLIENT_SELF_SERVICE,
+                actorUserId, requestReason);
 
         subscriptionChangeOperationRepository.findTopByAccountIdAndStatusIn(
                         accountId,
@@ -473,26 +484,25 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "read_changes", description = "View subscription change operations")
-    public List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId) {
-        return subscriptionChangeOperationRepository.findAllByAccountIdOrderByCreatedAtDesc(accountId).stream()
-                .map(this::toOperationDto)
-                .toList();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    @PermissionNode(key = "internal_operator_changes", guard = PermissionNode.Guard.OFF)
-    public List<SubscriptionChangeOperationDto> listChangeOperationsAsOperator(UUID accountId) {
-        return subscriptionChangeOperationRepository.findAllByAccountIdOrderByCreatedAtDesc(accountId).stream()
-                .map(this::toOperationDto)
-                .toList();
+    public Page<SubscriptionChangeOperationDto> listChangeOperations(
+            UUID accountId,
+            Pageable pageable
+    ) {
+        return subscriptionChangeOperationRepository.findAllByAccountId(accountId, pageable)
+                .map(this::toOperationDto);
     }
 
     @Override
     @Transactional
     @PermissionNode(key = "cancel_change", description = "Cancel a pending renewal subscription change")
-    public SubscriptionChangeOperationDto cancelPendingChange(UUID accountId, UUID operationId) {
-        return cancelPendingChangeInternal(accountId, operationId);
+    public SubscriptionChangeOperationDto cancelPendingChange(
+            UUID accountId,
+            UUID operationId,
+            UUID actorUserId
+    ) {
+        return cancelPendingChangeInternal(
+                accountId, operationId, SubscriptionChangeOrigin.CLIENT_SELF_SERVICE,
+                actorUserId, null);
     }
 
     @Override
@@ -500,12 +510,22 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @PermissionNode(key = "internal_operator_cancel", guard = PermissionNode.Guard.OFF)
     public SubscriptionChangeOperationDto cancelPendingChangeAsOperator(
             UUID accountId,
-            UUID operationId
+            UUID operationId,
+            UUID actorUserId,
+            String reason
     ) {
-        return cancelPendingChangeInternal(accountId, operationId);
+        return cancelPendingChangeInternal(
+                accountId, operationId, SubscriptionChangeOrigin.PLATFORM_ADMIN,
+                actorUserId, reason);
     }
 
-    private SubscriptionChangeOperationDto cancelPendingChangeInternal(UUID accountId, UUID operationId) {
+    private SubscriptionChangeOperationDto cancelPendingChangeInternal(
+            UUID accountId,
+            UUID operationId,
+            SubscriptionChangeOrigin origin,
+            UUID actorUserId,
+            String reason
+    ) {
         SubscriptionChangeOperation operation = subscriptionChangeOperationRepository
                 .findByIdAndAccountId(operationId, accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("SubscriptionChangeOperation", "id", operationId));
@@ -515,7 +535,11 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         }
         subscriptionCheckoutService.cancelFor(operation);
         operation.setStatus(SubscriptionChangeStatus.CANCELLED);
-        return toOperationDto(subscriptionChangeOperationRepository.save(operation));
+        operation.setCancellationOrigin(origin);
+        operation.setCancelledByUserId(actorUserId);
+        operation.setCancellationReason(reason);
+        operation.setCancelledAt(clock.instant());
+        return toOperationDto(subscriptionChangeOperationRepository.saveAndFlush(operation));
     }
 
     @Override
@@ -1411,7 +1435,10 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             Plan targetPlan,
             SubscriptionOverrides selection,
             SubscriptionEntitlementSnapshot targetSnapshot,
-            SubscriptionChangeTiming timing
+            SubscriptionChangeTiming timing,
+            SubscriptionChangeOrigin origin,
+            UUID actorUserId,
+            String requestReason
     ) {
         SubscriptionPeriodCalculator.Period targetPeriod = timing == SubscriptionChangeTiming.AT_RENEWAL
                 ? subscriptionPeriodCalculator.recurring(targetSnapshot.billingCycle(), current.getCurrentPeriodEnd())
@@ -1430,12 +1457,17 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         operation.setTargetSnapshot(
                 targetSnapshot.withEffectivePeriod(targetPeriod.startsAt(), targetPeriod.endsAt()));
         operation.setCommercialPolicyEvaluation(targetSnapshot.commercialPolicyEvaluation());
+        operation.setRequestOrigin(origin);
+        operation.setRequestedByUserId(actorUserId);
+        operation.setRequestReason(requestReason);
         return operation;
     }
 
     private SubscriptionChangeOperationDto toOperationDto(SubscriptionChangeOperation operation) {
         return new SubscriptionChangeOperationDto(
                 operation.getId(),
+                operation.getCreatedAt(),
+                operation.getUpdatedAt(),
                 operation.getTiming(),
                 operation.getStatus(),
                 operation.getEffectiveAt(),

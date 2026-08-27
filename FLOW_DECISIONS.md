@@ -1206,8 +1206,21 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - Initial typed effects are product allow/block, fixed Money adjustment, percentage discount with explicit maximum, free recurring periods, finite quota bonus, time-bounded AddOn/package grant, and renewal instruction.
 - Every policy has source, reason, owner, actor, lifecycle, priority, effective window, expiry or explicit permanence, optional approval/contract reference, preview version, and audit.
 - Direct Account policy outranks Segment policy. At equal priority, restriction wins over grant. Purchased extensions precede commercial adjustments, while platform hard safety ceilings and Account governance restrictions always win.
+- One-Account and explicit Account-set targets have the same direct-target specificity and both outrank Plan-revision and Segment audiences. A Plan-revision audience includes current `TRIALING`, `ACTIVE`, `PAST_DUE`, and `SUSPENDED` subscribers; terminal subscription history is excluded.
 - An active policy is immutable; editing creates a draft revision. Expiry stops future effect and never rewrites historical snapshots, invoices, or operations.
-- Policy activation and bulk application require backend impact preview, version recheck, per-Account result, idempotent retry, and cancellation before the execution cutoff.
+- Activation approves the exact immutable policy revision and snapshots its Account audience; it does not itself alter subscriptions, entitlements, prices, invoices, or payments. Segment activation remains unavailable until the typed Segment resolver exists.
+- Time-bounded AddOn and capacity-package grants require an explicit end. Platform hard limits remain non-overridable, and every accepted subscription operation snapshots the exact winning policy revision/effects so later expiry or revision cannot rewrite accepted terms.
+- Policy activation and any later Account application require backend impact preview, version recheck, per-Account result, idempotent retry, and cancellation before the execution cutoff. Application always uses an explicit immediate/renewal/scheduled subscription operation rather than an activation side effect.
+
+## COMMERCIAL-FLOW-005 — Reviewed commercial writes use operation-bound evidence
+
+**Status:** `DECIDED — 2026-08-27`
+
+- A reviewed cross-aggregate mutation carries short-lived signed evidence that binds the operation kind, exact target and optimistic version, actor, commercial-catalogue revision, registry snapshot version, evaluation time/expiry, and assessment fingerprint.
+- Apply never treats the evidence as authorization or payment. It reauthorizes the actor, takes the documented aggregate locks, re-resolves current registry/commercial state, and rejects stale, malformed, expired, cross-actor, or cross-operation evidence with a stable conflict and no write.
+- Lock order is consistent: registry-affecting commercial writes lock the commercial catalogue before the registry singleton and product rows; subscription finalization locks the Account before those commercial/registry locks and exact product/price rows.
+- A strictly row-local mutation may instead use an exact optimistic version plus locked recomputation when it cannot select or affect a different aggregate, audience, or result.
+- Signed review evidence is never placed in URLs, logs, audit payloads, analytics, or user-facing errors.
 
 ## MARKETING-FLOW-001 — Safe reusable Account segments
 
@@ -1464,6 +1477,8 @@ Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
+| 2026-08-27 | Separate commercial-policy approval from subscriber application and freeze each accepted audience/effect provenance | Activating a reusable rule is not consent to rewrite every current subscription; immutable audience snapshots plus explicit reviewed subscription operations preserve operator intent, concurrency safety, and historical terms | Commercial-policy lifecycle/activation, Account audiences, subscription preview/apply, policy explanations, future bulk execution and settlement |
+| 2026-08-27 | Bind reviewed cross-aggregate commercial writes to short-lived signed evidence and revalidate under one lock order | A browser-supplied count or stale preview version cannot prove which registry/catalogue state, actor, target, and result were reviewed; operation-bound evidence plus locked recomputation prevents substitution and TOCTOU writes without turning the token into authorization | Plan/AddOn/package/Price activation, availability and deletion, subscription changes, future policies/offers/bulk operations, audit and frontend confirmation flows |
 | 2026-08-26 | Keep V1 commercial-policy pricing to one non-stacking subtotal discount and make policy audiences/execution evidence immutable | Subtotal-only fixed/percentage discounts avoid ambiguous line allocation and surcharges; static affected sets and authorized `SYSTEM` execution keep scheduled work reproducible without silently following later Segment or operator-permission changes | Commercial-policy effects and precedence, audience snapshots, scheduled execution, subscription operations, invoices, client explanations and audit |
 | 2026-08-26 | Carry API monetary amounts as exact plain-decimal strings rather than JSON numbers | Java `BigDecimal` values can exceed JavaScript's exact integer/fraction range; converting immutable prices through IEEE-754 can silently alter accepted commercial terms | Money DTOs and snapshots, Price-book and subscription APIs, frontend contracts, formatting and tests |
 | 2026-08-26 | Build the commercial control plane as separate technical capabilities, products, prices, policies, offers, subscription operations, and financial records | Combining these meanings created unclear UI, unsafe implicit effects, and totals that could be mistaken for settlement; separation keeps each operation explainable and auditable | Registry, Plans/AddOns/packages, price books, subscriptions, policies, marketing, billing, analytics, admin/client UI |

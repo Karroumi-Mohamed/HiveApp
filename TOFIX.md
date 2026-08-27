@@ -2980,7 +2980,7 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 
 ### COMMERCIAL-002 — Product administration lists are unbounded and operationally inconsistent
 
-**Status:** `CONFIRMED — IMPLEMENT AFTER COMMERCIAL-001`
+**Status:** `IMPLEMENTED AND INDEPENDENTLY AUDITED — 2026-08-27`
 
 **Evidence**
 
@@ -2999,11 +2999,19 @@ Catalogue growth makes list screens and selectors increasingly slow, forces dupl
 - Return backend-derived `availableActions`, blockers, subscriber/attachment counts, and revision identity needed by operational tables; do not reconstruct lifecycle rules in the UI.
 - Migrate the admin pages to the shared URL-backed table/filter/action patterns and retain explicit mobile alternatives, access-denied, loading, empty, and failure states.
 
+**Implementation evidence — 2026-08-27**
+
+- Plan, AddOn, and capacity-package administration now use bounded `PageResponse` search/filter/sort contracts with validated allowlists, deterministic tie-breakers, backend-derived actions/blockers/counts, and constant-query tests.
+- Separately authorized narrow chooser/selected-item resolution endpoints support editors without granting the broader operational catalogue. Permission-hidden retained references remain identifiable without leaking product data or becoming newly selectable.
+- The admin web surfaces use shared URL-backed responsive tables, source-owned actions/reasons, scoped query keys, explicit loading/empty/error/access-denied states, and mobile alternatives; no operational screen fetches the full catalogue merely to render a selector.
+- Subscription administration now has a bounded Account workbench with minimum Account/latest-subscription facts, narrow chooser resolution, server filters/sorts, and deterministic latest-history selection. Ordinary rows neither expose nor search/sort by owner email; exact owner-email lookup uses a distinct Permissionizer action and response contract.
+- Live browser verification exposed and closed a composed-trigger defect that made a signed Price-book activation control look usable while discarding the dialog event. The permission-aware button now forwards trigger props and a rendered regression test pins the real interaction.
+
 ---
 
 ### QUOTA-005 — Published capacity packages have no successor-revision workflow
 
-**Status:** `CONFIRMED — IMPLEMENT AFTER COMMERCIAL-001`
+**Status:** `IMPLEMENTED AND INDEPENDENTLY AUDITED — 2026-08-27`
 
 **Evidence**
 
@@ -3020,11 +3028,17 @@ Fixing published immutability without a revision path leaves normal commercial m
 - Provide a draft-successor command that copies capacity definition, compatibility targeting, sales visibility, and current price-book starting point without changing existing subscription snapshots.
 - Add comparison, activation blockers, history, safe archive/delete rules, optimistic concurrency, and admin UI actions consistent with Plan/Add-on revisions.
 
+**Implementation evidence — 2026-08-27**
+
+- Capacity packages now retain lineage, source revision, revision number, creation reason, and optimistic version; only one open successor may be created concurrently.
+- Revision copies the capacity definition, targeting/visibility, attachments, and editable starting Price-book terms while existing subscription snapshots keep their exact prior package/price identities.
+- Operational APIs and UI cover revise, compare, lifecycle blockers, activation review, history, safe delete/archive, and paginated revision/history traversal rather than silently truncating the first page.
+
 ---
 
 ### COMMERCIAL-001 — Extension targeting and Account commercial policy are encoded as scattered special cases
 
-**Status:** `PARTIAL — EXTENSION BACKEND IMPLEMENTED AND AUDITED 2026-08-26; POLICIES AND UI PENDING`
+**Status:** `PARTIAL — EXTENSION BACKEND/UI IMPLEMENTED AND AUDITED 2026-08-27; TYPED POLICIES IN PHASE 10`
 
 **Evidence**
 
@@ -3039,8 +3053,10 @@ Operators must request new code for each commercial exception or encode business
 **Required fix direction**
 
 - **Implemented:** explicit Plan extension policy and product sales visibility with one backend-computed mandatory-compatibility resolver, client/operator audience privacy, locked final revalidation, immutable snapshot identity, reasoned previewed mutations, and typed history. The independent audit removed the legacy unguarded Plan catalogue and a cross-feature Permissionizer-policy bypass. The full backend baseline is 549 tests.
-- Complete the database-bounded operational product catalogues and shared UI in Phase 9.3; the current compatibility inspection intentionally resolves the full catalogue before bounding its response and is not presented as database paging.
+- **Implemented:** database-bounded operational product catalogues, narrow choosers, shared admin/client extension UI, exact Price-book selection, signed reviewed writes, and capacity-package revision operations. The compatibility resolver still intentionally loads the complete bounded product/active-price set before response paging and fails closed above its safety ceiling; replacing that internal catalogue-wide evaluation remains a scaling refinement, not a hidden paginated query.
 - Add typed, versioned commercial policies with bounded targets/effects, priority/precedence, effective window, reason/source/actor, preview, affected-set snapshot, execution results, expiry, and audit.
+- **Implemented 2026-08-27:** immutable typed policy revisions/lifecycle, one-Account/explicit-set/Plan-revision targets, blocked Segment activation, typed effects, deterministic direct-over-broad and restriction-over-grant precedence, fine-grained bounded admin APIs, separate owner identity, signed activation review, immutable Account audience snapshots, optimistic/concurrent activation, history, and audit. Activation authorizes the definition only and never mutates subscribers or settlement.
+- **In progress:** evaluate active policy snapshots during explicit subscription preview/apply, persist exact winning effect provenance/explanations into accepted terms, complete the operational admin UI, and independently audit both. General per-Account bulk execution/retry/cancellation remains Phase 12 rather than a hidden activation side effect.
 - Keep the first policy contract deliberately bounded: subtotal-only fixed/percentage discounts (no surcharge and no stacking), static activation audiences, immutable authorized `SYSTEM` execution evidence, and explicit subscription operations for any now/renewal/scheduled effect or expiry. A policy window must never rewrite an accepted snapshot by itself.
 - Reuse the subscription-operation engine for immediate/renewal/scheduled application; never mutate historical snapshots or delete data.
 - Provide paginated/searchable admin APIs for policy list/detail/draft/preview/activate/pause/revise/archive, target simulation, execution/cancel/retry, and history plus minimum client read models for effective terms.
@@ -3620,7 +3636,7 @@ Classify eligibility per action in HiveApp feature/registry definitions without 
 
 ### REGISTRY-009 — Startup synchronization is split, non-atomic across registry layers, and not inspectable
 
-**Status:** `IMPLEMENTED — 2026-07-17`
+**Status:** `PARTIAL — ATOMIC SINGLE-WRITER SYNC IMPLEMENTED 2026-07-17; ROLLING-DEPLOYMENT GENERATION GUARD OPEN`
 
 **Evidence**
 
@@ -3651,6 +3667,11 @@ HiveApp can start with features committed but permissions incomplete, different 
 - Each success/failure stores build version, deterministic snapshot hash when available, timestamps, status, discovered/created/updated counts, and bounded safe details.
 - `GET /api/admin/registry/synchronization/latest` is protected by the dedicated `platform.registry.sync_status` Permissionizer action and returns an admin-safe DTO.
 - No Flyway history is introduced while the project uses disposable generated H2 mappings. The complete backend suite passes: 328 tests, 0 failures, 0 errors, 0 skipped.
+
+**Remaining deployment-order gap — 2026-08-27**
+
+- The database lock serializes writers but does not prove that the writer represents the newest deployed build. During a rolling deployment, an older node can acquire the lock after a newer node and overwrite the authoritative registry snapshot/hash with older code metadata.
+- Before multi-version production rollout, synchronization must reject a desired deployment/build generation older than the committed authoritative generation (or require an equivalent explicit rollout authority). Add newer-then-older node ordering, retry, and rollback tests. This does not require permission aliases or a Permissionizer grammar change.
 
 ---
 

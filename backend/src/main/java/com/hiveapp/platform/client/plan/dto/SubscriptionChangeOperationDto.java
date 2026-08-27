@@ -8,6 +8,8 @@ import java.util.UUID;
 
 public record SubscriptionChangeOperationDto(
         UUID id,
+        Instant createdAt,
+        Instant updatedAt,
         SubscriptionChangeTiming timing,
         SubscriptionChangeStatus status,
         Instant effectiveAt,
