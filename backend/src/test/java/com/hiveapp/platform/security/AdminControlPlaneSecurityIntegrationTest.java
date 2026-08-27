@@ -974,6 +974,8 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     void subscriptionAccountTableChooserAndHydrationHaveSeparatePermissionNodes() throws Exception {
         String clientToken = registerClientAndGetToken();
         LimitedAdmin tableReader = createLimitedAdmin("platform.subscriptions.search_accounts");
+        LimitedAdmin ownerIdentityReader = createLimitedAdmin(
+                "platform.subscriptions.lookup_account_owner_email");
         LimitedAdmin chooser = createLimitedAdmin("platform.subscriptions.choose_accounts");
         LimitedAdmin resolver = createLimitedAdmin("platform.subscriptions.resolve_account_choices");
 
@@ -985,7 +987,13 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
         mockMvc.perform(get("/api/admin/subscriptions/accounts/search")
                         .header("Authorization", bearer(tableReader.token())))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].ownerEmail").doesNotExist());
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/by-owner-email")
+                        .header("Authorization", bearer(tableReader.token()))
+                        .param("ownerEmail", "owner@example.com"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
         mockMvc.perform(get("/api/admin/subscriptions/accounts/chooser")
                         .header("Authorization", bearer(tableReader.token())))
                 .andExpect(status().isForbidden())
@@ -993,7 +1001,8 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
 
         mockMvc.perform(get("/api/admin/subscriptions/accounts/chooser")
                         .header("Authorization", bearer(chooser.token())))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].ownerEmail").doesNotExist());
         mockMvc.perform(get("/api/admin/subscriptions/accounts/search")
                         .header("Authorization", bearer(chooser.token())))
                 .andExpect(status().isForbidden());
@@ -1007,6 +1016,15 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                         .param("ids", UUID.randomUUID().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isEmpty());
+
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/by-owner-email")
+                        .header("Authorization", bearer(ownerIdentityReader.token()))
+                        .param("ownerEmail", "missing@example.com"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty());
+        mockMvc.perform(get("/api/admin/subscriptions/accounts/search")
+                        .header("Authorization", bearer(ownerIdentityReader.token())))
+                .andExpect(status().isForbidden());
     }
 
     @Test

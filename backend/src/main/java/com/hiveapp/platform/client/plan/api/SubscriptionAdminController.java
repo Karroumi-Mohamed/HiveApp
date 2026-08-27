@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
+import com.hiveapp.platform.admin.dto.SubscriptionAccountOwnerLookupDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
 import com.hiveapp.platform.admin.dto.ManualCheckoutConfirmationRequest;
 import com.hiveapp.platform.admin.service.AdminSubscriptionService;
@@ -38,13 +39,11 @@ public class SubscriptionAdminController {
     private static final Map<String, String> ACCOUNT_TABLE_SORTS = Map.of(
             "name", "name",
             "slug", "slug",
-            "ownerEmail", "owner.email",
             "active", "isActive",
             "createdAt", "createdAt");
     private static final Map<String, String> ACCOUNT_CHOOSER_SORTS = Map.of(
             "name", "name",
-            "slug", "slug",
-            "ownerEmail", "owner.email");
+            "slug", "slug");
 
     private final AdminSubscriptionService adminSubscriptionService;
 
@@ -54,12 +53,30 @@ public class SubscriptionAdminController {
             @RequestParam(required = false) Boolean accountActive,
             @RequestParam(required = false) SubscriptionStatus subscriptionStatus,
             @RequestParam(required = false) Boolean hasSubscription,
+            @RequestParam(required = false) String planCode,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String direction) {
         return PageResponse.from(adminSubscriptionService.searchAccounts(
-                query, accountActive, subscriptionStatus, hasSubscription,
+                query, accountActive, subscriptionStatus, hasSubscription, planCode,
+                CommercialProductPageRequest.of(page, size, sort, direction,
+                        ACCOUNT_TABLE_SORTS, "name", Sort.Direction.ASC)));
+    }
+
+    @GetMapping("/accounts/by-owner-email")
+    public PageResponse<SubscriptionAccountOwnerLookupDto> findAccountsByOwnerEmail(
+            @RequestParam String ownerEmail,
+            @RequestParam(required = false) Boolean accountActive,
+            @RequestParam(required = false) SubscriptionStatus subscriptionStatus,
+            @RequestParam(required = false) Boolean hasSubscription,
+            @RequestParam(required = false) String planCode,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction) {
+        return PageResponse.from(adminSubscriptionService.findAccountsByOwnerEmail(
+                ownerEmail, accountActive, subscriptionStatus, hasSubscription, planCode,
                 CommercialProductPageRequest.of(page, size, sort, direction,
                         ACCOUNT_TABLE_SORTS, "name", Sort.Direction.ASC)));
     }

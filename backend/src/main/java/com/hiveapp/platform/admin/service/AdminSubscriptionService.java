@@ -1,6 +1,7 @@
 package com.hiveapp.platform.admin.service;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
+import com.hiveapp.platform.admin.dto.SubscriptionAccountOwnerLookupDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
@@ -33,6 +34,14 @@ public interface AdminSubscriptionService {
             Boolean accountActive,
             SubscriptionStatus subscriptionStatus,
             Boolean hasSubscription,
+            String planCode,
+            Pageable pageable);
+    Page<SubscriptionAccountOwnerLookupDto> findAccountsByOwnerEmail(
+            String ownerEmail,
+            Boolean accountActive,
+            SubscriptionStatus subscriptionStatus,
+            Boolean hasSubscription,
+            String planCode,
             Pageable pageable);
     Page<AccountDirectoryEntryDto> chooseAccounts(
             String query, Boolean active, Pageable pageable);
