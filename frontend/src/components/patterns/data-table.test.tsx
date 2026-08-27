@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import type { SortingState } from "@tanstack/react-table";
 import { Window } from "happy-dom";
+import { useState } from "react";
 
 const browser = new Window({ url: "http://localhost:3000/admin/plans" });
 for (const key of [
@@ -23,8 +25,11 @@ for (const key of [
 
 const { cleanup, render } = await import("@testing-library/react");
 const userEvent = (await import("@testing-library/user-event")).default;
-const { createDataColumns, DataTable, DataTableExpander } = await import("./data-table");
+const { MemoryRouter, useLocation } = await import("react-router");
+const { TooltipProvider } = await import("@/components/ui/tooltip");
+const { createDataColumns, DataTable, DataTableExpander, SortHeader } = await import("./data-table");
 const { ReferenceTagButton } = await import("./reference-tag");
+const { RowAction } = await import("./row-action");
 
 type Item = { id: string; name: string; detail: string };
 const column = createDataColumns<Item>();
@@ -105,5 +110,66 @@ describe("data table detail rows", () => {
     expect(
       view.getByRole("button", { name: "Masquer les offres de Workspace Roles" }).getAttribute("aria-expanded"),
     ).toBe("true");
+  });
+});
+
+describe("data table sorting semantics", () => {
+  test("a sortable heading exposes its controlled sort direction", async () => {
+    const sortableColumns = column.columns([
+      column.accessor("name", {
+        header: ({ column: sortableColumn }) => <SortHeader column={sortableColumn}>Nom</SortHeader>,
+        cell: ({ getValue }) => getValue(),
+      }),
+    ]);
+    function SortableTable() {
+      const [sorting, setSorting] = useState<SortingState>([]);
+      return (
+        <DataTable
+          columns={sortableColumns}
+          data={[{ id: "roles", name: "Workspace Roles", detail: "Custom Roles" }]}
+          getRowId={(row) => row.id}
+          onSortingChange={setSorting}
+          sorting={sorting}
+        />
+      );
+    }
+    const view = render(<SortableTable />);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    const header = view.getByRole("columnheader", { name: "Nom" });
+
+    expect(header.getAttribute("aria-sort")).toBeNull();
+    await user.click(view.getByRole("button", { name: "Nom" }));
+    expect(header.getAttribute("aria-sort")).toBe("ascending");
+    await user.click(view.getByRole("button", { name: "Nom" }));
+    expect(header.getAttribute("aria-sort")).toBe("descending");
+  });
+});
+
+describe("row actions", () => {
+  test("disabled wins over a destination and keeps the explanatory control non-navigating", async () => {
+    function Location() {
+      return <output data-testid="location">{useLocation().pathname}</output>;
+    }
+    const view = render(
+      <TooltipProvider>
+        <MemoryRouter initialEntries={["/admin/plans"]}>
+          <RowAction
+            disabled
+            disabledLabel="Action indisponible"
+            icon={<span aria-hidden="true">×</span>}
+            label="Ouvrir"
+            to="/admin/plans/plan-1"
+          />
+          <Location />
+        </MemoryRouter>
+      </TooltipProvider>,
+    );
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    const control = view.getByRole("button", { name: "Ouvrir" });
+
+    expect(control.getAttribute("aria-disabled")).toBe("true");
+    expect(view.queryByRole("link", { name: "Ouvrir" })).toBeNull();
+    await user.click(control);
+    expect(view.getByTestId("location").textContent).toBe("/admin/plans");
   });
 });

@@ -31,25 +31,26 @@ export function RowAction({
   disabled?: boolean;
   tone?: "default" | "danger";
 }) {
-  const control = to ? (
-    <Button aria-label={label} asChild size="icon-sm" variant="ghost">
-      <Link to={to}>{icon}</Link>
-    </Button>
-  ) : (
-    <Button
-      aria-disabled={disabled || undefined}
-      aria-label={label}
-      className={cn(
-        tone === "danger" && !disabled && "text-destructive hover:text-destructive",
-        disabled && "cursor-not-allowed opacity-45 hover:bg-transparent",
-      )}
-      onClick={disabled ? undefined : onClick}
-      size="icon-sm"
-      variant="ghost"
-    >
-      {icon}
-    </Button>
-  );
+  const control =
+    to && !disabled ? (
+      <Button aria-label={label} asChild size="icon-sm" variant="ghost">
+        <Link to={to}>{icon}</Link>
+      </Button>
+    ) : (
+      <Button
+        aria-disabled={disabled || undefined}
+        aria-label={label}
+        className={cn(
+          tone === "danger" && !disabled && "text-destructive hover:text-destructive",
+          disabled && "cursor-not-allowed opacity-45 hover:bg-transparent",
+        )}
+        onClick={disabled ? undefined : onClick}
+        size="icon-sm"
+        variant="ghost"
+      >
+        {icon}
+      </Button>
+    );
 
   return (
     <Tooltip>
