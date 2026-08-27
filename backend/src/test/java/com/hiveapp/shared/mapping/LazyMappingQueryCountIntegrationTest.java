@@ -9,6 +9,8 @@ import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.dto.AssignPlanFeatureRequest;
 import com.hiveapp.platform.client.plan.dto.CreatePlanRequest;
 import com.hiveapp.platform.client.plan.dto.CreateProductPriceRequest;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.role.dto.CreateRoleRequest;
@@ -24,6 +26,8 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.time.Instant;
 
@@ -236,6 +240,36 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
     }
 
     @Test
+    void subscriptionChangeOperationalPageStatementCountDoesNotGrowWithRows() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        String clientToken = registerClientAndGetToken();
+        UUID accountId = currentAccountId(clientToken);
+        for (int index = 0; index < 4; index++) {
+            createAndCancelAdminSubscriptionChange(adminToken, accountId, index);
+        }
+
+        long oneRow = statementsFor(() -> subscriptionChangeOperationalPage(
+                adminToken, accountId, 1));
+        long fullPage = statementsFor(() -> subscriptionChangeOperationalPage(
+                adminToken, accountId, 100));
+        long oneClientRow = statementsFor(() -> clientSubscriptionChangePage(
+                clientToken, 1));
+        long fullClientPage = statementsFor(() -> clientSubscriptionChangePage(
+                clientToken, 100));
+
+        assertThat(subscriptionChangeOperationalPage(adminToken, accountId, 100).size())
+                .isEqualTo(4);
+        // Spring Data may omit the count query when the content proves this is the last page.
+        assertThat(Math.abs(fullPage - oneRow))
+                .as("the subscription-change page must fetch plans and checkouts without per-row statements")
+                .isLessThanOrEqualTo(1L);
+        assertThat(clientSubscriptionChangePage(clientToken, 100).size()).isEqualTo(4);
+        assertThat(Math.abs(fullClientPage - oneClientRow))
+                .as("the client subscription-change page must fetch plans and checkouts without per-row statements")
+                .isLessThanOrEqualTo(1L);
+    }
+
+    @Test
     void commercialProductOperationalPagesUseConstantStatementCounts() throws Exception {
         String adminToken = loginAdminAndGetToken();
         assertConstantOperationalPage(adminToken, "/api/admin/plans");
@@ -415,6 +449,75 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(response).get("content");
+    }
+
+    private JsonNode subscriptionChangeOperationalPage(
+            String adminToken,
+            UUID accountId,
+            int size) throws Exception {
+        String response = mockMvc.perform(get(
+                                "/api/admin/subscriptions/account/{accountId}/changes", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .param("page", "0")
+                        .param("size", Integer.toString(size)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).get("content");
+    }
+
+    private JsonNode clientSubscriptionChangePage(String clientToken, int size) throws Exception {
+        String response = mockMvc.perform(get("/api/v1/subscriptions/changes")
+                        .header("Authorization", bearer(clientToken))
+                        .param("page", "0")
+                        .param("size", Integer.toString(size)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response).get("content");
+    }
+
+    private UUID currentAccountId(String clientToken) throws Exception {
+        String response = mockMvc.perform(get("/api/v1/accounts/me")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return UUID.fromString(objectMapper.readTree(response).get("id").asText());
+    }
+
+    private void createAndCancelAdminSubscriptionChange(
+            String adminToken,
+            UUID accountId,
+            int sequence) throws Exception {
+        var selection = new SubscriptionChangeRequest(
+                "PRO", Set.of(), List.of(), SubscriptionChangeTiming.AT_RENEWAL);
+        String previewResponse = mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{accountId}/changes/preview", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(selection)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String previewToken = objectMapper.readTree(previewResponse).get("previewToken").asText();
+        String applyResponse = mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{accountId}/changes/apply", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "selection", selection,
+                                "previewToken", previewToken,
+                                "reason", "Query-bound fixture " + sequence))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID operationId = UUID.fromString(objectMapper.readTree(applyResponse)
+                .path("operation").path("id").asText());
+        mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{accountId}/changes/{operationId}/cancel",
+                                accountId,
+                                operationId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "reason", "Cancel query-bound fixture " + sequence))))
+                .andExpect(status().isOk());
     }
 
     private void createDraftPrice(String adminToken, UUID planId, BigDecimal amount) throws Exception {

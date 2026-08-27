@@ -8,13 +8,14 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-
-import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
-import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 
 public interface SubscriptionService {
     /** Internal cross-service lookup; callers carry their own authorization. */
@@ -38,13 +39,12 @@ public interface SubscriptionService {
             UUID accountId, UUID actorUserId, SubscriptionChangeApplyRequest request);
     /** Internal operator surface; its caller must carry the platform-admin authorization guard. */
     SubscriptionChangeApplyResponse applyChangeAsOperator(
-            UUID accountId, UUID actorUserId, SubscriptionChangeApplyRequest request);
-    List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId);
-    /** Internal operator surface; its caller must carry the platform-admin authorization guard. */
-    List<SubscriptionChangeOperationDto> listChangeOperationsAsOperator(UUID accountId);
-    SubscriptionChangeOperationDto cancelPendingChange(UUID accountId, UUID operationId);
-    /** Internal operator surface; its caller must carry the platform-admin authorization guard. */
-    SubscriptionChangeOperationDto cancelPendingChangeAsOperator(UUID accountId, UUID operationId);
+            UUID accountId, UUID actorUserId, SubscriptionChangeApplyRequest request, String reason);
+    Page<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId, Pageable pageable);
+    SubscriptionChangeOperationDto cancelPendingChange(
+            UUID accountId, UUID operationId, UUID actorUserId);
+    SubscriptionChangeOperationDto cancelPendingChangeAsOperator(
+            UUID accountId, UUID operationId, UUID actorUserId, String reason);
     Subscription createSubscription(UUID accountId, String planCode);
     Subscription createSubscription(
             UUID accountId, String planCode, ProductPriceSelectionRequest priceSelection);

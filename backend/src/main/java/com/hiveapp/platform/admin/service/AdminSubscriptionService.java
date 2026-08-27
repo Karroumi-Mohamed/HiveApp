@@ -2,8 +2,10 @@ package com.hiveapp.platform.admin.service;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
 import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeApplyRequest;
+import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeOperationDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOwnerLookupDto;
 import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
+import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
@@ -19,14 +21,13 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 
 /**
  * Operator-facing subscription contract. Every method returns a read model rather than a
@@ -67,13 +68,14 @@ public interface AdminSubscriptionService {
     SubscriptionDto createTrial(
             UUID accountId, String planCode, int trialDays, ProductPriceSelectionRequest priceSelection);
     SubscriptionDto updateOverrides(UUID accountId, Set<String> addOnCodes, List<QuotaPackageSelection> quotaPackages);
-    List<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId);
+    Page<AdminSubscriptionChangeOperationDto> listChangeOperations(
+            UUID accountId, Pageable pageable);
     SubscriptionChangePreviewResponse previewChange(
             UUID accountId, UUID actorUserId, SubscriptionChangeRequest request);
     SubscriptionChangeApplyResponse applyChange(
             UUID accountId, UUID actorUserId, AdminSubscriptionChangeApplyRequest request);
     SubscriptionChangeOperationDto cancelChange(
-            UUID accountId, UUID operationId, String reason);
+            UUID accountId, UUID operationId, UUID actorUserId, String reason);
     SubscriptionCheckoutDto confirmCheckoutManually(
             UUID checkoutId, UUID actorUserId, String reference, String reason);
 }
