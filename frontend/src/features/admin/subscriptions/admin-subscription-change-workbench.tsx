@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { capacityUnitLabel } from "@/features/admin/commercial/commercial-presentation";
 import {
+  subscriptionChangeConflictText,
   subscriptionChangeFailureMessage,
   subscriptionChangePreviewIsCurrent,
   subscriptionChangeSelectionKey,
@@ -24,6 +25,7 @@ import {
   catalogAddOnSelectionState,
   currentCatalogPrice,
   defaultCatalogPrice,
+  effectiveCatalogAddOnCodes,
   initialCatalogPlanCode,
   matchingCatalogPrice,
   preserveRetainedSelection,
@@ -31,6 +33,13 @@ import {
   sameStringSet,
   updateCatalogAddOnSelection,
 } from "@/features/commercial/catalog-price-rules";
+import {
+  AdminCommercialPolicyTerms,
+  hasAvailableCommercialPolicyTerms,
+  isPolicyBlockedProduct,
+  isPolicyGrantedProduct,
+  PolicyGrantedProductText,
+} from "@/features/commercial/commercial-policy-terms";
 import { adminCommercialKeys, invalidateAdminSubscriptionEntitlement } from "@/features/commercial/commercial-query";
 import { subscriptionChangeRecordedMessage } from "@/features/commercial/subscription-presentation";
 import {
@@ -118,10 +127,12 @@ function PreviewDialog({
                 <dt className="text-xs text-muted-foreground">Prix actuel</dt>
                 <dd className="mt-1 font-semibold">{formatExactMoney(preview.currentPrice, preview.currencyCode)}</dd>
               </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Nouveau prix</dt>
-                <dd className="mt-1 font-semibold">{formatExactMoney(preview.previewPrice, preview.currencyCode)}</dd>
-              </div>
+              {!preview.commercialPolicyEvaluation ? (
+                <div>
+                  <dt className="text-xs text-muted-foreground">Nouveau prix</dt>
+                  <dd className="mt-1 font-semibold">{formatExactMoney(preview.previewPrice, preview.currencyCode)}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="text-xs text-muted-foreground">Application</dt>
                 <dd className="mt-1 font-semibold">
@@ -129,6 +140,10 @@ function PreviewDialog({
                 </dd>
               </div>
             </dl>
+
+            {preview.commercialPolicyEvaluation ? (
+              <AdminCommercialPolicyTerms evaluation={preview.commercialPolicyEvaluation} />
+            ) : null}
 
             {preview.conflicts.length ? (
               <section className="border-s-2 border-destructive ps-4">
@@ -138,7 +153,9 @@ function PreviewDialog({
                 </h3>
                 <ul className="mt-2 list-disc space-y-1 ps-5 text-sm">
                   {preview.conflicts.map((conflict) => (
-                    <li key={`${conflict.code}-${conflict.featureCode}-${conflict.resource}`}>{conflict.message}</li>
+                    <li key={`${conflict.code}-${conflict.featureCode}-${conflict.resource}`}>
+                      {subscriptionChangeConflictText(conflict)}
+                    </li>
                   ))}
                 </ul>
               </section>
@@ -210,6 +227,7 @@ function PreviewDialog({
                     applying ||
                     !previewReady ||
                     Boolean(preview.conflicts.length) ||
+                    Boolean(preview.commercialPolicyEvaluation?.conflicts.length) ||
                     (selection?.timing === "IMMEDIATE" && !preview.immediateAllowed)
                   }
                   onClick={onApply}
@@ -266,14 +284,25 @@ export function AdminSubscriptionChangeWorkbench({
     () => plan?.addOns.filter((item) => matchingCatalogPrice(item.prices, selectedPlanPrice)) ?? [],
     [plan, selectedPlanPrice],
   );
+  const effectiveAddOnCodes = useMemo(
+    () =>
+      effectiveCatalogAddOnCodes(addOnCodes, compatibleAddOns, (item) =>
+        isPolicyGrantedProduct(item.commercialPolicyDecisions),
+      ),
+    [addOnCodes, compatibleAddOns],
+  );
+  const automaticallyIncludedAddOnCodes = useMemo(
+    () => effectiveAddOnCodes.filter((code) => !addOnCodes.includes(code)),
+    [addOnCodes, effectiveAddOnCodes],
+  );
   const compatibleQuotaPackages = useMemo(
     () =>
       plan?.quotaPackages.filter(
         (item) =>
           matchingCatalogPrice(item.prices, selectedPlanPrice) &&
-          (item.directlyAvailable || item.requiresAddOnCodes.some((code) => addOnCodes.includes(code))),
+          (item.directlyAvailable || item.requiresAddOnCodes.some((code) => effectiveAddOnCodes.includes(code))),
       ) ?? [],
-    [addOnCodes, plan, selectedPlanPrice],
+    [effectiveAddOnCodes, plan, selectedPlanPrice],
   );
   const hiddenRetainedAddOns = useMemo(() => {
     const visible = new Set(compatibleAddOns.map((item) => item.code));
@@ -291,6 +320,14 @@ export function AdminSubscriptionChangeWorkbench({
         ),
       ),
     [catalog.plans],
+  );
+  const retainedAddOnsByCode = useMemo(
+    () => new Map(retainedAddOns.map((item) => [item.code, item] as const)),
+    [retainedAddOns],
+  );
+  const retainedQuotaPackagesByCode = useMemo(
+    () => new Map(retainedQuotaPackages.map((item) => [item.code, item] as const)),
+    [retainedQuotaPackages],
   );
 
   useEffect(() => {
@@ -340,7 +377,9 @@ export function AdminSubscriptionChangeWorkbench({
         : null,
     [addOnCodes, plan, quantities, selectedPlanPrice, timing],
   );
-  const selectionIsNoOp = subscriptionChangeSelectionMatchesCurrent(selection, current);
+  const selectionIsNoOp =
+    subscriptionChangeSelectionMatchesCurrent(selection, current) &&
+    !hasAvailableCommercialPolicyTerms(catalog.commercialPolicyDecisions);
 
   useEffect(() => {
     if (!preview) return;
@@ -423,7 +462,9 @@ export function AdminSubscriptionChangeWorkbench({
   };
 
   const toggleAddOn = (item: CatalogPlan["addOns"][number], checked: boolean) => {
-    setAddOnCodes((selected) => updateCatalogAddOnSelection(selected, item, compatibleAddOns, checked));
+    setAddOnCodes((selected) =>
+      updateCatalogAddOnSelection(selected, item, compatibleAddOns, checked, automaticallyIncludedAddOnCodes),
+    );
     setPreview(null);
   };
 
@@ -494,16 +535,26 @@ export function AdminSubscriptionChangeWorkbench({
             {compatibleAddOns.length ? (
               compatibleAddOns.map((item) => {
                 const price = matchingCatalogPrice(item.prices, selectedPlanPrice);
+                const policyGranted = isPolicyGrantedProduct(item.commercialPolicyDecisions);
+                const policyBlocked = isPolicyBlockedProduct(item.commercialPolicyDecisions);
+                const retained =
+                  plan?.current && addOnCodes.includes(item.code) ? retainedAddOnsByCode.get(item.code) : null;
                 const { selected, excludedBy, missingDependency, requiredBy } = catalogAddOnSelectionState(
                   item,
                   compatibleAddOns,
-                  addOnCodes,
+                  effectiveAddOnCodes,
                 );
                 return (
                   <div className="flex items-start gap-3 py-3" key={item.code}>
                     <Checkbox
-                      checked={selected}
-                      disabled={selected ? Boolean(requiredBy) : Boolean(missingDependency || excludedBy)}
+                      checked={policyGranted || selected}
+                      disabled={
+                        policyGranted ||
+                        policyBlocked ||
+                        !item.selectable ||
+                        Boolean(retained && !retained.removable) ||
+                        (selected ? Boolean(requiredBy) : Boolean(missingDependency || excludedBy))
+                      }
                       id={`operator-addon-${item.code}`}
                       onCheckedChange={(checked) => toggleAddOn(item, Boolean(checked))}
                     />
@@ -511,10 +562,22 @@ export function AdminSubscriptionChangeWorkbench({
                       <span className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
                         <strong>{item.name}</strong>
                         <span className="text-muted-foreground">
-                          {price ? formatExactMoney(price.amount, price.currencyCode) : "Indisponible"}
+                          {policyGranted
+                            ? "Inclus"
+                            : retained
+                              ? `${formatExactMoney(retained.unitPrice, retained.currencyCode)} · conditions détenues`
+                              : price
+                                ? formatExactMoney(price.amount, price.currencyCode)
+                                : "Indisponible"}
                         </span>
                       </span>
-                      {missingDependency || excludedBy || requiredBy ? (
+                      {policyGranted ? (
+                        <PolicyGrantedProductText className="mt-1 block" />
+                      ) : policyBlocked || !item.selectable ? (
+                        <span className="mt-1 block text-xs text-destructive">
+                          Indisponible selon les conditions commerciales du compte
+                        </span>
+                      ) : missingDependency || excludedBy || requiredBy ? (
                         <span className="mt-1 block text-xs text-muted-foreground">
                           {missingDependency
                             ? `Dépendance indisponible : ${missingDependency}`
@@ -565,24 +628,58 @@ export function AdminSubscriptionChangeWorkbench({
             {compatibleQuotaPackages.length ? (
               compatibleQuotaPackages.map((item) => {
                 const price = matchingCatalogPrice(item.prices, selectedPlanPrice);
+                const policyGranted = isPolicyGrantedProduct(item.commercialPolicyDecisions);
+                const policyBlocked = isPolicyBlockedProduct(item.commercialPolicyDecisions);
+                const retained =
+                  plan?.current && (quantities[item.code] ?? 0) > 0 ? retainedQuotaPackagesByCode.get(item.code) : null;
                 return (
                   <div className="flex items-center justify-between gap-4 py-3" key={item.code}>
                     <div className="min-w-0">
                       <p className="text-sm font-medium">{item.name}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         +{item.capacityPerUnit} {capacityUnitLabel(item.resource)} ·{" "}
-                        {price ? formatExactMoney(price.amount, price.currencyCode) : "Indisponible"}
+                        {policyGranted
+                          ? "1 unité incluse"
+                          : retained
+                            ? `${formatExactMoney(retained.unitPrice, retained.currencyCode)} par unité · conditions détenues`
+                            : price
+                              ? formatExactMoney(price.amount, price.currencyCode)
+                              : "Indisponible"}
                       </p>
+                      {policyGranted ? <PolicyGrantedProductText className="mt-1 block" /> : null}
+                      {policyBlocked || !item.selectable ? (
+                        <span className="mt-1 block text-xs text-destructive">
+                          Indisponible selon les conditions commerciales du compte
+                        </span>
+                      ) : null}
                     </div>
-                    <SubscriptionQuantityControl
-                      label={item.name}
-                      maximum={item.maximumQuantity}
-                      onChange={(quantity) => {
-                        setQuantities((selected) => ({ ...selected, [item.code]: quantity }));
-                        setPreview(null);
-                      }}
-                      value={quantities[item.code] ?? 0}
-                    />
+                    {policyGranted && (quantities[item.code] ?? 0) <= 1 ? (
+                      <span className="text-sm font-semibold tabular-nums">1 incluse</span>
+                    ) : retained ? (
+                      <RetainedSubscriptionQuantityControl
+                        label={item.name}
+                        maximum={retained.maximumSelectableQuantity ?? retained.quantity}
+                        onChange={(quantity) => {
+                          setQuantities((selected) => ({ ...selected, [item.code]: quantity }));
+                          setPreview(null);
+                        }}
+                        quantityEditable={retained.quantityEditable}
+                        removable={retained.removable}
+                        retainedQuantity={retained.quantity}
+                        value={quantities[item.code] ?? retained.quantity}
+                      />
+                    ) : (
+                      <SubscriptionQuantityControl
+                        disabled={policyBlocked || !item.selectable}
+                        label={item.name}
+                        maximum={item.maximumQuantity}
+                        onChange={(quantity) => {
+                          setQuantities((selected) => ({ ...selected, [item.code]: quantity }));
+                          setPreview(null);
+                        }}
+                        value={quantities[item.code] ?? 0}
+                      />
+                    )}
                   </div>
                 );
               })

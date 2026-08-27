@@ -565,18 +565,6 @@ export type CommercialPolicyHistory = {
   occurredAt: Instant;
 };
 
-export type AssignablePlanPrice = {
-  planId: UUID;
-  planCode: string;
-  planName: string;
-  planRevisionNumber: number;
-  priceEntryId: UUID;
-  amount: ExactDecimal;
-  currencyCode: string;
-  billingCycle: ProductPriceBillingCycle;
-  effectiveFrom: Instant;
-  effectiveUntil: Instant | null;
-};
 export type PlanStatus = "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
 export type ProductSalesVisibility = "PUBLIC" | "DIRECT_ONLY";
 export type PlanExtensionPolicy = "CLOSED" | "ALLOW_LIST" | "OPEN_COMPATIBLE";
@@ -1378,6 +1366,84 @@ export type CompanyShareCode = {
   lastRequestedAt: Instant | null;
 };
 
+export type CommercialPolicyDecisionOutcome =
+  | "APPLIED"
+  | "AVAILABLE"
+  | "REJECTED_LOWER_PRECEDENCE"
+  | "REJECTED_INCOMPATIBLE"
+  | "BLOCKED_SELECTION";
+
+/** Privacy-safe commercial adjustment returned by Account-member APIs. */
+export type ClientCommercialPolicyDecision = {
+  effectType: CommercialPolicyEffectType;
+  productType: CommercialPolicyProductType | null;
+  productCode: string | null;
+  featureCode: string | null;
+  quotaResource: string | null;
+  quantityDelta: number | null;
+  outcome: CommercialPolicyDecisionOutcome;
+  evaluatedAmount: ExactDecimal | null;
+  evaluatedCurrencyCode: string | null;
+  explanation: string;
+};
+
+/** Immutable operator provenance. This shape must never be used by a client endpoint. */
+export type CommercialPolicyDecisionSnapshot = ClientCommercialPolicyDecision & {
+  policyId: UUID;
+  activationId: UUID;
+  lineageId: UUID;
+  policyRevisionNumber: number;
+  policyCode: string;
+  policyName: string;
+  targetKind: CommercialPolicyTargetKind;
+  priority: number;
+  effectId: UUID;
+  effectOrder: number;
+  productId: UUID | null;
+  configuredAmount: ExactDecimal | null;
+  configuredCurrencyCode: string | null;
+  percentage: ExactDecimal | null;
+  maximumAmount: ExactDecimal | null;
+  maximumCurrencyCode: string | null;
+};
+
+export type CommercialPolicyConflictCode =
+  | "POLICY_PRODUCT_BLOCKED"
+  | "POLICY_FEATURE_BLOCKED"
+  | "POLICY_QUOTA_OVERFLOW";
+
+export type ClientCommercialPolicyConflict = {
+  code: CommercialPolicyConflictCode;
+  productCode: string | null;
+  featureCode: string | null;
+  quotaResource: string | null;
+  message: string;
+};
+
+export type CommercialPolicyConflict = ClientCommercialPolicyConflict & {
+  policyId: UUID;
+  effectId: UUID;
+};
+
+export type ClientCommercialPolicyEvaluation = {
+  evaluatedAt: Instant;
+  catalogueRecurringPrice: ExactDecimal;
+  fixedRecurringPrice: ExactDecimal;
+  discountAmount: ExactDecimal;
+  finalRecurringPrice: ExactDecimal;
+  currencyCode: string;
+  decisions: ClientCommercialPolicyDecision[];
+  conflicts: ClientCommercialPolicyConflict[];
+};
+
+export type SubscriptionCommercialPolicyEvaluation = Omit<
+  ClientCommercialPolicyEvaluation,
+  "decisions" | "conflicts"
+> & {
+  decisions: CommercialPolicyDecisionSnapshot[];
+  conflicts: CommercialPolicyConflict[];
+};
+
 export type ClientPlanCatalog = {
   currentSubscription: {
     id: UUID;
@@ -1423,6 +1489,7 @@ export type ClientPlanCatalog = {
       maximumSelectableQuantity: number | null;
     }>;
   } | null;
+  commercialPolicyDecisions: ClientCommercialPolicyDecision[];
   plans: Array<{
     code: string;
     name: string;
@@ -1432,6 +1499,7 @@ export type ClientPlanCatalog = {
     billingCycle: BillingCycle;
     current: boolean;
     selectable: boolean;
+    commercialPolicyDecisions: ClientCommercialPolicyDecision[];
     features: Array<{
       featureCode: string;
       displayName: string;
@@ -1458,6 +1526,8 @@ export type ClientPlanCatalog = {
       exclusionCodes: string[];
       features: unknown[];
       prices: CatalogPrice[];
+      selectable: boolean;
+      commercialPolicyDecisions: ClientCommercialPolicyDecision[];
     }>;
     quotaPackages: Array<{
       code: string;
@@ -1477,6 +1547,8 @@ export type ClientPlanCatalog = {
       prices: CatalogPrice[];
       directlyAvailable: boolean;
       requiresAddOnCodes: string[];
+      selectable: boolean;
+      commercialPolicyDecisions: ClientCommercialPolicyDecision[];
     }>;
     prices: CatalogPrice[];
   }>;
@@ -1515,6 +1587,12 @@ export type SubscriptionChangePreview = {
     requestedLimit: number | null;
     message: string;
   }>;
+  commercialPolicyEvaluation: SubscriptionCommercialPolicyEvaluation | null;
+};
+
+/** Client review projection; it structurally cannot expose policy/activation/effect identities. */
+export type ClientSubscriptionChangePreview = Omit<SubscriptionChangePreview, "commercialPolicyEvaluation"> & {
+  commercialPolicyEvaluation: ClientCommercialPolicyEvaluation | null;
 };
 
 export type QuotaPackageSelection = { packageCode: string; quantity: number };
@@ -1578,6 +1656,7 @@ export type SubscriptionEntitlementSnapshot = {
     priceEntryId: UUID | null;
   }>;
   planPriceEntryId: UUID | null;
+  commercialPolicyEvaluation: SubscriptionCommercialPolicyEvaluation | null;
 };
 
 export type AdminSubscription = {
@@ -1624,7 +1703,17 @@ export type SubscriptionAccountOwnerLookup = {
   account: SubscriptionAccountListItem;
 };
 
-export type SubscriptionChangeOperation = {
+/** Client checkout projection without provider references or manual-settlement provenance. */
+export type ClientSubscriptionCheckout = {
+  id: UUID;
+  status: "PENDING_CONFIRMATION" | "CONFIRMED" | "FAILED" | "CANCELLED";
+  amount: ExactDecimal;
+  currencyCode: string;
+  gatewayAttemptStatus: "SUCCESS" | "FAILED" | "PENDING" | null;
+  confirmedAt: Instant | null;
+};
+
+type SubscriptionChangeOperationCore = {
   id: UUID;
   createdAt: Instant;
   updatedAt: Instant;
@@ -1633,12 +1722,22 @@ export type SubscriptionChangeOperation = {
   effectiveAt: Instant | null;
   sourcePlanCode: string;
   targetPlanCode: string;
+};
+
+export type SubscriptionChangeOperation = SubscriptionChangeOperationCore & {
+  attentionCode: "OPERATOR_ASSISTANCE_REQUIRED" | null;
+  checkout: ClientSubscriptionCheckout | null;
+  commercialPolicyEvaluation: ClientCommercialPolicyEvaluation | null;
+};
+
+export type AdminSubscriptionChangeResult = SubscriptionChangeOperationCore & {
   attentionReason: string | null;
   checkout: SubscriptionCheckout | null;
+  commercialPolicyEvaluation: SubscriptionCommercialPolicyEvaluation | null;
 };
 
 /** Operator-only subscription history. These fields are intentionally absent from the client DTO. */
-export type AdminSubscriptionChangeOperation = SubscriptionChangeOperation & {
+export type AdminSubscriptionChangeOperation = AdminSubscriptionChangeResult & {
   requestOrigin: "CLIENT" | "PLATFORM_ADMIN" | "SYSTEM";
   requestedByUserId: UUID | null;
   requestReason: string | null;
@@ -1651,60 +1750,17 @@ export type AdminSubscriptionChangeOperation = SubscriptionChangeOperation & {
 export type SubscriptionChangeApplyResponse = {
   subscription: Subscription;
   preview: SubscriptionChangePreview;
+  operation: AdminSubscriptionChangeResult;
+};
+
+export type ClientSubscriptionChangeApplyResponse = {
+  subscription: Subscription;
+  preview: ClientSubscriptionChangePreview;
   operation: SubscriptionChangeOperation;
 };
 
 export type AdminSubscriptionChangeApplyInput = SubscriptionChangeApplyInput & {
   reason: string;
-};
-
-export type SubscriptionOverridesInput = {
-  addOnCodes: string[];
-  quotaPackages: QuotaPackageSelection[];
-};
-
-export type SubscriptionOverrideChoicePage<T> = {
-  content: T[];
-  retainedSelections: T[];
-  page: number;
-  size: number;
-  hasMoreCandidates: boolean;
-};
-export type SubscriptionAddOnOverrideChoice = {
-  productId: UUID;
-  code: string;
-  name: string;
-  featureCodes: string[];
-  requiredAddOnCodes: string[];
-  priceEntryId: UUID;
-  unitPrice: ExactDecimal;
-  currencyCode: string;
-  billingCycle: BillingCycle;
-  state: RetainedEntitlementState;
-  retained: boolean;
-  removable: boolean;
-  unavailabilityReasons: ExtensionAvailabilityIssue[];
-};
-export type SubscriptionQuotaPackageOverrideChoice = {
-  productId: UUID;
-  code: string;
-  name: string;
-  featureCode: string;
-  resource: string;
-  capacityPerUnit: number;
-  repeatable: boolean;
-  maximumQuantity: number;
-  retainedQuantity: number | null;
-  requiredAddOnCodes: string[];
-  priceEntryId: UUID;
-  unitPrice: ExactDecimal;
-  currencyCode: string;
-  billingCycle: BillingCycle;
-  state: RetainedEntitlementState;
-  retained: boolean;
-  removable: boolean;
-  quantityEditable: boolean;
-  unavailabilityReasons: ExtensionAvailabilityIssue[];
 };
 
 export type ManualCheckoutConfirmationInput = {
