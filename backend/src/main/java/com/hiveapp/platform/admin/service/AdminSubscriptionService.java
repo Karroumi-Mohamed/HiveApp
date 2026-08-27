@@ -1,6 +1,7 @@
 package com.hiveapp.platform.admin.service;
 
 import com.hiveapp.platform.admin.dto.AdminSubscriptionDto;
+import com.hiveapp.platform.admin.dto.SubscriptionAccountOperationalListItemDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
@@ -8,10 +9,12 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -25,16 +28,24 @@ import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
  * service instead of being completed by the controller.
  */
 public interface AdminSubscriptionService {
-    Page<AccountDirectoryEntryDto> searchAccounts(String query, Pageable pageable);
+    Page<SubscriptionAccountOperationalListItemDto> searchAccounts(
+            String query,
+            Boolean accountActive,
+            SubscriptionStatus subscriptionStatus,
+            Boolean hasSubscription,
+            Pageable pageable);
+    Page<AccountDirectoryEntryDto> chooseAccounts(
+            String query, Boolean active, Pageable pageable);
+    List<AccountDirectoryEntryDto> resolveAccountChoices(Collection<UUID> ids);
     Page<AssignablePlanPriceDto> listAssignablePlanPrices(
             String search, String currencyCode, BillingCycle billingCycle, Pageable pageable);
     SubscriptionOverrideChoicePage<SubscriptionAddOnOverrideChoiceDto> chooseAddOnOverrides(
-            UUID accountId, String search, java.util.Collection<String> selectedAddOnCodes,
+            UUID accountId, String search, Collection<String> selectedAddOnCodes,
             Pageable pageable);
     SubscriptionOverrideChoicePage<SubscriptionQuotaPackageOverrideChoiceDto>
             chooseQuotaPackageOverrides(
                     UUID accountId, String search, String featureCode, String resource,
-                    java.util.Collection<String> selectedAddOnCodes, Pageable pageable);
+                    Collection<String> selectedAddOnCodes, Pageable pageable);
     AdminSubscriptionDto getSubscription(UUID accountId);
     SubscriptionDto createSubscription(
             UUID accountId, String planCode, ProductPriceSelectionRequest priceSelection);
