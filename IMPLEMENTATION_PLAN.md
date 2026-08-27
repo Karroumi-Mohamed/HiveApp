@@ -1008,7 +1008,7 @@ flowchart TD
 - **Acceptance Criteria**: Prices are saved with explicit currencies (e.g. `USD`).
 - **Tests**: Money/payment value tests, currency-safe billing calculation and validation tests, and API/persistence integration assertions.
 - **Future UI Flow**: Billing history lists.
-- **Execution Status**: Implemented on 2026-08-10. Plan, add-on, quota-unit, subscription-current, snapshot, preview, catalog, and payment-request amounts now carry normalized ISO currency. Arithmetic rejects mixed currencies and unsafe minor-unit precision; no implicit FX is performed. Immutable price-book revisions and financial ledgers remain in their later scheduled batches.
+- **Execution Status**: Implemented on 2026-08-10. Plan, add-on, quota-unit, subscription-current, snapshot, preview, catalogue, and payment-request amounts now carry normalized ISO currency. Arithmetic rejects mixed currencies and unsafe minor-unit precision; no implicit FX is performed. Immutable multi-cycle Price books were completed and audited in Phase 9; only the invoice/payment/credit/refund and reconciliation ledgers remain for Phase 13.
 
 ---
 
@@ -1174,7 +1174,7 @@ flowchart TD
 - **Acceptance Criteria**: Trialing accounts display trial bounds.
 - **Tests**: Trial access integration tests.
 - **Future UI Flow**: Subscription Billing status dashboard.
-- **Execution Status**: Completed on 2026-08-10. Admins can create a bounded trial under the Account lock, and shared usable-subscription reads make TRIALING visible with explicit UTC bounds in client and admin responses.
+- **Execution Status**: Trial visibility completed on 2026-08-10: shared usable-subscription reads make `TRIALING` visible with explicit UTC bounds in client and admin responses. The direct admin trial shortcut was retired in Phase 10; its safe replacement is a reviewed first-class Phase 12 operation.
 
 #### [IMPLEMENT] SUBSCRIPTION-005 — Admin overrides can grant out-of-plan features with no defined price
 - **Prerequisites**: SUBSCRIPTION-004.
@@ -1763,11 +1763,11 @@ flowchart TD
 
 - **Prerequisites**: Phase 9.
 - **Action**: IMPLEMENT.
-- **Description**: Implement typed versioned policy targets/effects, deterministic precedence, lifecycle, preview, immutable affected-set snapshots, immediate/renewal/scheduled execution, cancel/retry, history, and client effective-term explanations. V1 discounts are fixed-Money or percentage-with-cap reductions of the subscription subtotal, never surcharges or client-provided values, and do not stack. Activated audiences are static snapshots; approved scheduled work executes as `SYSTEM` from immutable evidence, while edits/cancellation require current authority. Policy windows govern new operations and never silently mutate an accepted subscription snapshot.
-- **Tests**: Target isolation, effect validation, priority/restriction precedence, expiry, revision immutability, stale preview, concurrent subscription change, partial result/retry, audit, and client privacy.
+- **Description**: Implement typed versioned policy targets/effects, deterministic precedence, lifecycle, preview, immutable affected-set snapshots, history, client effective-term explanations, and one-Account immediate/at-renewal application through the reviewed subscription engine. V1 discounts are fixed-Money or percentage-with-cap reductions of the subscription subtotal, never surcharges or client-provided values, and do not stack. Policy windows govern new operations and never silently mutate an accepted subscription snapshot. Segment targeting is Phase 11; selected/filtered/scheduled jobs, free periods, renewal instructions, cancel/retry/progress, and execution cutoffs are Phase 12.
+- **Tests**: Target isolation, effect validation, priority/restriction precedence, expiry, revision immutability, stale preview, concurrent subscription change, exact accepted provenance, retained catalogue terms, dependency-safe grants, audit, and client privacy.
 - **Future UI Flow**: Paginated policy table, guided policy builder, target simulator, impact/execution views, Account policy history.
 
-**Execution status — backend foundation implemented and independently audited 2026-08-27; application/UI in progress:** Typed policy revisions, closed effect/target vocabularies, deterministic precedence, bounded operational APIs, immutable activation audiences, separately authorized ownership, signed activation review, concurrency-safe lifecycle, and audit/history are implemented. Activation deliberately performs no subscriber or settlement mutation. The remaining slice integrates winning policy effects and provenance into explicit subscription preview/apply, then delivers and audits the admin workbench; Segment activation stays blocked until Phase 11.
+**Execution status — complete and independently audited 2026-08-27:** Typed policy revisions, closed one-Account/explicit-set/Plan-revision targets, deterministic precedence, bounded operational APIs, immutable activation audiences, separately authorized ownership, signed activation review, concurrency-safe lifecycle, and audit/history are implemented. Activation deliberately performs no subscriber or settlement mutation. Winning fixed-price/discount/quota/product block/grant effects are recomputed inside explicit one-Account subscription preview/apply and persisted with exact provenance. Admin and client surfaces preserve their privacy boundary, exact retained catalogue terms, dependency-safe zero-price grants, signed-evidence replacement, loading/error/conflict states, and fine-grained permissions. Segment targeting stays Phase 11; reviewed trial/lifecycle commands, selected/filtered/scheduled jobs, free periods, renewal instructions, retry/progress/cutoff handling stay Phase 12.
 
 # Phase 11: Segments, campaigns, and offers
 
@@ -1797,8 +1797,8 @@ flowchart TD
 
 - **Prerequisites**: Phase 11.
 - **Action**: IMPLEMENT.
-- **Description**: Complete one/selected/filtered Account operations with immutable preview sets, now/renewal/scheduled timing, per-Account transactions/results, cancellation cutoff, idempotent retry, correction, lifecycle commands, policy/Offer source, usage conflicts, communication state, and history.
-- **Tests**: Selection privacy, version conflicts, mixed success, retry, cancel race, renewal execution, usage remediation/grace/restriction, restoration, audit and realistic table drill-down.
+- **Description**: Extend the implemented one-Account reviewed engine to selected/filtered Account operations with immutable preview sets, scheduled timing, per-Account transactions/results, cancellation cutoff, idempotent retry, correction, reviewed trial creation, lifecycle commands, policy/Offer source, usage conflicts, communication state, and history.
+- **Tests**: Trial creation/replacement/expiry, selection privacy, version conflicts, mixed success, retry, cancel race, renewal execution, usage remediation/grace/restriction, restoration, audit and realistic table drill-down.
 - **Future UI Flow**: Subscriber workbench, bulk-operation wizard, progress/result detail, pending-renewal queue, Account commercial timeline.
 
 # Phase 13: Invoice, payment, credit, and refund ledgers
@@ -1902,14 +1902,14 @@ flowchart TD
 | **BILLING-001** | Checkouts activation | IMPLEMENTED FOR CLIENT ACTIVATION | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Durable non-entitling checkout plus guarded, idempotent confirmation and final recheck |
 | **BILLING-003** | Money prices ledger | PARTIAL — MONEY FOUNDATION IMPLEMENTED; LEDGER PHASE 13 | IMPLEMENT | Phase 4/13 | Batch 4.1/13.1 | None | Explicit ISO Money foundation, then immutable invoice/payment/credit/refund evidence and lifecycle tests |
 | **PRICEBOOK-001** | Multi-cycle immutable prices | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.1 | BILLING-003 foundation, PLAN-012, QUOTA-004 | Independent monthly/yearly entries, overlap race protection, exact snapshot identity and client checkout tests |
-| **COMMERCIAL-001** | Extension and policy control | PARTIAL — EXTENSION BACKEND/UI IMPLEMENTED/AUDITED; POLICIES PHASE 10 | IMPLEMENT | Phase 9/10 | Batch 9.2/10.1 | PRICEBOOK-001 | Extension/visibility matrix plus typed target/effect precedence, preview, execution and history tests |
+| **COMMERCIAL-001** | Extension and policy control | IMPLEMENTED/AUDITED THROUGH PHASE 10 | IMPLEMENT | Phase 9/10 | Batch 9.2/10.1 | PRICEBOOK-001 | Extension/visibility matrix, typed precedence/lifecycle, signed preview, one-Account application, exact accepted provenance, client privacy and retained-term tests |
 | **COMMERCIAL-002** | Operational product catalogues | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001 | Bounded search/filter/sort, permissions, query count, backend actions/blockers and shared table contracts |
 | **QUOTA-005** | Capacity-package revisions | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001, PRICEBOOK-001 | Revision concurrency, copied policy/prices, immutable snapshots, lifecycle/history and admin revise flow |
 | **MARKETING-001** | Segments, campaigns and offers | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 11 | Batch 11.1/11.2 | COMMERCIAL-001 | Safe audience snapshots, lifecycle, eligibility privacy, bounded/idempotent redemption and client flow tests |
 | **ANALYTICS-001** | Durable commercial analytics | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 14 | Batch 14.1 | MARKETING-001, BILLING-003 | Time/currency-aware facts, truthful dimensions, stable history and operational drill-down tests |
 | **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
 | **SUBSCRIPTION-003**| Periods scheduler | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-002 | UTC history, scheduled trial/free/paid transitions and renewal operations |
-| **SUBSCRIPTION-004**| Trial visibility | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-003 | Admin-created bounded trial visible to Account |
+| **SUBSCRIPTION-004**| Trial visibility | IMPLEMENTED; REVIEWED CREATION PHASE 12 | IMPLEMENT | Phase 4/12 | Batch 4.5/12.1 | SUBSCRIPTION-003 | Trialing Account visibility is complete; retired direct admin creation returns only as a reviewed operation |
 | **SUBSCRIPTION-005**| Overrides pricing | IMPLEMENTED BY CONTRACT CHANGE | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-004 | Raw grants removed; only priced AddOn/package identities |
 | **SUBSCRIPTION-006**| Dynamic repairs | IMPLEMENTED FOR UNPUBLISHED SCHEMA | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-005 | Mandatory snapshots and fail-closed consumers; no legacy database |
 | **SUBSCRIPTION-007**| Downgrade safety checks | IMPLEMENTED FOR PLAN CHANGES | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Feature-owned fail-closed immediate/renewal impact checks |
@@ -1921,7 +1921,7 @@ flowchart TD
 | **PLAN-008** | PlanFeature schema | PARTIAL — EXPLICIT MODES IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | INCLUDED/OPTIONAL_ADD_ON/BLOCKED_FOR_PLAN; subscriber removal later |
 | **PLAN-009** | Deletion preview | IMPLEMENTED FOR CURRENT MODEL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-007 | Counted blockers, state token, code confirmation, lock/recheck, draft-only deletion |
 | **PLAN-010** | Cloning Wizard | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Explicit empty/duplicate/revise commands and durable source/lineage identity |
-| **PLAN-011** | Subscriber management | PARTIAL — READ FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-010 | Bounded searchable/status-filtered history and separate owner-email permission |
+| **PLAN-011** | Subscriber management | PARTIAL — ONE-ACCOUNT REVIEWED WORKBENCH IMPLEMENTED/AUDITED | IMPLEMENT | Phase 5/9/12 | Batch 5.1/9.3/12.1 | PLAN-010 | Bounded privacy-separated lookup/history plus signed immediate/renewal apply; reviewed trial/lifecycle and selected/filtered/scheduled jobs remain |
 | **PLAN-012** | Explicit AddOn | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Versioned aggregate, admin API, AddOn-owned quota packages, selection, catalog, snapshots, billing |
 | **PLAN-005** | Immutable snapshots | PARTIAL — VERSIONED TERM HISTORY IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Plan/AddOn/package versions, term prices, effective periods, and operation history; lineage/billing ledgers separate |
 | **TIME-001** | Unified Timestamps | IMPLEMENTED | VERIFY FIRST | Phase 5 | Batch 5.5 | None | UTC Instant persistence and offset-explicit JSON verified |

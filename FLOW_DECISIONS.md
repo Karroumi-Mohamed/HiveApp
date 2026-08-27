@@ -55,8 +55,8 @@ This table will be updated as the relevant source folders are reviewed.
 | Admin users | Create platform operators and control their access | Reviewed | Deactivation effects, SuperAdmin protection, recovery from total operator lockout |
 | Admin roles | Group platform-control permissions | Reviewed | Safe grant/revoke ceiling, deletion, inactive-role effects, audit |
 | Platform features | Inspect and operationally control code-defined capabilities | Not fully reviewed | Which states are editable, activation effects, subscribed-user effects |
-| Plans | Define sellable templates, included features, prices, and quotas | Not fully reviewed | Lifecycle, deletion/archive, editing, duplication, subscriber plan changes, history |
-| Subscriptions | Manage one account's purchased entitlement | Not fully reviewed | Account search, replace/cancel, overrides, immediate/renewal/scheduled plan changes, billing effects |
+| Plans | Define sellable templates, included features, prices, and quotas | Reviewed and independently audited through Phase 9 | Later bulk/scheduled subscriber operations and financial/analytics effects |
+| Subscriptions | Manage one account's purchased entitlement | Reviewed and independently audited through Phase 10 | Reviewed trial/lifecycle commands, selected/filtered/scheduled jobs, settlement and analytics |
 
 ---
 
@@ -763,21 +763,20 @@ Current entity-level facts already observed:
 - `Subscription` points to a plan but also stores an entitlement snapshot, overrides, status, current price, and period end.
 - Successful registration currently expects a FREE plan.
 
-The main plan/subscription services, APIs, repositories, seeder, billing, entitlement, quota, and usage code have now been reviewed. Migrations, tests, security-policy ordering, payment integration, and frontend behavior still need verification before product decisions become final.
+The Plan/Product catalogues and one-Account subscription workbench have been implemented and independently audited through Phases 9 and 10. Reviewed trial/lifecycle commands, selected/filtered/scheduled jobs, settlement ledgers, reconciliation, and durable analytics remain their numbered later phases.
 
 ## Plan administration capability map
 
 This review must define both what exists now and the complete admin product to build.
 
-**Current backend skeleton**
+**Delivered operational foundation**
 
-- Create a plan and optionally inherit feature/quota composition from another plan or `FREE`.
-- Edit plan name, description, price, and billing cycle.
-- Toggle one active boolean and hard-delete a plan only when it has no subscription history.
-- View plan detail counts/warnings and current/trialing subscribers.
-- Add, update, list, and remove PlanFeatures with add-on price and quota configuration.
-- Manually create an Account subscription and apply direct feature/quota overrides.
-- Store a subscription entitlement snapshot, so later template edits do not automatically rewrite existing customer access.
+- Create a blank Plan or explicit duplicate, compose Feature-owned quotas, revise published products, compare revisions, and manage lifecycle/availability/visibility with backend-derived actions and blockers.
+- Manage independently versioned AddOns, capacity packages, and immutable monthly/yearly Price-book entries rather than mutable price columns.
+- Inspect bounded product catalogues, Plan subscribers, warnings, impact/history, current and historical subscription terms, and narrow Account/owner lookup surfaces.
+- Review and apply one-Account immediate or at-renewal subscription changes using exact prices, typed product selections, usage conflicts, policy-adjusted terms, required reason, and short-lived signed evidence.
+- Preserve exact accepted snapshots and provenance; later catalogue or policy changes do not rewrite them.
+- Direct admin subscription create/trial/raw-override mutations are retired. Registration-time internal FREE provisioning is the sole bootstrap exception.
 
 **Admin product capabilities that must be decided and built**
 
@@ -1198,19 +1197,19 @@ Changing either policy on a published product requires a new commercial revision
 
 ## COMMERCIAL-FLOW-004 — Typed Account commercial policies and precedence
 
-**Status:** `DECIDED — 2026-08-26`
+**Status:** `IMPLEMENTED THROUGH PHASE 10 — INDEPENDENTLY AUDITED 2026-08-27`
 
 Commercial policies provide reusable operator tools without hard-coding a business strategy.
 
-- Targets are one Account, explicit Accounts, a typed Segment, or subscribers of one Plan revision. The backend snapshots the affected set for preview/execution.
-- Initial typed effects are product allow/block, fixed Money adjustment, percentage discount with explicit maximum, free recurring periods, finite quota bonus, time-bounded AddOn/package grant, and renewal instruction.
+- Delivered targets are one Account, explicit Accounts, or subscribers of one Plan revision. Typed Segment targeting becomes available with the Phase 11 resolver. The backend snapshots the affected set for activation and preserves accepted provenance.
+- Delivered effects are product allow/block, Feature block, fixed recurring subscription price, fixed-Money discount, percentage discount with explicit maximum, finite quota bonus, and bounded AddOn/package grant. Free recurring periods and renewal instructions remain Phase 12.
 - Every policy has source, reason, owner, actor, lifecycle, priority, effective window, expiry or explicit permanence, optional approval/contract reference, preview version, and audit.
 - Direct Account policy outranks Segment policy. At equal priority, restriction wins over grant. Purchased extensions precede commercial adjustments, while platform hard safety ceilings and Account governance restrictions always win.
 - One-Account and explicit Account-set targets have the same direct-target specificity and both outrank Plan-revision and Segment audiences. A Plan-revision audience includes current `TRIALING`, `ACTIVE`, `PAST_DUE`, and `SUSPENDED` subscribers; terminal subscription history is excluded.
 - An active policy is immutable; editing creates a draft revision. Expiry stops future effect and never rewrites historical snapshots, invoices, or operations.
 - Activation approves the exact immutable policy revision and snapshots its Account audience; it does not itself alter subscriptions, entitlements, prices, invoices, or payments. Segment activation remains unavailable until the typed Segment resolver exists.
 - Time-bounded AddOn and capacity-package grants require an explicit end. Platform hard limits remain non-overridable, and every accepted subscription operation snapshots the exact winning policy revision/effects so later expiry or revision cannot rewrite accepted terms.
-- Policy activation and any later Account application require backend impact preview, version recheck, per-Account result, idempotent retry, and cancellation before the execution cutoff. Application always uses an explicit immediate/renewal/scheduled subscription operation rather than an activation side effect.
+- Policy activation and later Account application are separate. One-Account immediate/at-renewal application is delivered through the signed subscription preview/apply operation, including locked recomputation and accepted-effect provenance. Selected/filtered/scheduled application, per-Account job results, retry, and cancellation cutoff remain Phase 12.
 
 ## COMMERCIAL-FLOW-005 — Reviewed commercial writes use operation-bound evidence
 
@@ -1274,7 +1273,7 @@ Admins should not normally paste a raw UUID. Provide authorized paginated lookup
 
 ## SUBSCRIPTION-FLOW-002 — Replacing an account's plan
 
-**Status:** `DECIDED — SOURCE IMPLEMENTATION INCOMPLETE`
+**Status:** `IMPLEMENTED FOR ONE ACCOUNT — IMMEDIATE/AT RENEWAL — 2026-08-27`
 
 Required flow:
 
@@ -1282,7 +1281,7 @@ Required flow:
 2. Display current subscription snapshot and overrides.
 3. Select target plan/add-ons/quotas.
 4. Preview entitlement, usage conflicts, and price.
-5. Choose immediate or scheduled effect when supported.
+5. Choose immediate or at-renewal effect.
 6. Confirm.
 7. Revalidate under an account lock.
 8. Create history-preserving replacement state.
@@ -1294,15 +1293,16 @@ Additional decisions:
 - Authorized operators may change the plan immediately. Usage conflicts require an explicit result—grace, temporary exception, restricted state, or remediation—not automatic data deletion.
 - End/preserve the old subscription state and create a new validated snapshot/history entry; never mutate historical purchased terms in place.
 - Authorized manual corrections are supported but require a reason, before/after detail, and complete audit.
+- Selected/filtered populations, arbitrary scheduled instants, reviewed trial/lifecycle commands, job progress, retry, cutoff cancellation, and communication state remain Phase 12.
 
 ## SUBSCRIPTION-FLOW-003 — Account-specific exceptions
 
-**Status:** `DECIDED — PRICING EFFECT DEFERRED`
+**Status:** `TYPED POLICY EFFECTS IMPLEMENTED — GENERAL EXCEPTIONS LATER`
 
-- Exceptions may explicitly grant or restrict sellable client features/quotas within code-owned safety boundaries. They never enable internal, platform-control, inactive, or non-sellable capabilities.
-- Every exception stores source/type, reason, actor, effective time, and either expiry or explicit permanent status. Approver/contract reference may be attached when the business process requires it.
-- During any plan change, preview every exception and require an explicit decision to retain, remove, or replace it after validating the target plan. Never carry exceptions blindly.
-- Direct restrictions and grants remain source-visible in the effective-access UI and audit. Deferred pricing work determines their commercial charge/credit behavior.
+- Phase 10 typed policies can grant/block eligible products, block client Features, apply a fixed recurring price or one bounded non-stacking discount, add finite quota, and grant bounded AddOns/packages within code-owned safety boundaries. They never enable internal, platform-control, inactive, or non-sellable capabilities.
+- Every accepted effect retains policy revision/source, reason, owner/actor, target specificity, priority, effective window, and exact result provenance. Later expiry or revision cannot rewrite accepted terms.
+- Subscription preview exposes the winning policy-adjusted terms and conflicts; apply recomputes them under locks and snapshots the result. Restrictions outrank grants at equal specificity/priority, and direct targets outrank Plan/Segment audiences.
+- General negotiated exceptions, grace/restricted-state remediation, free periods, and renewal instructions remain later work rather than raw override fields.
 
 ## SUBSCRIPTION-FLOW-004 — Cancellation, suspension, and expiration
 
@@ -1477,6 +1477,7 @@ Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
+| 2026-08-27 | Retire direct admin subscription create, trial, and raw-override mutations; require signed reviewed operation evidence for subscriber-affecting admin changes, with internal registration-time FREE provisioning as the sole bootstrap exception | A privileged shortcut can bypass exact product/price/policy review, usage conflicts, concurrency checks, provenance, and history; trial creation must therefore return only as a first-class reviewed Phase 12 operation | Admin subscription API and Permissionizer nodes, Account workbench, registration provisioning, trial/lifecycle operations, audit and frontend flows |
 | 2026-08-27 | Separate commercial-policy approval from subscriber application and freeze each accepted audience/effect provenance | Activating a reusable rule is not consent to rewrite every current subscription; immutable audience snapshots plus explicit reviewed subscription operations preserve operator intent, concurrency safety, and historical terms | Commercial-policy lifecycle/activation, Account audiences, subscription preview/apply, policy explanations, future bulk execution and settlement |
 | 2026-08-27 | Bind reviewed cross-aggregate commercial writes to short-lived signed evidence and revalidate under one lock order | A browser-supplied count or stale preview version cannot prove which registry/catalogue state, actor, target, and result were reviewed; operation-bound evidence plus locked recomputation prevents substitution and TOCTOU writes without turning the token into authorization | Plan/AddOn/package/Price activation, availability and deletion, subscription changes, future policies/offers/bulk operations, audit and frontend confirmation flows |
 | 2026-08-26 | Keep V1 commercial-policy pricing to one non-stacking subtotal discount and make policy audiences/execution evidence immutable | Subtotal-only fixed/percentage discounts avoid ambiguous line allocation and surcharges; static affected sets and authorized `SYSTEM` execution keep scheduled work reproducible without silently following later Segment or operator-permission changes | Commercial-policy effects and precedence, audience snapshots, scheduled execution, subscription operations, invoices, client explanations and audit |

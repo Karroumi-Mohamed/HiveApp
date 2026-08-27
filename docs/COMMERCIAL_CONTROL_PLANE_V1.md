@@ -87,25 +87,28 @@ Price is not a mutable field on a published product definition.
 
 Commercial policies are not permissions and are not arbitrary scripts. They are typed, auditable operations over a bounded target.
 
-V1 target kinds:
+Target kinds are deliberately closed rather than user-authored expressions. Through Phase 10, the delivered target kinds are:
 
 - one Account;
 - an explicit set of Accounts;
-- a reusable Segment;
 - subscribers of a selected Plan revision.
 
-V1 effects:
+A reusable typed Segment is the Phase 11 extension of this same target contract; it is not represented as delivered by Phase 10.
+
+Delivered Phase 10 effects are:
 
 - allow or block selection of a Plan/Add-on/package;
 - fixed Money discount or percentage discount with an explicit maximum amount;
-- included free period;
+- fixed recurring subscription price;
+- block a client Feature;
 - additive finite quota bonus;
 - grant a selected Add-on/package for a bounded period;
-- renewal instruction: continue, change to a selected snapshot, end at period end, or manual review.
+
+Included free periods and renewal instructions—continue, change to a selected snapshot, end at period end, or manual review—remain Phase 12 operation-engine work.
 
 Every policy has a reason, owner, start/end, status, priority, source, optional approval/contract reference, preview, affected-set snapshot, and audit. Conflicting effects resolve deterministically; direct Account policy wins over Segment policy, restrictions win over grants at equal priority, and platform hard limits always win.
 
-Policy activation requires a fresh backend preview. Editing an active policy creates a revision; it does not rewrite the evidence used for earlier subscriptions or invoices.
+Policy activation requires a fresh backend preview. It approves and snapshots a reusable policy definition and its audience; it does not alter any subscriber. Editing an active policy creates a revision, and only a separately reviewed subscription preview/apply operation can accept an applicable policy into an Account's terms. Neither action rewrites evidence used for earlier subscriptions or invoices.
 
 V1 deliberately keeps policy execution narrow and explainable:
 
@@ -140,19 +143,27 @@ An Offer belongs to a Campaign revision and contains one or more typed commercia
 
 Every subscriber-affecting action is an operation, not an edit to historical data.
 
-Supported timing:
+Delivered for one Account through Phase 10:
 
 - now;
 - at the Account's next renewal;
-- at a scheduled instant.
 
-Supported targets:
+The reviewed workbench stores the before/target snapshots, conflicts, exact accepted products and prices, policy provenance, actor, reason, and signed review evidence. It revalidates concurrent state under the Account and commercial lock order before applying.
+
+Phase 12 extends this same operation contract with:
+
+- execution at a scheduled instant;
+- first-class reviewed trial and subscription-lifecycle commands;
+- selected Accounts and immutable backend-resolved filtered populations;
+- per-Account progress/results, resumable retry, cancellation cutoff, correction, and communication state.
+
+The complete target vocabulary is therefore:
 
 - one Account;
 - selected Accounts;
 - an immutable backend-resolved filtered population.
 
-Each operation stores a preview version, selection criteria, affected Account ids, before/target snapshots, conflicts, requested communication, actor, reason, status, progress, and per-Account result. Execution is transactional per Account, idempotent, resumable, cancellable before cutoff, and rechecks concurrent subscription changes.
+Bulk execution is transactional per Account, idempotent, resumable, cancellable before cutoff, and rechecks concurrent subscription changes; those job semantics are Phase 12 rather than a claim about the delivered one-Account surface.
 
 No operation silently deletes data. Over-limit or removed-entitlement outcomes require remediation, grace, a time-bounded exception, or declared restricted behavior.
 
@@ -198,7 +209,7 @@ Every chart endpoint accepts a bounded time range, timezone, interval, and safe 
 - Stale, malformed, expired, cross-actor, or cross-operation review evidence returns a stable conflict and performs no write.
 - Bulk actions never trust client-submitted hidden populations; the backend snapshots and signs/resolves the affected set.
 - Audit stores actor, action, target, reason, before/after identifiers, outcome, and correlation id without secrets or raw provider payloads.
-- Client APIs expose only their Account's eligible catalog, offers, snapshots, invoices, and operations.
+- Client APIs expose only their Account's eligible catalogue, effective terms, conflicts, stable `attentionCode`, safe checkout state, snapshots, offers, invoices, and operations. They do not expose operator identities, internal request/cancellation provenance, raw attention reasons, provider/manual-settlement evidence, or full policy internals. Admin contracts retain the operational actor, reason, request/cancellation, checkout, and policy evidence required to investigate and act.
 
 ## 11. Admin UX contract
 
@@ -223,4 +234,8 @@ Commercial screens are operational tools, not entity CRUD forms.
 
 Each slice requires backend and frontend real-life workflow audits before the next slice is considered complete.
 
-**Delivered through Phase 9 (2026-08-27):** operational Plan/AddOn/capacity-package/Price-book catalogues, product revision and availability/visibility controls, exact-price subscription review/apply, quota-package revisions, bounded subscription Account discovery, signed reviewed mutations, and their admin/client surfaces are implemented and independently audited. Typed policies, Segments/Campaigns/Offers, execution jobs/renewals, settlement ledgers, and durable analytics remain the numbered later slices and are not represented as complete.
+**Delivered through Phase 10 (2026-08-27), with independent backend and frontend audits:** operational Plan/AddOn/capacity-package/Price-book catalogues; product revision and availability/visibility controls; exact-price one-Account subscription review/apply for immediate and at-renewal changes; quota-package revisions; bounded Account discovery; signed reviewed mutations; typed commercial-policy definition, precedence, activation, evaluation, accepted-effect provenance, and admin/client surfaces. Activation is approval of a reusable rule, never subscriber application.
+
+Existing Accounts retain the exact accepted Plan/AddOn/package revision and Price-book-entry identities, amounts, currency/cycle, and package quantity even if those catalogue items later become paused, inactive, direct-only, or otherwise unavailable for new selection. A retained item remains visible and removable, but cannot be newly selected or increased unless it is currently eligible.
+
+Typed Segments/Campaigns/Offers remain Phase 11; reviewed trial/lifecycle commands, free periods, renewal instructions, selected/filtered/scheduled execution and job retry/progress/cutoff handling remain Phase 12; settlement ledgers remain Phase 13; durable analytics remain Phase 14. None is represented as complete here.

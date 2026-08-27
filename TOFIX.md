@@ -724,8 +724,8 @@ Create one authoritative "usable subscription" query/state rule and apply it con
 **Implementation evidence — 2026-08-10**
 
 - Repository and service reads use the shared `ACTIVE`-then-`TRIALING` usable-subscription rule.
-- Admins can create a bounded trial for an Account, replacing any prior usable subscription under the Account lock.
-- Client subscription/catalog DTOs expose the trial status and UTC start/end bounds; integration coverage proves the Account can read the admin-created trial.
+- Client subscription/catalog DTOs expose the trial status and UTC start/end bounds; integration coverage proves a trialing Account can read and use the same subscription surface consistently.
+- The direct admin trial-creation route was retired in Phase 10 together with other subscriber-affecting shortcuts. A reviewed, first-class trial operation remains under `PLAN-011` for Phase 12 rather than reopening the unsafe route.
 
 ---
 
@@ -1052,16 +1052,13 @@ A copied plan can become sellable before review, admins cannot understand its or
 
 ### PLAN-011 — Admin subscriber management is a collection of single-record endpoints, not the decided operational flow
 
-**Status:** `PARTIALLY RESOLVED — OPERATIONAL READ FOUNDATION IMPLEMENTED 2026-08-10`
+**Status:** `PARTIALLY RESOLVED — ONE-ACCOUNT REVIEWED WORKBENCH IMPLEMENTED AND AUDITED 2026-08-27`
 
-**Evidence**
+**Remaining evidence**
 
-- The plan subscriber endpoint returns one unpaginated list and includes only `ACTIVE` and `TRIALING`; `PAST_DUE`, cancelled history, search, filters, and controlled owner-email lookup are absent.
-- Plan detail exposes counts and sums `currentPrice`, but this is configured recurring price rather than proven collected revenue.
-- Admin subscription lookup and mutation require a raw Account UUID. The API supports only get, create/replace one subscription, and overwrite its override payload.
-- There is no backend preview token/version, selected/filtered bulk population, scheduled or renewal-time execution, per-Account job result, conflict handling, idempotent retry, cancellation cutoff, or correction operation.
-- Account exceptions have no durable reason, actor, effective/expiry dates, approval/contract reference, grant-versus-restrict meaning, or explicit retain/remove/replace decision during a plan change.
-- The status enum contains only `ACTIVE`, `PAST_DUE`, `CANCELLED`, and `TRIALING`; there are no distinct commands/transitions for cancel-at-period-end, immediate cancel, suspend, expire, or restore.
+- One-Account immediate and at-renewal changes now use the reviewed operation engine, but selected/filtered populations and arbitrary scheduled execution are not implemented.
+- Reviewed trial creation, cancel-at-period-end, immediate cancellation, suspension, expiry, restoration, correction, progress/retry, and communications are not yet first-class operator commands.
+- General negotiated/grace/restricted-state exceptions remain later than the delivered typed commercial-policy effects.
 
 **Risk**
 
@@ -1082,7 +1079,11 @@ An admin UI built over these endpoints would force unsafe UUID-driven changes, h
 - Plan subscribers are now a bounded page (maximum 100), searchable by Account name and filterable by every subscription status; the default view includes current and historical states rather than silently hiding non-usable subscriptions.
 - Results expose Account/subscription operational identity and explicitly label price as configured recurring price. They do not expose Company/member/business data or describe configured amounts as collected revenue.
 - Exact Account-owner-email lookup is a separate Permissionizer action and response contract, so ordinary subscriber-list permission does not automatically expose owner email.
-- Versioned bulk population previews, immutable affected sets, partial-success jobs/retry, scheduled operations, Account exceptions, lifecycle correction commands, audit, export, and communications remain unresolved and must be implemented before claiming a complete subscriber-management workflow.
+- The audited Account workbench now exposes the current exact purchased snapshot, usage/conflicts, history and pending operation; signed preview, required reason, immediate/at-renewal apply, stale-review recovery, pending cancellation, and checkout confirmation all revalidate under the Account/commercial lock order.
+- Direct admin create/trial/raw-override mutations and their Permissionizer nodes were removed. Internal registration-time FREE provisioning remains the narrow bootstrap exception; reviewed trial creation belongs to Phase 12.
+- Admin responses preserve actor, request/cancellation, checkout and policy provenance. Client responses deliberately expose only safe effective terms, stable attention codes, and checkout state.
+- Exact retained Plan/AddOn/package Price-entry identities and quantities survive later catalogue pause/inactivation/direct-only changes; retained items remain visible/removable but cannot be newly selected or increased.
+- Versioned bulk population previews, immutable affected sets, partial-success jobs/retry, scheduled operations, lifecycle/correction commands, export, and communications remain unresolved and must be implemented before claiming a complete subscriber-management workflow.
 
 ---
 
@@ -2901,26 +2902,25 @@ Restrict the fake gateway to an explicit local/test profile. Production startup 
 
 ---
 
-### BILLING-003 — HiveApp has price calculations but no decided Money, price-book, invoice, or payment ledger
+### BILLING-003 — HiveApp has exact Money and Price books but no invoice or payment ledger
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIAL — MONEY AND IMMUTABLE PRICE BOOKS IMPLEMENTED; FINANCIAL LEDGER PHASE 13`
 
 **Evidence**
 
-- Plan, PlanFeature, current subscription price, and quota pricing use bare `BigDecimal` values without currency. No Money value type or same-currency validation exists.
-- `BillingCycle` labels prices, but no period creation/renewal engine uses it; admin totals can sum monthly and yearly values as though comparable.
-- Billing calculation produces one current number from base plan, feature add-ons, and quota overrides rather than an immutable versioned itemized Plan/AddOn/package price book.
+- Exact ISO-currency Money, independently entered monthly/yearly Price-book entries, overlap protection, and immutable accepted price identity are implemented and audited under `PRICEBOOK-001`.
+- Subscription preview itemizes configured recurring terms by one currency/cycle and does not describe them as settlement or revenue.
 - No reviewed Invoice, InvoiceLine, Payment, Refund/Credit, adjustment, provider event/reference, reconciliation, or idempotency model exists.
 - Price preview, entitlement activation, amount due, settlement, and revenue are not represented as distinct facts.
 
 **Risk**
 
-The UI could display mixed-cycle/mixed-meaning totals as revenue, paid access could activate without money, price edits could rewrite accepted terms, retries could eventually duplicate charges, and support/accounting could not explain or reconcile what an Account owed or paid.
+Without the remaining financial ledgers, UI totals can still be mistaken for invoiced or collected revenue, retries could duplicate external settlement, and support/accounting cannot yet explain or reconcile what an Account owed, paid, credited, or received back. Exact Price-book identity and accepted terms are already protected; this finding no longer treats mutable pricing as unresolved.
 
 **Required fix direction**
 
 - Introduce a Money type using ISO currency and safe decimal/minor-unit rules. One subscription uses one currency/cycle; reject incompatible Plan/AddOn/package/adjustment items and never perform implicit FX conversion.
-- Build immutable exact monthly/yearly price-book versions and itemized calculations for Plan, AddOns, packages, adjustments, and later tax. Zero-priced recurring Plans are valid; perpetual commercial licensing is deferred.
+- Preserve the implemented immutable exact monthly/yearly Price-book contract while deriving future invoice lines from accepted Plan/AddOn/package/policy evidence. Zero-priced recurring Plans are valid; perpetual commercial licensing is deferred.
 - Separate preview from amount due/invoice, pending transaction, confirmed payment/manual settlement, and refund/credit. Only confirmed settlement counts as collected money/revenue.
 - Add versioned invoices/lines and idempotent payment/refund records with provider/manual references and `PENDING`, `SUCCEEDED`, `FAILED`, `PARTIALLY_REFUNDED`, and `REFUNDED` behavior. Zero-price renewals create no fake payment.
 - At renewal, apply the selected new price version for the new period. For immediate mid-period changes, initially support no automatic proration plus explicit audited operator adjustment/credit; defer automatic tax, discounts, metered charging, proration, FX, and automated refunds.
@@ -2933,11 +2933,12 @@ The UI could display mixed-cycle/mixed-meaning totals as revenue, paid access co
 - Plan base prices, PlanFeature add-on prices, quota-unit prices, Subscription current prices, entitlement snapshots, previews, catalogs, admin/client DTOs, and `PaymentRequest` now carry explicit currency.
 - Entity lifecycle validation and billing configuration validation reject missing/invalid currencies and mixed Plan/add-on/quota/subscription amounts. Plan currency cannot change after monetary composition or subscription history exists; unpriced composition may safely be reused across currencies.
 - `BillingCalculator` now returns `Money` for persistence and rejects mixed-currency calculations. Seeded prices are explicitly USD, and focused plus integration tests cover arithmetic, precision, persistence/API exposure, mixed-currency rejection, and safe plan-currency changes.
+- Phase 9 completed independently entered immutable monthly/yearly Price-book entries, exact-decimal APIs, overlap-safe activation, current-selection pause, and exact accepted-price snapshot identity for Plans, AddOns, and capacity packages.
 - No Flyway history was added because the application is unpublished and currently uses a disposable generated H2 schema, per the agreed pre-production database policy.
 
 **Remaining scope**
 
-Immutable price-book revisions, itemized invoices, payment/refund/credit ledgers, settlement states, renewal processing, reconciliation, and grace/past-due behavior remain intentionally scheduled in the later Plan/Subscription/Billing batches. Therefore the broader `BILLING-003` finding is not marked fully resolved by this foundation batch.
+Itemized invoices, payment/refund/credit ledgers, settlement states, renewal recovery, reconciliation, and grace/past-due behavior remain intentionally scheduled for Phase 13. Immutable Price books are complete under `PRICEBOOK-001` and are no longer part of this finding's remaining scope.
 
 ---
 
@@ -3038,7 +3039,7 @@ Fixing published immutability without a revision path leaves normal commercial m
 
 ### COMMERCIAL-001 — Extension targeting and Account commercial policy are encoded as scattered special cases
 
-**Status:** `PARTIAL — EXTENSION BACKEND/UI IMPLEMENTED AND AUDITED 2026-08-27; TYPED POLICIES IN PHASE 10`
+**Status:** `IMPLEMENTED AND INDEPENDENTLY AUDITED THROUGH PHASE 10 — 2026-08-27`
 
 **Evidence**
 
@@ -3055,12 +3056,10 @@ Operators must request new code for each commercial exception or encode business
 - **Implemented:** explicit Plan extension policy and product sales visibility with one backend-computed mandatory-compatibility resolver, client/operator audience privacy, locked final revalidation, immutable snapshot identity, reasoned previewed mutations, and typed history. The independent audit removed the legacy unguarded Plan catalogue and a cross-feature Permissionizer-policy bypass. The full backend baseline is 549 tests.
 - **Implemented:** database-bounded operational product catalogues, narrow choosers, shared admin/client extension UI, exact Price-book selection, signed reviewed writes, and capacity-package revision operations. The compatibility resolver still intentionally loads the complete bounded product/active-price set before response paging and fails closed above its safety ceiling; replacing that internal catalogue-wide evaluation remains a scaling refinement, not a hidden paginated query.
 - **Implemented and independently audited 2026-08-27:** the subscription Account workbench provides change catalogue selection, signed preview, mandatory operator reason, explicit apply, stale-evidence recovery, reasoned cancellation, manual checkout confirmation, and bounded deterministic admin/client history. Durable request/cancellation origin, actor, reason, and time are admin-only; the client projection remains privacy-safe. The frontend audit removed a broad `subscriptions.read` route dependency that blocked independently authorized operations, prevents exact no-op previews, distinguishes awaiting payment from applied entitlement, confirms client cancellation, and shares dependency/exclusion rules across both configurators.
-- Add typed, versioned commercial policies with bounded targets/effects, priority/precedence, effective window, reason/source/actor, preview, affected-set snapshot, execution results, expiry, and audit.
-- **Implemented 2026-08-27:** immutable typed policy revisions/lifecycle, one-Account/explicit-set/Plan-revision targets, blocked Segment activation, typed effects, deterministic direct-over-broad and restriction-over-grant precedence, fine-grained bounded admin APIs, separate owner identity, signed activation review, immutable Account audience snapshots, optimistic/concurrent activation, history, and audit. Activation authorizes the definition only and never mutates subscribers or settlement.
-- **In progress:** evaluate active policy snapshots during explicit subscription preview/apply, persist exact winning effect provenance/explanations into accepted terms, complete the operational admin UI, and independently audit both. General per-Account bulk execution/retry/cancellation remains Phase 12 rather than a hidden activation side effect.
-- Keep the first policy contract deliberately bounded: subtotal-only fixed/percentage discounts (no surcharge and no stacking), static activation audiences, immutable authorized `SYSTEM` execution evidence, and explicit subscription operations for any now/renewal/scheduled effect or expiry. A policy window must never rewrite an accepted snapshot by itself.
-- Reuse the subscription-operation engine for immediate/renewal/scheduled application; never mutate historical snapshots or delete data.
-- Provide paginated/searchable admin APIs for policy list/detail/draft/preview/activate/pause/revise/archive, target simulation, execution/cancel/retry, and history plus minimum client read models for effective terms.
+- **Implemented and independently audited 2026-08-27:** immutable typed policy revisions/lifecycle, one-Account/explicit-set/Plan-revision targets, typed price/discount/quota/product effects, deterministic direct-over-broad and restriction-over-grant precedence, fine-grained bounded admin APIs, separate owner identity, signed activation review, immutable audiences, optimistic/concurrent lifecycle, history, and audit. Activation authorizes the reusable definition only and never mutates subscribers or settlement.
+- **Implemented and independently audited 2026-08-27:** active policy evaluation is part of the exact one-Account subscription preview/apply path. Accepted terms persist exact winning policy/effect provenance and expose privacy-separated admin/client explanations. Fixed recurring price, one non-stacking bounded discount, quota bonuses, blocks, and dependency-safe bounded AddOn/package grants are covered by backend and mounted frontend regressions.
+- Retained historical prices/products remain honest after later catalogue changes; signed review evidence is recomputed under locks; unknown internal errors and operator/provider provenance are not leaked to clients.
+- Segment targeting remains `MARKETING-001`; selected/filtered/scheduled job execution, free periods, renewal instructions, retry/progress/cancellation cutoff and lifecycle commands remain `PLAN-011` Phase 12 rather than hidden policy-activation side effects.
 
 ---
 
