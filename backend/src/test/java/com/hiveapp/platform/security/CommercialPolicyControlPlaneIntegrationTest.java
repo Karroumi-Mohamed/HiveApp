@@ -141,7 +141,7 @@ class CommercialPolicyControlPlaneIntegrationTest extends PlatformShellIntegrati
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].configuredTargetCount").value(2))
                 .andExpect(jsonPath("$.content[0].ownerAdminUserId").doesNotExist())
-                .andExpect(jsonPath("$.content[0].executionSupported").value(false));
+                .andExpect(jsonPath("$.content[0].executionSupported").value(true));
 
         mockMvc.perform(get("/api/admin/commercial-policies/{id}/audience", policyId)
                         .header("Authorization", bearer(token)))
@@ -153,9 +153,8 @@ class CommercialPolicyControlPlaneIntegrationTest extends PlatformShellIntegrati
         JsonNode preview = activationPreview(token, policyId);
         assertThat(preview.get("activatable").asBoolean()).isTrue();
         assertThat(preview.get("affectedAccountCount").asInt()).isEqualTo(2);
-        assertThat(preview.get("executionSupported").asBoolean()).isFalse();
+        assertThat(preview.get("executionSupported").asBoolean()).isTrue();
         assertThat(preview.get("executionBlockers").toString())
-                .contains("SUBSCRIPTION_OPERATION_ENGINE_NOT_CONNECTED")
                 .contains("SCHEDULED_EXECUTION_NOT_AVAILABLE");
         JsonNode active = activate(token, policyId, preview, "Approve exact audience");
         assertThat(active.get("summary").get("status").asText()).isEqualTo("ACTIVE");

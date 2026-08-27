@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionCommercialPolicyEvaluation;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -26,5 +27,6 @@ public record AdminSubscriptionChangeOperationDto(
         SubscriptionChangeOrigin cancellationOrigin,
         UUID cancelledByUserId,
         String cancellationReason,
-        Instant cancelledAt
+        Instant cancelledAt,
+        SubscriptionCommercialPolicyEvaluation commercialPolicyEvaluation
 ) {}

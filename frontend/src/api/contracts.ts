@@ -323,6 +323,248 @@ export type ProductPriceSelection = {
   billingCycle: ProductPriceBillingCycle;
 };
 
+export type CommercialPolicyStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ENDED" | "ARCHIVED";
+export type CommercialPolicyTargetKind = "ACCOUNT" | "ACCOUNT_SET" | "SEGMENT" | "PLAN_REVISION_SUBSCRIBERS";
+export type CommercialPolicySource =
+  | "CONTRACT"
+  | "SALES"
+  | "MARKETING"
+  | "RETENTION"
+  | "SUPPORT"
+  | "COMPLIANCE"
+  | "OTHER";
+export type CommercialPolicyEffectType =
+  | "FIXED_SUBSCRIPTION_PRICE"
+  | "FIXED_DISCOUNT"
+  | "PERCENTAGE_DISCOUNT"
+  | "ALLOW_PRODUCT_SELECTION"
+  | "BLOCK_PRODUCT_SELECTION"
+  | "ADDITIVE_QUOTA_BONUS"
+  | "GRANT_ADD_ON"
+  | "GRANT_QUOTA_PACKAGE"
+  | "BLOCK_FEATURE";
+export type CommercialPolicyProductType = "PLAN" | "ADD_ON" | "QUOTA_PACKAGE";
+export type CommercialPolicyCreationReason = "CREATED" | "DUPLICATED" | "REVISED";
+export type CommercialPolicyAction =
+  | "EDIT_DRAFT"
+  | "DUPLICATE"
+  | "REVISE"
+  | "COMPARE"
+  | "PREVIEW_AUDIENCE"
+  | "PREVIEW_ACTIVATION"
+  | "ACTIVATE"
+  | "PAUSE"
+  | "RESUME"
+  | "END"
+  | "ARCHIVE"
+  | "DELETE_DRAFT"
+  | "READ_HISTORY"
+  | "READ_REVISIONS"
+  | "READ_ACTIVATIONS"
+  | "READ_ACTIVATION_ACCOUNTS"
+  | "READ_OWNER"
+  | "REASSIGN_OWNER";
+export type CommercialPolicyBlocker =
+  | "WRONG_LIFECYCLE_STATE"
+  | "EFFECTIVE_WINDOW_EXPIRED"
+  | "SEGMENT_RESOLUTION_UNAVAILABLE"
+  | "TARGET_NOT_CONFIGURED"
+  | "TARGET_ACCOUNT_MISSING"
+  | "PLAN_REVISION_MISSING"
+  | "EXPLICIT_ACCOUNT_SET_EMPTY"
+  | "EXPLICIT_ACCOUNT_MISSING"
+  | "AUDIENCE_EXCEEDS_ACTIVATION_LIMIT"
+  | "LINEAGE_HAS_MULTIPLE_CURRENT_REVISIONS"
+  | "NO_EFFECTS"
+  | "INVALID_EFFECT"
+  | "PRODUCT_REVISION_MISSING"
+  | "PRODUCT_REVISION_NOT_ACTIVE"
+  | "FEATURE_MISSING"
+  | "FEATURE_NOT_COMMERCIALLY_GRANTABLE"
+  | "QUOTA_RESOURCE_NOT_DECLARED"
+  | "AUDIENCE_CURRENCY_MISMATCH";
+export type CommercialPolicyExecutionBlocker =
+  | "SUBSCRIPTION_OPERATION_ENGINE_NOT_CONNECTED"
+  | "SCHEDULED_EXECUTION_NOT_AVAILABLE";
+
+export type CommercialPolicySummary = {
+  id: UUID;
+  code: string;
+  name: string;
+  status: CommercialPolicyStatus;
+  targetKind: CommercialPolicyTargetKind;
+  targetLabel: string | null;
+  configuredTargetCount: number;
+  effectCount: number;
+  latestAffectedAccountCount: number | null;
+  source: CommercialPolicySource;
+  priority: number;
+  effectiveFrom: Instant;
+  effectiveUntil: Instant | null;
+  lineageId: UUID;
+  revisionNumber: number;
+  creationReason: CommercialPolicyCreationReason;
+  version: number;
+  createdAt: Instant;
+  updatedAt: Instant;
+  availableActions: CommercialPolicyAction[];
+  blockers: CommercialPolicyBlocker[];
+  ownerIdentityRestricted: boolean;
+  executionSupported: boolean;
+  executionBlockers: CommercialPolicyExecutionBlocker[];
+};
+
+export type CommercialPolicyTarget = {
+  kind: CommercialPolicyTargetKind;
+  accountId: UUID | null;
+  accountName: string | null;
+  accountIds: UUID[];
+  planRevisionId: UUID | null;
+  planCode: string | null;
+  planName: string | null;
+  segmentReference: string | null;
+};
+
+export type CommercialPolicyTargetInput = {
+  kind: CommercialPolicyTargetKind;
+  accountId: UUID | null;
+  accountIds: UUID[];
+  planRevisionId: UUID | null;
+  segmentReference: string | null;
+};
+
+export type CommercialPolicyEffectInput = {
+  type: CommercialPolicyEffectType;
+  productType: CommercialPolicyProductType | null;
+  productRevisionId: UUID | null;
+  featureCode: string | null;
+  quotaResource: string | null;
+  quantityDelta: number | null;
+  amount: ExactDecimal | null;
+  currencyCode: string | null;
+  billingCycle: ProductPriceBillingCycle | null;
+  percentage: ExactDecimal | null;
+  maximumAmount: ExactDecimal | null;
+  maximumCurrencyCode: string | null;
+};
+
+export type CommercialPolicyEffect = CommercialPolicyEffectInput & {
+  id: UUID;
+  order: number;
+  productCode: string | null;
+  precedenceClass: number;
+  canOverridePlatformHardLimits: boolean;
+};
+
+export type CommercialPolicyDetail = {
+  summary: CommercialPolicySummary;
+  description: string | null;
+  reason: string;
+  approvalReference: string | null;
+  contractReference: string | null;
+  target: CommercialPolicyTarget;
+  effects: CommercialPolicyEffect[];
+  sourcePolicyId: UUID | null;
+};
+
+export type CommercialPolicyWriteInput = {
+  name: string;
+  description: string | null;
+  effectiveFrom: Instant;
+  effectiveUntil: Instant | null;
+  source: CommercialPolicySource;
+  priority: number;
+  reason: string;
+  approvalReference: string | null;
+  contractReference: string | null;
+  target: CommercialPolicyTargetInput;
+  effects: CommercialPolicyEffectInput[];
+};
+
+export type CommercialPolicyAudienceAccount = { id: UUID; name: string | null; slug: string | null; active: boolean };
+export type CommercialPolicyAudiencePreview = {
+  policyId: UUID;
+  expectedVersion: number;
+  targetKind: CommercialPolicyTargetKind;
+  totalAccounts: number;
+  activationAccountLimit: number;
+  withinActivationLimit: boolean;
+  accounts: PageResponse<CommercialPolicyAudienceAccount>;
+  blockers: CommercialPolicyBlocker[];
+};
+export type CommercialPolicyActivationPreview = {
+  policyId: UUID;
+  expectedVersion: number;
+  catalogRevision: number;
+  registryVersion: string;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
+  previewToken: string;
+  activatable: boolean;
+  blockers: CommercialPolicyBlocker[];
+  affectedAccountCount: number;
+  sampleAccounts: CommercialPolicyAudienceAccount[];
+  policyRevisionToEnd: UUID | null;
+  executionSupported: boolean;
+  executionBlockers: CommercialPolicyExecutionBlocker[];
+};
+export type CommercialPolicyActivation = {
+  id: UUID;
+  activationNumber: number;
+  policyId: UUID;
+  actorUserId: UUID;
+  evaluatedAt: Instant;
+  evidenceExpiresAt: Instant;
+  catalogRevision: number;
+  registryVersion: string;
+  affectedAccountCount: number;
+  reason: string;
+  recordedAt: Instant;
+};
+export type CommercialPolicyActivationAudience = {
+  policyId: UUID;
+  activationId: UUID;
+  activationNumber: number;
+  immutableAccountCount: number;
+  accounts: PageResponse<CommercialPolicyAudienceAccount>;
+};
+export type CommercialPolicyOwner = {
+  policyId: UUID;
+  adminUserId: UUID;
+  userId: UUID;
+  email: string;
+  username: string;
+  displayName: string | null;
+  active: boolean;
+};
+export type CommercialPolicyComparison = {
+  sourcePolicyId: UUID;
+  comparedPolicyId: UUID;
+  sameLineage: boolean;
+  directSuccessor: boolean;
+  changedFields: string[];
+  source: CommercialPolicyDetail;
+  compared: CommercialPolicyDetail;
+};
+export type CommercialPolicyRevision = {
+  id: UUID;
+  code: string;
+  status: CommercialPolicyStatus;
+  revisionNumber: number;
+  sourcePolicyId: UUID | null;
+  version: number;
+  createdAt: Instant;
+};
+export type CommercialPolicyHistory = {
+  id: UUID;
+  action: string;
+  outcome: "SUCCEEDED" | "FAILED";
+  actorUserId: UUID | null;
+  actorEmail: string | null;
+  reason: string | null;
+  occurredAt: Instant;
+};
+
 export type AssignablePlanPrice = {
   planId: UUID;
   planCode: string;

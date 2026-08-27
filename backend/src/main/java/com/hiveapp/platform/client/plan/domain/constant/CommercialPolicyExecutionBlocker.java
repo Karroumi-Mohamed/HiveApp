@@ -1,7 +1,6 @@
 package com.hiveapp.platform.client.plan.domain.constant;
 
-/** Phase-boundary blockers: definitions may activate, but subscriber mutation is not claimed. */
+/** Execution modes that remain intentionally unavailable after explicit review/apply support. */
 public enum CommercialPolicyExecutionBlocker {
-    SUBSCRIPTION_OPERATION_ENGINE_NOT_CONNECTED,
     SCHEDULED_EXECUTION_NOT_AVAILABLE
 }

@@ -25,6 +25,9 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.service.BillingCalculator;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
+import com.hiveapp.platform.client.plan.service.CommercialPolicyEvaluator;
+import com.hiveapp.platform.client.plan.service.CommercialPolicySelectionPlanner;
+import com.hiveapp.platform.client.plan.service.CommercialPolicySubscriptionTermsService;
 import com.hiveapp.platform.client.plan.service.CommercialSelectionFinalizer;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
 import com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService;
@@ -40,6 +43,7 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
+import com.hiveapp.platform.client.plan.dto.SubscriptionCommercialPolicyEvaluation;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.StaffFeature;
@@ -109,6 +113,9 @@ class SubscriptionServiceImplTest {
     @Mock private com.hiveapp.platform.client.plan.service.ProductPriceResolver productPriceResolver;
     @Mock private CommercialCatalogResolver commercialCatalogResolver;
     @Mock private CommercialSelectionFinalizer commercialSelectionFinalizer;
+    @Mock private CommercialPolicyEvaluator commercialPolicyEvaluator;
+    @Mock private CommercialPolicySelectionPlanner commercialPolicySelectionPlanner;
+    @Mock private CommercialPolicySubscriptionTermsService commercialPolicyTermsService;
     @Mock private CommercialCatalogVersionService commercialCatalogVersionService;
     @Mock private RegistryCatalogVersionService registryCatalogVersionService;
     @Mock private CommercialPreviewTokenService commercialPreviewTokenService;
@@ -126,6 +133,9 @@ class SubscriptionServiceImplTest {
                 .thenAnswer(invocation -> invocation
                         .<java.util.function.LongFunction<Object>>getArgument(0).apply(1L));
         lenient().when(clock.instant()).thenReturn(NOW);
+        lenient().when(commercialPolicyEvaluator.evaluate(any(), any()))
+                .thenAnswer(invocation -> CommercialPolicyEvaluator.Evaluation.empty(
+                        invocation.getArgument(1)));
         lenient().when(commercialPreviewTokenService.issue(
                         any(), any(), org.mockito.ArgumentMatchers.anyLong(), any(),
                         org.mockito.ArgumentMatchers.anyLong(), any(), any(), any()))
@@ -170,6 +180,37 @@ class SubscriptionServiceImplTest {
                         any(CommercialCatalogResolver.Audience.class)))
                 .thenAnswer(invocation -> successfulResolution(
                         invocation.getArgument(0), invocation.getArgument(2), invocation.getArgument(3)));
+        lenient().when(commercialPolicySelectionPlanner.plan(
+                        any(Plan.class), any(CommercialCatalogResolver.PriceTuple.class),
+                        org.mockito.ArgumentMatchers.anySet(), org.mockito.ArgumentMatchers.anyList(),
+                        any(CommercialCatalogResolver.Audience.class),
+                        any(CommercialCatalogResolver.RetainedSelection.class),
+                        any(CommercialPolicyEvaluator.Evaluation.class)))
+                .thenAnswer(invocation -> {
+                    Plan plan = invocation.getArgument(0);
+                    CommercialCatalogResolver.PriceTuple tuple = invocation.getArgument(1);
+                    Set<String> addOns = invocation.getArgument(2);
+                    List<QuotaPackageSelection> packages = invocation.getArgument(3);
+                    CommercialCatalogResolver.Audience audience = invocation.getArgument(4);
+                    CommercialCatalogResolver.RetainedSelection retained = invocation.getArgument(5);
+                    var resolution = commercialCatalogResolver.resolveSelection(
+                            plan, tuple, addOns, packages, audience, retained);
+                    return new CommercialPolicySelectionPlanner.PlannedSelection(
+                            resolution, addOns, packages, List.of(), List.of());
+                });
+        lenient().when(commercialPolicyTermsService.apply(
+                        any(Plan.class), any(SubscriptionEntitlementSnapshot.class),
+                        any(CommercialPolicyEvaluator.Evaluation.class),
+                        any(CommercialPolicySelectionPlanner.PlannedSelection.class)))
+                .thenAnswer(invocation -> {
+                    SubscriptionEntitlementSnapshot snapshot = invocation.getArgument(1);
+                    SubscriptionCommercialPolicyEvaluation evaluation =
+                            new SubscriptionCommercialPolicyEvaluation(
+                                    NOW, snapshot.basePrice(), snapshot.basePrice(), BigDecimal.ZERO,
+                                    snapshot.basePrice(), snapshot.currencyCode(), List.of(), List.of());
+                    return new CommercialPolicySubscriptionTermsService.AppliedTerms(
+                            snapshot.withCommercialPolicyEvaluation(evaluation), evaluation);
+                });
     }
 
     @Test
@@ -423,9 +464,12 @@ class SubscriptionServiceImplTest {
 
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
         allowClientPlan(pro, List.of(workspace), List.of(), List.of());
-        when(subscriptionSnapshotFactory.fromPlan(
-                eq(pro), eq(Set.of()), eq(List.of()), any(ProductPrice.class))).thenReturn(targetSnapshot);
-        when(subscriptionImpactAnalyzer.analyze(accountId, current, targetSnapshot))
+        when(subscriptionSnapshotFactory.fromResolvedSelection(
+                eq(pro), any(ProductPrice.class),
+                any(CommercialCatalogResolver.SelectionResolution.class), eq(currentSnapshot)))
+                .thenReturn(targetSnapshot);
+        when(subscriptionImpactAnalyzer.analyze(
+                eq(accountId), eq(current), any(SubscriptionEntitlementSnapshot.class)))
                 .thenReturn(List.of(new com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict(
                         "QUOTA_BELOW_USAGE", StaffFeature.CODE, StaffFeature.MEMBERS,
                         3L, 2L, "Current usage is above the requested limit.")));
@@ -461,8 +505,10 @@ class SubscriptionServiceImplTest {
 
         when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
         allowClientPlan(free, List.of(optional), List.of(), List.of());
-        when(subscriptionSnapshotFactory.fromPlanPreservingPrices(
-                eq(free), eq(Set.of("EXTRA_MEMBERS")), eq(List.of()), eq(current.getEntitlementSnapshot())))
+        when(subscriptionSnapshotFactory.fromResolvedSelection(
+                eq(free), any(ProductPrice.class),
+                any(CommercialCatalogResolver.SelectionResolution.class),
+                eq(current.getEntitlementSnapshot())))
                 .thenReturn(snapshot);
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.TEN, "USD"));
 
@@ -543,7 +589,8 @@ class SubscriptionServiceImplTest {
         when(commercialSelectionFinalizer.finalizeSelection(
                 eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
                 eq(Set.of()), eq(List.of()), eq(CommercialCatalogResolver.Audience.CLIENT_CATALOG),
-                any(CommercialCatalogResolver.RetainedSelection.class), eq(current.getEntitlementSnapshot())))
+                any(CommercialCatalogResolver.RetainedSelection.class), eq(current.getEntitlementSnapshot()),
+                any(CommercialPolicyEvaluator.Evaluation.class)))
                 .thenReturn(finalized(pro, successfulResolution(pro, Set.of(), List.of()), targetSnapshot));
         when(subscriptionSnapshotReader.read(current.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(SubscriptionEntitlementSnapshot.empty(
@@ -600,7 +647,8 @@ class SubscriptionServiceImplTest {
         when(commercialSelectionFinalizer.finalizeSelection(
                 eq("PRO"), nullable(com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest.class),
                 eq(Set.of()), eq(List.of()), eq(CommercialCatalogResolver.Audience.CLIENT_CATALOG),
-                any(CommercialCatalogResolver.RetainedSelection.class), eq(current.getEntitlementSnapshot())))
+                any(CommercialCatalogResolver.RetainedSelection.class), eq(current.getEntitlementSnapshot()),
+                any(CommercialPolicyEvaluator.Evaluation.class)))
                 .thenReturn(finalized(
                         targetPlan, successfulResolution(targetPlan, Set.of(), List.of()), targetSnapshot));
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.valueOf(29), "USD"));

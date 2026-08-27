@@ -98,7 +98,6 @@ public class CommercialPolicyAdminServiceImpl extends PlatformControlFeatureServ
 
     private static final String AUDIT_RESOURCE_TYPE = "COMMERCIAL_POLICY_ADMIN";
     private static final List<CommercialPolicyExecutionBlocker> EXECUTION_BLOCKERS = List.of(
-            CommercialPolicyExecutionBlocker.SUBSCRIPTION_OPERATION_ENGINE_NOT_CONNECTED,
             CommercialPolicyExecutionBlocker.SCHEDULED_EXECUTION_NOT_AVAILABLE);
 
     private final CommercialPolicyRepository policyRepository;
@@ -775,7 +774,7 @@ public class CommercialPolicyAdminServiceImpl extends PlatformControlFeatureServ
                 evidence.evaluatedAt(), evidence.expiresAt(), evidence.token(),
                 assessment.activatable(), assessment.blockers(), assessment.accountIds().size(), sample,
                 assessment.revisionToEnd() == null ? null : assessment.revisionToEnd().getId(),
-                false, assessment.executionBlockers());
+                true, assessment.executionBlockers());
     }
 
     private CommercialPolicyViews.Activation toActivation(CommercialPolicyActivation activation) {
@@ -822,7 +821,7 @@ public class CommercialPolicyAdminServiceImpl extends PlatformControlFeatureServ
                 latestSnapshotCount, policy.getSource(), policy.getPriority(), policy.getEffectiveFrom(),
                 policy.getEffectiveUntil(), policy.getLineageId(), policy.getRevisionNumber(),
                 policy.getCreationReason(), policy.getVersion(), policy.getCreatedAt(), policy.getUpdatedAt(),
-                actions, blockers, true, false, EXECUTION_BLOCKERS);
+                actions, blockers, true, true, EXECUTION_BLOCKERS);
     }
 
     private CommercialPolicyViews.Target toTarget(CommercialPolicy policy) {

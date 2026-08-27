@@ -17,6 +17,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 
 public interface CommercialPolicyRepository extends JpaRepository<CommercialPolicy, UUID>,
         JpaSpecificationExecutor<CommercialPolicy> {
@@ -94,4 +95,29 @@ public interface CommercialPolicyRepository extends JpaRepository<CommercialPoli
     List<CommercialPolicy> findAllByLineageIdAndStatusIn(
             @Param("lineageId") UUID lineageId,
             @Param("statuses") Collection<CommercialPolicyStatus> statuses);
+
+    interface ApplicablePolicyReference {
+        UUID getPolicyId();
+        UUID getActivationId();
+    }
+
+    @Query("select policy.id as policyId, activation.id as activationId "
+            + "from CommercialPolicy policy join CommercialPolicyActivation activation "
+            + "on activation.policy = policy join activation.accountIds accountId "
+            + "where policy.status = com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyStatus.ACTIVE "
+            + "and policy.effectiveFrom <= :evaluatedAt "
+            + "and (policy.effectiveUntil is null or policy.effectiveUntil > :evaluatedAt) "
+            + "and accountId = :accountId "
+            + "and activation.activationNumber = (select max(latest.activationNumber) "
+            + "from CommercialPolicyActivation latest where latest.policy = policy) "
+            + "order by policy.id")
+    List<ApplicablePolicyReference> findApplicablePolicyReferences(
+            @Param("accountId") UUID accountId,
+            @Param("evaluatedAt") Instant evaluatedAt,
+            Pageable pageable);
+
+    @EntityGraph(attributePaths = {"targetAccount", "targetPlan", "effects",
+            "effects.plan", "effects.addOn", "effects.quotaPackage", "effects.feature"})
+    @Query("select distinct policy from CommercialPolicy policy where policy.id in :policyIds")
+    List<CommercialPolicy> findAllDetailsByIdIn(@Param("policyIds") Collection<UUID> policyIds);
 }

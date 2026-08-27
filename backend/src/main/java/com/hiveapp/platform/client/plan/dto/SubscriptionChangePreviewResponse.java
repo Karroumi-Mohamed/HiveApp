@@ -26,5 +26,6 @@ public record SubscriptionChangePreviewResponse(
         List<EffectiveQuotaLimit> effectiveQuotaLimits,
         Set<String> addOnCodes,
         List<QuotaPackageSelection> quotaPackages,
-        List<SubscriptionChangeConflict> conflicts
+        List<SubscriptionChangeConflict> conflicts,
+        SubscriptionCommercialPolicyEvaluation commercialPolicyEvaluation
 ) {}

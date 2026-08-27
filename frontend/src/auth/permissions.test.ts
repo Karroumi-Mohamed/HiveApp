@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  adminCommercialPolicyDetailSurfacePermissions,
   adminOverviewSurfacePermissions,
   adminPermissions,
   adminPriceBookDetailSurfacePermissions,
@@ -61,6 +62,19 @@ describe("session permission bypasses", () => {
     expect(adminPriceBookDetailSurfacePermissions).toEqual([
       adminPermissions.priceBooksRead,
       adminPermissions.priceBooksReadHistory,
+    ]);
+  });
+
+  test("commercial-policy evidence and identity surfaces do not inherit detail access", () => {
+    expect(adminCommercialPolicyDetailSurfacePermissions).toEqual([
+      adminPermissions.commercialPoliciesRead,
+      adminPermissions.commercialPoliciesReadRevisions,
+      adminPermissions.commercialPoliciesCompare,
+      adminPermissions.commercialPoliciesReadHistory,
+      adminPermissions.commercialPoliciesReadActivations,
+      adminPermissions.commercialPoliciesReadActivationAccounts,
+      adminPermissions.commercialPoliciesPreviewAudience,
+      adminPermissions.commercialPoliciesReadOwner,
     ]);
   });
 });

@@ -28,6 +28,17 @@ public class BillingCalculator {
     public Money calculateMoney(Subscription sub) {
         var snapshot = subscriptionSnapshotReader.read(sub.getEntitlementSnapshot())
                 .orElseThrow(() -> new IllegalStateException("Subscription entitlement snapshot is required"));
+        if (snapshot.commercialPolicyEvaluation() != null
+                && snapshot.commercialPolicyEvaluation().finalRecurringPrice() != null) {
+            return Money.of(
+                    snapshot.commercialPolicyEvaluation().finalRecurringPrice(),
+                    snapshot.commercialPolicyEvaluation().currencyCode());
+        }
+        return catalogueMoney(snapshot);
+    }
+
+    /** Exact recurring catalogue price before commercial-policy price adjustments. */
+    public Money catalogueMoney(SubscriptionEntitlementSnapshot snapshot) {
         Money total = Money.of(snapshot.basePrice(), snapshot.currencyCode());
 
         for (var addOn : snapshot.addOns()) {

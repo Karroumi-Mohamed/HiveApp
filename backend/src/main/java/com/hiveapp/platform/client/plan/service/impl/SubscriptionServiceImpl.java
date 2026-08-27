@@ -7,6 +7,7 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin;
 import com.hiveapp.platform.client.plan.domain.constant.RetainedEntitlementState;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyDecisionOutcome;
 import com.hiveapp.platform.client.plan.domain.entity.AddOn;
 import com.hiveapp.platform.client.plan.domain.entity.AddOnFeature;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
@@ -19,6 +20,8 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
+import com.hiveapp.platform.client.plan.dto.ClientCommercialPolicyDecision;
+import com.hiveapp.platform.client.plan.dto.CommercialPolicyDecisionSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict;
@@ -29,6 +32,7 @@ import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
+import com.hiveapp.platform.client.plan.dto.SubscriptionCommercialPolicyEvaluation;
 import com.hiveapp.platform.client.plan.dto.EffectiveQuotaLimit;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
@@ -47,6 +51,10 @@ import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
 import com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService;
 import com.hiveapp.platform.client.plan.service.CommercialSelectionFinalizer;
+import com.hiveapp.platform.client.plan.service.CommercialPolicyEvaluator;
+import com.hiveapp.platform.client.plan.service.CommercialPolicySelectionPlanner;
+import com.hiveapp.platform.client.plan.service.CommercialPolicySelectionRules;
+import com.hiveapp.platform.client.plan.service.CommercialPolicySubscriptionTermsService;
 import com.hiveapp.platform.registry.definition.ClientSubscriptionFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
@@ -108,6 +116,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final ProductPriceResolver productPriceResolver;
     private final CommercialCatalogResolver commercialCatalogResolver;
     private final CommercialSelectionFinalizer commercialSelectionFinalizer;
+    private final CommercialPolicyEvaluator commercialPolicyEvaluator;
+    private final CommercialPolicySelectionPlanner commercialPolicySelectionPlanner;
+    private final CommercialPolicySubscriptionTermsService commercialPolicyTermsService;
     private final CommercialCatalogVersionService commercialCatalogVersionService;
     private final RegistryCatalogVersionService registryCatalogVersionService;
     private final CommercialPreviewTokenService previewTokenService;
@@ -166,7 +177,17 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             UUID accountId,
             CommercialCatalogResolver.Audience audience
     ) {
+        return commercialCatalogVersionService.readConsistently(ignored ->
+                catalogAtCurrentRevision(accountId, audience));
+    }
+
+    private ClientPlanCatalogResponse catalogAtCurrentRevision(
+            UUID accountId,
+            CommercialCatalogResolver.Audience audience
+    ) {
         Subscription current = getSubscription(accountId);
+        CommercialPolicyEvaluator.Evaluation policyEvaluation =
+                commercialPolicyEvaluator.evaluate(accountId, clock.instant());
         SubscriptionOverrides currentOverrides = subscriptionOverrideReader.read(current.getCustomOverrides());
         Map<String, FeatureDefinition> definitions = featureDefinitionCollectorProvider.getObject().collectByCode();
         Map<String, Long> usage = usageByQuotaSlot(accountId, definitions);
@@ -181,7 +202,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 // A held direct-only or retired exact revision remains readable as the
                 // Account's current product, but is never exposed to another Account and
                 // cannot be selected again through self service.
-                .filter(result -> selectableForAudience(result, audience)
+                .filter(result -> CommercialPolicySelectionRules.planVisible(
+                                result, audience, policyEvaluation)
                         || result.plan().getId().equals(currentPlanId))
                 .sorted(Comparator.comparing(
                                 (CommercialCatalogResolver.PlanResolution result) -> result.plan().getPrice(),
@@ -189,7 +211,10 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         .thenComparing(result -> result.plan().getCode()))
                 .map(result -> toCatalogPlan(
                         result, current, definitions, usage, audience,
-                        selectableForAudience(result, audience)))
+                        CommercialPolicySelectionRules.planSelectable(
+                                result, audience, policyEvaluation)
+                                && !planContainsBlockedFeature(result, policyEvaluation),
+                        policyEvaluation))
                 .toList();
         SubscriptionEntitlementSnapshot currentSnapshot = current.getEntitlementSnapshot();
 
@@ -207,15 +232,30 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         current.isCancelAtPeriodEnd(),
                         currentOverrides.addOnCodes(),
                         currentOverrides.quotaPackages(),
-                        retainedAddOns(currentSnapshot, currentResolution, audience),
-                        retainedQuotaPackages(currentSnapshot, currentResolution, audience)),
-                plans);
+                        retainedAddOns(
+                                currentSnapshot, currentResolution, audience, policyEvaluation),
+                        retainedQuotaPackages(
+                                currentSnapshot, currentResolution, audience, policyEvaluation)),
+                plans,
+                clientPolicyDecisions(policyEvaluation.catalogDecisions()));
+    }
+
+    private boolean planContainsBlockedFeature(
+            CommercialCatalogResolver.PlanResolution result,
+            CommercialPolicyEvaluator.Evaluation evaluation
+    ) {
+        return result.planFeatures().stream()
+                .filter(feature -> feature.getMode()
+                        == com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode.INCLUDED)
+                .map(feature -> feature.getFeature().getCode())
+                .anyMatch(evaluation.blockedFeatures()::containsKey);
     }
 
     private List<ClientPlanCatalogResponse.RetainedAddOn> retainedAddOns(
             SubscriptionEntitlementSnapshot snapshot,
             CommercialCatalogResolver.PlanResolution currentResolution,
-            CommercialCatalogResolver.Audience audience
+            CommercialCatalogResolver.Audience audience,
+            CommercialPolicyEvaluator.Evaluation policyEvaluation
     ) {
         Map<String, CommercialCatalogResolver.AddOnResolution> currentByCode =
                 currentResolution.addOns().stream().collect(Collectors.toMap(
@@ -224,8 +264,15 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .sorted(Comparator.comparing(com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot::code))
                 .map(held -> {
                     CommercialCatalogResolver.AddOnResolution current = currentByCode.get(held.code());
-                    boolean selectable = selectableForAudience(currentResolution, audience)
-                            && current != null && selectableForAudience(current, audience);
+                    boolean selectable = CommercialPolicySelectionRules.planSelectable(
+                            currentResolution, audience, policyEvaluation)
+                            && !planContainsBlockedFeature(currentResolution, policyEvaluation)
+                            && current != null
+                            && CommercialPolicySelectionRules.addOnSelectable(
+                                    current, audience, policyEvaluation)
+                            && current.addOn().getFeatures().stream()
+                                    .map(feature -> feature.getFeature().getCode())
+                                    .noneMatch(policyEvaluation.blockedFeatures()::containsKey);
                     RetainedEntitlementState state = selectable
                             ? RetainedEntitlementState.SELECTABLE
                             : current == null
@@ -242,7 +289,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private List<ClientPlanCatalogResponse.RetainedQuotaPackage> retainedQuotaPackages(
             SubscriptionEntitlementSnapshot snapshot,
             CommercialCatalogResolver.PlanResolution currentResolution,
-            CommercialCatalogResolver.Audience audience
+            CommercialCatalogResolver.Audience audience,
+            CommercialPolicyEvaluator.Evaluation policyEvaluation
     ) {
         Map<String, CommercialCatalogResolver.QuotaPackageResolution> currentByCode =
                 currentResolution.quotaPackages().stream().collect(Collectors.toMap(
@@ -252,8 +300,14 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot::code))
                 .map(held -> {
                     CommercialCatalogResolver.QuotaPackageResolution current = currentByCode.get(held.code());
-                    boolean selectable = selectableForAudience(currentResolution, audience)
-                            && current != null && selectableForAudience(current, audience);
+                    boolean selectable = CommercialPolicySelectionRules.planSelectable(
+                            currentResolution, audience, policyEvaluation)
+                            && !planContainsBlockedFeature(currentResolution, policyEvaluation)
+                            && current != null
+                            && CommercialPolicySelectionRules.quotaPackageSelectable(
+                                    current, audience, policyEvaluation)
+                            && !policyEvaluation.blockedFeatures().containsKey(
+                                    current.quotaPackage().getFeature().getCode());
                     RetainedEntitlementState state = selectable
                             ? RetainedEntitlementState.SELECTABLE
                             : current == null
@@ -305,9 +359,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     ) {
         String registryVersion = registryCatalogVersionService.currentVersion();
         return commercialCatalogVersionService.readConsistently(catalogRevision -> {
-            SubscriptionChangeAssessment assessment = assessSubscriptionChangePreview(
-                    accountId, request, audience);
             Instant evaluatedAt = clock.instant();
+            SubscriptionChangeAssessment assessment = assessSubscriptionChangePreview(
+                    accountId, request, audience, evaluatedAt);
             var evidence = previewTokenService.issue(
                     previewKind,
                     assessment.current().getId(), assessment.current().getVersion(), actorUserId,
@@ -392,6 +446,11 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         SubscriptionChangePreviewResponse preview = assessment.toResponse(
                 catalogRevision, registryVersion, verified.evaluatedAt(), verified.expiresAt(),
                 applyRequest.previewToken());
+        if (preview.commercialPolicyEvaluation() != null
+                && preview.commercialPolicyEvaluation().blocked()) {
+            throw new InvalidStateException(
+                    "Subscription change cannot be applied until commercial-policy conflicts are resolved.");
+        }
         if (request.effectiveTiming() == SubscriptionChangeTiming.IMMEDIATE
                 && !preview.immediateAllowed()) {
             throw new InvalidStateException("Subscription change cannot be applied until conflicts are resolved.");
@@ -641,7 +700,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             Map<String, FeatureDefinition> definitions,
             Map<String, Long> usage,
             CommercialCatalogResolver.Audience audience,
-            boolean selectable
+            boolean selectable,
+            CommercialPolicyEvaluator.Evaluation policyEvaluation
     ) {
         Plan plan = result.plan();
         var features = result.planFeatures().stream()
@@ -649,17 +709,32 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .sorted(Comparator.comparing(planFeature -> definitions.get(planFeature.getFeature().getCode()).sortOrder()))
                 .map(planFeature -> toCatalogFeature(planFeature, definitions.get(planFeature.getFeature().getCode()), usage))
                 .toList();
-        Set<String> visibleAddOnCodes = selectable ? result.addOns().stream()
-                .filter(item -> selectableForAudience(item, audience))
+        boolean basePlanVisible = CommercialPolicySelectionRules.planVisible(
+                result, audience, policyEvaluation);
+        Set<String> visibleAddOnCodes = basePlanVisible ? result.addOns().stream()
+                .filter(item -> CommercialPolicySelectionRules.addOnVisible(
+                        item, audience, policyEvaluation))
                 .map(CommercialCatalogResolver.AddOnResolution::code)
                 .collect(Collectors.toUnmodifiableSet()) : Set.of();
-        var addOns = (selectable ? result.addOns().stream() : java.util.stream.Stream
+        var addOns = (basePlanVisible ? result.addOns().stream() : java.util.stream.Stream
                 .<CommercialCatalogResolver.AddOnResolution>empty())
-                .filter(item -> selectableForAudience(item, audience))
+                .filter(item -> CommercialPolicySelectionRules.addOnVisible(
+                        item, audience, policyEvaluation))
                 .map(addOnResult -> {
                     AddOn addOn = addOnResult.addOn();
+                    boolean productSelectable = selectable
+                            && CommercialPolicySelectionRules.addOnSelectable(
+                                    addOnResult, audience, policyEvaluation)
+                            && addOn.getFeatures().stream().map(feature -> feature.getFeature().getCode())
+                                    .noneMatch(policyEvaluation.blockedFeatures()::containsKey);
+                    boolean granted = policyGrant(
+                            policyEvaluation,
+                            com.hiveapp.platform.client.plan.domain.constant
+                                    .CommercialPolicyProductType.ADD_ON,
+                            addOn.getId());
                     return new ClientPlanCatalogResponse.CatalogAddOn(
-                        addOn.getCode(), addOn.getName(), addOn.getDescription(), addOn.getPrice(),
+                        addOn.getCode(), addOn.getName(), addOn.getDescription(),
+                        granted ? Money.zero(addOn.getCurrencyCode()).amount() : addOn.getPrice(),
                         addOn.getCurrencyCode(), addOn.getBillingCycle(), addOn.getDefinitionVersion(),
                         addOn.getDependencyCodes().stream().filter(visibleAddOnCodes::contains)
                                 .collect(Collectors.toUnmodifiableSet()),
@@ -669,23 +744,43 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                                 .sorted(Comparator.comparing(feature -> feature.getFeature().getCode()))
                                 .map(feature -> toCatalogAddOnFeature(feature, definitions, usage))
                                 .toList(),
-                        toCatalogPrices(addOnResult.prices()));
+                        toCatalogPrices(addOnResult.prices(), granted), productSelectable,
+                        clientPolicyDecisions(policyEvaluation.product(
+                                com.hiveapp.platform.client.plan.domain.constant
+                                        .CommercialPolicyProductType.ADD_ON,
+                                addOn.getId()).catalogDecisions()));
                 })
                 .toList();
-        var quotaPackages = (selectable ? result.quotaPackages().stream() : java.util.stream.Stream
+        var quotaPackages = (basePlanVisible ? result.quotaPackages().stream() : java.util.stream.Stream
                 .<CommercialCatalogResolver.QuotaPackageResolution>empty())
-                .filter(item -> selectableForAudience(item, audience))
+                .filter(item -> CommercialPolicySelectionRules.quotaPackageVisible(
+                        item, audience, policyEvaluation))
                 .map(packageResult -> {
                     QuotaPackage item = packageResult.quotaPackage();
+                    boolean productSelectable = selectable
+                            && CommercialPolicySelectionRules.quotaPackageSelectable(
+                                    packageResult, audience, policyEvaluation)
+                            && !policyEvaluation.blockedFeatures().containsKey(
+                                    item.getFeature().getCode());
+                    boolean granted = policyGrant(
+                            policyEvaluation,
+                            com.hiveapp.platform.client.plan.domain.constant
+                                    .CommercialPolicyProductType.QUOTA_PACKAGE,
+                            item.getId());
                     return new ClientPlanCatalogResponse.CatalogQuotaPackage(
                         item.getCode(), item.getName(), item.getDescription(), item.getDefinitionVersion(),
                         item.getFeature().getCode(), item.getResource(), item.getCapacityPerUnit(),
-                        item.getPrice(), item.getCurrencyCode(), item.getBillingCycle(), item.isRepeatable(),
+                        granted ? Money.zero(item.getCurrencyCode()).amount() : item.getPrice(),
+                        item.getCurrencyCode(), item.getBillingCycle(), item.isRepeatable(),
                         item.getMaximumQuantity(),
                         packageResult.directlySelectable() ? Set.of(plan.getCode()) : Set.of(),
                         packageResult.requiredAddOnCodes(),
-                        toCatalogPrices(packageResult.prices()), packageResult.directlySelectable(),
-                        packageResult.requiredAddOnCodes());
+                        toCatalogPrices(packageResult.prices(), granted), packageResult.directlySelectable(),
+                        packageResult.requiredAddOnCodes(), productSelectable,
+                        clientPolicyDecisions(policyEvaluation.product(
+                                com.hiveapp.platform.client.plan.domain.constant
+                                        .CommercialPolicyProductType.QUOTA_PACKAGE,
+                                item.getId()).catalogDecisions()));
                 })
                 .toList();
         return new ClientPlanCatalogResponse.CatalogPlan(
@@ -700,34 +795,31 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 features,
                 addOns,
                 quotaPackages,
-                selectable ? toCatalogPrices(result.prices()) : List.of());
+                selectable ? toCatalogPrices(result.prices()) : List.of(),
+                clientPolicyDecisions(policyEvaluation.product(
+                        com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyProductType.PLAN,
+                        plan.getId()).catalogDecisions()));
     }
 
-    private boolean selectableForAudience(
-            CommercialCatalogResolver.PlanResolution resolution,
-            CommercialCatalogResolver.Audience audience
+    private List<ClientCommercialPolicyDecision> clientPolicyDecisions(
+            List<CommercialPolicyDecisionSnapshot> decisions
     ) {
-        return audience == CommercialCatalogResolver.Audience.CLIENT_CATALOG
-                ? resolution.clientVisible()
-                : resolution.selectable();
+        return decisions.stream()
+                .filter(decision -> decision.outcome()
+                        != CommercialPolicyDecisionOutcome.REJECTED_LOWER_PRECEDENCE)
+                .map(ClientCommercialPolicyDecision::from).toList();
     }
 
-    private boolean selectableForAudience(
-            CommercialCatalogResolver.AddOnResolution resolution,
-            CommercialCatalogResolver.Audience audience
+    private boolean policyGrant(
+            CommercialPolicyEvaluator.Evaluation evaluation,
+            com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyProductType type,
+            UUID id
     ) {
-        return audience == CommercialCatalogResolver.Audience.CLIENT_CATALOG
-                ? resolution.clientVisible()
-                : resolution.selectable();
-    }
-
-    private boolean selectableForAudience(
-            CommercialCatalogResolver.QuotaPackageResolution resolution,
-            CommercialCatalogResolver.Audience audience
-    ) {
-        return audience == CommercialCatalogResolver.Audience.CLIENT_CATALOG
-                ? resolution.clientVisible()
-                : resolution.selectable();
+        var winner = evaluation.product(type, id).winner();
+        return winner != null && (winner.effect().getType()
+                == com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyEffectType.GRANT_ADD_ON
+                || winner.effect().getType()
+                == com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyEffectType.GRANT_QUOTA_PACKAGE);
     }
 
     private ClientPlanCatalogResponse.CatalogFeature toCatalogFeature(
@@ -926,21 +1018,32 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private SubscriptionChangeAssessment assessSubscriptionChangePreview(
             UUID accountId,
             SubscriptionChangeRequest request,
-            CommercialCatalogResolver.Audience audience
+            CommercialCatalogResolver.Audience audience,
+            Instant evaluatedAt
     ) {
         Subscription current = getSubscription(accountId);
+        CommercialPolicyEvaluator.Evaluation policyEvaluation =
+                commercialPolicyEvaluator.evaluate(accountId, evaluatedAt);
         ClientPlanSelection target = requirePlanSelection(
-                request.targetPlanCode(), request.planPriceSelection(), audience);
+                request.targetPlanCode(), request.planPriceSelection(), audience, policyEvaluation);
         requireSameSubscriptionCurrency(current, target.price());
-        ChangeSelection selection = validateSelection(
-                target.plan(), request, CommercialCatalogResolver.PriceTuple.from(target.price()),
-                audience,
-                retainedSelection(current.getEntitlementSnapshot(), target.plan(), request));
-        SubscriptionEntitlementSnapshot targetSnapshot = targetSnapshot(
-                current, target.plan(), selection, target.price(), request.planPriceSelection());
+        Set<String> requestedAddOns = normalizeAddOnCodes(request.addOnCodes());
+        List<QuotaPackageSelection> requestedPackages = normalizeQuotaPackages(request.quotaPackages());
+        var planned = commercialPolicySelectionPlanner.plan(
+                target.plan(), CommercialCatalogResolver.PriceTuple.from(target.price()),
+                requestedAddOns, requestedPackages, audience,
+                retainedSelection(current.getEntitlementSnapshot(), target.plan(), request),
+                policyEvaluation);
+        requireResolvedSelection(planned.resolution(), audience);
+        ChangeSelection selection = new ChangeSelection(planned.addOnCodes(), planned.quotaPackages());
+        SubscriptionEntitlementSnapshot catalogueSnapshot = subscriptionSnapshotFactory
+                .fromResolvedSelection(target.plan(), target.price(), planned.resolution(),
+                        current.getEntitlementSnapshot());
+        var terms = commercialPolicyTermsService.apply(
+                target.plan(), catalogueSnapshot, policyEvaluation, planned);
         return assessResolvedChange(
-                accountId, current, target.plan(), targetSnapshot, selection,
-                request.effectiveTiming(), audience);
+                accountId, current, target.plan(), terms.snapshot(), selection,
+                request.effectiveTiming(), audience, terms.evaluation());
     }
 
     private SubscriptionChangeAssessment assessSubscriptionChangeForApply(
@@ -949,28 +1052,39 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             CommercialCatalogResolver.Audience audience
     ) {
         Subscription current = getSubscription(accountId);
+        CommercialPolicyEvaluator.Evaluation policyEvaluation =
+                commercialPolicyEvaluator.evaluate(accountId, clock.instant());
         // Preserve the ordinary client privacy boundary before exact lock-taking selection.
         ClientPlanSelection preliminary = requirePlanSelection(
-                request.targetPlanCode(), request.planPriceSelection(), audience);
+                request.targetPlanCode(), request.planPriceSelection(), audience, policyEvaluation);
         requireSameSubscriptionCurrency(current, preliminary.price());
         Set<String> requestedAddOns = normalizeAddOnCodes(request.addOnCodes());
         List<QuotaPackageSelection> requestedPackages = normalizeQuotaPackages(request.quotaPackages());
         CommercialCatalogResolver.RetainedSelection retained = retainedSelection(
                 current.getEntitlementSnapshot(), preliminary.plan(), request);
+        var planned = commercialPolicySelectionPlanner.plan(
+                preliminary.plan(), CommercialCatalogResolver.PriceTuple.from(preliminary.price()),
+                requestedAddOns, requestedPackages, audience, retained, policyEvaluation);
+        requireResolvedSelection(planned.resolution(), audience);
         var finalized = commercialSelectionFinalizer.finalizeSelection(
-                request.targetPlanCode(), request.planPriceSelection(), requestedAddOns,
-                requestedPackages, audience,
-                retained, current.getEntitlementSnapshot());
+                request.targetPlanCode(), request.planPriceSelection(), planned.addOnCodes(),
+                planned.quotaPackages(), audience,
+                retained, current.getEntitlementSnapshot(), policyEvaluation);
         requireResolvedSelection(finalized.resolution(), audience);
 
         // The finalizer clears the persistence context; re-read the subscription while the
         // Account lock still prevents a competing subscription operation for this tenant.
         current = getSubscription(accountId);
         requireSameSubscriptionCurrency(current, finalized.planPrice());
-        ChangeSelection selection = new ChangeSelection(requestedAddOns, requestedPackages);
+        ChangeSelection selection = new ChangeSelection(planned.addOnCodes(), planned.quotaPackages());
+        var finalizedPlan = new CommercialPolicySelectionPlanner.PlannedSelection(
+                finalized.resolution(), planned.addOnCodes(), planned.quotaPackages(),
+                planned.acceptedGrants(), planned.rejectedGrants());
+        var terms = commercialPolicyTermsService.apply(
+                finalized.plan(), finalized.snapshot(), policyEvaluation, finalizedPlan);
         return assessResolvedChange(
-                accountId, current, finalized.plan(), finalized.snapshot(), selection,
-                request.effectiveTiming(), audience);
+                accountId, current, finalized.plan(), terms.snapshot(), selection,
+                request.effectiveTiming(), audience, terms.evaluation());
     }
 
     private SubscriptionChangeAssessment assessResolvedChange(
@@ -980,7 +1094,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             SubscriptionEntitlementSnapshot targetSnapshot,
             ChangeSelection selection,
             SubscriptionChangeTiming timing,
-            CommercialCatalogResolver.Audience audience
+            CommercialCatalogResolver.Audience audience,
+            com.hiveapp.platform.client.plan.dto.SubscriptionCommercialPolicyEvaluation policyEvaluation
     ) {
         List<SubscriptionChangeConflict> conflicts = subscriptionImpactAnalyzer.analyze(
                 accountId, current, targetSnapshot);
@@ -992,12 +1107,13 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 subscriptionImpactAnalyzer.effectiveQuotaLimits(targetSnapshot);
         String fingerprint = subscriptionChangeFingerprint(
                 current, targetPlan, targetSnapshot, selection, timing,
-                price, conflicts, effectiveQuotaLimits, audience);
+                price, conflicts, effectiveQuotaLimits, policyEvaluation, audience);
         return new SubscriptionChangeAssessment(
                 current, targetPlan, targetSnapshot, selection,
-                current.getCurrentPrice(), price.amount(), price.currencyCode(), conflicts.isEmpty(),
+                current.getCurrentPrice(), price.amount(), price.currencyCode(),
+                conflicts.isEmpty() && !policyEvaluation.blocked(),
                 Set.copyOf(effectiveFeatureCodes), List.copyOf(effectiveQuotaLimits),
-                List.copyOf(conflicts), fingerprint);
+                List.copyOf(conflicts), policyEvaluation, fingerprint);
     }
 
     private String subscriptionChangeFingerprint(
@@ -1009,6 +1125,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             Money price,
             List<SubscriptionChangeConflict> conflicts,
             List<EffectiveQuotaLimit> effectiveQuotaLimits,
+            SubscriptionCommercialPolicyEvaluation policyEvaluation,
             CommercialCatalogResolver.Audience audience
     ) {
         StringBuilder state = new StringBuilder();
@@ -1039,6 +1156,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .forEach(item -> appendFingerprint(state, "conflict:" + item));
         effectiveQuotaLimits.stream().map(Object::toString).sorted()
                 .forEach(item -> appendFingerprint(state, "quota:" + item));
+        appendPolicyFingerprint(state, policyEvaluation);
         return sha256(state.toString());
     }
 
@@ -1060,6 +1178,50 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .forEach(item -> appendFingerprint(state, "add-on-snapshot:" + item));
         snapshot.quotaPackages().stream().map(Object::toString).sorted()
                 .forEach(item -> appendFingerprint(state, "package-snapshot:" + item));
+        appendPolicyFingerprint(state, snapshot.commercialPolicyEvaluation());
+    }
+
+    /** Policy time is evidence metadata; exact policy/effect terms are the stale-review contract. */
+    private void appendPolicyFingerprint(
+            StringBuilder state,
+            SubscriptionCommercialPolicyEvaluation evaluation
+    ) {
+        if (evaluation == null) {
+            appendFingerprint(state, "policy:<none>");
+            return;
+        }
+        appendFingerprint(state, evaluation.catalogueRecurringPrice());
+        appendFingerprint(state, evaluation.fixedRecurringPrice());
+        appendFingerprint(state, evaluation.discountAmount());
+        appendFingerprint(state, evaluation.finalRecurringPrice());
+        appendFingerprint(state, evaluation.currencyCode());
+        evaluation.decisions().stream()
+                .sorted(Comparator.comparing(decision -> decision.effectId().toString()))
+                .forEach(decision -> {
+                    appendFingerprint(state, decision.policyId());
+                    appendFingerprint(state, decision.activationId());
+                    appendFingerprint(state, decision.policyRevisionNumber());
+                    appendFingerprint(state, decision.priority());
+                    appendFingerprint(state, decision.effectId());
+                    appendFingerprint(state, decision.effectOrder());
+                    appendFingerprint(state, decision.effectType());
+                    appendFingerprint(state, decision.productType());
+                    appendFingerprint(state, decision.productId());
+                    appendFingerprint(state, decision.productCode());
+                    appendFingerprint(state, decision.featureCode());
+                    appendFingerprint(state, decision.quotaResource());
+                    appendFingerprint(state, decision.quantityDelta());
+                    appendFingerprint(state, decision.configuredAmount());
+                    appendFingerprint(state, decision.configuredCurrencyCode());
+                    appendFingerprint(state, decision.percentage());
+                    appendFingerprint(state, decision.maximumAmount());
+                    appendFingerprint(state, decision.maximumCurrencyCode());
+                    appendFingerprint(state, decision.outcome());
+                    appendFingerprint(state, decision.evaluatedAmount());
+                    appendFingerprint(state, decision.evaluatedCurrencyCode());
+                });
+        evaluation.conflicts().stream().map(Object::toString).sorted()
+                .forEach(conflict -> appendFingerprint(state, "policy-conflict:" + conflict));
     }
 
     private void appendFingerprint(StringBuilder state, Object value) {
@@ -1091,7 +1253,21 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return current.getPlan().getCode().equals(targetSnapshot.planCode())
                 && Objects.equals(currentOverrides.addOnCodes(), selection.addOnCodes())
                 && Objects.equals(currentOverrides.quotaPackages(), selection.quotaPackages())
-                && sameSelectedPrices(currentSnapshot, targetSnapshot);
+                && Objects.equals(currentSnapshot.features(), targetSnapshot.features())
+                && sameSelectedPrices(currentSnapshot, targetSnapshot)
+                && samePolicyTerms(currentSnapshot.commercialPolicyEvaluation(),
+                        targetSnapshot.commercialPolicyEvaluation());
+    }
+
+    private boolean samePolicyTerms(
+            SubscriptionCommercialPolicyEvaluation current,
+            SubscriptionCommercialPolicyEvaluation target
+    ) {
+        StringBuilder currentState = new StringBuilder();
+        StringBuilder targetState = new StringBuilder();
+        appendPolicyFingerprint(currentState, current);
+        appendPolicyFingerprint(targetState, target);
+        return currentState.toString().equals(targetState.toString());
     }
 
     private boolean sameSelectedPrices(
@@ -1179,7 +1355,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private ClientPlanSelection requirePlanSelection(
             String planCode,
             ProductPriceSelectionRequest requestedPrice,
-            CommercialCatalogResolver.Audience audience
+            CommercialCatalogResolver.Audience audience,
+            CommercialPolicyEvaluator.Evaluation policyEvaluation
     ) {
         if (planCode == null || planCode.isBlank()) {
             throw unavailableSelection(audience);
@@ -1187,7 +1364,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         CommercialCatalogResolver.PlanResolution resolution = commercialCatalogResolver
                 .resolveCatalog(audience)
                 .plans().stream()
-                .filter(candidate -> selectableForAudience(candidate, audience))
+                .filter(candidate -> CommercialPolicySelectionRules.planSelectable(
+                        candidate, audience, policyEvaluation))
                 .filter(candidate -> candidate.plan().getCode().equals(planCode))
                 .findFirst()
                 .orElseThrow(() -> unavailableSelection(audience));
@@ -1273,6 +1451,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                         "Current subscription has no entitlement snapshot.")));
         operation.setTargetSnapshot(
                 targetSnapshot.withEffectivePeriod(targetPeriod.startsAt(), targetPeriod.endsAt()));
+        operation.setCommercialPolicyEvaluation(targetSnapshot.commercialPolicyEvaluation());
         operation.setRequestOrigin(origin);
         operation.setRequestedByUserId(actorUserId);
         operation.setRequestReason(requestReason);
@@ -1290,7 +1469,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 operation.getSourceSubscription().getPlan().getCode(),
                 operation.getTargetPlan().getCode(),
                 operation.getAttentionReason(),
-                subscriptionCheckoutService.toDto(operation.getCheckout()));
+                subscriptionCheckoutService.toDto(operation.getCheckout()),
+                operation.getCommercialPolicyEvaluation());
     }
 
     private SubscriptionDto toDto(Subscription subscription) {
@@ -1326,6 +1506,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             Set<String> effectiveFeatureCodes,
             List<EffectiveQuotaLimit> effectiveQuotaLimits,
             List<SubscriptionChangeConflict> conflicts,
+            SubscriptionCommercialPolicyEvaluation policyEvaluation,
             String fingerprint
     ) {
         private SubscriptionChangePreviewResponse toResponse(
@@ -1340,16 +1521,26 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                     evaluatedAt, expiresAt, previewToken, current.getPlan().getCode(),
                     targetPlan.getCode(), currentPrice, previewPrice, currencyCode,
                     immediateAllowed, effectiveFeatureCodes, effectiveQuotaLimits,
-                    selection.addOnCodes(), selection.quotaPackages(), conflicts);
+                    selection.addOnCodes(), selection.quotaPackages(), conflicts,
+                    policyEvaluation);
         }
     }
 
     private record ClientPlanSelection(Plan plan, ProductPrice price) {}
 
     private List<ClientPlanCatalogResponse.CatalogPrice> toCatalogPrices(List<ProductPrice> prices) {
+        return toCatalogPrices(prices, false);
+    }
+
+    private List<ClientPlanCatalogResponse.CatalogPrice> toCatalogPrices(
+            List<ProductPrice> prices,
+            boolean granted
+    ) {
         return (prices == null ? List.<ProductPrice>of() : prices).stream()
                 .map(price -> new ClientPlanCatalogResponse.CatalogPrice(
-                        price.getId(), price.getAmount(), price.getCurrencyCode(), price.getBillingCycle(),
+                        price.getId(),
+                        granted ? Money.zero(price.getCurrencyCode()).amount() : price.getAmount(),
+                        price.getCurrencyCode(), price.getBillingCycle(),
                         price.getEffectiveFrom(), price.getEffectiveUntil()))
                 .toList();
     }
