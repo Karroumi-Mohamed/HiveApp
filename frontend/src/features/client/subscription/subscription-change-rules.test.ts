@@ -5,6 +5,7 @@ import {
   subscriptionChangeFailureMessage,
   subscriptionChangePreviewIsCurrent,
   subscriptionChangeSelectionKey,
+  subscriptionChangeSelectionMatchesCurrent,
 } from "./subscription-change-rules";
 
 const selection: SubscriptionChangeInput = {
@@ -29,9 +30,11 @@ describe("subscription price failure feedback", () => {
     expect(subscriptionChangeFailureMessage(error)).toContain("prévisualisez à nouveau");
   });
 
-  test("keeps a backend validation message visible", () => {
+  test("maps validation by stable code instead of coupling the UI to backend prose", () => {
     const error = new ApiError(400, "INVALID_REQUEST", "Cette devise n’est plus proposée.");
-    expect(subscriptionChangeFailureMessage(error)).toBe("Cette devise n’est plus proposée.");
+    expect(subscriptionChangeFailureMessage(error)).toBe(
+      "La sélection n’est plus applicable. Corrigez-la puis prévisualisez à nouveau.",
+    );
   });
 
   test("treats unordered add-ons and packages as the same signed selection", () => {
@@ -55,5 +58,26 @@ describe("subscription price failure feedback", () => {
         Date.parse("2026-08-27T12:04:59Z"),
       ),
     ).toBeFalse();
+  });
+
+  test("recognizes only an exact current priced selection as a no-op", () => {
+    const current = {
+      planCode: "PRO",
+      planPriceEntryId: "price-1",
+      addOnCodes: ["B2B", "HR"],
+      quotaPackages: [
+        { packageCode: "STORAGE", quantity: 1 },
+        { packageCode: "MEMBERS", quantity: 2 },
+      ],
+    };
+
+    expect(subscriptionChangeSelectionMatchesCurrent(selection, current)).toBeTrue();
+    expect(
+      subscriptionChangeSelectionMatchesCurrent(
+        { ...selection, planPriceSelection: { ...selection.planPriceSelection, priceEntryId: "price-2" } },
+        current,
+      ),
+    ).toBeFalse();
+    expect(subscriptionChangeSelectionMatchesCurrent(selection, { ...current, planPriceEntryId: null })).toBeFalse();
   });
 });

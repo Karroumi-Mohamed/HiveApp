@@ -113,6 +113,10 @@ export const adminPermissions = {
   subscriptionsChooseAddOnOverrides: permission("subscriptions", "choose_add_on_overrides"),
   subscriptionsChooseQuotaOverrides: permission("subscriptions", "choose_quota_package_overrides"),
   subscriptionsReadChanges: permission("subscriptions", "read_changes"),
+  subscriptionsChooseChangeOptions: permission("subscriptions", "choose_change_options"),
+  subscriptionsPreviewChange: permission("subscriptions", "preview_change"),
+  subscriptionsApplyChange: permission("subscriptions", "apply_change"),
+  subscriptionsCancelChange: permission("subscriptions", "cancel_change"),
   subscriptionsConfirmCheckout: permission("subscriptions", "confirm_checkout"),
   registryRead: permission("registry", "read"),
   registryFeatureCatalog: permission("registry", "feature_catalog"),
@@ -222,6 +226,17 @@ export const clientSubscriptionSurfacePermissions = [
   clientPermissions.subscriptionRead,
   clientPermissions.subscriptionCatalog,
   clientPermissions.subscriptionReadChanges,
+] as const;
+
+/**
+ * Account subscription details are three independently readable operator surfaces. An operator
+ * who may prepare a reviewed change or inspect its history must not also need the broader current
+ * subscription read permission merely to reach the route.
+ */
+export const adminSubscriptionDetailSurfacePermissions = [
+  adminPermissions.subscriptionsRead,
+  adminPermissions.subscriptionsChooseChangeOptions,
+  adminPermissions.subscriptionsReadChanges,
 ] as const;
 
 export const adminPriceBookDetailSurfacePermissions = [

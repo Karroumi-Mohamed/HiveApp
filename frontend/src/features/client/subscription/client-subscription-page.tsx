@@ -1,13 +1,19 @@
-import { ArrowRightIcon, CheckIcon, MinusIcon, PlusIcon, WarningCircleIcon } from "@phosphor-icons/react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowRightIcon, CheckIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { clientApi } from "@/api/client-api";
-import type { ClientPlanCatalog, SubscriptionChangeInput, SubscriptionChangePreview } from "@/api/contracts";
+import type {
+  ClientPlanCatalog,
+  SubscriptionChangeInput,
+  SubscriptionChangeOperation,
+  SubscriptionChangePreview,
+} from "@/api/contracts";
 import { clientPermissions } from "@/auth/permissions";
 import { useClientSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
+import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { SectionTabs } from "@/components/patterns/section-tabs";
 import { StatusBadge } from "@/components/patterns/status-badge";
@@ -18,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { capacityUnitLabel } from "@/features/admin/commercial/commercial-presentation";
 import {
+  catalogAddOnSelectionState,
   currentCatalogPrice,
   defaultCatalogPrice,
   initialCatalogPlanCode,
@@ -25,6 +32,7 @@ import {
   preserveRetainedSelection,
   pruneCommercialSelection,
   sameStringSet,
+  updateCatalogAddOnSelection,
 } from "@/features/commercial/catalog-price-rules";
 import {
   clientCommercialKeys,
@@ -32,53 +40,33 @@ import {
   invalidateClientCommercial,
 } from "@/features/commercial/commercial-query";
 import { SubscriptionChangeList } from "@/features/commercial/subscription-change-list";
-import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
+import {
+  clientSubscriptionOperationUrlKeys,
+  readSubscriptionOperationListState,
+  subscriptionOperationQuery,
+  subscriptionOperationSorting,
+  subscriptionOperationStateFromSorting,
+  writeSubscriptionOperationListState,
+} from "@/features/commercial/subscription-operation-list-state";
+import {
+  subscriptionChangeRecordedMessage,
+  subscriptionStatusPresentation,
+} from "@/features/commercial/subscription-presentation";
+import {
+  RetainedSubscriptionQuantityControl,
+  SubscriptionQuantityControl,
+} from "@/features/commercial/subscription-quantity-control";
 import { formatExactMoney } from "@/lib/exact-decimal";
 import {
   subscriptionChangeFailureMessage,
   subscriptionChangePreviewIsCurrent,
   subscriptionChangeSelectionKey,
+  subscriptionChangeSelectionMatchesCurrent,
 } from "./subscription-change-rules";
 
 const money = formatExactMoney;
 const date = (value: string | null) =>
   value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium" }).format(new Date(value)) : "—";
-
-function QuantityControl({
-  value,
-  maximum,
-  onChange,
-}: {
-  value: number;
-  maximum: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <div className="inline-flex items-center rounded-lg border">
-      <Button
-        aria-label="Réduire"
-        disabled={value <= 0}
-        onClick={() => onChange(value - 1)}
-        size="icon-sm"
-        type="button"
-        variant="ghost"
-      >
-        <MinusIcon />
-      </Button>
-      <span className="min-w-8 text-center text-sm font-semibold tabular-nums">{value}</span>
-      <Button
-        aria-label="Augmenter"
-        disabled={value >= maximum}
-        onClick={() => onChange(value + 1)}
-        size="icon-sm"
-        type="button"
-        variant="ghost"
-      >
-        <PlusIcon />
-      </Button>
-    </div>
-  );
-}
 
 function PreviewDialog({
   preview,
@@ -245,6 +233,14 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
       ) ?? [],
     [addOns, plan, selectedPlanPrice],
   );
+  const hiddenRetainedAddOns = useMemo(() => {
+    const visible = new Set(compatibleAddOns.map((item) => item.code));
+    return plan?.current ? retainedAddOns.filter((item) => !visible.has(item.code)) : [];
+  }, [compatibleAddOns, plan?.current, retainedAddOns]);
+  const hiddenRetainedQuotaPackages = useMemo(() => {
+    const visible = new Set(compatibleQuotaPackages.map((item) => item.code));
+    return plan?.current ? retainedQuotaPackages.filter((item) => !visible.has(item.code)) : [];
+  }, [compatibleQuotaPackages, plan?.current, retainedQuotaPackages]);
   const featureNames = useMemo(
     () =>
       new Map(
@@ -303,6 +299,7 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
         : null,
     [planCode, addOns, quantities, timing, selectedPlanPrice],
   );
+  const requestIsNoOp = subscriptionChangeSelectionMatchesCurrent(request, current);
   const previewReady = subscriptionChangePreviewIsCurrent(preview, request, previewSelectionKey, previewClock);
   useEffect(() => {
     if (!preview) return;
@@ -329,12 +326,12 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
         throw new Error("Recalculez la prévisualisation avant d’appliquer ce changement");
       return clientApi.applySubscriptionChange({ selection: request, previewToken: preview.previewToken });
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       void invalidateClientCommercial(queryClient);
       setPreviewOpen(false);
       setPreview(null);
       setPreviewSelectionKey(null);
-      toast.success(timing === "IMMEDIATE" ? "Changement appliqué" : "Changement planifié");
+      toast.success(subscriptionChangeRecordedMessage(result.operation));
     },
     onError: changeError,
   });
@@ -436,16 +433,20 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             <div className="mt-4 divide-y rounded-lg border">
               {compatibleAddOns.map((item) => {
                 const itemPrice = matchingCatalogPrice(item.prices, selectedPlanPrice);
+                const { selected, excludedBy, missingDependency, requiredBy } = catalogAddOnSelectionState(
+                  item,
+                  compatibleAddOns,
+                  addOns,
+                );
                 return (
                   <div className="flex items-start gap-3 p-4" key={item.code}>
                     <Checkbox
-                      checked={addOns.includes(item.code)}
+                      checked={selected}
+                      disabled={selected ? Boolean(requiredBy) : Boolean(missingDependency || excludedBy)}
                       id={`client-addon-${item.code}`}
                       onCheckedChange={(checked) =>
                         setAddOns((currentItems) =>
-                          checked
-                            ? [...new Set([...currentItems, item.code])]
-                            : currentItems.filter((code) => code !== item.code),
+                          updateCatalogAddOnSelection(currentItems, item, compatibleAddOns, Boolean(checked)),
                         )
                       }
                     />
@@ -455,6 +456,15 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
                         {itemPrice ? money(itemPrice.amount, itemPrice.currencyCode) : "Indisponible"}
                         {item.description ? ` · ${item.description}` : ""}
                       </span>
+                      {missingDependency || excludedBy || requiredBy ? (
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {missingDependency
+                            ? `Dépendance indisponible : ${missingDependency}`
+                            : excludedBy
+                              ? `Incompatible avec ${excludedBy.name}`
+                              : `Requis par ${requiredBy?.name}`}
+                        </span>
+                      ) : null}
                     </Label>
                   </div>
                 );
@@ -462,14 +472,14 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             </div>
           </section>
         ) : null}
-        {plan.current && retainedAddOns.length ? (
+        {hiddenRetainedAddOns.length ? (
           <section className="border-y py-5">
             <h2 className="text-sm font-semibold">Add-ons conservés</h2>
             <p className="mt-1 text-xs text-muted-foreground">
               Conservés aux conditions déjà achetées, mais indisponibles pour une nouvelle sélection.
             </p>
             <div className="mt-4 divide-y border-y">
-              {retainedAddOns.map((item) => (
+              {hiddenRetainedAddOns.map((item) => (
                 <div className="flex items-start gap-3 py-4" key={item.code}>
                   <Checkbox
                     checked={addOns.includes(item.code)}
@@ -518,7 +528,8 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
                         {itemPrice ? money(itemPrice.amount, itemPrice.currencyCode) : "Indisponible"} par unité
                       </p>
                     </div>
-                    <QuantityControl
+                    <SubscriptionQuantityControl
+                      label={item.name}
                       maximum={item.maximumQuantity}
                       onChange={(value) => setQuantities((currentItems) => ({ ...currentItems, [item.code]: value }))}
                       value={quantities[item.code] ?? 0}
@@ -529,14 +540,14 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             </div>
           </section>
         ) : null}
-        {plan.current && retainedQuotaPackages.length ? (
+        {hiddenRetainedQuotaPackages.length ? (
           <section className="border-y py-5">
             <h2 className="text-sm font-semibold">Capacités conservées</h2>
             <p className="mt-1 text-xs text-muted-foreground">
               Non proposées à la vente, elles restent actives et facturées aux conditions détenues.
             </p>
             <div className="mt-4 divide-y border-y">
-              {retainedQuotaPackages.map((item) => (
+              {hiddenRetainedQuotaPackages.map((item) => (
                 <div className="flex items-center justify-between gap-4 py-4" key={item.code}>
                   <div>
                     <p className="text-sm font-medium">{item.name}</p>
@@ -545,15 +556,15 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
                       {money(item.unitPrice, item.currencyCode)} par unité · conservé
                     </p>
                   </div>
-                  {item.quantityEditable || item.removable ? (
-                    <QuantityControl
-                      maximum={item.maximumSelectableQuantity ?? item.quantity}
-                      onChange={(value) => setQuantities((items) => ({ ...items, [item.code]: value }))}
-                      value={quantities[item.code] ?? 0}
-                    />
-                  ) : (
-                    <span className="text-sm font-semibold tabular-nums">× {item.quantity}</span>
-                  )}
+                  <RetainedSubscriptionQuantityControl
+                    label={item.name}
+                    maximum={item.maximumSelectableQuantity ?? item.quantity}
+                    onChange={(value) => setQuantities((items) => ({ ...items, [item.code]: value }))}
+                    quantityEditable={item.quantityEditable}
+                    removable={item.removable}
+                    retainedQuantity={item.quantity}
+                    value={quantities[item.code] ?? item.quantity}
+                  />
                 </div>
               ))}
             </div>
@@ -573,19 +584,22 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
             </Select>
           </div>
           {session.can(clientPermissions.subscriptionPreview) ? (
-            <Button
-              disabled={!request || previewMutation.isPending}
-              onClick={() => request && previewMutation.mutate(request)}
-            >
-              {previewMutation.isPending ? (
-                "Calcul…"
-              ) : (
-                <>
-                  <ArrowRightIcon className="rtl:rotate-180" />
-                  Prévisualiser
-                </>
-              )}
-            </Button>
+            <div className="flex flex-col items-end gap-2">
+              {requestIsNoOp ? <p className="text-xs text-muted-foreground">Aucun changement sélectionné.</p> : null}
+              <Button
+                disabled={!request || requestIsNoOp || previewMutation.isPending}
+                onClick={() => request && previewMutation.mutate(request)}
+              >
+                {previewMutation.isPending ? (
+                  "Calcul…"
+                ) : (
+                  <>
+                    <ArrowRightIcon className="rtl:rotate-180" />
+                    Prévisualiser
+                  </>
+                )}
+              </Button>
+            </div>
           ) : null}
         </section>
       </div>
@@ -611,37 +625,107 @@ function Configurator({ catalog }: { catalog: ClientPlanCatalog }) {
 function ChangeHistory() {
   const session = useClientSession();
   const queryClient = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const state = readSubscriptionOperationListState(params, clientSubscriptionOperationUrlKeys);
+  const request = subscriptionOperationQuery(state);
   const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
+  const [cancelTarget, setCancelTarget] = useState<SubscriptionChangeOperation | null>(null);
   const changes = useQuery({
-    queryKey: clientCommercialKeys.changes(commercialContext),
-    queryFn: clientApi.subscriptionChanges,
+    queryKey: clientCommercialKeys.changes(commercialContext, request),
+    queryFn: () => clientApi.subscriptionChanges(request),
     enabled: commercialQueryEnabled(session.can, clientPermissions.subscriptionReadChanges),
+    placeholderData: keepPreviousData,
   });
   const cancel = useMutation({
     mutationFn: clientApi.cancelSubscriptionChange,
     onSuccess: () => {
       void invalidateClientCommercial(queryClient);
       toast.success("Changement annulé");
+      setCancelTarget(null);
+    },
+    onError: (error) => {
+      void invalidateClientCommercial(queryClient);
+      toast.error(subscriptionChangeFailureMessage(error));
     },
   });
+  useEffect(() => {
+    if (!changes.data || changes.isPlaceholderData) return;
+    const boundedPage = changes.data.totalPages === 0 ? 0 : Math.min(state.page, changes.data.totalPages - 1);
+    if (boundedPage === state.page) return;
+    setParams(
+      writeSubscriptionOperationListState(params, { ...state, page: boundedPage }, clientSubscriptionOperationUrlKeys),
+      { replace: true },
+    );
+  }, [changes.data, changes.isPlaceholderData, params, setParams, state]);
   if (changes.isLoading) return <LoadingState />;
   if (changes.isError) {
     return <ErrorState retry={() => void changes.refetch()} title="Impossible de charger les changements" />;
   }
-  if (!changes.data?.length) return <EmptyState title="Aucun changement" />;
+  if (!changes.data?.content.length) return <EmptyState title="Aucun changement" />;
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
       <SubscriptionChangeList
-        operations={changes.data}
+        onSortingChange={(sorting) =>
+          setParams(
+            writeSubscriptionOperationListState(
+              params,
+              subscriptionOperationStateFromSorting(state, sorting),
+              clientSubscriptionOperationUrlKeys,
+            ),
+            { replace: true },
+          )
+        }
+        operations={changes.data.content}
         renderAction={(operation) =>
           ["PENDING", "AWAITING_CONFIRMATION"].includes(operation.status) &&
           session.can(clientPermissions.subscriptionCancel) ? (
-            <Button disabled={cancel.isPending} onClick={() => cancel.mutate(operation.id)} size="sm" variant="ghost">
-              {cancel.isPending && cancel.variables === operation.id ? "Annulation…" : "Annuler"}
+            <Button disabled={cancel.isPending} onClick={() => setCancelTarget(operation)} size="sm" variant="ghost">
+              Annuler
             </Button>
           ) : null
         }
+        sorting={subscriptionOperationSorting(state)}
       />
+      <PaginationBar
+        onPageChange={(page) =>
+          setParams(
+            writeSubscriptionOperationListState(params, { ...state, page }, clientSubscriptionOperationUrlKeys),
+            { replace: true },
+          )
+        }
+        page={changes.data.page}
+        totalElements={changes.data.totalElements}
+        totalPages={changes.data.totalPages}
+      />
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open && !cancel.isPending) setCancelTarget(null);
+        }}
+        open={Boolean(cancelTarget)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Annuler ce changement ?</DialogTitle>
+            <DialogDescription>
+              {cancelTarget
+                ? `${cancelTarget.sourcePlanCode} → ${cancelTarget.targetPlanCode}. Cette demande ne sera pas appliquée.`
+                : "Cette demande ne sera pas appliquée."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button disabled={cancel.isPending} onClick={() => setCancelTarget(null)} variant="outline">
+              Retour
+            </Button>
+            <Button
+              disabled={!cancelTarget || cancel.isPending}
+              onClick={() => cancelTarget && cancel.mutate(cancelTarget.id)}
+              variant="destructive"
+            >
+              {cancel.isPending ? "Annulation…" : "Confirmer l’annulation"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test";
 import type { CatalogPrice, ProductPrice, ProductPriceActivationPreview } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import {
+  catalogAddOnSelectionState,
   currentCatalogPrice,
   defaultCatalogPrice,
   initialCatalogPlanCode,
   matchingCatalogPrice,
   preserveRetainedSelection,
   pruneCommercialSelection,
+  updateCatalogAddOnSelection,
 } from "@/features/commercial/catalog-price-rules";
 import {
   canUseProductPriceAction,
@@ -38,6 +40,22 @@ describe("retained commercial selections", () => {
 
   test("does not silently re-add a retained item the client removed", () => {
     expect(preserveRetainedSelection(["PUBLIC"], ["PUBLIC"], ["HIDDEN"], true)).toEqual(["PUBLIC"]);
+  });
+
+  test("shares recursive dependency and symmetric exclusion behavior across both portals", () => {
+    const candidates = [
+      { code: "CORE", name: "Core", dependencyCodes: [], exclusionCodes: [] },
+      { code: "AUDIT", name: "Audit", dependencyCodes: ["CORE"], exclusionCodes: [] },
+      { code: "EXPORT", name: "Export", dependencyCodes: ["AUDIT"], exclusionCodes: ["LEGACY"] },
+      { code: "LEGACY", name: "Legacy", dependencyCodes: [], exclusionCodes: [] },
+    ];
+
+    const [core, , exportAddOn] = candidates;
+    if (!core || !exportAddOn) throw new Error("Expected the add-on fixtures");
+
+    expect(updateCatalogAddOnSelection([], exportAddOn, candidates, true)).toEqual(["EXPORT", "AUDIT", "CORE"]);
+    expect(catalogAddOnSelectionState(exportAddOn, candidates, ["LEGACY"]).excludedBy?.code).toBe("LEGACY");
+    expect(catalogAddOnSelectionState(core, candidates, ["AUDIT"]).requiredBy?.code).toBe("AUDIT");
   });
 });
 

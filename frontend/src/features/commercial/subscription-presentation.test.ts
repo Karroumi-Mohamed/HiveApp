@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { subscriptionChangeStatusPresentation, subscriptionStatusPresentation } from "./subscription-presentation";
+import {
+  subscriptionChangeRecordedMessage,
+  subscriptionChangeStatusPresentation,
+  subscriptionStatusPresentation,
+} from "./subscription-presentation";
 
 describe("subscription presentation", () => {
   test("presents every subscription state in French", () => {
@@ -18,5 +22,7 @@ describe("subscription presentation", () => {
     expect(subscriptionChangeStatusPresentation.PENDING.label).toBe("Planifié");
     expect(subscriptionChangeStatusPresentation.AWAITING_CONFIRMATION.label).toBe("Paiement à confirmer");
     expect(subscriptionChangeStatusPresentation.NEEDS_ATTENTION.tone).toBe("danger");
+    expect(subscriptionChangeRecordedMessage({ status: "AWAITING_CONFIRMATION" })).toContain("paiement");
+    expect(subscriptionChangeRecordedMessage({ status: "PENDING" })).toBe("Changement planifié");
   });
 });
