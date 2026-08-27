@@ -26,9 +26,20 @@ public interface CommercialPolicyRepository extends JpaRepository<CommercialPoli
 
     long countBySegmentReference(String segmentReference);
 
+    long countBySegmentReferenceAndStatusIn(
+            String segmentReference,
+            Collection<CommercialPolicyStatus> statuses);
+
     @Query("select policy.segmentReference, count(policy) from CommercialPolicy policy "
             + "where policy.segmentReference in :references group by policy.segmentReference")
     List<Object[]> countBySegmentReferences(@Param("references") Collection<String> references);
+
+    @Query("select policy.segmentReference, count(policy) from CommercialPolicy policy "
+            + "where policy.segmentReference in :references and policy.status in :statuses "
+            + "group by policy.segmentReference")
+    List<Object[]> countBySegmentReferencesAndStatuses(
+            @Param("references") Collection<String> references,
+            @Param("statuses") Collection<CommercialPolicyStatus> statuses);
 
     @Query("select policy.lineageId from CommercialPolicy policy where policy.id = :policyId")
     Optional<UUID> findLineageIdById(@Param("policyId") UUID policyId);

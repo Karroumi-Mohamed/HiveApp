@@ -503,14 +503,15 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk()));
         assertThat(policyPreview.get("affectedAccountCount").asInt()).isOne();
-        mockMvc.perform(post("/api/admin/commercial-policies/{id}/activate", policyId)
+        JsonNode activatedPolicy = responseJson(mockMvc.perform(post(
+                                "/api/admin/commercial-policies/{id}/activate", policyId)
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CommercialPolicyRequests.Activation(
                                 policyPreview.get("expectedVersion").asLong(),
                                 "Activate against immutable Segment audience",
                                 policyPreview.get("previewToken").asText()))))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk()));
         UUID policyActivationId = policyActivationRepository
                 .findTopByPolicy_IdOrderByActivationNumberDesc(policyId).orElseThrow().getId();
         assertThat(policyActivationRepository.findSnapshotAccountIds(policyActivationId))
@@ -525,6 +526,79 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                         .content(versionReason(active, "Referenced Segment must remain resolvable")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+
+        JsonNode endedPolicy = responseJson(mockMvc.perform(post(
+                                "/api/admin/commercial-policies/{id}/end", policyId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CommercialPolicyRequests.VersionReason(
+                                activatedPolicy.at("/summary/version").asLong(),
+                                "Retire the live Segment policy"))))
+                .andExpect(status().isOk()));
+        mockMvc.perform(get("/api/admin/segments/{id}", segmentId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.availableActions", hasItem("ARCHIVE")))
+                .andExpect(jsonPath("$.summary.blockedActions.ARCHIVE").doesNotExist());
+
+        mockMvc.perform(post("/api/admin/commercial-policies/{id}/archive", policyId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CommercialPolicyRequests.VersionReason(
+                                endedPolicy.at("/summary/version").asLong(),
+                                "Retain terminal policy history"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.status").value("ARCHIVED"));
+        mockMvc.perform(post("/api/admin/segments/{id}/archive", segmentId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(versionReason(active, "Retire the no-longer-live audience")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.status").value("ARCHIVED"));
+
+        mockMvc.perform(get("/api/admin/commercial-policies/{id}/activations", policyId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(policyActivationId.toString()));
+        mockMvc.perform(get(
+                                "/api/admin/commercial-policies/{id}/activations/{activationId}/accounts",
+                                policyId, policyActivationId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.immutableAccountCount").value(1))
+                .andExpect(jsonPath("$.accounts.content[0].id").value(first.getId().toString()));
+        mockMvc.perform(get("/api/admin/commercial-policies/{id}/history", policyId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[*].reason", hasItem("Retain terminal policy history")));
+
+        mockMvc.perform(get("/api/admin/commercial-policies/segment-choices")
+                        .header("Authorization", bearer(token))
+                        .param("query", active.at("/summary/code").asText()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty());
+        mockMvc.perform(get("/api/admin/commercial-policies/segment-choices/selected")
+                        .header("Authorization", bearer(token))
+                        .param("references", active.at("/summary/code").asText()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+
+        CommercialPolicyRequests.Create archivedTarget = new CommercialPolicyRequests.Create(
+                "Archived Segment must not be reusable", null, Instant.now().minusSeconds(5),
+                Instant.now().plusSeconds(3600), CommercialPolicySource.MARKETING, 10,
+                "Reject a retired Segment target", null, null,
+                new CommercialPolicyRequests.Target(
+                        CommercialPolicyTargetKind.SEGMENT, null, Set.of(), null,
+                        active.at("/summary/code").asText()),
+                List.of(new CommercialPolicyRequests.Effect(
+                        CommercialPolicyEffectType.BLOCK_FEATURE, null, null, "platform.staff",
+                        null, null, null, null, null, null, null, null)));
+        mockMvc.perform(post("/api/admin/commercial-policies")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(archivedTarget)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test
