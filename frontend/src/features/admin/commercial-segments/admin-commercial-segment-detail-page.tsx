@@ -9,17 +9,17 @@ import {
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
 import type {
   CommercialSegmentAction,
-  CommercialSegmentActivation,
   CommercialSegmentAudienceIdentity,
   CommercialSegmentAudienceReference,
   CommercialSegmentDetail,
 } from "@/api/contracts";
+import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -46,12 +46,16 @@ import {
   adminCommercialKeys,
   commercialQueryEnabled,
   invalidateAdminCommercial,
+  invalidateCommercialPolicyTargeting,
 } from "@/features/commercial/commercial-query";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   actionBlockers,
   billingCycleLabel,
+  reviewedSegmentActivationReady,
+  segmentActionLabel,
   segmentBlocker,
+  segmentHistoryAction,
   segmentKind,
   segmentMutationMessage,
   segmentProductType,
@@ -76,6 +80,10 @@ function dateTime(value: string | null) {
 function boundedPage(value: string | null) {
   if (!value || !/^\d+$/.test(value)) return 0;
   return Math.min(Number(value), 10_000);
+}
+
+function boundedResponsePage(requested: number, totalPages: number) {
+  return totalPages <= 0 ? 0 : Math.min(requested, totalPages - 1);
 }
 
 function withParam(current: URLSearchParams, key: string, value: string | number | null) {
@@ -135,7 +143,8 @@ function ReasonDialog({
       return null;
     },
     onSuccess: async (result) => {
-      await invalidateAdminCommercial(queryClient, adminCommercialKeys.segments.all());
+      if (action === "ARCHIVE") await invalidateCommercialPolicyTargeting(queryClient);
+      else await invalidateAdminCommercial(queryClient, adminCommercialKeys.segments.all());
       setOpen(false);
       toast.success(
         action === "DUPLICATE"
@@ -149,7 +158,14 @@ function ReasonDialog({
       if (action === "DELETE_DRAFT") navigate("/admin/segments");
       else if (result) navigate(`/admin/segments/${result.summary.id}`);
     },
-    onError: (error) => toast.error(segmentMutationMessage(error)),
+    onError: async (error) => {
+      if (error instanceof ApiError && error.code === "STALE_RESOURCE_VERSION") {
+        setOpen(false);
+        setReason("");
+      }
+      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.segments.detail(segment.summary.id) });
+      toast.error(segmentMutationMessage(error));
+    },
   });
   const labels = {
     DUPLICATE: ["Dupliquer le segment", "Créer une copie indépendante"],
@@ -228,45 +244,81 @@ function ReasonDialog({
   );
 }
 
-function ActivationDialog({ segment }: { segment: CommercialSegmentDetail }) {
+export function CommercialSegmentActivationDialog({ segment }: { segment: CommercialSegmentDetail }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const openRef = useRef(false);
   const [reason, setReason] = useState("");
+  const [clock, setClock] = useState(() => Date.now());
   const queryKey = adminCommercialKeys.segments.preview(segment.summary.id, segment.summary.version);
   const preview = useQuery({
     queryKey,
     queryFn: () => adminApi.previewCommercialSegment(segment.summary.id),
     enabled: open && session.can(adminPermissions.segmentsPreview),
+    gcTime: 0,
     staleTime: 0,
   });
+  useEffect(
+    () => () => {
+      queryClient.removeQueries({
+        queryKey: adminCommercialKeys.segments.preview(segment.summary.id, segment.summary.version),
+        exact: true,
+      });
+    },
+    [queryClient, segment.summary.id, segment.summary.version],
+  );
+  const expiresAt = preview.data?.expiresAt;
+  useEffect(() => {
+    if (!open || !expiresAt) return;
+    const expires = Date.parse(expiresAt);
+    if (!Number.isFinite(expires)) return;
+    const timer = window.setTimeout(() => setClock(Date.now()), Math.max(0, expires - Date.now() + 1));
+    return () => window.clearTimeout(timer);
+  }, [expiresAt, open]);
   const changeOpen = (next: boolean) => {
+    openRef.current = next;
     setOpen(next);
-    if (!next) {
+    if (next) setClock(Date.now());
+    else {
       setReason("");
       queryClient.removeQueries({ queryKey, exact: true });
     }
   };
   const mutation = useMutation({
     mutationFn: () => {
-      if (!preview.data) throw new Error("La vérification signée est absente.");
+      if (!reviewedSegmentActivationReady(segment, preview.data, Date.now())) {
+        throw new Error("La vérification signée n’est plus actuelle.");
+      }
       return adminApi.activateCommercialSegment(segment.summary.id, {
-        version: segment.summary.version,
-        reason,
-        previewToken: preview.data.previewToken,
+        version: preview.data?.criteriaVersion ?? segment.summary.version,
+        reason: reason.trim(),
+        previewToken: preview.data?.previewToken ?? "",
       });
     },
     onSuccess: async () => {
-      await invalidateAdminCommercial(queryClient, adminCommercialKeys.segments.all());
       changeOpen(false);
+      await invalidateCommercialPolicyTargeting(queryClient);
       toast.success("Segment activé");
     },
     onError: async (error) => {
       queryClient.removeQueries({ queryKey, exact: true });
-      await preview.refetch();
+      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.segments.detail(segment.summary.id) });
+      if (openRef.current) {
+        await preview.refetch();
+        setClock(Date.now());
+      }
       toast.error(segmentMutationMessage(error));
     },
   });
+  const ready = reviewedSegmentActivationReady(segment, preview.data, clock);
+  const previewExpiry = preview.data ? Date.parse(preview.data.expiresAt) : Number.NaN;
+  const expired = Boolean(preview.data && (!Number.isFinite(previewExpiry) || previewExpiry <= clock));
+  const refreshPreview = async () => {
+    queryClient.removeQueries({ queryKey, exact: true });
+    await preview.refetch();
+    setClock(Date.now());
+  };
   return (
     <Dialog onOpenChange={changeOpen} open={open}>
       <DialogTrigger asChild>
@@ -283,13 +335,13 @@ function ActivationDialog({ segment }: { segment: CommercialSegmentDetail }) {
             fermeture.
           </DialogDescription>
         </DialogHeader>
-        {preview.isLoading ? (
+        {preview.isLoading || preview.isFetching ? (
           <LoadingState rows={3} />
         ) : preview.isError || !preview.data ? (
-          <ErrorState retry={() => void preview.refetch()} />
+          <ErrorState retry={() => void refreshPreview()} />
         ) : (
           <div className="space-y-4">
-            <dl className="grid grid-cols-2 gap-4 border-y py-4">
+            <dl className="grid gap-4 border-y py-4 sm:grid-cols-2">
               <div>
                 <dt className="text-xs text-muted-foreground">Comptes</dt>
                 <dd className="mt-1 text-xl font-semibold tabular-nums">{preview.data.totalAccounts}</dd>
@@ -299,16 +351,28 @@ function ActivationDialog({ segment }: { segment: CommercialSegmentDetail }) {
                 <dd className="mt-1 text-sm font-medium">{dateTime(preview.data.expiresAt)}</dd>
               </div>
             </dl>
-            {preview.data.blockers.length ? (
+            {!preview.data.activatable ? (
               <Alert variant="destructive">
                 <WarningCircleIcon />
                 <AlertTitle>Activation impossible</AlertTitle>
                 <AlertDescription>
                   <ul className="list-disc ps-4">
-                    {preview.data.blockers.map((blocker) => (
-                      <li key={blocker}>{segmentBlocker[blocker]}</li>
-                    ))}
+                    {preview.data.blockers.length ? (
+                      preview.data.blockers.map((blocker) => <li key={blocker}>{segmentBlocker[blocker]}</li>)
+                    ) : (
+                      <li>Le backend refuse cette activation sans fournir de blocage détaillé.</li>
+                    )}
                   </ul>
+                </AlertDescription>
+              </Alert>
+            ) : expired ? (
+              <Alert>
+                <WarningCircleIcon />
+                <AlertTitle>Vérification expirée</AlertTitle>
+                <AlertDescription>
+                  <Button onClick={() => void refreshPreview()} size="sm" variant="outline">
+                    Vérifier de nouveau
+                  </Button>
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -317,7 +381,7 @@ function ActivationDialog({ segment }: { segment: CommercialSegmentDetail }) {
                 <p className="text-xs text-muted-foreground">Échantillon sans identité</p>
                 <ul className="mt-2 space-y-1 font-mono text-xs">
                   {preview.data.sample.map((item) => (
-                    <li className="break-all" key={item.accountId}>
+                    <li className="break-all" dir="ltr" key={item.accountId}>
                       {item.accountId}
                     </li>
                   ))}
@@ -340,10 +404,7 @@ function ActivationDialog({ segment }: { segment: CommercialSegmentDetail }) {
           <Button onClick={() => changeOpen(false)} variant="outline">
             Annuler
           </Button>
-          <Button
-            disabled={!preview.data?.activatable || !reason.trim() || mutation.isPending}
-            onClick={() => mutation.mutate()}
-          >
+          <Button disabled={!ready || !reason.trim() || mutation.isPending} onClick={() => mutation.mutate()}>
             Activer
           </Button>
         </DialogFooter>
@@ -362,7 +423,7 @@ function LifecycleOperations({ segment }: { segment: CommercialSegmentDetail }) 
         {has("ACTIVATE") &&
         session.can(adminPermissions.segmentsPreview) &&
         session.can(adminPermissions.segmentsActivate) ? (
-          <ActivationDialog segment={segment} />
+          <CommercialSegmentActivationDialog segment={segment} />
         ) : null}
         {has("REVISE") && session.can(adminPermissions.segmentsRevise) ? (
           <ReasonDialog
@@ -466,7 +527,9 @@ function Definition({ segment }: { segment: CommercialSegmentDetail }) {
           {criteria.productHoldings.map((holding) => (
             <li className="flex justify-between gap-3 px-3 py-2 text-sm" key={`${holding.type}:${holding.code}`}>
               <span>{segmentProductType[holding.type]}</span>
-              <span className="font-mono text-xs">{holding.code}</span>
+              <span className="font-mono text-xs" dir="ltr">
+                {holding.code}
+              </span>
             </li>
           ))}
         </ul>
@@ -511,7 +574,9 @@ function Overview({ segment }: { segment: CommercialSegmentDetail }) {
           <ul className="divide-y rounded-lg border">
             {blocked.map(([action, blockers]) => (
               <li className="grid gap-1 px-3 py-2 text-sm sm:grid-cols-[180px_1fr]" key={action}>
-                <span className="font-medium">{readable(action)}</span>
+                <span className="font-medium">
+                  {segmentActionLabel[action as CommercialSegmentAction] ?? readable(action)}
+                </span>
                 <span className="text-muted-foreground">
                   {blockers?.map((blocker) => segmentBlocker[blocker]).join(" ")}
                 </span>
@@ -619,9 +684,12 @@ function Audience({ segmentId, segment }: { segmentId: string; segment?: Commerc
             {identities.data.sample.map((account) => (
               <li className="flex items-start justify-between gap-3 px-3 py-2" key={account.accountId}>
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium">{account.accountName}</span>
+                  <span className="block truncate text-sm font-medium">{account.accountName ?? account.accountId}</span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {account.accountSlug} · {account.ownerEmail}
+                    <span dir="ltr">
+                      {account.accountSlug ?? account.accountId}
+                      {account.ownerEmail ? ` · ${account.ownerEmail}` : " · Email indisponible"}
+                    </span>
                   </span>
                 </span>
                 <span className="text-xs text-muted-foreground">{account.active ? "Actif" : "Inactif"}</span>
@@ -641,9 +709,17 @@ function Audience({ segmentId, segment }: { segmentId: string; segment?: Commerc
 
 function Revisions({ segmentId }: { segmentId: string }) {
   const session = useAdminSession();
+  const canReadRevisions = session.can(adminPermissions.segmentsReadRevisions);
+  const canCompare = session.can(adminPermissions.segmentsCompare);
   const [params, setParams] = useSearchParams();
   const page = boundedPage(params.get("page"));
   const compared = validSegmentId(params.get("against"));
+  const [compareCandidate, setCompareCandidate] = useState(compared);
+  const chooseComparison = (candidateId: string) => {
+    const normalized = validSegmentId(candidateId);
+    if (!normalized || normalized === segmentId) return;
+    setParams(withParam(params, "against", normalized), { replace: true });
+  };
   const revisions = useQuery({
     queryKey: adminCommercialKeys.segments.revisions(segmentId, page),
     queryFn: () => adminApi.commercialSegmentRevisions(segmentId, page),
@@ -654,10 +730,19 @@ function Revisions({ segmentId }: { segmentId: string }) {
     queryFn: () => adminApi.compareCommercialSegments(segmentId, compared),
     enabled: commercialQueryEnabled(session.can, adminPermissions.segmentsCompare, Boolean(compared)),
   });
+  useEffect(() => setCompareCandidate(compared), [compared]);
+  useEffect(() => {
+    const normalized = revisions.data ? boundedResponsePage(page, revisions.data.totalPages) : page;
+    const raw = params.get("page");
+    let next = params;
+    if ((raw && raw !== String(page)) || normalized !== page) next = withParam(next, "page", normalized);
+    if (params.get("against") && !compared) next = withParam(next, "against", null);
+    if (next !== params) setParams(next, { replace: true });
+  }, [compared, page, params, revisions.data, setParams]);
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(300px,0.8fr)_1.2fr]">
       <section className="overflow-hidden rounded-xl border bg-card">
-        {!session.can(adminPermissions.segmentsReadRevisions) ? (
+        {!canReadRevisions ? (
           <PermissionState />
         ) : revisions.isLoading ? (
           <LoadingState />
@@ -669,18 +754,14 @@ function Revisions({ segmentId }: { segmentId: string }) {
               {revisions.data.content.map((revision) => {
                 const status = segmentStatus[revision.status];
                 return (
-                  <li className="flex items-center gap-3 px-4 py-3" key={revision.id}>
+                  <li className="flex flex-wrap items-center gap-3 px-4 py-3" key={revision.id}>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-medium">Révision {revision.revisionNumber}</span>
                       <span className="block truncate text-xs text-muted-foreground">{revision.code}</span>
                     </span>
                     <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
-                    {session.can(adminPermissions.segmentsCompare) && revision.id !== segmentId ? (
-                      <Button
-                        onClick={() => setParams(withParam(params, "against", revision.id), { replace: true })}
-                        size="sm"
-                        variant="ghost"
-                      >
+                    {canCompare && revision.id !== segmentId ? (
+                      <Button onClick={() => chooseComparison(revision.id)} size="sm" variant="ghost">
                         Comparer
                       </Button>
                     ) : null}
@@ -698,45 +779,75 @@ function Revisions({ segmentId }: { segmentId: string }) {
         )}
       </section>
       <section className="min-h-56 rounded-xl border bg-card p-5">
-        {!session.can(adminPermissions.segmentsCompare) ? (
+        {!canCompare ? (
           <PermissionState />
-        ) : !compared ? (
-          <EmptyState description="Choisissez une révision dans la lignée." title="Aucune comparaison sélectionnée" />
-        ) : comparison.isLoading ? (
-          <LoadingState />
-        ) : comparison.isError || !comparison.data ? (
-          <ErrorState retry={() => void comparison.refetch()} />
         ) : (
           <div className="space-y-5">
-            <div>
-              <h2 className="text-sm font-semibold">Changements détectés</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {comparison.data.sameLineage ? "Même lignée" : "Lignées indépendantes"}
-                {comparison.data.directSuccessor ? " · succession directe" : ""}
-              </p>
+            <div className="space-y-2 border-b pb-5">
+              <Label htmlFor="commercial-segment-compared-id">Révision à comparer</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  className="font-mono"
+                  dir="ltr"
+                  id="commercial-segment-compared-id"
+                  maxLength={36}
+                  onChange={(event) => setCompareCandidate(event.target.value)}
+                  placeholder={
+                    canReadRevisions ? "Choisissez à gauche ou collez un identifiant" : "Collez un identifiant connu"
+                  }
+                  value={compareCandidate}
+                />
+                <Button
+                  disabled={!validSegmentId(compareCandidate) || validSegmentId(compareCandidate) === segmentId}
+                  onClick={() => chooseComparison(compareCandidate)}
+                  variant="outline"
+                >
+                  Comparer
+                </Button>
+              </div>
             </div>
-            {comparison.data.changedFields.length ? (
-              <ul className="divide-y rounded-lg border">
-                {comparison.data.changedFields.map((field) => (
-                  <li className="px-3 py-2 text-sm" key={field}>
-                    {changedFieldLabel[field] ?? readable(field)}
-                  </li>
-                ))}
-              </ul>
+            {!compared ? (
+              <EmptyState
+                description="Choisissez une révision de la même lignée ou une copie indépendante."
+                title="Aucune comparaison sélectionnée"
+              />
+            ) : comparison.isLoading ? (
+              <LoadingState />
+            ) : comparison.isError || !comparison.data ? (
+              <ErrorState retry={() => void comparison.refetch()} />
             ) : (
-              <p className="text-sm text-muted-foreground">Aucune différence de définition.</p>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              {[comparison.data.source, comparison.data.compared].map((item) => (
-                <article className="border-t pt-4" key={item.summary.id}>
-                  <p className="font-medium">{item.summary.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {item.summary.code} · R{item.summary.revisionNumber}
+              <>
+                <div>
+                  <h2 className="text-sm font-semibold">Changements détectés</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {comparison.data.sameLineage ? "Même lignée" : "Lignées indépendantes"}
+                    {comparison.data.directSuccessor ? " · succession directe" : ""}
                   </p>
-                  <p className="mt-3 text-sm">{segmentKind[item.summary.kind]}</p>
-                </article>
-              ))}
-            </div>
+                </div>
+                {comparison.data.changedFields.length ? (
+                  <ul className="divide-y rounded-lg border">
+                    {comparison.data.changedFields.map((field) => (
+                      <li className="px-3 py-2 text-sm" key={field}>
+                        {changedFieldLabel[field] ?? readable(field)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Aucune différence de définition.</p>
+                )}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {[comparison.data.source, comparison.data.compared].map((item) => (
+                    <article className="border-t pt-4" key={item.summary.id}>
+                      <p className="font-medium">{item.summary.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.summary.code} · R{item.summary.revisionNumber}
+                      </p>
+                      <p className="mt-3 text-sm">{segmentKind[item.summary.kind]}</p>
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
       </section>
@@ -744,136 +855,197 @@ function Revisions({ segmentId }: { segmentId: string }) {
   );
 }
 
-function ActivationAudience({ segmentId, activation }: { segmentId: string; activation: CommercialSegmentActivation }) {
-  const session = useAdminSession();
-  const [page, setPage] = useState(0);
-  const canIdentify = session.can(adminPermissions.segmentsReadActivationIdentities);
-  const [identified, setIdentified] = useState(false);
-  const audience = useQuery({
-    queryKey: adminCommercialKeys.segments.activationAudience(segmentId, activation.id, page, identified),
-    queryFn: () =>
-      identified
-        ? adminApi.commercialSegmentActivationIdentities(segmentId, activation.id, page)
-        : adminApi.commercialSegmentActivationAudience(segmentId, activation.id, page),
-    enabled: identified ? canIdentify : session.can(adminPermissions.segmentsReadActivationAudience),
-  });
-  return (
-    <div className="space-y-4 border-t pt-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">Audience figée · activation {activation.activationNumber}</h3>
-          <p className="text-xs text-muted-foreground">{activation.affectedAccountCount} compte(s)</p>
-        </div>
-        {canIdentify ? (
-          <Button
-            onClick={() => {
-              setIdentified((value) => !value);
-              setPage(0);
-            }}
-            size="sm"
-            variant="ghost"
-          >
-            {identified ? "Masquer les identités" : "Afficher les identités"}
-          </Button>
-        ) : null}
-      </div>
-      {audience.isLoading ? (
-        <LoadingState rows={3} />
-      ) : audience.isError || !audience.data ? (
-        <ErrorState retry={() => void audience.refetch()} />
-      ) : (
-        <>
-          <ul className="divide-y rounded-lg border">
-            {audience.data.accounts.content.map((item) => {
-              const identity = isAudienceIdentity(item) ? item : null;
-              return (
-                <li className="px-3 py-2" key={item.accountId}>
-                  {identity ? (
-                    <span>
-                      <span className="block text-sm font-medium">{identity.accountName}</span>
-                      <span className="block text-xs text-muted-foreground">
-                        {identity.accountSlug} · {identity.ownerEmail}
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="break-all font-mono text-xs">{item.accountId}</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          <PaginationBar
-            onPageChange={setPage}
-            page={audience.data.accounts.page}
-            totalElements={audience.data.accounts.totalElements}
-            totalPages={audience.data.accounts.totalPages}
-          />
-        </>
-      )}
-    </div>
-  );
-}
-
 function Activations({ segmentId }: { segmentId: string }) {
   const session = useAdminSession();
+  const canReadActivations = session.can(adminPermissions.segmentsReadActivations);
+  const canReadOpaqueAudience = session.can(adminPermissions.segmentsReadActivationAudience);
+  const canReadIdentities = session.can(adminPermissions.segmentsReadActivationIdentities);
   const [params, setParams] = useSearchParams();
   const page = boundedPage(params.get("page"));
   const selected = validSegmentId(params.get("activation"));
+  const accountsPage = boundedPage(params.get("accountsPage"));
+  const [activationCandidate, setActivationCandidate] = useState(selected);
+  const [identified, setIdentified] = useState(false);
+  const showIdentities = canReadIdentities && (identified || !canReadOpaqueAudience);
   const activations = useQuery({
     queryKey: adminCommercialKeys.segments.activations(segmentId, page),
     queryFn: () => adminApi.commercialSegmentActivations(segmentId, page),
     enabled: commercialQueryEnabled(session.can, adminPermissions.segmentsReadActivations),
   });
-  if (!session.can(adminPermissions.segmentsReadActivations)) return <PermissionState />;
-  if (activations.isLoading) return <LoadingState />;
-  if (activations.isError || !activations.data) return <ErrorState retry={() => void activations.refetch()} />;
-  const chosen = activations.data.content.find((item) => item.id === selected);
+  const audience = useQuery({
+    queryKey: adminCommercialKeys.segments.activationAudience(segmentId, selected, accountsPage, showIdentities),
+    queryFn: () =>
+      showIdentities
+        ? adminApi.commercialSegmentActivationIdentities(segmentId, selected, accountsPage)
+        : adminApi.commercialSegmentActivationAudience(segmentId, selected, accountsPage),
+    enabled: Boolean(selected) && (showIdentities ? canReadIdentities : canReadOpaqueAudience),
+  });
+  const chooseActivation = (activationId: string) => {
+    const normalized = validSegmentId(activationId);
+    if (!normalized) return;
+    setIdentified(false);
+    let next = withParam(params, "activation", normalized);
+    next = withParam(next, "accountsPage", null);
+    setParams(next, { replace: true });
+  };
+  useEffect(() => setActivationCandidate(selected), [selected]);
+  useEffect(() => {
+    let next = params;
+    const rawPage = params.get("page");
+    const rawAccountsPage = params.get("accountsPage");
+    const finalPage = activations.data ? boundedResponsePage(page, activations.data.totalPages) : page;
+    const finalAccountsPage = audience.data
+      ? boundedResponsePage(accountsPage, audience.data.accounts.totalPages)
+      : accountsPage;
+    if ((rawPage && rawPage !== String(page)) || finalPage !== page) {
+      next = withParam(next, "page", finalPage);
+    }
+    if ((rawAccountsPage && rawAccountsPage !== String(accountsPage)) || finalAccountsPage !== accountsPage) {
+      next = withParam(next, "accountsPage", finalAccountsPage);
+    }
+    if (!selected) {
+      if (params.get("activation")) next = withParam(next, "activation", null);
+      if (params.get("accountsPage")) next = withParam(next, "accountsPage", null);
+    }
+    if (next !== params) setParams(next, { replace: true });
+  }, [accountsPage, activations.data, audience.data, page, params, selected, setParams]);
   return (
-    <div className="space-y-5">
+    <div className="grid gap-6 lg:grid-cols-[minmax(340px,0.9fr)_1.1fr]">
       <section className="overflow-hidden rounded-xl border bg-card">
-        <ul className="divide-y">
-          {activations.data.content.map((activation) => (
-            <li className="flex items-center gap-3 px-4 py-3" key={activation.id}>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">
-                  Activation {activation.activationNumber} · {activation.affectedAccountCount} compte(s)
-                </span>
-                <span className="block text-xs text-muted-foreground">
-                  {dateTime(activation.recordedAt)} · {activation.reason}
-                </span>
-              </span>
-              {session.can(adminPermissions.segmentsReadActivationAudience) ||
-              session.can(adminPermissions.segmentsReadActivationIdentities) ? (
+        {!canReadActivations ? (
+          <PermissionState />
+        ) : activations.isLoading ? (
+          <LoadingState />
+        ) : activations.isError || !activations.data ? (
+          <ErrorState retry={() => void activations.refetch()} />
+        ) : (
+          <>
+            <ol className="divide-y">
+              {activations.data.content.map((activation) => (
+                <li className="space-y-2 p-4" key={activation.id}>
+                  <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Activation {activation.activationNumber} · {activation.affectedAccountCount} compte(s)
+                      </p>
+                      <time className="mt-1 block text-xs text-muted-foreground" dateTime={activation.recordedAt}>
+                        {dateTime(activation.recordedAt)}
+                      </time>
+                    </div>
+                    {canReadOpaqueAudience || canReadIdentities ? (
+                      <Button onClick={() => chooseActivation(activation.id)} size="sm" variant="ghost">
+                        Voir l’audience figée
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="text-sm">{activation.reason}</p>
+                </li>
+              ))}
+            </ol>
+            {!activations.data.content.length ? <EmptyState title="Aucune activation" /> : null}
+            <PaginationBar
+              onPageChange={(next) => setParams(withParam(params, "page", next), { replace: true })}
+              page={activations.data.page}
+              totalElements={activations.data.totalElements}
+              totalPages={activations.data.totalPages}
+            />
+          </>
+        )}
+      </section>
+      <section className="min-h-56 overflow-hidden rounded-xl border bg-card">
+        {!canReadOpaqueAudience && !canReadIdentities ? (
+          <PermissionState />
+        ) : (
+          <div>
+            <div className="space-y-3 border-b p-4">
+              <Label htmlFor="commercial-segment-activation-id">Activation à examiner</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  className="font-mono"
+                  dir="ltr"
+                  id="commercial-segment-activation-id"
+                  maxLength={36}
+                  onChange={(event) => setActivationCandidate(event.target.value)}
+                  placeholder={
+                    canReadActivations ? "Choisissez à gauche ou collez un identifiant" : "Collez un identifiant connu"
+                  }
+                  value={activationCandidate}
+                />
                 <Button
-                  onClick={() => setParams(withParam(params, "activation", activation.id), { replace: true })}
+                  disabled={!validSegmentId(activationCandidate)}
+                  onClick={() => chooseActivation(activationCandidate)}
+                  variant="outline"
+                >
+                  Examiner
+                </Button>
+              </div>
+              {canReadOpaqueAudience && canReadIdentities && selected ? (
+                <Button
+                  onClick={() => {
+                    setIdentified((value) => !value);
+                    setParams(withParam(params, "accountsPage", null), { replace: true });
+                  }}
                   size="sm"
                   variant="ghost"
                 >
-                  Audience
+                  {showIdentities ? "Masquer les identités" : "Afficher les identités"}
                 </Button>
               ) : null}
-            </li>
-          ))}
-        </ul>
-        {!activations.data.content.length ? <EmptyState title="Aucune activation" /> : null}
-        <PaginationBar
-          onPageChange={(next) => setParams(withParam(params, "page", next), { replace: true })}
-          page={activations.data.page}
-          totalElements={activations.data.totalElements}
-          totalPages={activations.data.totalPages}
-        />
+            </div>
+            {!selected ? (
+              <EmptyState
+                description="Une activation conserve la liste exacte des comptes examinés."
+                title="Choisissez une activation"
+              />
+            ) : audience.isLoading ? (
+              <div className="p-4">
+                <LoadingState rows={3} />
+              </div>
+            ) : audience.isError || !audience.data ? (
+              <ErrorState retry={() => void audience.refetch()} />
+            ) : (
+              <>
+                <div className="border-b p-4">
+                  <h2 className="text-sm font-semibold">
+                    Audience figée · activation {audience.data.activationNumber}
+                  </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {audience.data.immutableAccountCount} compte(s) enregistrés
+                  </p>
+                </div>
+                <ul className="divide-y">
+                  {audience.data.accounts.content.map((item) => {
+                    const identity = isAudienceIdentity(item) ? item : null;
+                    return (
+                      <li className="px-4 py-3" key={item.accountId}>
+                        {identity ? (
+                          <span>
+                            <span className="block text-sm font-medium">{identity.accountName ?? item.accountId}</span>
+                            <span className="block text-xs text-muted-foreground" dir="ltr">
+                              {identity.accountSlug ?? item.accountId}
+                              {identity.ownerEmail ? ` · ${identity.ownerEmail}` : " · Email indisponible"}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="block break-all font-mono text-xs" dir="ltr">
+                            {item.accountId}
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+                <PaginationBar
+                  onPageChange={(next) => setParams(withParam(params, "accountsPage", next), { replace: true })}
+                  page={audience.data.accounts.page}
+                  totalElements={audience.data.accounts.totalElements}
+                  totalPages={audience.data.accounts.totalPages}
+                />
+              </>
+            )}
+          </div>
+        )}
       </section>
-      {chosen ? (
-        <ActivationAudience activation={chosen} segmentId={segmentId} />
-      ) : selected ? (
-        <Alert variant="destructive">
-          <WarningCircleIcon />
-          <AlertTitle>Activation hors de cette page</AlertTitle>
-          <AlertDescription>
-            Revenez à la page qui contient cette activation ou choisissez-en une visible.
-          </AlertDescription>
-        </Alert>
-      ) : null}
     </div>
   );
 }
@@ -887,6 +1059,14 @@ function History({ segmentId }: { segmentId: string }) {
     queryFn: () => adminApi.commercialSegmentHistory(segmentId, page),
     enabled: commercialQueryEnabled(session.can, adminPermissions.segmentsReadHistory),
   });
+  useEffect(() => {
+    if (!history.data) return;
+    const normalized = boundedResponsePage(page, history.data.totalPages);
+    const raw = params.get("page");
+    if ((raw && raw !== String(page)) || normalized !== page) {
+      setParams(withParam(params, "page", normalized), { replace: true });
+    }
+  }, [history.data, page, params, setParams]);
   if (!session.can(adminPermissions.segmentsReadHistory)) return <PermissionState />;
   if (history.isLoading) return <LoadingState />;
   if (history.isError || !history.data) return <ErrorState retry={() => void history.refetch()} />;
@@ -896,7 +1076,7 @@ function History({ segmentId }: { segmentId: string }) {
         {history.data.content.map((entry) => (
           <li className="grid gap-1 px-4 py-3 sm:grid-cols-[1fr_auto]" key={entry.id}>
             <span>
-              <span className="block text-sm font-medium">{readable(entry.action)}</span>
+              <span className="block text-sm font-medium">{segmentHistoryAction(entry.action)}</span>
               <span className="block text-xs text-muted-foreground">
                 {entry.actorEmail ? `par ${entry.actorEmail}` : "acteur système"}
                 {entry.reason ? ` · ${entry.reason}` : ""}
@@ -927,6 +1107,14 @@ function ReassignOwnerDialog({ segment }: { segment: CommercialSegmentDetail }) 
   const debounced = useDebouncedValue(search);
   const [ownerId, setOwnerId] = useState("");
   const [reason, setReason] = useState("");
+  const changeOpen = (next: boolean) => {
+    setOpen(next);
+    if (!next) {
+      setSearch("");
+      setOwnerId("");
+      setReason("");
+    }
+  };
   const operators = useQuery({
     queryKey: ["admin", "users", "segment-owner", debounced],
     queryFn: () => adminApi.users({ search: debounced || undefined, active: true, size: 20 }),
@@ -941,13 +1129,20 @@ function ReassignOwnerDialog({ segment }: { segment: CommercialSegmentDetail }) 
       }),
     onSuccess: async () => {
       await invalidateAdminCommercial(queryClient, adminCommercialKeys.segments.all());
-      setOpen(false);
+      changeOpen(false);
       toast.success("Responsable réassigné");
     },
-    onError: (error) => toast.error(segmentMutationMessage(error)),
+    onError: async (error) => {
+      if (error instanceof ApiError && error.code === "STALE_RESOURCE_VERSION") changeOpen(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: adminCommercialKeys.segments.detail(segment.summary.id) }),
+        queryClient.invalidateQueries({ queryKey: adminCommercialKeys.segments.owner(segment.summary.id) }),
+      ]);
+      toast.error(segmentMutationMessage(error));
+    },
   });
   return (
-    <Dialog onOpenChange={setOpen} open={open}>
+    <Dialog onOpenChange={changeOpen} open={open}>
       <DialogTrigger asChild>
         <Button variant="outline">Réassigner le responsable</Button>
       </DialogTrigger>
@@ -965,23 +1160,37 @@ function ReassignOwnerDialog({ segment }: { segment: CommercialSegmentDetail }) 
               placeholder="Rechercher…"
               value={search}
             />
-            <Select onValueChange={setOwnerId} value={ownerId || undefined}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choisir un opérateur" />
-              </SelectTrigger>
-              <SelectContent>
-                {operators.data?.content.map((operator) => (
-                  <SelectItem key={operator.id} value={operator.id}>
-                    {operator.email}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {operators.isError ? (
+              <Alert variant="destructive">
+                <WarningCircleIcon />
+                <AlertTitle>Opérateurs indisponibles</AlertTitle>
+                <AlertDescription>
+                  <Button onClick={() => void operators.refetch()} size="sm" variant="outline">
+                    Réessayer
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <Select disabled={operators.isLoading} onValueChange={setOwnerId} value={ownerId || undefined}>
+                <SelectTrigger>
+                  <SelectValue placeholder={operators.isLoading ? "Chargement…" : "Choisir un opérateur"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {operators.data?.content.map((operator) => (
+                    <SelectItem key={operator.id} value={operator.id}>
+                      {operator.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         ) : (
           <div className="space-y-2">
             <Label htmlFor="segment-owner-id">Identifiant administrateur</Label>
             <Input
+              className="font-mono"
+              dir="ltr"
               id="segment-owner-id"
               maxLength={36}
               onChange={(event) => setOwnerId(event.target.value)}
@@ -1034,7 +1243,9 @@ function Owner({ segmentId, segment }: { segmentId: string; segment?: Commercial
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">Email</dt>
-          <dd className="mt-1 font-medium">{owner.data.email}</dd>
+          <dd className="mt-1 font-medium" dir="ltr">
+            {owner.data.email}
+          </dd>
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">Identifiant</dt>
@@ -1145,7 +1356,7 @@ export function AdminCommercialSegmentDetailPage() {
         }
         description={
           <span className="flex items-center gap-3">
-            <span>
+            <span dir="ltr">
               {data.summary.code} · R{data.summary.revisionNumber}
             </span>
             <StatusBadge tone={status.tone}>{status.label}</StatusBadge>

@@ -21,7 +21,7 @@ import { useAdminSession } from "@/auth/session-provider";
 import { createDataColumns, DataTable, SortHeader } from "@/components/patterns/data-table";
 import { PageHeader } from "@/components/patterns/page-header";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
-import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
+import { EmptyState, ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { RowAction } from "@/components/patterns/row-action";
 import { StatusBadge } from "@/components/patterns/status-badge";
 import { TableActionsCell, tableActionsColumnMeta } from "@/components/patterns/table-actions-cell";
@@ -239,127 +239,131 @@ export function AdminCommercialSegmentsPage() {
         }
         title="Segments de comptes"
       />
-      <section aria-busy={segments.isFetching} className="overflow-hidden rounded-xl border bg-card">
-        <div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_repeat(3,180px)]">
-          <div className="relative">
-            <MagnifyingGlassIcon className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              aria-label="Rechercher les segments"
-              className="ps-9"
-              maxLength={180}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Nom ou code…"
-              value={search}
-            />
-          </div>
-          <Select onValueChange={(value) => update({ status: value as typeof state.status })} value={state.status}>
-            <SelectTrigger aria-label="Statut" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Tous les statuts</SelectItem>
-              {Object.entries(segmentStatus).map(([value, item]) => (
-                <SelectItem key={value} value={value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select onValueChange={(value) => update({ kind: value as typeof state.kind })} value={state.kind}>
-            <SelectTrigger aria-label="Type de définition" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Toutes les définitions</SelectItem>
-              {Object.entries(segmentKind).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select onValueChange={(value) => update({ source: value as typeof state.source })} value={state.source}>
-            <SelectTrigger aria-label="Origine" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Toutes les origines</SelectItem>
-              {Object.entries(segmentSource).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex min-h-12 flex-wrap items-center justify-between gap-4 border-b px-4 py-2">
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={state.includeArchived}
-              id="segment-archives"
-              onCheckedChange={(checked) => update({ includeArchived: checked === true })}
-            />
-            <Label className="cursor-pointer font-normal" htmlFor="segment-archives">
-              Inclure les archives
-            </Label>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button
-              aria-label="Actualiser les segments"
-              disabled={segments.isFetching}
-              onClick={() => void segments.refetch()}
-              size="icon-sm"
-              title="Actualiser les segments"
-              variant="ghost"
-            >
-              <ArrowClockwiseIcon className={segments.isFetching ? "animate-spin" : undefined} />
-            </Button>
-            <Select
-              onValueChange={(value) => update({ size: Number(value) as typeof state.size })}
-              value={String(state.size)}
-            >
-              <SelectTrigger aria-label="Résultats par page" className="h-8 w-[118px]">
+      {!session.can(adminPermissions.segmentsList) ? (
+        <PermissionState />
+      ) : (
+        <section aria-busy={segments.isFetching} className="overflow-hidden rounded-xl border bg-card">
+          <div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_repeat(3,180px)]">
+            <div className="relative">
+              <MagnifyingGlassIcon className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                aria-label="Rechercher les segments"
+                className="ps-9"
+                maxLength={180}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Nom ou code…"
+                value={search}
+              />
+            </div>
+            <Select onValueChange={(value) => update({ status: value as typeof state.status })} value={state.status}>
+              <SelectTrigger aria-label="Statut" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="10">10 par page</SelectItem>
-                <SelectItem value="20">20 par page</SelectItem>
-                <SelectItem value="50">50 par page</SelectItem>
+                <SelectItem value="ALL">Tous les statuts</SelectItem>
+                {Object.entries(segmentStatus).map(([value, item]) => (
+                  <SelectItem key={value} value={value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <span className="text-xs text-muted-foreground">{segments.data?.totalElements ?? 0} résultat(s)</span>
+            <Select onValueChange={(value) => update({ kind: value as typeof state.kind })} value={state.kind}>
+              <SelectTrigger aria-label="Type de définition" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Toutes les définitions</SelectItem>
+                {Object.entries(segmentKind).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select onValueChange={(value) => update({ source: value as typeof state.source })} value={state.source}>
+              <SelectTrigger aria-label="Origine" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Toutes les origines</SelectItem>
+                {Object.entries(segmentSource).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </div>
-        {segments.isLoading ? (
-          <div className="p-4">
-            <LoadingState />
-          </div>
-        ) : segments.isError ? (
-          <ErrorState retry={() => void segments.refetch()} />
-        ) : segments.data ? (
-          <>
-            <div className="hidden md:block">
-              <DataTable
-                columns={columns}
-                data={segments.data.content}
-                emptyState={
-                  <EmptyState description="Modifiez les filtres ou créez un brouillon." title="Aucun segment" />
-                }
-                getRowId={(segment) => segment.id}
-                onSortingChange={(next) => update(segmentListStateFromSorting(state, next) as Partial<typeof state>)}
-                sorting={sorting}
+          <div className="flex min-h-12 flex-wrap items-center justify-between gap-4 border-b px-4 py-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={state.includeArchived}
+                id="segment-archives"
+                onCheckedChange={(checked) => update({ includeArchived: checked === true })}
               />
+              <Label className="cursor-pointer font-normal" htmlFor="segment-archives">
+                Inclure les archives
+              </Label>
             </div>
-            <MobileSegments segments={segments.data.content} />
-            <PaginationBar
-              onPageChange={(page) => update({ page })}
-              page={segments.data.page}
-              totalElements={segments.data.totalElements}
-              totalPages={segments.data.totalPages}
-            />
-          </>
-        ) : null}
-      </section>
+            <div className="flex items-center gap-3">
+              <Button
+                aria-label="Actualiser les segments"
+                disabled={segments.isFetching}
+                onClick={() => void segments.refetch()}
+                size="icon-sm"
+                title="Actualiser les segments"
+                variant="ghost"
+              >
+                <ArrowClockwiseIcon className={segments.isFetching ? "animate-spin" : undefined} />
+              </Button>
+              <Select
+                onValueChange={(value) => update({ size: Number(value) as typeof state.size })}
+                value={String(state.size)}
+              >
+                <SelectTrigger aria-label="Résultats par page" className="h-8 w-[118px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10 par page</SelectItem>
+                  <SelectItem value="20">20 par page</SelectItem>
+                  <SelectItem value="50">50 par page</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground">{segments.data?.totalElements ?? 0} résultat(s)</span>
+            </div>
+          </div>
+          {segments.isLoading ? (
+            <div className="p-4">
+              <LoadingState />
+            </div>
+          ) : segments.isError ? (
+            <ErrorState retry={() => void segments.refetch()} />
+          ) : segments.data ? (
+            <>
+              <div className="hidden md:block">
+                <DataTable
+                  columns={columns}
+                  data={segments.data.content}
+                  emptyState={
+                    <EmptyState description="Modifiez les filtres ou créez un brouillon." title="Aucun segment" />
+                  }
+                  getRowId={(segment) => segment.id}
+                  onSortingChange={(next) => update(segmentListStateFromSorting(state, next) as Partial<typeof state>)}
+                  sorting={sorting}
+                />
+              </div>
+              <MobileSegments segments={segments.data.content} />
+              <PaginationBar
+                onPageChange={(page) => update({ page })}
+                page={segments.data.page}
+                totalElements={segments.data.totalElements}
+                totalPages={segments.data.totalPages}
+              />
+            </>
+          ) : null}
+        </section>
+      )}
     </div>
   );
 }

@@ -9,7 +9,6 @@ import type {
   BillingCycle,
   CommercialChooserItem,
   CommercialSegmentProductType,
-  SubscriptionStatus,
 } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
@@ -36,6 +35,7 @@ import {
   draftFromCommercialSegment,
   emptyCommercialSegmentDraft,
   hasDraftErrors,
+  segmentCurrentSubscriptionStatuses,
   segmentKind,
   segmentMutationMessage,
   segmentProductType,
@@ -61,13 +61,21 @@ function FieldError({ children }: { children?: ReactNode }) {
   ) : null;
 }
 
-function SelectionToken({ children, onRemove }: { children: ReactNode; onRemove: () => void }) {
+function SelectionToken({
+  children,
+  onRemove,
+  removeLabel,
+}: {
+  children: ReactNode;
+  onRemove: () => void;
+  removeLabel: string;
+}) {
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border bg-muted/30 px-2.5 py-1 text-sm">
       <span className="truncate">{children}</span>
       <button
-        aria-label="Retirer"
-        className="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={removeLabel}
+        className="-my-2 -me-2 inline-flex size-9 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={onRemove}
         type="button"
       >
@@ -155,6 +163,7 @@ function AccountPicker({
           {draft.explicitAccountIds.map((id) => (
             <li key={id}>
               <SelectionToken
+                removeLabel={`Retirer ${labels.get(id)?.name ?? id}`}
                 onRemove={() =>
                   onChange({
                     ...draft,
@@ -300,6 +309,7 @@ function CurrencyEditor({
           {draft.currencyCodes.map((code) => (
             <SelectionToken
               key={code}
+              removeLabel={`Retirer la devise ${code}`}
               onRemove={() =>
                 onChange({ ...draft, currencyCodes: draft.currencyCodes.filter((candidate) => candidate !== code) })
               }
@@ -404,6 +414,7 @@ function ProductPicker({
             return (
               <SelectionToken
                 key={key}
+                removeLabel={`Retirer ${segmentProductType[holding.type]} ${holding.code}`}
                 onRemove={() =>
                   onChange({
                     ...draft,
@@ -493,6 +504,7 @@ function PlanRevisionPicker({
           {draft.currentPlanRevisionIds.map((id) => (
             <SelectionToken
               key={id}
+              removeLabel={`Retirer le forfait ${labels.get(id)?.name ?? id}`}
               onRemove={() =>
                 onChange({
                   ...draft,
@@ -636,14 +648,18 @@ function AudienceStep({
       </Alert>
       <PlanRevisionPicker draft={draft} onChange={onChange} />
       <div className="grid gap-6 border-y py-6 lg:grid-cols-2">
-        <ToggleSet
-          label="Statuts d’abonnement"
-          onChange={(subscriptionStatuses) => onChange({ ...draft, subscriptionStatuses })}
-          options={(Object.entries(subscriptionStatusLabel) as Array<[SubscriptionStatus, string]>).map(
-            ([value, label]) => ({ value, label }),
-          )}
-          selected={draft.subscriptionStatuses}
-        />
+        <div className="space-y-2">
+          <ToggleSet
+            label="Statuts d’abonnement"
+            onChange={(subscriptionStatuses) => onChange({ ...draft, subscriptionStatuses })}
+            options={segmentCurrentSubscriptionStatuses.map((value) => ({
+              value,
+              label: subscriptionStatusLabel[value],
+            }))}
+            selected={draft.subscriptionStatuses}
+          />
+          <FieldError>{errors.statuses}</FieldError>
+        </div>
         <ToggleSet
           label="Cycles de facturation"
           onChange={(billingCycles) => onChange({ ...draft, billingCycles })}
@@ -783,10 +799,32 @@ function SegmentEditor({ existing }: { existing?: import("@/api/contracts").Comm
       toast.success(existing ? "Brouillon enregistré" : "Segment créé");
       navigate(`/admin/segments/${segment.summary.id}`, { replace: true });
     },
-    onError: (error) => {
+    onError: async (error) => {
       if (error instanceof ApiError && error.code === "STALE_RESOURCE_VERSION") setVersionConflict(true);
+      if (existing) {
+        await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.segments.detail(existing.summary.id) });
+      }
       toast.error(segmentMutationMessage(error));
     },
+  });
+  const reload = useMutation({
+    mutationFn: () => {
+      if (!existing) throw new Error("Aucun segment à recharger.");
+      return adminApi.commercialSegment(existing.summary.id);
+    },
+    onSuccess: (fresh) => {
+      const nextDraft = draftFromCommercialSegment(fresh);
+      queryClient.setQueryData(adminCommercialKeys.segments.detail(fresh.summary.id), fresh);
+      setDraft(nextDraft);
+      initialSerialized.current = JSON.stringify(nextDraft);
+      expectedVersion.current = fresh.summary.version;
+      setVersionConflict(false);
+      setSubmitted(false);
+      setStep("identity");
+      window.requestAnimationFrame(() => editorFocus.current?.focus());
+      toast.success("Nouvelle version chargée");
+    },
+    onError: (error) => toast.error(segmentMutationMessage(error)),
   });
   const dirty = !completed.current && JSON.stringify(draft) !== initialSerialized.current;
   const dirtyRef = useRef(dirty);
@@ -840,7 +878,17 @@ function SegmentEditor({ existing }: { existing?: import("@/api/contracts").Comm
           <WarningCircleIcon />
           <AlertTitle>Le brouillon a changé ailleurs</AlertTitle>
           <AlertDescription>
-            Rechargez la page avant de réappliquer vos modifications sur la nouvelle version.
+            Vos saisies ne seront pas appliquées sur la nouvelle version sans relecture.
+            <Button
+              className="mt-3"
+              disabled={reload.isPending}
+              onClick={() => reload.mutate()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {reload.isPending ? "Rechargement…" : "Recharger et abandonner mes modifications"}
+            </Button>
           </AlertDescription>
         </Alert>
       ) : null}

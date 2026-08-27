@@ -4,6 +4,9 @@ import { ApiError } from "@/api/http";
 import {
   draftFromCommercialSegment,
   emptyCommercialSegmentDraft,
+  reviewedSegmentActivationReady,
+  segmentCurrentSubscriptionStatuses,
+  segmentHistoryAction,
   segmentMutationMessage,
   toCommercialSegmentWriteInput,
   validateCommercialSegmentDraft,
@@ -67,6 +70,52 @@ describe("commercial segment definition rules", () => {
     });
   });
 
+  test("offers only backend-supported current subscription statuses", () => {
+    expect(segmentCurrentSubscriptionStatuses).toEqual(["TRIALING", "ACTIVE", "PAST_DUE", "SUSPENDED"]);
+    const draft = emptyCommercialSegmentDraft();
+    Object.assign(draft, {
+      name: "Audience",
+      reason: "Analyse",
+      kind: "TYPED_CRITERIA",
+      subscriptionStatuses: ["CANCELLED"],
+    });
+    expect(validateCommercialSegmentDraft(draft).statuses).toContain("annulé");
+  });
+
+  test("mirrors the backend date bounds and maximum account-age window", () => {
+    const draft = emptyCommercialSegmentDraft();
+    Object.assign(draft, {
+      name: "Audience",
+      reason: "Analyse",
+      kind: "TYPED_CRITERIA",
+      accountCreatedFrom: "1999-12-31T23:59:59Z",
+    });
+    const now = Date.parse("2026-08-27T12:00:00Z");
+    expect(validateCommercialSegmentDraft(draft, now).createdWindow).toContain("2000");
+
+    draft.accountCreatedFrom = "2000-01-01T00:00:00Z";
+    draft.accountCreatedUntil = "2021-01-02T00:00:00Z";
+    expect(validateCommercialSegmentDraft(draft, now).createdWindow).toContain("20 ans");
+
+    draft.accountCreatedFrom = "";
+    draft.accountCreatedUntil = "2026-08-29T00:00:00Z";
+    expect(validateCommercialSegmentDraft(draft, now).createdWindow).toContain("demain");
+  });
+
+  test("ignores hidden typed criteria after switching to an explicit-account audience", () => {
+    const draft = emptyCommercialSegmentDraft();
+    Object.assign(draft, {
+      name: "Audience explicite",
+      reason: "Analyse",
+      kind: "EXPLICIT_ACCOUNTS",
+      explicitAccountIds: ["account-1"],
+      accountCreatedFrom: "1999-12-31T23:59:59Z",
+      subscriptionStatuses: ["CANCELLED"],
+    });
+
+    expect(validateCommercialSegmentDraft(draft, Date.parse("2026-08-27T12:00:00Z"))).toEqual({});
+  });
+
   test("round-trips a persisted typed definition without inventing explicit accounts", () => {
     const segment = {
       summary: { name: "Renouvellements", kind: "TYPED_CRITERIA", source: "MANUAL" },
@@ -94,6 +143,31 @@ describe("commercial segment definition rules", () => {
   });
 });
 
+describe("commercial segment activation evidence", () => {
+  const segment = {
+    summary: { id: "segment-1", version: 4 },
+  } as unknown as CommercialSegmentDetail;
+  const preview = {
+    segmentId: "segment-1",
+    criteriaVersion: 4,
+    expiresAt: "2026-08-27T12:01:00Z",
+    previewToken: "signed.segment.preview",
+    activatable: true,
+    blockers: [],
+  };
+
+  test("accepts only unexpired evidence for the exact segment revision", () => {
+    const now = Date.parse("2026-08-27T12:00:00Z");
+    expect(reviewedSegmentActivationReady(segment, preview, now)).toBeTrue();
+    expect(reviewedSegmentActivationReady(segment, { ...preview, segmentId: "other" }, now)).toBeFalse();
+    expect(reviewedSegmentActivationReady(segment, { ...preview, criteriaVersion: 5 }, now)).toBeFalse();
+    expect(reviewedSegmentActivationReady(segment, { ...preview, activatable: false }, now)).toBeFalse();
+    expect(reviewedSegmentActivationReady(segment, { ...preview, previewToken: "" }, now)).toBeFalse();
+    expect(reviewedSegmentActivationReady(segment, { ...preview, blockers: ["EMPTY_AUDIENCE"] }, now)).toBeFalse();
+    expect(reviewedSegmentActivationReady(segment, { ...preview, expiresAt: "2026-08-27T12:00:00Z" }, now)).toBeFalse();
+  });
+});
+
 describe("commercial segment mutation errors", () => {
   test("branches on stable error codes and does not expose backend messages", () => {
     expect(segmentMutationMessage(new ApiError(409, "STALE_ACTIVATION_PREVIEW", "provider detail"))).toContain(
@@ -105,5 +179,12 @@ describe("commercial segment mutation errors", () => {
     expect(segmentMutationMessage(new ApiError(500, "HTTP_ERROR", "private stack"))).toBe(
       "L’opération n’a pas pu être exécutée.",
     );
+  });
+});
+
+describe("commercial segment history presentation", () => {
+  test("localizes permission-path and method-style audit actions", () => {
+    expect(segmentHistoryAction("platform.account_segments.update_draft")).toBe("Brouillon modifié");
+    expect(segmentHistoryAction("reassign-owner")).toBe("Responsable réassigné");
   });
 });
