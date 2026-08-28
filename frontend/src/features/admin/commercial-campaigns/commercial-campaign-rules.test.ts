@@ -45,6 +45,16 @@ describe("commercial campaign draft rules", () => {
       segmentId: "segment-1",
       segmentActivationId: "activation-7",
     });
+    expect(
+      validateCommercialCampaignDraft(draft, undefined, {
+        retainedSegment: { segmentId: "segment-1", segmentActivationId: "activation-7" },
+      }).audience,
+    ).toBeUndefined();
+    expect(
+      validateCommercialCampaignDraft(draft, undefined, {
+        retainedSegment: { segmentId: "segment-1", segmentActivationId: "other-activation" },
+      }).audience,
+    ).toContain("vérifiée");
   });
 
   test("round-trips a persisted audience without leaking hidden modes into the request", () => {

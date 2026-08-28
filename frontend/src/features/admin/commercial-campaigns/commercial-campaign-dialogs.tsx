@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { adminCommercialKeys, invalidateCommercialCampaignTargeting } from "@/features/commercial/commercial-query";
+import { campaignCollectionDestination, campaignMutationDestination } from "./commercial-campaign-navigation";
 import { campaignBlocker, campaignMutationMessage, reviewedCampaignScheduleReady } from "./commercial-campaign-rules";
 
 type ReasonAction = "DUPLICATE" | "REVISE" | "PAUSE" | "RESUME" | "END" | "ARCHIVE" | "DELETE_DRAFT";
@@ -85,6 +86,7 @@ export function CommercialCampaignReasonDialog({
   action: ReasonAction;
   trigger: ReactNode;
 }) {
+  const session = useAdminSession();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -93,6 +95,9 @@ export function CommercialCampaignReasonDialog({
   const [confirmation, setConfirmation] = useState("");
   const expectedVersion = useRef(campaign.version);
   const copy = reasonCopy[action];
+  useEffect(() => {
+    if (open) expectedVersion.current = campaign.version;
+  }, [campaign.version, open]);
   const changeOpen = (next: boolean) => {
     if (next) expectedVersion.current = campaign.version;
     setOpen(next);
@@ -120,14 +125,14 @@ export function CommercialCampaignReasonDialog({
       changeOpen(false);
       if (action === "DELETE_DRAFT") {
         toast.success("Brouillon supprimé");
-        navigate("/admin/campaigns");
+        navigate(campaignCollectionDestination(session.can));
       } else if (action === "DUPLICATE" || action === "REVISE") {
         toast.success(action === "DUPLICATE" ? "Copie créée" : "Révision créée");
-        if (result) navigate(`/admin/campaigns/${result.campaignId}`);
+        if (result) navigate(campaignMutationDestination(result.campaignId, session.can));
       } else toast.success("Cycle de vie mis à jour");
     },
     onError: async (error) => {
-      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.campaigns.detail(campaign.id) });
+      await invalidateCampaign(queryClient, campaign.id);
       toast.error(campaignMutationMessage(error));
     },
   });
@@ -279,15 +284,15 @@ export function CommercialCampaignScheduleDialog({
     },
     onError: async (error) => {
       previewRequest.current += 1;
-      setPreview({ status: "idle", data: null });
-      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.campaigns.detail(campaign.id) });
-      if (open) await refresh();
+      setPreview({ status: "error", data: null });
+      await invalidateCampaign(queryClient, campaign.id);
       setClock(Date.now());
       toast.error(campaignMutationMessage(error));
     },
   });
   const ready = reviewedCampaignScheduleReady(campaign, preview.data, clock);
-  const expired = Boolean(preview.data && Date.parse(preview.data.expiresAt) <= clock);
+  const expiresAt = preview.data ? Date.parse(preview.data.expiresAt) : Number.NaN;
+  const expired = Boolean(preview.data && (!Number.isFinite(expiresAt) || expiresAt <= clock));
   return (
     <Dialog onOpenChange={changeOpen} open={open}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -364,7 +369,7 @@ export function CommercialCampaignScheduleDialog({
                 <p className="text-xs font-medium text-muted-foreground">Échantillon opaque</p>
                 <ul className="mt-2 divide-y border-y font-mono text-xs">
                   {preview.data.sample.map((account) => (
-                    <li className="py-2" key={account.accountId}>
+                    <li className="break-all py-2" dir="ltr" key={account.accountId}>
                       {account.accountId}
                     </li>
                   ))}

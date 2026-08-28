@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   adminCommercialCampaignDetailSurfacePermissions,
+  adminCommercialCampaignEditPermissions,
   adminCommercialPolicyDetailSurfacePermissions,
   adminOverviewSurfacePermissions,
   adminPermissions,
@@ -91,5 +92,13 @@ describe("session permission bypasses", () => {
       adminPermissions.campaignsReadAudienceIdentities,
       adminPermissions.campaignsOwner,
     ]);
+  });
+
+  test("Campaign editing uses the narrow editable-definition contract", () => {
+    expect(adminCommercialCampaignEditPermissions).toEqual([
+      adminPermissions.campaignsUpdate,
+      adminPermissions.campaignsReadEditableDefinition,
+    ]);
+    expect(adminCommercialCampaignEditPermissions).not.toContain(adminPermissions.campaignsRead);
   });
 });

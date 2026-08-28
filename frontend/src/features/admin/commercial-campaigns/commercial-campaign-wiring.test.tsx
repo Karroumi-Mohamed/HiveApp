@@ -54,6 +54,7 @@ const accountId = "f0531700-650b-4036-a26d-3e449c1c2070";
 const segmentId = "922b3f0b-c4e8-4b70-b465-69dc8e08c3f8";
 const activationId = "f627cf50-b295-4ee3-a52a-eb04cde766d3";
 const comparedId = "cb0f6fd1-6ff1-4efa-bbd0-bc911ff6f99e";
+const duplicatedId = "4458d575-cbcc-4e08-a5a0-ce27e7369a3a";
 
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -150,6 +151,9 @@ function renderEditor(permissions: string[]) {
     [
       { path: "/admin/campaigns/:campaignId/edit", element: <AdminCommercialCampaignEditPage /> },
       { path: "/admin/campaigns/:campaignId", element: <p>Campagne</p> },
+      { path: "/admin/campaigns/:campaignId/operations", element: <p>Opérations de campagne</p> },
+      { path: "/admin/campaigns", element: <p>Liste des campagnes</p> },
+      { path: "/admin", element: <p>Vue d’ensemble</p> },
     ],
     { initialEntries: [`/admin/campaigns/${campaignId}/edit`] },
   );
@@ -222,12 +226,30 @@ describe("commercial campaign least-privilege wiring", () => {
       expect(view.getByRole("tab", { name: "Audience" }).getAttribute("aria-selected")).toBe("true");
       expect(confirmationCount).toBe(0);
 
-      await user.click(view.getByRole("link", { name: "Campagnes" }));
+      await user.click(view.getByRole("link", { name: "Administration" }));
       await waitFor(() => expect(confirmationCount).toBe(1));
       expect(view.getByRole("heading", { name: "Nouvelle campagne" })).toBeTruthy();
     } finally {
       window.confirm = originalConfirm;
     }
+  });
+
+  test("an invalid review returns to and focuses the first failing field", async () => {
+    const permissions = [adminPermissions.campaignsCreate];
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/admin/me")) return response(session(permissions));
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const view = renderCreateEditor(permissions);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(view.getByRole("tab", { name: "Révision" }));
+    await user.click(view.getByRole("button", { name: "Créer le brouillon" }));
+    await waitFor(() =>
+      expect(view.getByRole("tab", { name: "Définition" }).getAttribute("aria-selected")).toBe("true"),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(view.getByLabelText("Nom")));
+    expect(view.getAllByRole("alert").some((alert) => alert.textContent?.includes("nom"))).toBeTrue();
   });
 
   test("returns a create-only operator to a readable surface after creation", async () => {
@@ -252,6 +274,43 @@ describe("commercial campaign least-privilege wiring", () => {
     expect(
       requests.filter((request) => request.url.endsWith("/api/admin/campaigns") && request.method === "POST"),
     ).toHaveLength(1);
+  });
+
+  test("an edit-only operator retains the exact Segment and returns safely after saving", async () => {
+    const requests: Array<{ url: string; method: string | undefined; body?: Record<string, unknown> }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
+      requests.push({ url, method: init?.method, body });
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}/editable-definition`)) return response(editableDefinition());
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}`) && init?.method === "PUT")
+        return response({ campaignId, status: "DRAFT", version: 5 });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const view = renderEditor([adminPermissions.campaignsUpdate, adminPermissions.campaignsReadEditableDefinition]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    const name = await view.findByLabelText("Nom");
+    await user.clear(name);
+    await user.type(name, "Renouvellements contrôlés");
+    await user.click(view.getByRole("tab", { name: "Révision" }));
+    await user.click(view.getByRole("button", { name: "Enregistrer le brouillon" }));
+
+    expect(await view.findByText("Vue d’ensemble")).toBeTruthy();
+    const update = requests.find(
+      (request) => request.url.endsWith(`/api/admin/campaigns/${campaignId}`) && request.method === "PUT",
+    );
+    expect(update?.body).toMatchObject({
+      name: "Renouvellements contrôlés",
+      audience: { mode: "SEGMENT", segmentId, segmentActivationId: activationId },
+      version: 4,
+    });
+    expect(requests.some((request) => request.url.includes("segment-choices"))).toBeFalse();
+    expect(
+      requests.some(
+        (request) => request.url.endsWith(`/api/admin/campaigns/${campaignId}`) && request.method !== "PUT",
+      ),
+    ).toBeFalse();
   });
 
   test("fetches a signed schedule review only on demand and submits that exact evidence", async () => {
@@ -311,6 +370,21 @@ describe("commercial campaign least-privilege wiring", () => {
       previewToken: "signed-campaign-preview",
       reason: "Lancement contrôlé",
     });
+  });
+
+  test("a read-only operator sees no mutation controls or operations query", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}`)) return response(detail());
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const view = renderDetail(`/admin/campaigns/${campaignId}`, [adminPermissions.campaignsRead]);
+    expect(await view.findByRole("heading", { name: "Renouvellements" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Modifier" })).toBeNull();
+    expect(view.queryByRole("button", { name: "Planifier" })).toBeNull();
+    expect(requests.some((url) => url.endsWith(`/api/admin/campaigns/${campaignId}/operations`))).toBeFalse();
   });
 
   test("loads opaque frozen evidence first and fetches identities only after explicit reveal", async () => {
@@ -419,7 +493,7 @@ describe("commercial campaign least-privilege wiring", () => {
     expect(requests.some((url) => url.endsWith(`/campaigns/${campaignId}`))).toBeFalse();
   });
 
-  test("a history-only operator deep-links without fetching Campaign detail", async () => {
+  test("a history-only operator is redirected to history without fetching Campaign detail", async () => {
     const requests: string[] = [];
     globalThis.fetch = (async (input) => {
       const url = String(input);
@@ -446,10 +520,49 @@ describe("commercial campaign least-privilege wiring", () => {
         });
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
-    const view = renderDetail(`/admin/campaigns/${campaignId}/history`, [adminPermissions.campaignsHistory]);
+    const view = renderDetail(`/admin/campaigns/${campaignId}`, [adminPermissions.campaignsHistory]);
     expect(await view.findByText("Campagne planifiée")).toBeTruthy();
     expect(requests.some((url) => url.includes(`/campaigns/${campaignId}/history`))).toBeTrue();
     expect(requests.some((url) => url.endsWith(`/campaigns/${campaignId}`))).toBeFalse();
+  });
+
+  test("a failed broad detail request cannot block an independently authorized history tab", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes(`/api/admin/campaigns/${campaignId}/history`))
+        return response({
+          content: [
+            {
+              id: "event-1",
+              action: "PAUSE",
+              outcome: "SUCCEEDED",
+              actorUserId: "admin-1",
+              actorEmail: "admin@hiveapp.test",
+              reason: "Contrôle",
+              occurredAt: "2026-08-28T10:00:00Z",
+            },
+          ],
+          page: 0,
+          size: 20,
+          totalElements: 1,
+          totalPages: 1,
+          first: true,
+          last: true,
+        });
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}`))
+        return response({ status: 500, code: "HTTP_ERROR", message: "private failure" }, 500);
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const view = renderDetail(`/admin/campaigns/${campaignId}/history`, [
+      adminPermissions.campaignsRead,
+      adminPermissions.campaignsHistory,
+    ]);
+    expect(await view.findByText("Campagne mise en pause")).toBeTruthy();
+    expect(view.queryByText("Campagne introuvable")).toBeNull();
+    expect(requests.some((url) => url.endsWith(`/campaigns/${campaignId}`))).toBeTrue();
   });
 
   test("an operations-only operator sees authoritative actions without fetching Campaign detail", async () => {
@@ -475,10 +588,107 @@ describe("commercial campaign least-privilege wiring", () => {
       adminPermissions.campaignsUpdate,
     ]);
     expect(await view.findByRole("heading", { name: "Renouvellements" })).toBeTruthy();
-    expect(view.getByRole("link", { name: "Modifier" })).toBeTruthy();
+    const editButton = view.getByRole("button", { name: "Modifier" });
+    expect(editButton.hasAttribute("disabled")).toBeTrue();
+    expect(editButton.getAttribute("title")).toContain("ne peut pas relire sa définition modifiable");
     expect(view.getByText("Actions disponibles")).toBeTruthy();
     expect(requests.filter((url) => url.endsWith(`/api/admin/campaigns/${campaignId}/operations`))).toHaveLength(1);
     expect(requests.some((url) => url.endsWith(`/api/admin/campaigns/${campaignId}`))).toBeFalse();
+  });
+
+  test("a stale lifecycle retry uses the refetched operations version", async () => {
+    const mutationBodies: Array<Record<string, unknown>> = [];
+    let operationsReads = 0;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}/operations`)) {
+        operationsReads += 1;
+        return response({
+          id: campaignId,
+          code: "CAMPAIGN-ACTIVE",
+          name: "Campagne active",
+          status: "ACTIVE",
+          revisionNumber: 1,
+          version: operationsReads === 1 ? 4 : 5,
+          availableActions: ["PAUSE"],
+          blockedActions: {},
+        });
+      }
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}/pause`) && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        mutationBodies.push(body);
+        if (mutationBodies.length === 1)
+          return response(
+            { status: 409, code: "STALE_RESOURCE_VERSION", message: "stale", timestamp: new Date().toISOString() },
+            409,
+          );
+        return response({ campaignId, status: "PAUSED", version: 6 });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const view = renderDetail(`/admin/campaigns/${campaignId}/operations`, [
+      adminPermissions.campaignsReadOperations,
+      adminPermissions.campaignsPause,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(await view.findByRole("button", { name: "Pause" }));
+    const dialog = await view.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("Motif obligatoire"), "Contrôle opérationnel");
+    await user.click(within(dialog).getByRole("button", { name: "Mettre en pause" }));
+    await waitFor(() => expect(operationsReads).toBeGreaterThanOrEqual(2));
+    await user.click(within(dialog).getByRole("button", { name: "Mettre en pause" }));
+    await waitFor(() => expect(mutationBodies).toHaveLength(2));
+    expect(mutationBodies.map((body) => body.version)).toEqual([4, 5]);
+  });
+
+  test("a narrow duplicate flow lands on the new Campaign operations surface", async () => {
+    const requests: Array<{ url: string; method: string | undefined }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      requests.push({ url, method: init?.method });
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}/operations`))
+        return response({
+          id: campaignId,
+          code: "CAMPAIGN-R1",
+          name: "Renouvellements",
+          status: "DRAFT",
+          revisionNumber: 1,
+          version: 4,
+          availableActions: ["DUPLICATE"],
+          blockedActions: {},
+        });
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}/duplicate`) && init?.method === "POST")
+        return response({ campaignId: duplicatedId, status: "DRAFT", version: 0 }, 201);
+      if (url.endsWith(`/api/admin/campaigns/${duplicatedId}/operations`))
+        return response({
+          id: duplicatedId,
+          code: "CAMPAIGN-COPY",
+          name: "Renouvellements — copie",
+          status: "DRAFT",
+          revisionNumber: 1,
+          version: 0,
+          availableActions: [],
+          blockedActions: {},
+        });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const view = renderDetail(`/admin/campaigns/${campaignId}/operations`, [
+      adminPermissions.campaignsReadOperations,
+      adminPermissions.campaignsDuplicate,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(await view.findByRole("button", { name: "Dupliquer" }));
+    const dialog = await view.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("Motif obligatoire"), "Copie contrôlée");
+    await user.click(within(dialog).getByRole("button", { name: "Créer la copie" }));
+    expect(await view.findByRole("heading", { name: "Renouvellements — copie" })).toBeTruthy();
+    expect(
+      requests.some(
+        (request) => request.url.endsWith(`/api/admin/campaigns/${duplicatedId}`) && request.method !== "POST",
+      ),
+    ).toBeFalse();
   });
 
   test("an owner-only operator reassigns from the narrow owner version without reading Campaign detail", async () => {
@@ -560,6 +770,36 @@ describe("commercial campaign least-privilege wiring", () => {
       reason: "Rotation opérationnelle",
     });
     expect(requests.some((url) => url.endsWith(`/api/admin/campaigns/${campaignId}`))).toBeFalse();
+  });
+
+  test("owner reassignment is explained and inert without chooser access", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}/owner`))
+        return response({
+          campaignId,
+          adminUserId: "owner-1",
+          userId: "user-1",
+          email: "owner@hiveapp.test",
+          username: "owner",
+          displayName: "Responsable actuelle",
+          active: true,
+          status: "DRAFT",
+          version: 11,
+        });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const view = renderDetail(`/admin/campaigns/${campaignId}/owner`, [
+      adminPermissions.campaignsOwner,
+      adminPermissions.campaignsReassignOwner,
+    ]);
+    const reassign = await view.findByRole("button", { name: "Réassigner" });
+    expect(reassign.hasAttribute("disabled")).toBeTrue();
+    expect(reassign.getAttribute("title")).toContain("parcourir les responsables éligibles");
+    expect(requests.some((url) => url.includes("owner-choices"))).toBeFalse();
   });
 
   test("a compare-only operator uses a known revision without listing the lineage or reading detail", async () => {

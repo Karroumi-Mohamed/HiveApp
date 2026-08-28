@@ -1,3 +1,5 @@
+import type { CampaignDraftErrors } from "./commercial-campaign-rules";
+
 export type CampaignEditorStep = "definition" | "audience" | "calendar" | "review";
 
 export const campaignEditorSteps = [
@@ -23,13 +25,14 @@ export function shouldBlockCampaignEditorNavigation(
 ) {
   return dirty && !completed && currentPathname !== nextPathname;
 }
-export function campaignEditorSuccessDestination(
-  campaignId: string,
-  canRead: boolean,
-  canReadOperations: boolean,
-  canList: boolean,
-) {
-  if (canRead) return `/admin/campaigns/${campaignId}`;
-  if (canReadOperations) return `/admin/campaigns/${campaignId}/operations`;
-  return canList ? "/admin/campaigns" : "/admin";
+
+export function campaignEditorErrorLocation(errors: CampaignDraftErrors): {
+  step: CampaignEditorStep;
+  fieldId: string;
+} | null {
+  if (errors.name) return { step: "definition", fieldId: "campaign-name" };
+  if (errors.reason) return { step: "definition", fieldId: "campaign-reason" };
+  if (errors.audience) return { step: "audience", fieldId: "campaign-audience-PUBLIC" };
+  if (errors.window) return { step: "calendar", fieldId: "campaign-start" };
+  return null;
 }

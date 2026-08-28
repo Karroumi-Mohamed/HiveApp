@@ -26,10 +26,11 @@ import { CommercialCampaignAudienceEditor } from "./commercial-campaign-audience
 import {
   adjacentCampaignEditorSteps,
   type CampaignEditorStep,
+  campaignEditorErrorLocation,
   campaignEditorSteps,
-  campaignEditorSuccessDestination,
   shouldBlockCampaignEditorNavigation,
 } from "./commercial-campaign-editor-state";
+import { campaignCollectionDestination, campaignMutationDestination } from "./commercial-campaign-navigation";
 import {
   type CommercialCampaignDraft,
   campaignAudienceMode,
@@ -44,6 +45,12 @@ import {
 } from "./commercial-campaign-rules";
 
 const validSteps = new Set(campaignEditorSteps.map((step) => step.value));
+const reviewDateTime = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" });
+
+function formattedReviewDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : reviewDateTime.format(date);
+}
 
 function FieldError({ children }: { children?: string }) {
   return children ? (
@@ -243,13 +250,13 @@ function ReviewStep({
         <div>
           <dt className="text-xs text-muted-foreground">Début</dt>
           <dd className="mt-1 font-medium" dir="ltr">
-            {draft.startsAt || "—"}
+            {formattedReviewDate(draft.startsAt)}
           </dd>
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">Fin</dt>
           <dd className="mt-1 font-medium" dir="ltr">
-            {draft.endsAt || "—"}
+            {formattedReviewDate(draft.endsAt)}
           </dd>
         </div>
         <div className="sm:col-span-2">
@@ -288,7 +295,14 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignEditableDef
   const [versionConflict, setVersionConflict] = useState(false);
   const completed = useRef(false);
   const editorFocus = useRef<HTMLElement>(null);
-  const errors = validateCommercialCampaignDraft(draft, segmentState);
+  const retainedSegment =
+    existing?.audience.mode === "SEGMENT" && existing.audience.segmentId && existing.audience.segmentActivationId
+      ? {
+          segmentId: existing.audience.segmentId,
+          segmentActivationId: existing.audience.segmentActivationId,
+        }
+      : undefined;
+  const errors = validateCommercialCampaignDraft(draft, segmentState, { retainedSegment });
   const mutation = useMutation({
     mutationFn: () =>
       existing
@@ -304,15 +318,7 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignEditableDef
         adminCommercialKeys.campaigns.detail(campaign.campaignId),
       );
       toast.success(existing ? "Brouillon enregistré" : "Campagne créée");
-      navigate(
-        campaignEditorSuccessDestination(
-          campaign.campaignId,
-          session.can(adminPermissions.campaignsRead),
-          session.can(adminPermissions.campaignsReadOperations),
-          session.can(adminPermissions.campaignsList),
-        ),
-        { replace: true },
-      );
+      navigate(campaignMutationDestination(campaign.campaignId, session.can), { replace: true });
     },
     onError: (error) => {
       if (error instanceof ApiError && error.code === "STALE_RESOURCE_VERSION") setVersionConflict(true);
@@ -369,25 +375,25 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignEditableDef
   const { previous, next } = adjacentCampaignEditorSteps(step);
   const submit = () => {
     setSubmitted(true);
-    if (!hasCampaignDraftErrors(errors)) mutation.mutate();
+    const errorLocation = campaignEditorErrorLocation(errors);
+    if (errorLocation) {
+      setStep(errorLocation.step);
+      window.requestAnimationFrame(() => document.getElementById(errorLocation.fieldId)?.focus());
+      return;
+    }
+    mutation.mutate();
   };
+  const backDestination = existing
+    ? campaignMutationDestination(existing.campaignId, session.can)
+    : campaignCollectionDestination(session.can);
+  const backLabel =
+    backDestination === "/admin" ? "Administration" : backDestination === "/admin/campaigns" ? "Campagnes" : "Campagne";
   return (
     <section aria-label="Éditeur de campagne" className="space-y-6" ref={editorFocus} tabIndex={-1}>
       <Button asChild className="-ms-2" size="sm" variant="ghost">
-        <Link
-          to={
-            existing
-              ? campaignEditorSuccessDestination(
-                  existing.campaignId,
-                  session.can(adminPermissions.campaignsRead),
-                  session.can(adminPermissions.campaignsReadOperations),
-                  session.can(adminPermissions.campaignsList),
-                )
-              : "/admin/campaigns"
-          }
-        >
+        <Link to={backDestination}>
           <ArrowLeftIcon className="rtl:rotate-180" />
-          {existing ? "Campagne" : "Campagnes"}
+          {backLabel}
         </Link>
       </Button>
       <PageHeader title={existing ? "Modifier le brouillon" : "Nouvelle campagne"} />

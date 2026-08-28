@@ -60,6 +60,7 @@ import {
   CommercialCampaignScheduleDialog,
   campaignActionVisible,
 } from "./commercial-campaign-dialogs";
+import { campaignCollectionDestination } from "./commercial-campaign-navigation";
 import {
   campaignActionLabel,
   campaignActionPermission,
@@ -105,15 +106,39 @@ function CampaignActions({ campaign }: { campaign: CommercialCampaignOperationSt
       </Button>
     );
   };
+  const updateVisible = canShow("UPDATE");
+  const updateAvailable = campaign.availableActions.includes("UPDATE");
+  const canReadEditableDefinition = session.can(adminPermissions.campaignsReadEditableDefinition);
+  const updateDisabledReason = !updateAvailable
+    ? actionBlockReason(campaign, "UPDATE")
+    : !canReadEditableDefinition
+      ? "Votre rôle peut modifier une campagne, mais ne peut pas relire sa définition modifiable."
+      : undefined;
   return (
     <div className="flex flex-wrap justify-end gap-1">
-      {campaign.availableActions.includes("UPDATE") && session.can(adminPermissions.campaignsUpdate) ? (
+      {updateVisible && updateAvailable && canReadEditableDefinition ? (
         <Button asChild size="sm" variant="ghost">
           <Link to={`/admin/campaigns/${campaign.id}/edit`}>
             <PencilSimpleIcon />
             Modifier
           </Link>
         </Button>
+      ) : updateVisible ? (
+        <>
+          <Button
+            aria-describedby="campaign-block-UPDATE"
+            disabled
+            size="sm"
+            title={updateDisabledReason}
+            variant="ghost"
+          >
+            <PencilSimpleIcon />
+            Modifier
+          </Button>
+          <span className="sr-only" id="campaign-block-UPDATE">
+            {updateDisabledReason}
+          </span>
+        </>
       ) : null}
       {canShow("SCHEDULE") && !session.can(adminPermissions.campaignsPreviewSchedule) ? (
         <Button
@@ -290,7 +315,9 @@ function FrozenEvidence({ audience }: { audience: CommercialCampaignFrozenAudien
     <dl className="grid gap-3 border-y py-3 text-xs sm:grid-cols-2">
       <div>
         <dt className="text-muted-foreground">Preuve examinée par</dt>
-        <dd className="mt-1 font-mono">{audience.reviewedByActorUserId}</dd>
+        <dd className="mt-1 break-all font-mono" dir="ltr">
+          {audience.reviewedByActorUserId}
+        </dd>
       </div>
       <div>
         <dt className="text-muted-foreground">Expiration de la preuve</dt>
@@ -307,7 +334,9 @@ function FrozenEvidence({ audience }: { audience: CommercialCampaignFrozenAudien
       </div>
       <div>
         <dt className="text-muted-foreground">Empreinte d’audience</dt>
-        <dd className="mt-1 break-all font-mono">{audience.audienceFingerprint}</dd>
+        <dd className="mt-1 break-all font-mono" dir="ltr">
+          {audience.audienceFingerprint}
+        </dd>
       </div>
       <div className="sm:col-span-2">
         <dt className="text-muted-foreground">Motif enregistré</dt>
@@ -427,7 +456,7 @@ function AudiencePanel({ campaignId }: { campaignId: string }) {
               </li>
             ))
           : opaque.data?.accounts.content.map((account) => (
-              <li className="py-3 font-mono text-sm" key={account.accountId}>
+              <li className="break-all py-3 font-mono text-sm" dir="ltr" key={account.accountId}>
                 {account.accountId}
               </li>
             ))}
@@ -574,6 +603,7 @@ function RevisionsPanel({ campaignId }: { campaignId: string }) {
               <Label htmlFor="campaign-compare-id">Révision à comparer</Label>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
+                  dir="ltr"
                   id="campaign-compare-id"
                   maxLength={36}
                   onChange={(event) => setCompareCandidate(event.target.value)}
@@ -666,6 +696,9 @@ function OwnerDialog({ campaignId, version, trigger }: { campaignId: string; ver
   const [ownerId, setOwnerId] = useState("");
   const [reason, setReason] = useState("");
   const expectedVersion = useRef(version);
+  useEffect(() => {
+    if (open) expectedVersion.current = version;
+  }, [open, version]);
   const choices = useQuery({
     queryKey: adminCommercialKeys.campaigns.ownerChoices({ query: debounced, page }),
     queryFn: () => adminApi.commercialCampaignOwnerChoices({ query: debounced || undefined, page, size: 15 }),
@@ -748,6 +781,11 @@ function OwnerDialog({ campaignId, version, trigger }: { campaignId: string; ver
             <LoadingState rows={3} />
           ) : choices.isError || !choices.data ? (
             <ErrorState retry={() => void choices.refetch()} />
+          ) : !choices.data.content.length ? (
+            <EmptyState
+              description="Aucun opérateur éligible ne correspond à cette recherche."
+              title="Aucun responsable disponible"
+            />
           ) : (
             <>
               <fieldset className="max-h-64 overflow-y-auto border-y">
@@ -833,11 +871,27 @@ function OwnerPanel({ campaignId }: { campaignId: string }) {
         </div>
       </dl>
       {owner.data.status === "DRAFT" && session.can(adminPermissions.campaignsReassignOwner) ? (
-        <OwnerDialog
-          campaignId={campaignId}
-          trigger={<Button variant="outline">Réassigner</Button>}
-          version={owner.data.version}
-        />
+        session.can(adminPermissions.campaignsChooseOwners) ? (
+          <OwnerDialog
+            campaignId={campaignId}
+            trigger={<Button variant="outline">Réassigner</Button>}
+            version={owner.data.version}
+          />
+        ) : (
+          <>
+            <Button
+              aria-describedby="campaign-owner-reassignment-blocked"
+              disabled
+              title="La réassignation exige aussi l’autorisation de parcourir les responsables éligibles."
+              variant="outline"
+            >
+              Réassigner
+            </Button>
+            <span className="sr-only" id="campaign-owner-reassignment-blocked">
+              La réassignation exige aussi l’autorisation de parcourir les responsables éligibles.
+            </span>
+          </>
+        )
       ) : null}
     </section>
   );
@@ -865,42 +919,40 @@ export function AdminCommercialCampaignDetailPage() {
       />
     );
   const tabs = [
-    session.can(adminPermissions.campaignsRead) ? { label: "Synthèse", to: `/admin/campaigns/${id}`, end: true } : null,
+    session.can(adminPermissions.campaignsRead)
+      ? { value: "summary", label: "Synthèse", to: `/admin/campaigns/${id}`, end: true }
+      : null,
     session.can(adminPermissions.campaignsReadOperations)
-      ? { label: "Opérations", to: `/admin/campaigns/${id}/operations` }
+      ? { value: "operations", label: "Opérations", to: `/admin/campaigns/${id}/operations` }
       : null,
     session.can(adminPermissions.campaignsReadAudience) || session.can(adminPermissions.campaignsReadAudienceIdentities)
-      ? { label: "Audience", to: `/admin/campaigns/${id}/audience` }
+      ? { value: "audience", label: "Audience", to: `/admin/campaigns/${id}/audience` }
       : null,
     session.can(adminPermissions.campaignsRevisions) || session.can(adminPermissions.campaignsCompare)
-      ? { label: "Révisions", to: `/admin/campaigns/${id}/revisions` }
+      ? { value: "revisions", label: "Révisions", to: `/admin/campaigns/${id}/revisions` }
       : null,
     session.can(adminPermissions.campaignsHistory)
-      ? { label: "Historique", to: `/admin/campaigns/${id}/history` }
+      ? { value: "history", label: "Historique", to: `/admin/campaigns/${id}/history` }
       : null,
-    session.can(adminPermissions.campaignsOwner) ? { label: "Responsable", to: `/admin/campaigns/${id}/owner` } : null,
+    session.can(adminPermissions.campaignsOwner)
+      ? { value: "owner", label: "Responsable", to: `/admin/campaigns/${id}/owner` }
+      : null,
   ].filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
-  const validTabs = new Set([undefined, "operations", "audience", "revisions", "history", "owner"]);
-  if (!validTabs.has(tab)) return <Navigate replace to={`/admin/campaigns/${id}`} />;
-  if (!tab && !session.can(adminPermissions.campaignsRead) && session.can(adminPermissions.campaignsReadOperations))
-    return <Navigate replace to={`/admin/campaigns/${id}/operations`} />;
-  if (session.can(adminPermissions.campaignsRead) && campaign.isLoading) return <LoadingState />;
-  if (session.can(adminPermissions.campaignsRead) && (campaign.isError || !campaign.data))
+  const requestedSurface = tab ?? "summary";
+  const currentSurface = tabs.find((candidate) => candidate.value === requestedSurface);
+  if (!currentSurface) return <Navigate replace to={tabs[0]?.to ?? "/admin"} />;
+  if (requestedSurface === "summary" && campaign.isLoading) return <LoadingState />;
+  if (requestedSurface === "summary" && (campaign.isError || !campaign.data))
     return <ErrorState retry={() => void campaign.refetch()} title="Campagne introuvable" />;
-  if (!campaign.data && session.can(adminPermissions.campaignsReadOperations) && operations.isLoading)
-    return <LoadingState />;
-  if (
-    !campaign.data &&
-    session.can(adminPermissions.campaignsReadOperations) &&
-    (operations.isError || !operations.data)
-  )
+  if (requestedSurface === "operations" && operations.isLoading) return <LoadingState />;
+  if (requestedSurface === "operations" && (operations.isError || !operations.data))
     return <ErrorState retry={() => void operations.refetch()} title="État opérationnel indisponible" />;
   const detail = campaign.data;
   const operationState = operations.data ?? detail?.summary;
   return (
     <section className="space-y-6">
       <Button asChild className="-ms-2" size="sm" variant="ghost">
-        <Link to={session.can(adminPermissions.campaignsList) ? "/admin/campaigns" : "/admin"}>
+        <Link to={campaignCollectionDestination(session.can)}>
           <ArrowLeftIcon className="rtl:rotate-180" />
           {session.can(adminPermissions.campaignsList) ? "Campagnes" : "Administration"}
         </Link>
@@ -909,7 +961,7 @@ export function AdminCommercialCampaignDetailPage() {
         actions={operationState ? <CampaignActions campaign={operationState} /> : undefined}
         description={
           operationState ? (
-            <span className="font-mono text-xs">
+            <span className="font-mono text-xs" dir="ltr">
               {operationState.code} · R{operationState.revisionNumber}
             </span>
           ) : undefined

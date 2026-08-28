@@ -38,26 +38,15 @@ import {
   readCampaignListState,
   writeCampaignListState,
 } from "./commercial-campaign-list-state";
+import { campaignReadableDestination } from "./commercial-campaign-navigation";
 import { campaignAudienceMode, campaignSource, campaignStatus } from "./commercial-campaign-rules";
 
 const column = createDataColumns<CommercialCampaignSummary>();
 const shortDate = new Intl.DateTimeFormat("fr", { day: "2-digit", month: "short", year: "numeric" });
 
-function destinationForCampaign(campaign: CommercialCampaignSummary, can: (permission: string) => boolean) {
-  if (can(adminPermissions.campaignsRead)) return `/admin/campaigns/${campaign.id}`;
-  if (can(adminPermissions.campaignsReadOperations)) return `/admin/campaigns/${campaign.id}/operations`;
-  if (can(adminPermissions.campaignsReadAudience) || can(adminPermissions.campaignsReadAudienceIdentities))
-    return `/admin/campaigns/${campaign.id}/audience`;
-  if (can(adminPermissions.campaignsRevisions) || can(adminPermissions.campaignsCompare))
-    return `/admin/campaigns/${campaign.id}/revisions`;
-  if (can(adminPermissions.campaignsHistory)) return `/admin/campaigns/${campaign.id}/history`;
-  if (can(adminPermissions.campaignsOwner)) return `/admin/campaigns/${campaign.id}/owner`;
-  return undefined;
-}
-
 function CampaignRowActions({ campaign }: { campaign: CommercialCampaignSummary }) {
   const session = useAdminSession();
-  const destination = destinationForCampaign(campaign, session.can);
+  const destination = campaignReadableDestination(campaign.id, session.can);
   return (
     <TableActionsCell label={`Actions pour ${campaign.name}`}>
       <RowAction
@@ -78,7 +67,7 @@ const columns = column.columns([
     cell: ({ row }) => (
       <span className="block min-w-0">
         <span className="block truncate font-medium">{row.original.name}</span>
-        <span className="block truncate text-xs text-muted-foreground">
+        <span className="block truncate text-xs text-muted-foreground" dir="ltr">
           {row.original.code} · R{row.original.revisionNumber}
         </span>
       </span>
@@ -156,7 +145,7 @@ function MobileCampaigns({ campaigns }: { campaigns: CommercialCampaignSummary[]
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{campaign.name}</p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                <p className="mt-0.5 truncate text-xs text-muted-foreground" dir="ltr">
                   {campaign.code} · R{campaign.revisionNumber}
                 </p>
               </div>

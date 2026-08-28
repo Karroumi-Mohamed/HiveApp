@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   adjacentCampaignEditorSteps,
-  campaignEditorSuccessDestination,
+  campaignEditorErrorLocation,
   shouldBlockCampaignEditorNavigation,
 } from "./commercial-campaign-editor-state";
 
@@ -25,12 +25,15 @@ describe("commercial campaign editor navigation", () => {
     expect(shouldBlockCampaignEditorNavigation(false, false, "/admin/campaigns/new", "/admin/campaigns")).toBeFalse();
     expect(shouldBlockCampaignEditorNavigation(true, true, "/admin/campaigns/new", "/admin/campaigns")).toBeFalse();
   });
-  test("never sends a create-only operator to a read-gated Campaign detail", () => {
-    expect(campaignEditorSuccessDestination("campaign-1", false, false, false)).toBe("/admin");
-    expect(campaignEditorSuccessDestination("campaign-1", false, false, true)).toBe("/admin/campaigns");
-    expect(campaignEditorSuccessDestination("campaign-1", false, true, false)).toBe(
-      "/admin/campaigns/campaign-1/operations",
-    );
-    expect(campaignEditorSuccessDestination("campaign-1", true, true, true)).toBe("/admin/campaigns/campaign-1");
+  test("returns the first invalid field and its owning step", () => {
+    expect(campaignEditorErrorLocation({ audience: "Audience", window: "Fenêtre" })).toEqual({
+      step: "audience",
+      fieldId: "campaign-audience-PUBLIC",
+    });
+    expect(campaignEditorErrorLocation({ name: "Nom", reason: "Motif" })).toEqual({
+      step: "definition",
+      fieldId: "campaign-name",
+    });
+    expect(campaignEditorErrorLocation({})).toBeNull();
   });
 });

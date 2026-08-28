@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { AppProviders } from "@/app/providers";
 import {
   adminCommercialCampaignDetailSurfacePermissions,
+  adminCommercialCampaignEditPermissions,
   adminCommercialPolicyDetailSurfacePermissions,
   adminCommercialSegmentDetailSurfacePermissions,
   adminOverviewSurfacePermissions,
@@ -288,7 +289,7 @@ const router = createBrowserRouter([
       {
         path: "campaigns/:campaignId/edit",
         element: (
-          <AdminReadPermissionGate allOf={[adminPermissions.campaignsRead, adminPermissions.campaignsUpdate]}>
+          <AdminReadPermissionGate allOf={adminCommercialCampaignEditPermissions}>
             <AdminCommercialCampaignEditPage />
           </AdminReadPermissionGate>
         ),

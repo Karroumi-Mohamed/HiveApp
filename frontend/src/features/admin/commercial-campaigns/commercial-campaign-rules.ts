@@ -120,6 +120,10 @@ export type CommercialCampaignDraft = {
 
 export type CampaignDraftErrors = Partial<Record<"name" | "reason" | "window" | "audience", string>>;
 
+export type CampaignDraftValidationContext = {
+  retainedSegment?: { segmentId: string; segmentActivationId: string };
+};
+
 export function toLocalDateTime(value: string | Date) {
   const date = typeof value === "string" ? new Date(value) : value;
   if (Number.isNaN(date.getTime())) return "";
@@ -169,6 +173,7 @@ export function draftFromCommercialCampaign(
 export function validateCommercialCampaignDraft(
   draft: CommercialCampaignDraft,
   segmentState?: CommercialCampaignSegmentChoiceState,
+  context: CampaignDraftValidationContext = {},
 ): CampaignDraftErrors {
   const errors: CampaignDraftErrors = {};
   if (!draft.name.trim()) errors.name = "Le nom est obligatoire.";
@@ -182,11 +187,14 @@ export function validateCommercialCampaignDraft(
     errors.audience = "Sélectionnez au moins un compte.";
   }
   if (draft.audienceMode === "SEGMENT") {
+    const retainedSegment =
+      context.retainedSegment?.segmentId === draft.segmentId &&
+      context.retainedSegment.segmentActivationId === draft.segmentActivationId;
     if (!draft.segmentId || !draft.segmentActivationId) errors.audience = "Sélectionnez un segment actif.";
-    else if (!segmentState)
+    else if (!segmentState && !retainedSegment)
       errors.audience = "L’activation exacte du segment doit être vérifiée avant l’enregistrement.";
     else if (segmentState !== "AVAILABLE") {
-      errors.audience = campaignSegmentStateLabel[segmentState];
+      if (segmentState) errors.audience = campaignSegmentStateLabel[segmentState];
     }
   }
   return errors;

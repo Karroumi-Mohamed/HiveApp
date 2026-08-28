@@ -350,6 +350,12 @@ export const adminCommercialCampaignDetailSurfacePermissions = [
   adminPermissions.campaignsOwner,
 ] as const;
 
+/** Editing uses the narrow draft-definition contract, never the broad Campaign detail contract. */
+export const adminCommercialCampaignEditPermissions = [
+  adminPermissions.campaignsUpdate,
+  adminPermissions.campaignsReadEditableDefinition,
+] as const;
+
 /** Each overview card family is independently readable, including registry sync on its own. */
 export const adminOverviewSurfacePermissions = [
   adminPermissions.accessOverview,
