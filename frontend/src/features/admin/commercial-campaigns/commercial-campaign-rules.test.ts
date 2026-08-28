@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CommercialCampaignDetail, CommercialCampaignSchedulePreview } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import {
+  campaignFrozenAudienceLabel,
   campaignHistoryAction,
   campaignMutationMessage,
   draftFromCommercialCampaign,
@@ -91,6 +92,12 @@ describe("commercial campaign schedule evidence", () => {
 });
 
 describe("commercial campaign presentation", () => {
+  test("does not present a public audience as an empty frozen audience", () => {
+    expect(campaignFrozenAudienceLabel("PUBLIC", 0)).toBe("Publique et dynamique");
+    expect(campaignFrozenAudienceLabel("EXPLICIT_ACCOUNTS", null)).toBe("—");
+    expect(campaignFrozenAudienceLabel("SEGMENT", 2)).toBe("2 comptes");
+  });
+
   test("uses stable error codes and localizes audit actions", () => {
     expect(campaignMutationMessage(new ApiError(409, "STALE_SCHEDULE_PREVIEW", "provider detail"))).toContain("expiré");
     expect(campaignMutationMessage(new ApiError(409, "STALE_RESOURCE_VERSION", "provider detail"))).toContain(

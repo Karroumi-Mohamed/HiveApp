@@ -1,10 +1,14 @@
 import { WarningCircleIcon } from "@phosphor-icons/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { CommercialCampaignAction, CommercialCampaignDetail } from "@/api/contracts";
+import type {
+  CommercialCampaignAction,
+  CommercialCampaignDetail,
+  CommercialCampaignSchedulePreview,
+} from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -21,11 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  adminCommercialKeys,
-  commercialQueryEnabled,
-  invalidateCommercialCampaignTargeting,
-} from "@/features/commercial/commercial-query";
+import { adminCommercialKeys, invalidateCommercialCampaignTargeting } from "@/features/commercial/commercial-query";
 import { campaignBlocker, campaignMutationMessage, reviewedCampaignScheduleReady } from "./commercial-campaign-rules";
 
 type ReasonAction = "DUPLICATE" | "REVISE" | "PAUSE" | "RESUME" | "END" | "ARCHIVE" | "DELETE_DRAFT";
@@ -210,21 +210,43 @@ export function CommercialCampaignScheduleDialog({
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [clock, setClock] = useState(() => Date.now());
-  const previewKey = adminCommercialKeys.campaigns.schedulePreview(campaign.summary.id, campaign.summary.version);
-  const preview = useQuery({
-    queryKey: previewKey,
-    queryFn: () => adminApi.previewCommercialCampaignSchedule(campaign.summary.id),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.campaignsPreviewSchedule, open),
-    gcTime: 0,
-    staleTime: 0,
-  });
-  useEffect(
-    () => () =>
-      queryClient.removeQueries({
-        queryKey: adminCommercialKeys.campaigns.schedulePreview(campaign.summary.id, campaign.summary.version),
-      }),
-    [campaign.summary.id, campaign.summary.version, queryClient],
-  );
+  const [preview, setPreview] = useState<{
+    status: "idle" | "loading" | "ready" | "error";
+    data: CommercialCampaignSchedulePreview | null;
+  }>({ status: "idle", data: null });
+  const previewRequest = useRef(0);
+  const canPreview = session.can(adminPermissions.campaignsPreviewSchedule);
+  const campaignId = campaign.summary.id;
+  const campaignVersion = campaign.summary.version;
+  const refresh = useCallback(async () => {
+    const request = ++previewRequest.current;
+    setPreview({ status: "loading", data: null });
+    try {
+      const data = await adminApi.previewCommercialCampaignSchedule(campaignId);
+      if (request !== previewRequest.current) return;
+      if (data.campaignVersion !== campaignVersion) {
+        await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.campaigns.detail(campaignId) });
+        if (request === previewRequest.current) setPreview({ status: "error", data: null });
+        return;
+      }
+      setPreview({ status: "ready", data });
+      setClock(Date.now());
+    } catch {
+      if (request !== previewRequest.current) return;
+      setPreview({ status: "error", data: null });
+    }
+  }, [campaignId, campaignVersion, queryClient]);
+  useEffect(() => {
+    if (!open || !canPreview) {
+      previewRequest.current += 1;
+      setPreview({ status: "idle", data: null });
+      return;
+    }
+    void refresh();
+    return () => {
+      previewRequest.current += 1;
+    };
+  }, [canPreview, open, refresh]);
   useEffect(() => {
     if (!open || !preview.data?.expiresAt) return;
     const expires = Date.parse(preview.data.expiresAt);
@@ -236,14 +258,10 @@ export function CommercialCampaignScheduleDialog({
     setOpen(next);
     if (next) setClock(Date.now());
     else {
+      previewRequest.current += 1;
+      setPreview({ status: "idle", data: null });
       setReason("");
-      queryClient.removeQueries({ queryKey: previewKey });
     }
-  };
-  const refresh = async () => {
-    queryClient.removeQueries({ queryKey: previewKey });
-    await preview.refetch();
-    setClock(Date.now());
   };
   const mutation = useMutation({
     mutationFn: () => {
@@ -260,9 +278,10 @@ export function CommercialCampaignScheduleDialog({
       toast.success("Campagne planifiée avec l’audience vérifiée");
     },
     onError: async (error) => {
-      queryClient.removeQueries({ queryKey: previewKey });
+      previewRequest.current += 1;
+      setPreview({ status: "idle", data: null });
       await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.campaigns.detail(campaign.summary.id) });
-      if (open) await preview.refetch();
+      if (open) await refresh();
       setClock(Date.now());
       toast.error(campaignMutationMessage(error));
     },
@@ -279,9 +298,9 @@ export function CommercialCampaignScheduleDialog({
             L’audience est figée et signée pour cette version uniquement. La preuve expire rapidement.
           </DialogDescription>
         </DialogHeader>
-        {preview.isLoading || preview.isFetching ? (
+        {preview.status === "loading" ? (
           <p className="py-4 text-sm text-muted-foreground">Calcul de l’audience…</p>
-        ) : preview.isError ? (
+        ) : preview.status === "error" ? (
           <Alert variant="destructive">
             <WarningCircleIcon />
             <AlertTitle>Vérification indisponible</AlertTitle>
@@ -305,7 +324,10 @@ export function CommercialCampaignScheduleDialog({
               <div>
                 <dt className="text-xs text-muted-foreground">Évaluée</dt>
                 <dd className="mt-1 text-sm font-medium">
-                  {new Date(preview.data.evaluatedAt).toLocaleString("fr-FR")} · registre {preview.data.registryVersion}
+                  {new Date(preview.data.evaluatedAt).toLocaleString("fr-FR")}
+                  <span className="mt-1 block break-all font-mono text-xs text-muted-foreground" dir="ltr">
+                    Registre {preview.data.registryVersion}
+                  </span>
                 </dd>
               </div>
             </dl>

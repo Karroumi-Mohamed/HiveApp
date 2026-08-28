@@ -72,7 +72,7 @@ function CampaignRowActions({ campaign }: { campaign: CommercialCampaignSummary 
 
 const columns = column.columns([
   column.accessor("name", {
-    meta: { headerClassName: "min-w-[240px]" },
+    meta: { headerClassName: "w-[240px] max-w-[240px]", cellClassName: "w-[240px] max-w-[240px]" },
     header: ({ column: current }) => <SortHeader column={current}>Campagne</SortHeader>,
     cell: ({ row }) => (
       <span className="block min-w-0">
@@ -84,9 +84,10 @@ const columns = column.columns([
     ),
   }),
   column.accessor("startsAt", {
+    meta: { headerClassName: "w-36", cellClassName: "w-36" },
     header: ({ column: current }) => <SortHeader column={current}>Période</SortHeader>,
     cell: ({ row }) => (
-      <span className="block min-w-36 text-sm">
+      <span className="block text-sm">
         <span className="block">{shortDate.format(new Date(row.original.startsAt))}</span>
         <span className="block text-xs text-muted-foreground">
           au {shortDate.format(new Date(row.original.endsAt))}
@@ -95,11 +96,12 @@ const columns = column.columns([
     ),
   }),
   column.accessor("audienceMode", {
+    meta: { headerClassName: "w-36", cellClassName: "w-36" },
     header: "Audience",
     cell: ({ row }) => {
       const count = row.original.frozenAccountCount ?? row.original.configuredAccountCount;
       return (
-        <span className="block min-w-40">
+        <span className="block">
           <span className="block text-sm">{campaignAudienceMode[row.original.audienceMode]}</span>
           <span className="block text-xs text-muted-foreground tabular-nums">
             {row.original.audienceMode === "PUBLIC" ? "Audience dynamique" : count == null ? "—" : `${count} compte(s)`}
@@ -109,10 +111,12 @@ const columns = column.columns([
     },
   }),
   column.accessor("source", {
+    meta: { headerClassName: "w-24", cellClassName: "w-24" },
     header: ({ column: current }) => <SortHeader column={current}>Origine</SortHeader>,
     cell: ({ row }) => campaignSource[row.original.source],
   }),
   column.accessor("status", {
+    meta: { headerClassName: "w-32", cellClassName: "w-32" },
     header: ({ column: current }) => <SortHeader column={current}>Statut</SortHeader>,
     cell: ({ row }) => {
       const status = campaignStatus[row.original.status];
