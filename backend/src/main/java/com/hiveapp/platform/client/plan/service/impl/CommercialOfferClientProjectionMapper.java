@@ -33,7 +33,6 @@ class CommercialOfferClientProjectionMapper {
     Map<UUID, ProductPrice> result =
         prices.findAllByIdIn(ids).stream()
             .collect(Collectors.toMap(ProductPrice::getId, price -> price));
-    if (result.size() != ids.size()) throw new OfferNotAvailableException();
     return result;
   }
 

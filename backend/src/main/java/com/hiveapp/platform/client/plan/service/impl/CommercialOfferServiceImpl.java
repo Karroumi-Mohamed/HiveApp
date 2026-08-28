@@ -26,6 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 @RequiredArgsConstructor
 public class CommercialOfferServiceImpl implements CommercialOfferService {
+  private static final int CLIENT_CATALOGUE_CANDIDATE_LIMIT = 200;
   private static final List<CommercialOfferRedemptionStatus> USED =
       List.of(CommercialOfferRedemptionStatus.RESERVED, CommercialOfferRedemptionStatus.APPLIED);
 
@@ -50,22 +51,54 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
   private final CommercialOfferClientProjectionMapper projections;
   private final CommercialOfferEligibilityService eligibility;
   private final CommercialOfferRedemptionTransitionService transitions;
+  private final CommercialCatalogResolver catalogResolver;
+  private final CommercialPolicyEvaluator policyEvaluator;
 
   @Override
-  @Transactional(readOnly = true)
+  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
   public Page<CommercialOfferViews.ClientOffer> catalogue(UUID accountId, Pageable p) {
-    Page<CommercialOffer> page = offers.findEligibleClientCatalogue(accountId, clock.instant(), p);
-    Map<UUID, ProductPrice> exactPrices = projections.exactPrices(page.getContent());
-    return page.map(offer -> projections.client(offer, exactPrices));
+    eligibility.requireActiveAccount(accountId);
+    return catalogVersions.readConsistently(ignored -> catalogueFromStableSnapshot(accountId, p));
+  }
+
+  private Page<CommercialOfferViews.ClientOffer> catalogueFromStableSnapshot(
+      UUID accountId, Pageable requestedPage) {
+    Page<CommercialOffer> candidates =
+        offers.findEligibleClientCatalogue(
+            accountId,
+            clock.instant(),
+            PageRequest.of(0, CLIENT_CATALOGUE_CANDIDATE_LIMIT, requestedPage.getSort()));
+    if (candidates.getTotalElements() > CLIENT_CATALOGUE_CANDIDATE_LIMIT) {
+      throw new OfferNotAvailableException();
+    }
+    Map<UUID, ProductPrice> exactPrices = projections.exactPrices(candidates.getContent());
+    Set<UUID> availableIds =
+        availableClientSelectionIds(candidates.getContent(), accountId, exactPrices);
+    List<CommercialOfferViews.ClientOffer> eligible =
+        candidates.getContent().stream()
+            .filter(offer -> availableIds.contains(offer.getId()))
+            .map(offer -> projections.client(offer, exactPrices))
+            .toList();
+    int from = Math.toIntExact(Math.min(requestedPage.getOffset(), eligible.size()));
+    int to = Math.min(from + requestedPage.getPageSize(), eligible.size());
+    return new PageImpl<>(eligible.subList(from, to), requestedPage, eligible.size());
   }
 
   @Override
-  @Transactional(readOnly = true)
+  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
   public CommercialOfferViews.ClientOffer detail(UUID accountId, UUID id) {
-    var o = eligibility.requireAvailable(id, accountId, false, false);
-    if (o.getDiscovery() != CommercialOfferDiscovery.CATALOG)
-      throw new OfferNotAvailableException();
-    return projections.client(o, projections.exactPrices(List.of(o)));
+    return catalogVersions.readConsistently(
+        ignored -> {
+          var o = eligibility.requireAvailable(id, accountId, false, false);
+          if (o.getDiscovery() != CommercialOfferDiscovery.CATALOG)
+            throw new OfferNotAvailableException();
+          Map<UUID, ProductPrice> exactPrices = projections.exactPrices(List.of(o));
+          if (!availableClientSelectionIds(List.of(o), accountId, exactPrices).contains(o.getId())) {
+            throw new OfferNotAvailableException();
+          }
+          return projections.client(o, exactPrices);
+        },
+        OfferNotAvailableException::new);
   }
 
   @Override
@@ -132,7 +165,11 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
           discoveryFingerprint(o, accountId),
           OfferNotAvailableException::new);
     }
-    return buildPreview(o, accountId, actor, operator);
+    try {
+      return buildPreview(o, accountId, actor, operator);
+    } catch (RuntimeException failure) {
+      throw clientSafeFailure(failure, operator, OfferNotAvailableException::new);
+    }
   }
 
   @Override
@@ -151,20 +188,31 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         operator ? requiredOperatorReason(r.reason()) : clientReason(r.reason());
     String keyHash = CommercialOfferAdminServiceImpl.sha(accountId + "|" + key);
     String requestFingerprint = acceptanceRequestFingerprint(id, operator, r);
-    Reservation reservation;
     try {
-      reservation =
-          reserveWithConcurrencyRetry(
-              accountId, actor, id, keyHash, requestFingerprint, r.previewToken(), operator);
-    } catch (DataIntegrityViolationException concurrentReplay) {
-      reservation =
-          inNewTransaction(
-              TransactionDefinition.ISOLATION_READ_COMMITTED,
-              () -> replay(accountId, keyHash, requestFingerprint));
+      Reservation reservation;
+      try {
+        reservation =
+            reserveWithConcurrencyRetry(
+                accountId, actor, id, keyHash, requestFingerprint, r.previewToken(), operator);
+      } catch (DataIntegrityViolationException concurrentReplay) {
+        reservation =
+            inNewTransaction(
+                TransactionDefinition.ISOLATION_READ_COMMITTED,
+                () -> replay(accountId, keyHash, requestFingerprint));
+      }
+      if (reservation.replay() != null) return reservation.replay();
+      return applyReservation(accountId, actor, applicationReason, reservation, operator);
+    } catch (RuntimeException failure) {
+      throw clientSafeFailure(failure, operator, OfferNotAvailableException::new);
     }
-    if (reservation.replay() != null) return reservation.replay();
-    Reservation acceptedReservation = reservation;
+  }
 
+  private CommercialOfferViews.Acceptance applyReservation(
+      UUID accountId,
+      UUID actor,
+      String applicationReason,
+      Reservation acceptedReservation,
+      boolean operator) {
     try {
       var changePreview =
           operator
@@ -204,7 +252,8 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
       } catch (RuntimeException reconciliationFailure) {
         applicationFailure.addSuppressed(reconciliationFailure);
       }
-      throw applicationFailure;
+      throw clientSafeFailure(
+          applicationFailure, operator, OfferRedemptionBlockedException::new);
     }
   }
 
@@ -324,8 +373,7 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     if (!MessageDigest.isEqual(
         redemption.getRequestFingerprint().getBytes(java.nio.charset.StandardCharsets.US_ASCII),
         requestFingerprint.getBytes(java.nio.charset.StandardCharsets.US_ASCII))) {
-      throw new InvalidStateException(
-          "Idempotency key was already used for different Offer input.");
+      throw new IdempotencyConflictException();
     }
     return new Reservation(
         redemption.getId(),
@@ -436,6 +484,13 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
             ? subscriptionsService.previewOfferChangeAsOperator(accountId, actor, request)
             : subscriptionsService.previewOfferChange(accountId, actor, request);
     var policy = p.commercialPolicyEvaluation();
+    if (policy != null && policy.blocked()) {
+      if (operator) {
+        throw new InvalidStateException(
+            "Offer cannot be applied until commercial-policy conflicts are resolved.");
+      }
+      throw new OfferNotAvailableException();
+    }
     BigDecimal catalogue = policy == null ? p.previewPrice() : policy.catalogueRecurringPrice();
     BigDecimal fixedBase = policy == null ? catalogue : policy.fixedRecurringPrice();
     BigDecimal policyPrice = policy == null ? p.previewPrice() : policy.finalRecurringPrice();
@@ -485,6 +540,159 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         evidence.evaluatedAt(),
         evidence.expiresAt(),
         evidence.token());
+  }
+
+  private Set<UUID> availableClientSelectionIds(
+      List<CommercialOffer> candidates,
+      UUID accountId,
+      Map<UUID, ProductPrice> exactPrices) {
+    if (candidates.isEmpty()) return Set.of();
+    Map<UUID, CommercialCatalogResolver.ExactSelectionCandidate> requests = new LinkedHashMap<>();
+    for (CommercialOffer offer : candidates) {
+      exactSelectionCandidate(offer, exactPrices).ifPresent(candidate -> requests.put(offer.getId(), candidate));
+    }
+    Map<UUID, CommercialCatalogResolver.SelectionResolution> resolutions =
+        catalogResolver.resolveExactSelectionCandidates(
+            requests.values(), CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR);
+    CommercialPolicyEvaluator.Evaluation policy = policyEvaluator.evaluate(accountId, clock.instant());
+    Set<UUID> result = new LinkedHashSet<>();
+    for (CommercialOffer offer : candidates) {
+      var resolution = resolutions.get(offer.getId());
+      if (resolution != null && exactSelectionAvailable(offer, resolution, exactPrices, policy)) {
+        result.add(offer.getId());
+      }
+    }
+    return Set.copyOf(result);
+  }
+
+  private Optional<CommercialCatalogResolver.ExactSelectionCandidate> exactSelectionCandidate(
+      CommercialOffer offer, Map<UUID, ProductPrice> exactPrices) {
+    var selection = offer.getSelection();
+    ProductPrice planPrice = exactPrices.get(selection.planPriceId());
+    if (!ownedBy(planPrice, ProductPriceOwnerType.PLAN, selection.planId())) return Optional.empty();
+    Set<String> addOnCodes = new LinkedHashSet<>();
+    for (var item : selection.addOns()) {
+      ProductPrice price = exactPrices.get(item.priceId());
+      if (!ownedBy(price, ProductPriceOwnerType.ADD_ON, item.addOnId())
+          || !sameTuple(planPrice, price)
+          || !addOnCodes.add(price.getAddOn().getCode())) return Optional.empty();
+    }
+    List<QuotaPackageSelection> packages = new ArrayList<>();
+    Set<String> packageCodes = new LinkedHashSet<>();
+    for (var item : selection.quotaPackages()) {
+      ProductPrice price = exactPrices.get(item.priceId());
+      if (!ownedBy(price, ProductPriceOwnerType.QUOTA_PACKAGE, item.quotaPackageId())
+          || !sameTuple(planPrice, price)
+          || !packageCodes.add(price.getQuotaPackage().getCode())) return Optional.empty();
+      packages.add(new QuotaPackageSelection(price.getQuotaPackage().getCode(), item.quantity()));
+    }
+    return Optional.of(new CommercialCatalogResolver.ExactSelectionCandidate(
+        offer.getId(), selection.planId(), CommercialCatalogResolver.PriceTuple.from(planPrice),
+        addOnCodes, packages));
+  }
+
+  private boolean exactSelectionAvailable(
+      CommercialOffer offer,
+      CommercialCatalogResolver.SelectionResolution resolution,
+      Map<UUID, ProductPrice> exactPrices,
+      CommercialPolicyEvaluator.Evaluation policy) {
+    if (offer.getCampaign().getAudienceMode() == CommercialCampaignAudienceMode.PUBLIC
+        && selectionContainsDirectOnlyProduct(offer, resolution, exactPrices)) {
+      return false;
+    }
+    if (!resolution.selectable()
+        || !CommercialPolicySelectionRules.planSelectable(
+            resolution.plan(), CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR, policy)
+        || containsBlockedFeature(resolution.plan().planFeatures(), policy)
+        || resolution.plan().prices().stream()
+            .noneMatch(price -> price.getId().equals(offer.getSelection().planPriceId()))) {
+      return false;
+    }
+    Map<String, CommercialCatalogResolver.AddOnResolution> addOns = resolution.plan().addOns().stream()
+        .collect(java.util.stream.Collectors.toMap(
+            CommercialCatalogResolver.AddOnResolution::code, java.util.function.Function.identity()));
+    for (var item : offer.getSelection().addOns()) {
+      ProductPrice exact = exactPrices.get(item.priceId());
+      var product = exact == null ? null : addOns.get(exact.getAddOn().getCode());
+      if (product == null
+          || !CommercialPolicySelectionRules.addOnSelectable(
+              product, CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR, policy)
+          || product.prices().stream().noneMatch(price -> price.getId().equals(item.priceId()))
+          || product.addOn().getFeatures().stream()
+              .map(feature -> feature.getFeature().getCode())
+              .anyMatch(policy.blockedFeatures()::containsKey)) return false;
+    }
+    for (var item : offer.getSelection().quotaPackages()) {
+      ProductPrice exact = exactPrices.get(item.priceId());
+      var product = exact == null
+          ? null : resolution.packageResolutions().get(exact.getQuotaPackage().getCode());
+      if (product == null
+          || !CommercialPolicySelectionRules.quotaPackageSelectable(
+              product, CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR, policy)
+          || product.prices().stream().noneMatch(price -> price.getId().equals(item.priceId()))
+          || policy.blockedFeatures().containsKey(product.quotaPackage().getFeature().getCode())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private boolean selectionContainsDirectOnlyProduct(
+      CommercialOffer offer,
+      CommercialCatalogResolver.SelectionResolution resolution,
+      Map<UUID, ProductPrice> exactPrices) {
+    if (resolution.plan().effectiveSalesVisibility() == ProductSalesVisibility.DIRECT_ONLY) {
+      return true;
+    }
+    for (var item : offer.getSelection().addOns()) {
+      ProductPrice price = exactPrices.get(item.priceId());
+      if (price != null
+          && price.getAddOn().getSalesVisibility() == ProductSalesVisibility.DIRECT_ONLY) {
+        return true;
+      }
+    }
+    for (var item : offer.getSelection().quotaPackages()) {
+      ProductPrice price = exactPrices.get(item.priceId());
+      if (price != null
+          && price.getQuotaPackage().getSalesVisibility() == ProductSalesVisibility.DIRECT_ONLY) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private boolean containsBlockedFeature(
+      List<PlanFeature> features, CommercialPolicyEvaluator.Evaluation policy) {
+    return features.stream()
+        .filter(feature -> feature.getMode() == PlanFeatureMode.INCLUDED)
+        .map(feature -> feature.getFeature().getCode())
+        .anyMatch(policy.blockedFeatures()::containsKey);
+  }
+
+  private boolean ownedBy(ProductPrice price, ProductPriceOwnerType type, UUID ownerId) {
+    return price != null && price.getOwnerType() == type && price.ownerId().equals(ownerId);
+  }
+
+  private boolean sameTuple(ProductPrice left, ProductPrice right) {
+    return left.getCurrencyCode().equals(right.getCurrencyCode())
+        && left.getBillingCycle() == right.getBillingCycle();
+  }
+
+  private RuntimeException clientSafeFailure(
+      RuntimeException failure,
+      boolean operator,
+      Supplier<? extends RuntimeException> privacySafeFailure) {
+    if (!operator && isExpectedAvailabilityFailure(failure)) return privacySafeFailure.get();
+    return failure;
+  }
+
+  private boolean isExpectedAvailabilityFailure(RuntimeException failure) {
+    return failure instanceof OfferNotAvailableException
+        || failure instanceof InvalidRequestException
+        || failure instanceof InvalidStateException
+        || failure instanceof OperationBlockedException
+        || failure instanceof ResourceNotFoundException
+        || failure instanceof StaleResourceVersionException;
   }
 
   private BigDecimal freeProductReduction(CommercialOffer offer) {

@@ -36,6 +36,7 @@ import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyTargetKi
 import com.hiveapp.platform.client.plan.dto.CommercialPolicyRequests;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentRequests;
 import com.hiveapp.platform.client.plan.dto.CommercialCampaignRequests;
+import com.hiveapp.platform.client.plan.dto.CommercialOfferRequests;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignAudienceMode;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignSource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
@@ -2178,6 +2179,75 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                         .header("Authorization", bearer(definition.token())))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+    }
+
+    @Test
+    void operatorOfferApplyRequiresBothOfferAndSubscriptionAuthoritiesBeforeExistence()
+            throws Exception {
+        UUID absentOffer = UUID.randomUUID();
+        UUID absentAccount = UUID.randomUUID();
+        CommercialOfferRequests.Accept request =
+                new CommercialOfferRequests.Accept("review-token", "Authority matrix");
+        LimitedAdmin missingOfferPreview = createLimitedAdmin(
+                "platform.offers.apply_for_account",
+                "platform.subscriptions.preview_change",
+                "platform.subscriptions.apply_change");
+        LimitedAdmin missingSubscriptionApply = createLimitedAdmin(
+                "platform.offers.apply_for_account",
+                "platform.offers.preview_for_account",
+                "platform.subscriptions.preview_change");
+        LimitedAdmin complete = createLimitedAdmin(
+                "platform.offers.apply_for_account",
+                "platform.offers.preview_for_account",
+                "platform.subscriptions.preview_change",
+                "platform.subscriptions.apply_change");
+
+        applyAbsentOffer(missingOfferPreview.token(), absentOffer, absentAccount, request)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PERMISSION_GRANT"));
+        applyAbsentOffer(missingSubscriptionApply.token(), absentOffer, absentAccount, request)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PERMISSION_GRANT"));
+        applyAbsentOffer(complete.token(), absentOffer, absentAccount, request)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("OFFER_NOT_AVAILABLE"));
+    }
+
+    @Test
+    void offerAggregateStatsAndRedemptionIdentitiesHaveIndependentAuthorities() throws Exception {
+        UUID absent = UUID.randomUUID();
+        LimitedAdmin stats = createLimitedAdmin("platform.offers.read_stats");
+        LimitedAdmin identities =
+                createLimitedAdmin("platform.offers.read_redemption_identities");
+
+        mockMvc.perform(get("/api/admin/offers/{id}/stats", absent)
+                        .header("Authorization", bearer(stats.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/offers/{id}/redemption-identities", absent)
+                        .header("Authorization", bearer(stats.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+
+        mockMvc.perform(get("/api/admin/offers/{id}/redemption-identities", absent)
+                        .header("Authorization", bearer(identities.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/offers/{id}/stats", absent)
+                        .header("Authorization", bearer(identities.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+    }
+
+    private ResultActions applyAbsentOffer(
+            String token,
+            UUID offerId,
+            UUID accountId,
+            CommercialOfferRequests.Accept request) throws Exception {
+        return mockMvc.perform(post(
+                        "/api/admin/offers/{id}/accounts/{accountId}/apply", offerId, accountId)
+                .header("Authorization", bearer(token))
+                .header("Idempotency-Key", "authority-" + UUID.randomUUID())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)));
     }
 
     private LimitedAdmin createLimitedAdmin(String... permissionCodes) throws Exception {

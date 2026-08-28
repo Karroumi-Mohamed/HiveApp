@@ -56,6 +56,13 @@ public interface CommercialOfferRepository
 
   boolean existsBySourceOffer_Id(UUID sourceOfferId);
 
+  boolean existsByLineage_Campaign_Id(UUID campaignId);
+
+  @Query(
+      "select distinct o.lineage.campaign.id from CommercialOffer o where"
+          + " o.lineage.campaign.id in :campaignIds")
+  Set<UUID> findCampaignIdsWithOffers(@Param("campaignIds") Collection<UUID> campaignIds);
+
   @Query("select distinct o.sourceOffer.id from CommercialOffer o where o.sourceOffer.id in :ids")
   Set<UUID> findReferencedSourceIds(@Param("ids") Collection<UUID> ids);
 

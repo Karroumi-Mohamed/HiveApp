@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.plan.service.impl;
 
+import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.constant.*;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialOffer;
 import com.hiveapp.platform.client.plan.domain.repository.*;
@@ -21,6 +22,7 @@ class CommercialOfferEligibilityService {
       List.of(CommercialOfferRedemptionStatus.RESERVED, CommercialOfferRedemptionStatus.APPLIED);
 
   private final CommercialOfferRepository offers;
+  private final AccountRepository accounts;
   private final CommercialCampaignAudienceSnapshotRepository audiences;
   private final SubscriptionRepository subscriptions;
   private final CommercialOfferCapacityRepository capacities;
@@ -36,9 +38,14 @@ class CommercialOfferEligibilityService {
     return offer;
   }
 
+  void requireActiveAccount(UUID accountId) {
+    if (!accounts.existsActiveById(accountId)) throw new OfferNotAvailableException();
+  }
+
   boolean eligible(CommercialOffer offer, UUID accountId, boolean operator, boolean discovered) {
     Instant now = clock.instant();
-    if (offer.getStatus() != CommercialOfferStatus.PUBLISHED
+    if (!accounts.existsActiveById(accountId)
+        || offer.getStatus() != CommercialOfferStatus.PUBLISHED
         || now.isBefore(offer.getStartsAt())
         || !now.isBefore(offer.getEndsAt())
         || offer.getCampaign().getStatus() != CommercialCampaignStatus.ACTIVE) {

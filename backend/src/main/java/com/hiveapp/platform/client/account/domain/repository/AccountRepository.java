@@ -16,6 +16,9 @@ import org.springframework.data.jpa.repository.EntityGraph;
 public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpecificationExecutor<Account> {
     Optional<Account> findByOwner_Id(UUID ownerId);
 
+    @Query("select count(account) > 0 from Account account where account.id = :id and account.isActive = true")
+    boolean existsActiveById(@Param("id") UUID id);
+
     List<Account> findAllByIdInOrderByNameAscIdAsc(Collection<UUID> ids);
 
     @EntityGraph(attributePaths = "owner")

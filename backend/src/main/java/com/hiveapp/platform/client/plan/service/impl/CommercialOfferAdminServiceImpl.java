@@ -800,6 +800,8 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   public CommercialOfferViews.Acceptance applyForAccount(
       UUID offerId, UUID accountId, String idempotencyKey, CommercialOfferRequests.Accept request) {
     authorizer.requireCanManagePermission(
+        "platform.offers.preview_for_account", "preview an Offer for one Account with");
+    authorizer.requireCanManagePermission(
         "platform.subscriptions.preview_change", "preview an Offer subscription change with");
     authorizer.requireCanManagePermission(
         "platform.subscriptions.apply_change", "apply an Offer subscription change with");
