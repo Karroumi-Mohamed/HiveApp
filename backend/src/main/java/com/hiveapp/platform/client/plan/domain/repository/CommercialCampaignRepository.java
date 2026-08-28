@@ -25,6 +25,7 @@ public interface CommercialCampaignRepository extends JpaRepository<CommercialCa
     boolean existsByCode(String code);
 
     @Override
+    @EntityGraph(attributePaths = {"segment", "segmentActivation"})
     Page<CommercialCampaign> findAll(Specification<CommercialCampaign> specification, Pageable pageable);
 
     @EntityGraph(attributePaths = {"sourceCampaign", "owner", "segment", "segmentActivation"})
@@ -80,6 +81,13 @@ public interface CommercialCampaignRepository extends JpaRepository<CommercialCa
     long countOtherLiveRevisions(@Param("lineageId") UUID lineageId,
                                  @Param("campaignId") UUID campaignId,
                                  @Param("statuses") Collection<CommercialCampaignStatus> statuses);
+
+    @Query("select campaign.lineageId, count(campaign) from CommercialCampaign campaign "
+            + "where campaign.lineageId in :lineageIds and campaign.status in :statuses "
+            + "group by campaign.lineageId")
+    List<Object[]> countLiveByLineageIds(
+            @Param("lineageIds") Collection<UUID> lineageIds,
+            @Param("statuses") Collection<CommercialCampaignStatus> statuses);
 
     long countBySegment_Id(UUID segmentId);
 

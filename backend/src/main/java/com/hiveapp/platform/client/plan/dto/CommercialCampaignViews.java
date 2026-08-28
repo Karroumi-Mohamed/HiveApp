@@ -41,7 +41,7 @@ public final class CommercialCampaignViews {
 
     public record Detail(Summary summary, String description, String reason,
                          Audience audience, UUID sourceCampaignId,
-                         Instant scheduledAt, Instant activatedAt, Instant pausedAt,
+                         Instant scheduledAt, Instant activatedAt, Instant pausedAt, Instant resumedAt,
                          Instant endedAt, Instant archivedAt) {
         public UUID id() { return summary.id(); }
     }
@@ -58,6 +58,7 @@ public final class CommercialCampaignViews {
 
     public record AudiencePreview(UUID campaignId, long campaignVersion,
                                   CommercialCampaignAudienceMode mode,
+                                  String registryVersion,
                                   Instant evaluatedAt, Instant expiresAt, String previewToken,
                                   Long targetedAccountCount, boolean publicAudience,
                                   boolean schedulable, List<CommercialCampaignBlocker> blockers,
@@ -70,7 +71,11 @@ public final class CommercialCampaignViews {
                                  CommercialCampaignAudienceMode mode,
                                  boolean publicAudience, int immutableAccountCount,
                                  UUID segmentId, UUID segmentActivationId,
-                                 Instant evaluatedAt, Instant startsAt, Instant endsAt,
+                                 UUID reviewedByActorUserId,
+                                 Instant evaluatedAt, Instant evidenceExpiresAt,
+                                 long campaignVersion, long catalogRevision,
+                                 String registryVersion, String audienceFingerprint, String reason,
+                                 Instant startsAt, Instant endsAt,
                                  PageResponse<AudienceReference> accounts) {}
 
     public record FrozenIdentityAudience(UUID campaignId, UUID snapshotId,

@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.account.service.impl;
 
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
+import com.hiveapp.platform.client.account.dto.AccountIdentityDirectoryEntryDto;
 import com.hiveapp.platform.client.account.service.AccountDirectoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -12,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.shared.exception.InvalidRequestException;
+import com.hiveapp.shared.exception.ResourceNotFoundException;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -61,6 +63,34 @@ public class AccountDirectoryServiceImpl implements AccountDirectoryService {
         LinkedHashSet<UUID> bounded = validateChoiceIds(ids);
         return accountRepository.findAllByIdInOrderByNameAscIdAsc(bounded).stream()
                 .map(this::toDto)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Account> requireManagedAccounts(Collection<UUID> ids) {
+        if (ids == null || ids.isEmpty() || ids.size() > 10_000
+                || ids.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new InvalidRequestException(
+                    "Managed Account ids must contain between 1 and 10000 values.");
+        }
+        LinkedHashSet<UUID> distinct = new LinkedHashSet<>(ids);
+        List<Account> accounts = accountRepository.findAllById(distinct);
+        if (accounts.size() != distinct.size()) {
+            throw new ResourceNotFoundException("Account", "ids", distinct);
+        }
+        return accounts;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AccountIdentityDirectoryEntryDto> resolveIdentities(Collection<UUID> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return accountRepository.findAllWithOwnerByIdIn(new LinkedHashSet<>(ids)).stream()
+                .map(account -> new AccountIdentityDirectoryEntryDto(
+                        account.getId(), account.getName(), account.getSlug(),
+                        account.getOwner() == null ? null : account.getOwner().getEmail(),
+                        account.isActive()))
                 .toList();
     }
 

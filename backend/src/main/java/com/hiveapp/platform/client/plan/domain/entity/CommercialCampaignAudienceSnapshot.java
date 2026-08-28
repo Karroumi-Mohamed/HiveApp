@@ -12,6 +12,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreRemove;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -62,6 +63,9 @@ public class CommercialCampaignAudienceSnapshot extends BaseEntity {
     @Column(name = "catalog_revision", nullable = false, updatable = false)
     private long catalogRevision;
 
+    @Column(name = "registry_version", nullable = false, updatable = false, length = 180)
+    private String registryVersion;
+
     @Column(name = "audience_fingerprint", nullable = false, updatable = false, length = 64)
     private String audienceFingerprint;
 
@@ -95,7 +99,7 @@ public class CommercialCampaignAudienceSnapshot extends BaseEntity {
     public static CommercialCampaignAudienceSnapshot record(
             CommercialCampaign campaign, UUID actorUserId, Instant evaluatedAt,
             Instant evidenceExpiresAt, long campaignVersion, long catalogRevision,
-            String fingerprint, UUID segmentId, UUID segmentActivationId,
+            String registryVersion, String fingerprint, UUID segmentId, UUID segmentActivationId,
             String reason, Collection<UUID> accountIds) {
         CommercialCampaignAudienceSnapshot snapshot = new CommercialCampaignAudienceSnapshot();
         snapshot.campaign = Objects.requireNonNull(campaign, "Campaign is required");
@@ -105,6 +109,7 @@ public class CommercialCampaignAudienceSnapshot extends BaseEntity {
         snapshot.evidenceExpiresAt = Objects.requireNonNull(evidenceExpiresAt, "Evidence expiry is required");
         snapshot.campaignVersion = campaignVersion;
         snapshot.catalogRevision = catalogRevision;
+        snapshot.registryVersion = required(registryVersion, "Registry version");
         snapshot.audienceFingerprint = required(fingerprint, "Audience fingerprint");
         snapshot.segmentId = segmentId;
         snapshot.segmentActivationId = segmentActivationId;
@@ -121,6 +126,39 @@ public class CommercialCampaignAudienceSnapshot extends BaseEntity {
     }
 
     public Set<UUID> getAccountIds() { return Set.copyOf(accountIds); }
+
+    @PrePersist
+    void validateInvariant() {
+        Objects.requireNonNull(campaign, "Campaign is required");
+        Objects.requireNonNull(audienceMode, "Campaign audience mode is required");
+        Objects.requireNonNull(actorUserId, "Campaign schedule reviewer is required");
+        Objects.requireNonNull(evaluatedAt, "Campaign schedule evaluation time is required");
+        Objects.requireNonNull(evidenceExpiresAt, "Campaign schedule evidence expiry is required");
+        Objects.requireNonNull(startsAt, "Campaign start is required");
+        Objects.requireNonNull(endsAt, "Campaign end is required");
+        required(audienceFingerprint, "Audience fingerprint");
+        required(registryVersion, "Registry version");
+        required(reason, "Schedule reason");
+        if (!evidenceExpiresAt.isAfter(evaluatedAt)) {
+            throw new IllegalStateException("Campaign schedule evidence must expire after evaluation.");
+        }
+        if (!endsAt.isAfter(startsAt) || campaignVersion < 0 || catalogRevision < 0) {
+            throw new IllegalStateException("Campaign schedule provenance is invalid.");
+        }
+        if (affectedAccountCount != accountIds.size()) {
+            throw new IllegalStateException("Campaign frozen audience count is inconsistent.");
+        }
+        boolean audienceValid = switch (audienceMode) {
+            case PUBLIC -> accountIds.isEmpty() && segmentId == null && segmentActivationId == null;
+            case EXPLICIT_ACCOUNTS -> !accountIds.isEmpty()
+                    && segmentId == null && segmentActivationId == null;
+            case SEGMENT -> !accountIds.isEmpty()
+                    && segmentId != null && segmentActivationId != null;
+        };
+        if (!audienceValid) {
+            throw new IllegalStateException("Campaign frozen audience provenance is inconsistent.");
+        }
+    }
 
     @PreUpdate
     @PreRemove

@@ -3,6 +3,7 @@ package com.hiveapp.platform.security;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.dto.RegisterRequest;
+import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignAudienceMode;
@@ -58,6 +59,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegrationTestSupport {
 
     @Autowired private AccountRepository accountRepository;
+    @Autowired private AdminUserRepository adminUserRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private CommercialCampaignRepository campaignRepository;
     @Autowired private CommercialCampaignAudienceSnapshotRepository snapshotRepository;
@@ -83,6 +85,7 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
 
         JsonNode preview = preview(token, campaignId);
         assertThat(preview.get("targetedAccountCount").asInt()).isEqualTo(2);
+        assertThat(preview.get("registryVersion").asText()).isNotBlank();
         assertThat(preview.get("sample").toString()).contains(first.getId().toString())
                 .doesNotContain(first.getName());
         JsonNode scheduled = schedule(token, campaignId, preview, "Accept the exact launch audience");
@@ -98,12 +101,25 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
         first.setName("Renamed after schedule");
         accountRepository.saveAndFlush(first);
         registerAccount("campaign-later");
-        mockMvc.perform(get("/api/admin/campaigns/{id}/audience", campaignId)
+        JsonNode frozenAudience = response(mockMvc.perform(
+                        get("/api/admin/campaigns/{id}/audience", campaignId)
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.immutableAccountCount").value(2))
                 .andExpect(jsonPath("$.accounts.content", hasSize(2)))
-                .andExpect(jsonPath("$.accounts.content[0].accountName").doesNotExist());
+                .andExpect(jsonPath("$.accounts.content[0].accountName").doesNotExist()));
+        assertThat(frozenAudience.get("reviewedByActorUserId").asText()).isNotBlank();
+        assertThat(frozenAudience.get("evidenceExpiresAt").asText()).isNotBlank();
+        assertThat(frozenAudience.get("campaignVersion").asLong())
+                .isEqualTo(preview.get("campaignVersion").asLong());
+        assertThat(frozenAudience.get("catalogRevision").asLong()).isNotNegative();
+        assertThat(frozenAudience.get("registryVersion").asText())
+                .isEqualTo(preview.get("registryVersion").asText());
+        assertThat(frozenAudience.get("audienceFingerprint").asText())
+                .isEqualTo(preview.get("fingerprint").asText());
+        assertThat(frozenAudience.get("reason").asText())
+                .isEqualTo("Accept the exact launch audience");
+        assertThat(frozenAudience.has("previewToken")).isFalse();
         mockMvc.perform(get("/api/admin/campaigns/{id}/audience-identities", campaignId)
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
@@ -112,8 +128,11 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
         lifecycleTransitions.processDueStart(campaignId, start.plusSeconds(1));
         JsonNode active = getCampaign(token, campaignId);
         assertThat(active.at("/summary/status").asText()).isEqualTo("ACTIVE");
+        String firstActivatedAt = active.get("activatedAt").asText();
         JsonNode paused = lifecycle(token, campaignId, "pause", active, "Pause the campaign");
         JsonNode resumed = lifecycle(token, campaignId, "resume", paused, "Resume the campaign");
+        assertThat(resumed.get("activatedAt").asText()).isEqualTo(firstActivatedAt);
+        assertThat(resumed.get("resumedAt").asText()).isNotBlank();
         JsonNode ended = lifecycle(token, campaignId, "end", resumed, "End the campaign");
         JsonNode archived = lifecycle(token, campaignId, "archive", ended, "Retain campaign history");
         assertThat(archived.at("/summary/status").asText()).isEqualTo("ARCHIVED");
@@ -257,6 +276,11 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
                 "Supersede the reviewed Segment activation", Set.of(target.getId()));
         segmentActivationRepository.saveAndFlush(replacement);
 
+        JsonNode staleDetail = getCampaign(token, id(campaign));
+        assertThat(actionNames(staleDetail)).doesNotContain("SCHEDULE");
+        assertThat(staleDetail.at("/summary/blockedActions/SCHEDULE").toString())
+                .contains("SEGMENT_ACTIVATION_STALE");
+
         mockMvc.perform(post("/api/admin/campaigns/{id}/schedule", id(campaign))
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -294,7 +318,8 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
         CommercialCampaign managed = campaignRepository.findDetailById(id(first)).orElseThrow();
         String crossActor = previewTokenService.issue(CommercialPreviewKind.COMMERCIAL_CAMPAIGN_SCHEDULE,
                 managed.getId(), managed.getVersion(), UUID.randomUUID(),
-                catalogVersionService.currentRevision(), "CAMPAIGN_AUDIENCE_V1",
+                catalogVersionService.currentRevision(),
+                registryCatalogVersionService.currentVersion(),
                 reviewed.get("fingerprint").asText(), Instant.now()).token();
         mockMvc.perform(post("/api/admin/campaigns/{id}/schedule", id(first))
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
@@ -316,6 +341,54 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
                                 reviewed.get("previewToken").asText())))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STALE_SCHEDULE_PREVIEW"));
+    }
+
+    @Test
+    void scheduleEvidenceRejectsWrongOperationExpiryAndCatalogDriftWithoutPartialWrites()
+            throws Exception {
+        String token = loginAdminAndGetToken();
+        Account target = registerAccount("campaign-evidence-fence");
+        Instant start = Instant.now().plusSeconds(3600);
+        JsonNode draft = createCampaign(token, create("Evidence fences", start,
+                start.plusSeconds(3600), audience(CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS,
+                        Set.of(target.getId()), null, null)));
+        UUID campaignId = id(draft);
+        JsonNode reviewed = preview(token, campaignId);
+        CommercialCampaign managed = campaignRepository.findDetailById(campaignId).orElseThrow();
+        UUID actorUserId = adminUserRepository.findByUser_Email(ADMIN_EMAIL).orElseThrow()
+                .getUser().getId();
+
+        String wrongOperation = previewTokenService.issue(CommercialPreviewKind.PLAN_ACTIVATION,
+                campaignId, managed.getVersion(), actorUserId,
+                catalogVersionService.currentRevision(),
+                registryCatalogVersionService.currentVersion(),
+                reviewed.get("fingerprint").asText(), Instant.now()).token();
+        assertRejectedSchedule(token, draft, wrongOperation);
+
+        String wrongRegistry = previewTokenService.issue(
+                CommercialPreviewKind.COMMERCIAL_CAMPAIGN_SCHEDULE,
+                campaignId, managed.getVersion(), actorUserId,
+                catalogVersionService.currentRevision(),
+                registryCatalogVersionService.currentVersion() + "-stale",
+                reviewed.get("fingerprint").asText(), Instant.now()).token();
+        assertRejectedSchedule(token, draft, wrongRegistry);
+
+        String expired = previewTokenService.issue(
+                CommercialPreviewKind.COMMERCIAL_CAMPAIGN_SCHEDULE,
+                campaignId, managed.getVersion(), actorUserId,
+                catalogVersionService.currentRevision(),
+                registryCatalogVersionService.currentVersion(),
+                reviewed.get("fingerprint").asText(), Instant.now().minusSeconds(600)).token();
+        assertRejectedSchedule(token, draft, expired);
+
+        createCampaign(token, create("Unrelated catalogue mutation", start,
+                start.plusSeconds(3600), audience(CommercialCampaignAudienceMode.PUBLIC,
+                        Set.of(), null, null)));
+        assertRejectedSchedule(token, draft, reviewed.get("previewToken").asText());
+
+        assertThat(snapshotRepository.existsByCampaign_Id(campaignId)).isFalse();
+        assertThat(campaignRepository.findById(campaignId).orElseThrow().getStatus().name())
+                .isEqualTo("DRAFT");
     }
 
     @Test
@@ -451,6 +524,34 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                         .content(versionReason(successor, "Discard unused successor")))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void draftSuccessorAdvertisesSchedulingOnlyAfterTheLiveRevisionEnds() throws Exception {
+        String token = loginAdminAndGetToken();
+        Instant start = Instant.now().plusSeconds(3600);
+        JsonNode draft = createCampaign(token, create("Executable actions", start,
+                start.plusSeconds(3600), audience(CommercialCampaignAudienceMode.PUBLIC,
+                        Set.of(), null, null)));
+        JsonNode scheduled = schedule(token, id(draft), preview(token, id(draft)),
+                "Schedule the first revision");
+        JsonNode successor = response(mockMvc.perform(
+                        post("/api/admin/campaigns/{id}/revisions", id(draft))
+                                .header("Authorization", bearer(token))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(versionReason(scheduled, "Prepare the successor")))
+                .andExpect(status().isCreated()));
+
+        JsonNode blocked = getCampaign(token, id(successor));
+        assertThat(actionNames(blocked)).doesNotContain("SCHEDULE");
+        assertThat(blocked.at("/summary/blockedActions/SCHEDULE").toString())
+                .contains("LIVE_LINEAGE_REVISION_EXISTS");
+
+        lifecycle(token, id(draft), "end", scheduled, "End the first revision");
+        JsonNode executable = getCampaign(token, id(successor));
+        assertThat(actionNames(executable)).contains("SCHEDULE");
+        assertThat(executable.at("/summary/blockedActions/SCHEDULE").toString())
+                .doesNotContain("LIVE_LINEAGE_REVISION_EXISTS");
     }
 
     @Test
@@ -644,6 +745,17 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
         }
     }
 
+    private void assertRejectedSchedule(String token, JsonNode draft, String previewToken)
+            throws Exception {
+        mockMvc.perform(post("/api/admin/campaigns/{id}/schedule", id(draft))
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(scheduleRequest(
+                                draft.at("/summary/version").asLong(), previewToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STALE_SCHEDULE_PREVIEW"));
+    }
+
     private int revisionStatus(String token, UUID id, String body, CountDownLatch go) {
         try {
             go.await();
@@ -675,6 +787,12 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
 
     private UUID id(JsonNode detail) {
         return UUID.fromString(detail.at("/summary/id").asText());
+    }
+
+    private Set<String> actionNames(JsonNode detail) {
+        Set<String> actions = new java.util.LinkedHashSet<>();
+        detail.at("/summary/availableActions").forEach(action -> actions.add(action.asText()));
+        return actions;
     }
 
     private JsonNode response(org.springframework.test.web.servlet.ResultActions result) throws Exception {
