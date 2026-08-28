@@ -919,6 +919,13 @@ export type CommercialCampaignOwner = {
   username: string;
   displayName: string | null;
   active: boolean;
+  status: CommercialCampaignStatus;
+  version: number;
+};
+export type CommercialCampaignOwnerMutation = {
+  campaignId: UUID;
+  status: CommercialCampaignStatus;
+  version: number;
 };
 export type CommercialCampaignOwnerChoice = {
   adminUserId: UUID;

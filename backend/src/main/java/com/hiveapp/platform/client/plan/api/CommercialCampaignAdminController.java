@@ -162,7 +162,7 @@ public class CommercialCampaignAdminController {
     }
 
     @PutMapping("/{campaignId}/owner")
-    public CommercialCampaignViews.Detail reassignOwner(@PathVariable UUID campaignId,
+    public CommercialCampaignViews.OwnerMutation reassignOwner(@PathVariable UUID campaignId,
             @Valid @RequestBody CommercialCampaignRequests.ReassignOwner request) {
         return service.reassignOwner(campaignId, request);
     }

@@ -35,8 +35,10 @@ public interface CommercialCampaignRepository extends JpaRepository<CommercialCa
     @Query("select campaign.lineageId from CommercialCampaign campaign where campaign.id = :campaignId")
     Optional<UUID> findLineageIdById(@Param("campaignId") UUID campaignId);
 
-    @Query("select campaign.owner.id from CommercialCampaign campaign where campaign.id = :campaignId")
-    Optional<UUID> findOwnerAdminUserIdById(@Param("campaignId") UUID campaignId);
+    @Query("select campaign.owner.id as ownerAdminUserId, campaign.status as status, "
+            + "campaign.version as version from CommercialCampaign campaign "
+            + "where campaign.id = :campaignId")
+    Optional<OwnerState> findOwnerStateById(@Param("campaignId") UUID campaignId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select campaign from CommercialCampaign campaign where campaign.id = :campaignId")
@@ -56,6 +58,12 @@ public interface CommercialCampaignRepository extends JpaRepository<CommercialCa
     @Query("select campaign.lineageId, max(campaign.revisionNumber) from CommercialCampaign campaign "
             + "where campaign.lineageId in :lineageIds group by campaign.lineageId")
     List<Object[]> findMaximumRevisionNumbers(@Param("lineageIds") Collection<UUID> lineageIds);
+
+    interface OwnerState {
+        UUID getOwnerAdminUserId();
+        CommercialCampaignStatus getStatus();
+        long getVersion();
+    }
 
     @Query("select campaign.id, count(account) from CommercialCampaign campaign "
             + "left join campaign.explicitAccounts account where campaign.id in :campaignIds "

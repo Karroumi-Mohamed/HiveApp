@@ -83,7 +83,11 @@ public final class CommercialCampaignViews {
                                          PageResponse<AudienceIdentity> accounts) {}
 
     public record Owner(UUID campaignId, UUID adminUserId, UUID userId, String email,
-                        String username, String displayName, boolean active) {}
+                        String username, String displayName, boolean active,
+                        CommercialCampaignStatus status, long version) {}
+
+    /** Minimal mutation acknowledgement for independently authorized owner management. */
+    public record OwnerMutation(UUID campaignId, CommercialCampaignStatus status, long version) {}
 
     /** Minimal identity projection exposed only through the dedicated owner-choice permissions. */
     public record OwnerChoice(UUID adminUserId, String email, String username,

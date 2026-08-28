@@ -34,8 +34,8 @@ public interface CommercialCampaignAdminService {
     CommercialCampaignViews.Detail archive(UUID campaignId, CommercialCampaignRequests.VersionReason request);
     void deleteDraft(UUID campaignId, CommercialCampaignRequests.VersionReason request);
     CommercialCampaignViews.Owner owner(UUID campaignId);
-    CommercialCampaignViews.Detail reassignOwner(UUID campaignId,
-                                                  CommercialCampaignRequests.ReassignOwner request);
+    CommercialCampaignViews.OwnerMutation reassignOwner(
+            UUID campaignId, CommercialCampaignRequests.ReassignOwner request);
     Page<CommercialCampaignViews.OwnerChoice> chooseOwners(String query, Pageable pageable);
     List<CommercialCampaignViews.OwnerChoice> resolveOwnerChoices(Collection<UUID> ids);
     CommercialCampaignViews.FrozenAudience audience(UUID campaignId, Pageable pageable);

@@ -34,6 +34,7 @@ import type {
   CommercialCampaignHistory,
   CommercialCampaignOwner,
   CommercialCampaignOwnerChoice,
+  CommercialCampaignOwnerMutation,
   CommercialCampaignRevision,
   CommercialCampaignSchedulePreview,
   CommercialCampaignSegmentChoice,
@@ -599,7 +600,7 @@ export const adminApi = {
     admin<void>(`/campaigns/${id}`, { method: "DELETE", body: jsonBody(input) }),
   commercialCampaignOwner: (id: UUID) => admin<CommercialCampaignOwner>(`/campaigns/${id}/owner`),
   reassignCommercialCampaignOwner: (id: UUID, input: { version: number; ownerAdminUserId: UUID; reason: string }) =>
-    admin<CommercialCampaignDetail>(`/campaigns/${id}/owner`, { method: "PUT", body: jsonBody(input) }),
+    admin<CommercialCampaignOwnerMutation>(`/campaigns/${id}/owner`, { method: "PUT", body: jsonBody(input) }),
   commercialCampaignAudience: (id: UUID, page = 0, size = 20) =>
     admin<CommercialCampaignFrozenAudience>(`/campaigns/${id}/audience`, { query: { page, size } }),
   commercialCampaignAudienceIdentities: (id: UUID, page = 0, size = 20) =>

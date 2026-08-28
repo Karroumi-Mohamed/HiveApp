@@ -1555,6 +1555,61 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void campaignOwnerManagementIsComposableWithoutLeakingCampaignDetail() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        Instant start = Instant.now().plusSeconds(3600);
+        var create = new CommercialCampaignRequests.Create(
+                "Owner-only Campaign " + UUID.randomUUID(), "Sensitive description",
+                start, start.plusSeconds(3600), CommercialCampaignSource.MARKETING,
+                "Sensitive commercial reason",
+                new CommercialCampaignRequests.Audience(
+                        CommercialCampaignAudienceMode.PUBLIC, Set.of(), null, null));
+        JsonNode campaign = responseJson(mockMvc.perform(post("/api/admin/campaigns")
+                        .header("Authorization", bearer(superToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(create)))
+                .andExpect(status().isCreated()));
+        UUID campaignId = UUID.fromString(campaign.at("/summary/id").asText());
+        LimitedAdmin ownerManager = createLimitedAdmin(
+                "platform.campaigns.owner",
+                "platform.campaigns.reassign_owner",
+                "platform.campaigns.choose_owners",
+                "platform.campaigns.resolve_owner_choices");
+
+        mockMvc.perform(get("/api/admin/campaigns/{id}", campaignId)
+                        .header("Authorization", bearer(ownerManager.token())))
+                .andExpect(status().isForbidden());
+
+        JsonNode owner = responseJson(mockMvc.perform(get("/api/admin/campaigns/{id}/owner", campaignId)
+                        .header("Authorization", bearer(ownerManager.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.version").isNumber())
+                .andExpect(jsonPath("$.summary").doesNotExist())
+                .andExpect(jsonPath("$.description").doesNotExist())
+                .andExpect(jsonPath("$.reason").doesNotExist()));
+
+        var reassign = new CommercialCampaignRequests.ReassignOwner(
+                owner.get("version").asLong(), ownerManager.adminUserId(), "Transfer ownership");
+        mockMvc.perform(put("/api/admin/campaigns/{id}/owner", campaignId)
+                        .header("Authorization", bearer(ownerManager.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(reassign)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.campaignId").value(campaignId.toString()))
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.version").value(owner.get("version").asLong() + 1))
+                .andExpect(jsonPath("$.summary").doesNotExist())
+                .andExpect(jsonPath("$.description").doesNotExist())
+                .andExpect(jsonPath("$.reason").doesNotExist());
+
+        mockMvc.perform(get("/api/admin/campaigns/{id}/owner", campaignId)
+                        .header("Authorization", bearer(ownerManager.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.adminUserId").value(ownerManager.adminUserId().toString()));
+    }
+
+    @Test
     void campaignScheduleActionRequiresBothPreviewAndApplyPermissions() throws Exception {
         String superToken = loginAdminAndGetToken();
         Instant start = Instant.now().plusSeconds(3600);

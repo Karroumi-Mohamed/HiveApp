@@ -350,6 +350,87 @@ describe("commercial campaign least-privilege wiring", () => {
     expect(requests.some((url) => url.endsWith(`/campaigns/${campaignId}`))).toBeFalse();
   });
 
+  test("an owner-only operator reassigns from the narrow owner version without reading Campaign detail", async () => {
+    const requests: string[] = [];
+    const mutationBodies: Array<Record<string, unknown>> = [];
+    let version = 11;
+    let ownerAdminUserId = "owner-1";
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.includes("/api/admin/campaigns/owner-choices/selected")) {
+        return response([
+          {
+            adminUserId: "owner-2",
+            email: "next-owner@hiveapp.test",
+            username: "next-owner",
+            displayName: "Nouvelle responsable",
+          },
+        ]);
+      }
+      if (url.includes("/api/admin/campaigns/owner-choices")) {
+        return response({
+          content: [
+            {
+              adminUserId: "owner-2",
+              email: "next-owner@hiveapp.test",
+              username: "next-owner",
+              displayName: "Nouvelle responsable",
+            },
+          ],
+          page: 0,
+          size: 15,
+          totalElements: 1,
+          totalPages: 1,
+          first: true,
+          last: true,
+        });
+      }
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}/owner`) && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        mutationBodies.push(body);
+        ownerAdminUserId = String(body.ownerAdminUserId);
+        version += 1;
+        return response({ campaignId, status: "DRAFT", version });
+      }
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}/owner`)) {
+        return response({
+          campaignId,
+          adminUserId: ownerAdminUserId,
+          userId: "user-1",
+          email: ownerAdminUserId === "owner-1" ? "owner@hiveapp.test" : "next-owner@hiveapp.test",
+          username: ownerAdminUserId,
+          displayName: ownerAdminUserId === "owner-1" ? "Responsable actuelle" : "Nouvelle responsable",
+          active: true,
+          status: "DRAFT",
+          version,
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const view = renderDetail(`/admin/campaigns/${campaignId}/owner`, [
+      adminPermissions.campaignsOwner,
+      adminPermissions.campaignsReassignOwner,
+      adminPermissions.campaignsChooseOwners,
+      adminPermissions.campaignsResolveOwnerChoices,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    expect(await view.findByText("Responsable actuelle")).toBeTruthy();
+    await user.click(view.getByRole("button", { name: "Réassigner" }));
+    const dialog = await view.findByRole("dialog");
+    await user.click(await within(dialog).findByRole("radio", { name: /Nouvelle responsable/ }));
+    await user.type(within(dialog).getByLabelText("Motif obligatoire"), "Rotation opérationnelle");
+    await user.click(within(dialog).getByRole("button", { name: "Réassigner" }));
+    await waitFor(() => expect(mutationBodies).toHaveLength(1));
+    expect(mutationBodies[0]).toMatchObject({
+      version: 11,
+      ownerAdminUserId: "owner-2",
+      reason: "Rotation opérationnelle",
+    });
+    expect(requests.some((url) => url.endsWith(`/api/admin/campaigns/${campaignId}`))).toBeFalse();
+  });
+
   test("a compare-only operator uses a known revision without listing the lineage or reading detail", async () => {
     const requests: string[] = [];
     globalThis.fetch = (async (input) => {

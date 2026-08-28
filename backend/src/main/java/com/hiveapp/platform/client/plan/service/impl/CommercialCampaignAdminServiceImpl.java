@@ -443,20 +443,22 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
     @Transactional(readOnly = true)
     @PermissionNode(key = "owner", description = "Read the separately authorized Campaign owner")
     public CommercialCampaignViews.Owner owner(UUID campaignId) {
-        UUID ownerId = campaignRepository.findOwnerAdminUserIdById(campaignId)
+        CommercialCampaignRepository.OwnerState state = campaignRepository.findOwnerStateById(campaignId)
                 .orElseThrow(() -> notFound(campaignId));
+        UUID ownerId = state.getOwnerAdminUserId();
         AdminUser owner = adminUserRepository.findWithUserById(ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("AdminUser", "id", ownerId));
         var user = owner.getUser();
         return new CommercialCampaignViews.Owner(campaignId, owner.getId(), user.getId(),
-                user.getEmail(), user.getUsername(), user.getFullName(), owner.isActive());
+                user.getEmail(), user.getUsername(), user.getFullName(), owner.isActive(),
+                state.getStatus(), state.getVersion());
     }
 
     @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "reassign_owner", description = "Reassign a draft Campaign owner")
-    public CommercialCampaignViews.Detail reassignOwner(UUID campaignId,
+    public CommercialCampaignViews.OwnerMutation reassignOwner(UUID campaignId,
             CommercialCampaignRequests.ReassignOwner request) {
         CommercialCampaign campaign = requireCampaignForUpdate(campaignId);
         requireVersion(campaign, request.version());
@@ -466,7 +468,8 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                         "Active AdminUser", "id", request.ownerAdminUserId()));
         translate(() -> campaign.reassignDraftOwner(owner));
         campaignRepository.saveAndFlush(campaign);
-        return toDetail(requireCampaign(campaignId));
+        return new CommercialCampaignViews.OwnerMutation(
+                campaign.getId(), campaign.getStatus(), campaign.getVersion());
     }
 
     @Override

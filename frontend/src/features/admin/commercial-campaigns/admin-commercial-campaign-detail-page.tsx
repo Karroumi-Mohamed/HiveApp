@@ -607,7 +607,7 @@ function HistoryPanel({ campaignId }: { campaignId: string }) {
   );
 }
 
-function OwnerDialog({ campaign, trigger }: { campaign: CommercialCampaignDetail; trigger: ReactNode }) {
+function OwnerDialog({ campaignId, version, trigger }: { campaignId: string; version: number; trigger: ReactNode }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -616,7 +616,7 @@ function OwnerDialog({ campaign, trigger }: { campaign: CommercialCampaignDetail
   const [page, setPage] = useState(0);
   const [ownerId, setOwnerId] = useState("");
   const [reason, setReason] = useState("");
-  const expectedVersion = useRef(campaign.summary.version);
+  const expectedVersion = useRef(version);
   const choices = useQuery({
     queryKey: adminCommercialKeys.campaigns.ownerChoices({ query: debounced, page }),
     queryFn: () => adminApi.commercialCampaignOwnerChoices({ query: debounced || undefined, page, size: 15 }),
@@ -635,7 +635,7 @@ function OwnerDialog({ campaign, trigger }: { campaign: CommercialCampaignDetail
     selectedChoice.data?.[0] ?? choices.data?.content.find((choice) => choice.adminUserId === ownerId);
   const mutation = useMutation({
     mutationFn: () =>
-      adminApi.reassignCommercialCampaignOwner(campaign.summary.id, {
+      adminApi.reassignCommercialCampaignOwner(campaignId, {
         version: expectedVersion.current,
         ownerAdminUserId: ownerId,
         reason: reason.trim(),
@@ -644,19 +644,23 @@ function OwnerDialog({ campaign, trigger }: { campaign: CommercialCampaignDetail
       setOpen(false);
       await invalidateCommercialCampaignTargeting(
         queryClient,
-        adminCommercialKeys.campaigns.detail(campaign.summary.id),
-        adminCommercialKeys.campaigns.owner(campaign.summary.id),
+        adminCommercialKeys.campaigns.detail(campaignId),
+        adminCommercialKeys.campaigns.owner(campaignId),
       );
       toast.success("Responsable réassigné");
     },
     onError: async (error) => {
-      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.campaigns.detail(campaign.summary.id) });
+      await invalidateCommercialCampaignTargeting(
+        queryClient,
+        adminCommercialKeys.campaigns.detail(campaignId),
+        adminCommercialKeys.campaigns.owner(campaignId),
+      );
       toast.error(campaignMutationMessage(error));
     },
   });
   const changeOpen = (next: boolean) => {
     setOpen(next);
-    if (next) expectedVersion.current = campaign.summary.version;
+    if (next) expectedVersion.current = version;
     else {
       setSearch("");
       setPage(0);
@@ -753,7 +757,7 @@ function OwnerDialog({ campaign, trigger }: { campaign: CommercialCampaignDetail
   );
 }
 
-function OwnerPanel({ campaignId, campaign }: { campaignId: string; campaign?: CommercialCampaignDetail }) {
+function OwnerPanel({ campaignId }: { campaignId: string }) {
   const session = useAdminSession();
   const owner = useQuery({
     queryKey: adminCommercialKeys.campaigns.owner(campaignId),
@@ -779,9 +783,12 @@ function OwnerPanel({ campaignId, campaign }: { campaignId: string; campaign?: C
           <dd className="mt-1 text-sm">{owner.data.active ? "Actif" : "Inactif"}</dd>
         </div>
       </dl>
-      {campaign?.summary.availableActions.includes("REASSIGN_OWNER") &&
-      session.can(adminPermissions.campaignsReassignOwner) ? (
-        <OwnerDialog campaign={campaign} trigger={<Button variant="outline">Réassigner</Button>} />
+      {owner.data.status === "DRAFT" && session.can(adminPermissions.campaignsReassignOwner) ? (
+        <OwnerDialog
+          campaignId={campaignId}
+          trigger={<Button variant="outline">Réassigner</Button>}
+          version={owner.data.version}
+        />
       ) : null}
     </section>
   );
@@ -849,7 +856,7 @@ export function AdminCommercialCampaignDetailPage() {
       ) : tab === "history" ? (
         <HistoryPanel campaignId={id} />
       ) : tab === "owner" ? (
-        <OwnerPanel campaign={detail} campaignId={id} />
+        <OwnerPanel campaignId={id} />
       ) : detail ? (
         <SummaryPanel campaign={detail} />
       ) : (
