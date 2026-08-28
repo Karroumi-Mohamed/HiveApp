@@ -2156,6 +2156,30 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void offerOperationAndDefinitionReadsAreIndependentAndCheckPermissionBeforeExistence()
+            throws Exception {
+        UUID absent = UUID.randomUUID();
+        LimitedAdmin operations = createLimitedAdmin("platform.offers.read_operations");
+        LimitedAdmin definition = createLimitedAdmin("platform.offers.read_editable_definition");
+
+        mockMvc.perform(get("/api/admin/offers/{id}/operations", absent)
+                        .header("Authorization", bearer(operations.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/offers/{id}/editable-definition", absent)
+                        .header("Authorization", bearer(operations.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+
+        mockMvc.perform(get("/api/admin/offers/{id}/editable-definition", absent)
+                        .header("Authorization", bearer(definition.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/offers/{id}/operations", absent)
+                        .header("Authorization", bearer(definition.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+    }
+
     private LimitedAdmin createLimitedAdmin(String... permissionCodes) throws Exception {
         String superToken = loginAdminAndGetToken();
         String email = operatorEmail();

@@ -74,9 +74,11 @@ import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.exception.StaleResourceVersionException;
 import com.hiveapp.shared.money.Money;
+import com.hiveapp.shared.security.EffectivePermissionService;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
 import com.hiveapp.shared.quota.QuotaLimitMode;
 import dev.karroumi.permissionizer.PermissionNode;
+import dev.karroumi.permissionizer.PermissionDeniedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
@@ -131,6 +133,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final RegistryCatalogVersionService registryCatalogVersionService;
     private final CommercialPreviewTokenService previewTokenService;
     private final ObjectProvider<CommercialOfferService> commercialOfferServiceProvider;
+    private final EffectivePermissionService effectivePermissionService;
     private final Clock clock;
 
     @Override @Transactional(readOnly = true)
@@ -157,7 +160,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return commercialOfferServiceProvider.getObject().preview(accountId, actorUserId, offerId, request.discoveryToken(), false);
     }
 
-    @Override @Transactional
+    @Override
     @PermissionNode(key = "offer_accept", description = "Accept a commercial Offer")
     public CommercialOfferViews.Acceptance acceptOffer(UUID accountId, UUID actorUserId, UUID offerId,
                                                         String idempotencyKey, CommercialOfferRequests.Accept request) {
@@ -402,6 +405,34 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "internal_client_offer_preview", guard = PermissionNode.Guard.OFF)
+    public SubscriptionChangePreviewResponse previewOfferChange(
+            UUID accountId,
+            UUID actorUserId,
+            SubscriptionChangeRequest request
+    ) {
+        return previewChangeInternal(
+                accountId, actorUserId, request,
+                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
+                CommercialPreviewKind.SUBSCRIPTION_CHANGE);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "internal_operator_offer_preview", guard = PermissionNode.Guard.OFF)
+    public SubscriptionChangePreviewResponse previewOfferChangeAsOperator(
+            UUID accountId,
+            UUID actorUserId,
+            SubscriptionChangeRequest request
+    ) {
+        return previewChangeInternal(
+                accountId, actorUserId, request,
+                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
+                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE);
+    }
+
     private SubscriptionChangePreviewResponse previewChangeInternal(
             UUID accountId,
             UUID actorUserId,
@@ -440,6 +471,15 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     }
 
     @Override
+    @PermissionNode(key = "internal_offer_apply_authority", guard = PermissionNode.Guard.OFF)
+    public void requireOfferApplyAuthority(UUID accountId, UUID actorUserId) {
+        if (!effectivePermissionService.getEffectivePermissions(actorUserId, accountId)
+                .permissions().contains("platform.subscription.apply")) {
+            throw new PermissionDeniedException("Subscription apply permission is required.");
+        }
+    }
+
+    @Override
     @Transactional
     @PermissionNode(key = "internal_operator_apply", guard = PermissionNode.Guard.OFF)
     public SubscriptionChangeApplyResponse applyChangeAsOperator(
@@ -457,15 +497,26 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     @Override
     @Transactional
-    @PermissionNode(key = "internal_offer_apply", guard = PermissionNode.Guard.OFF)
+    @PermissionNode(key = "internal_client_offer_apply", guard = PermissionNode.Guard.OFF)
     public SubscriptionChangeApplyResponse applyOfferChange(UUID accountId, UUID actorUserId,
-            SubscriptionChangeApplyRequest request, String reason, boolean operator,
+            SubscriptionChangeApplyRequest request, String reason,
             UUID redemptionId, SubscriptionOfferEvaluation offerEvaluation) {
         return applyChangeInternal(accountId, actorUserId, request,
-                operator ? CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR
-                        : CommercialCatalogResolver.Audience.CLIENT_CATALOG,
-                operator ? CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE
-                        : CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
+                CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                reason, redemptionId, offerEvaluation);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "internal_operator_offer_apply", guard = PermissionNode.Guard.OFF)
+    public SubscriptionChangeApplyResponse applyOfferChangeAsOperator(
+            UUID accountId, UUID actorUserId,
+            SubscriptionChangeApplyRequest request, String reason,
+            UUID redemptionId, SubscriptionOfferEvaluation offerEvaluation) {
+        return applyChangeInternal(accountId, actorUserId, request,
+                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
+                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE,
                 reason, redemptionId, offerEvaluation);
     }
 
