@@ -536,6 +536,34 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
+    @Test
+    void unreadableJsonAndUnknownEnumsAreStableBadRequestsWithoutParserDetails()
+            throws Exception {
+        String token = loginAdminAndGetToken();
+        Instant start = Instant.now().plusSeconds(3600);
+        String unknownEnum = """
+                {"name":"Unknown source","startsAt":"%s","endsAt":"%s",
+                 "source":"NOT_A_REAL_SOURCE","reason":"Exercise request decoding",
+                 "audience":{"mode":"PUBLIC","explicitAccountIds":[]}}
+                """.formatted(start, start.plusSeconds(3600));
+
+        mockMvc.perform(post("/api/admin/campaigns")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON).content(unknownEnum))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message")
+                        .value("Request body is malformed or contains an unsupported value"));
+
+        mockMvc.perform(post("/api/admin/campaigns")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON).content("{not-json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message")
+                        .value("Request body is malformed or contains an unsupported value"));
+    }
+
     private CommercialCampaignRequests.Create create(String name, Instant start, Instant end,
                                                        CommercialCampaignRequests.Audience audience) {
         return new CommercialCampaignRequests.Create(name, "Campaign integration test", start, end,

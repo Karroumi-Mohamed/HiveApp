@@ -12,6 +12,7 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -217,6 +218,19 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.UNPROCESSABLE_ENTITY)
                 .body(ApiError.of(422, ErrorCode.VALIDATION_FAILED, "Validation Failed",
                         "Request validation failed", details));
+    }
+
+    /**
+     * JSON that cannot be decoded, including unsupported enum values, is a caller error. Keep the
+     * response stable and deliberately avoid reflecting Jackson's parser details or the rejected
+     * input back to the caller.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> handleUnreadableMessage(HttpMessageNotReadableException ex) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiError.of(400, ErrorCode.INVALID_REQUEST, "Bad Request",
+                        "Request body is malformed or contains an unsupported value"));
     }
 
     /**
