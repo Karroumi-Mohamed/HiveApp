@@ -64,6 +64,7 @@ import {
   campaignActionPermission,
   campaignAudienceMode,
   campaignBlocker,
+  campaignFrozenAudienceLabel,
   campaignHistoryAction,
   campaignMutationMessage,
   campaignSource,
@@ -186,7 +187,9 @@ function SummaryPanel({ campaign }: { campaign: CommercialCampaignDetail }) {
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">Audience figée</dt>
-            <dd className="mt-1 font-medium tabular-nums">{campaign.summary.frozenAccountCount ?? "—"}</dd>
+            <dd className="mt-1 font-medium tabular-nums">
+              {campaignFrozenAudienceLabel(campaign.audience.mode, campaign.summary.frozenAccountCount)}
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">Début</dt>
@@ -255,8 +258,10 @@ function FrozenEvidence({ audience }: { audience: CommercialCampaignFrozenAudien
       <div>
         <dt className="text-muted-foreground">Version vérifiée</dt>
         <dd className="mt-1">
-          Campagne {audience.campaignVersion} · catalogue R{audience.catalogRevision} · registre{" "}
-          {audience.registryVersion}
+          Campagne {audience.campaignVersion} · catalogue R{audience.catalogRevision}
+          <span className="mt-1 block break-all font-mono text-xs text-muted-foreground" dir="ltr">
+            Registre {audience.registryVersion}
+          </span>
         </dd>
       </div>
       <div>
@@ -348,7 +353,10 @@ function AudiencePanel({ campaignId }: { campaignId: string }) {
                 R{opaque.data.catalogRevision}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Version de campagne {opaque.data.campaignVersion} · registre {opaque.data.registryVersion}
+                Version de campagne {opaque.data.campaignVersion}
+                <span className="mt-1 block break-all font-mono" dir="ltr">
+                  Registre {opaque.data.registryVersion}
+                </span>
               </p>
             </>
           ) : (

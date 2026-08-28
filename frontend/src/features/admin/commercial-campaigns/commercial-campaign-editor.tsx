@@ -24,6 +24,12 @@ import {
 } from "@/features/commercial/commercial-query";
 import { CommercialCampaignAudienceEditor } from "./commercial-campaign-audience-editor";
 import {
+  adjacentCampaignEditorSteps,
+  type CampaignEditorStep,
+  campaignEditorSteps,
+  shouldBlockCampaignEditorNavigation,
+} from "./commercial-campaign-editor-state";
+import {
   type CommercialCampaignDraft,
   campaignAudienceMode,
   campaignMutationMessage,
@@ -36,14 +42,7 @@ import {
   validCampaignId,
 } from "./commercial-campaign-rules";
 
-type EditorStep = "definition" | "audience" | "calendar" | "review";
-const steps = [
-  { value: "definition", label: "Définition" },
-  { value: "audience", label: "Audience" },
-  { value: "calendar", label: "Calendrier" },
-  { value: "review", label: "Révision" },
-] as const;
-const validSteps = new Set(steps.map((step) => step.value));
+const validSteps = new Set(campaignEditorSteps.map((step) => step.value));
 
 function FieldError({ children }: { children?: string }) {
   return children ? (
@@ -267,9 +266,9 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
   const [params, setParams] = useSearchParams();
   const requestedStep = params.get("step");
   const step = (
-    requestedStep && validSteps.has(requestedStep as EditorStep) ? requestedStep : "definition"
-  ) as EditorStep;
-  const setStep = (value: EditorStep) => {
+    requestedStep && validSteps.has(requestedStep as CampaignEditorStep) ? requestedStep : "definition"
+  ) as CampaignEditorStep;
+  const setStep = (value: CampaignEditorStep) => {
     const next = new URLSearchParams(params);
     if (value === "definition") next.delete("step");
     else next.set("step", value);
@@ -331,7 +330,18 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
   const dirty = !completed.current && JSON.stringify(draft) !== initialSerialized.current;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
-  const blocker = useBlocker(useCallback(() => dirtyRef.current && !completed.current, []));
+  const blocker = useBlocker(
+    useCallback(
+      ({ currentLocation, nextLocation }) =>
+        shouldBlockCampaignEditorNavigation(
+          dirtyRef.current,
+          completed.current,
+          currentLocation.pathname,
+          nextLocation.pathname,
+        ),
+      [],
+    ),
+  );
   useEffect(() => {
     if (blocker.state !== "blocked") return;
     if (window.confirm("Quitter sans enregistrer cette campagne ? Les changements saisis seront perdus."))
@@ -344,9 +354,7 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
-  const index = steps.findIndex((candidate) => candidate.value === step);
-  const previous = steps.at(index - 1)?.value;
-  const next = steps.at(index + 1)?.value;
+  const { previous, next } = adjacentCampaignEditorSteps(step);
   const submit = () => {
     setSubmitted(true);
     if (!hasCampaignDraftErrors(errors)) mutation.mutate();
@@ -362,8 +370,8 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
       <PageHeader title={existing ? "Modifier le brouillon" : "Nouvelle campagne"} />
       <SectionTabs
         ariaLabel="Étapes de définition"
-        items={[...steps]}
-        onValueChange={(value) => setStep(value as EditorStep)}
+        items={[...campaignEditorSteps]}
+        onValueChange={(value) => setStep(value as CampaignEditorStep)}
         value={step}
       />
       <div className="min-h-[420px] py-2">

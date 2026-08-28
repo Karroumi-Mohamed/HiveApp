@@ -45,7 +45,9 @@ const { adminPermissions } = await import("@/auth/permissions");
 const { AdminSessionProvider } = await import("@/auth/session-provider");
 const { clearSession, writeSession } = await import("@/auth/session-store");
 const { AdminCommercialCampaignDetailPage } = await import("./admin-commercial-campaign-detail-page");
-const { AdminCommercialCampaignEditPage } = await import("./commercial-campaign-editor");
+const { AdminCommercialCampaignCreatePage, AdminCommercialCampaignEditPage } = await import(
+  "./commercial-campaign-editor"
+);
 
 const campaignId = "5ce8c602-2da0-4a24-a07c-df10d04a5c50";
 const accountId = "f0531700-650b-4036-a26d-3e449c1c2070";
@@ -112,13 +114,14 @@ function renderDetail(entry: string, permissions: string[]) {
     [{ path: "/admin/campaigns/:campaignId/:tab?", element: <AdminCommercialCampaignDetailPage /> }],
     { initialEntries: [entry] },
   );
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <AdminSessionProvider>
         <RouterProvider router={router} />
       </AdminSessionProvider>
     </QueryClientProvider>,
   );
+  return Object.assign(view, { queryClient });
 }
 
 function renderEditor(permissions: string[]) {
@@ -130,6 +133,25 @@ function renderEditor(permissions: string[]) {
       { path: "/admin/campaigns/:campaignId", element: <p>Campagne</p> },
     ],
     { initialEntries: [`/admin/campaigns/${campaignId}/edit`] },
+  );
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <AdminSessionProvider>
+        <RouterProvider router={router} />
+      </AdminSessionProvider>
+    </QueryClientProvider>,
+  );
+}
+
+function renderCreateEditor(permissions: string[]) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  queryClient.setQueryData(["admin", "me", "admin-token"], session(permissions));
+  const router = createMemoryRouter(
+    [
+      { path: "/admin/campaigns/new", element: <AdminCommercialCampaignCreatePage /> },
+      { path: "/admin/campaigns", element: <p>Liste des campagnes</p> },
+    ],
+    { initialEntries: ["/admin/campaigns/new"] },
   );
   return render(
     <QueryClientProvider client={queryClient}>
@@ -158,6 +180,36 @@ afterEach(() => {
 });
 
 describe("commercial campaign least-privilege wiring", () => {
+  test("moves a dirty draft between URL-backed steps without treating it as leaving the editor", async () => {
+    const permissions = [adminPermissions.campaignsCreate];
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/admin/me")) return response(session(permissions));
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const view = renderCreateEditor(permissions);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    let confirmationCount = 0;
+    const originalConfirm = window.confirm;
+    window.confirm = () => {
+      confirmationCount += 1;
+      return false;
+    };
+    try {
+      expect(view.getByRole("button", { name: "Précédent" }).hasAttribute("disabled")).toBeTrue();
+      await user.type(view.getByLabelText("Nom"), "Campagne protégée");
+      await user.click(view.getByRole("tab", { name: "Audience" }));
+      expect(view.getByRole("tab", { name: "Audience" }).getAttribute("aria-selected")).toBe("true");
+      expect(confirmationCount).toBe(0);
+
+      await user.click(view.getByRole("link", { name: "Campagnes" }));
+      await waitFor(() => expect(confirmationCount).toBe(1));
+      expect(view.getByRole("heading", { name: "Nouvelle campagne" })).toBeTruthy();
+    } finally {
+      window.confirm = originalConfirm;
+    }
+  });
+
   test("fetches a signed schedule review only on demand and submits that exact evidence", async () => {
     const previewRequests: string[] = [];
     const scheduleBodies: Array<Record<string, unknown>> = [];
@@ -201,6 +253,12 @@ describe("commercial campaign least-privilege wiring", () => {
     await user.click(trigger);
     const dialog = await view.findByRole("dialog");
     expect(await within(dialog).findByText("Audience prête")).toBeTruthy();
+    expect(
+      view.queryClient
+        .getQueryCache()
+        .getAll()
+        .some((query) => JSON.stringify(query.state.data)?.includes("signed-campaign-preview") ?? false),
+    ).toBeFalse();
     await user.type(within(dialog).getByLabelText("Motif de planification"), "Lancement contrôlé");
     await user.click(within(dialog).getByRole("button", { name: "Planifier" }));
     await waitFor(() => expect(scheduleBodies).toHaveLength(1));
