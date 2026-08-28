@@ -29,6 +29,12 @@ export const campaignAudienceMode: Record<CommercialCampaignAudienceMode, string
   SEGMENT: "Segment figé",
 };
 
+export function campaignFrozenAudienceLabel(mode: CommercialCampaignAudienceMode, count: number | null) {
+  if (mode === "PUBLIC") return "Publique et dynamique";
+  if (count === null) return "—";
+  return `${count} compte${count > 1 ? "s" : ""}`;
+}
+
 export const campaignSource: Record<CommercialCampaignSource, string> = {
   MARKETING: "Marketing",
   SALES: "Ventes",
