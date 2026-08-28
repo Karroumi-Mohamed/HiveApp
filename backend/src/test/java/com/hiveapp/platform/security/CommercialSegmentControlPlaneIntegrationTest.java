@@ -326,8 +326,11 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
         String signed = reviewed.get("previewToken").asText();
         assertStale(token, segmentId, reviewed.get("criteriaVersion").asLong(),
                 otherReviewed.get("previewToken").asText());
-        String tampered = signed.substring(0, signed.length() - 1)
-                + (signed.endsWith("A") ? "B" : "A");
+        int signatureStart = signed.lastIndexOf('.') + 1;
+        char signatureHead = signed.charAt(signatureStart);
+        String tampered = signed.substring(0, signatureStart)
+                + (signatureHead == 'A' ? 'B' : 'A')
+                + signed.substring(signatureStart + 1);
         assertStale(token, segmentId, reviewed.get("criteriaVersion").asLong(), tampered);
 
         Object[] evidenceInputs = transactionTemplate.execute(ignored -> {
