@@ -760,6 +760,211 @@ export type CommercialSegmentHistory = {
   occurredAt: Instant;
 };
 
+export type CommercialCampaignStatus = "DRAFT" | "SCHEDULED" | "ACTIVE" | "PAUSED" | "ENDED" | "ARCHIVED";
+export type CommercialCampaignAudienceMode = "PUBLIC" | "EXPLICIT_ACCOUNTS" | "SEGMENT";
+export type CommercialCampaignSource = "MARKETING" | "SALES" | "RETENTION" | "SUPPORT" | "MANUAL";
+export type CommercialCampaignCreationReason = "CREATED" | "DUPLICATED" | "REVISED";
+export type CommercialCampaignSegmentChoiceState =
+  | "AVAILABLE"
+  | "SEGMENT_INACTIVE"
+  | "ACTIVATION_SUPERSEDED"
+  | "ACTIVATION_UNAVAILABLE";
+export type CommercialCampaignAction =
+  | "UPDATE"
+  | "DUPLICATE"
+  | "REVISE"
+  | "COMPARE"
+  | "HISTORY"
+  | "PREVIEW_SCHEDULE"
+  | "SCHEDULE"
+  | "PAUSE"
+  | "RESUME"
+  | "END"
+  | "ARCHIVE"
+  | "DELETE_DRAFT"
+  | "OWNER"
+  | "REASSIGN_OWNER"
+  | "REVISIONS"
+  | "READ_AUDIENCE"
+  | "READ_AUDIENCE_IDENTITIES";
+export type CommercialCampaignBlocker =
+  | "NOT_DRAFT"
+  | "NOT_SCHEDULED"
+  | "NOT_ACTIVE"
+  | "NOT_PAUSED"
+  | "NOT_ENDED"
+  | "ALREADY_ARCHIVED"
+  | "INVALID_WINDOW"
+  | "WINDOW_ENDED"
+  | "EMPTY_AUDIENCE"
+  | "AUDIENCE_TOO_LARGE"
+  | "SEGMENT_NOT_ACTIVE"
+  | "SEGMENT_ACTIVATION_STALE"
+  | "NOT_LATEST_REVISION"
+  | "DRAFT_SUCCESSOR_EXISTS"
+  | "LIVE_LINEAGE_REVISION_EXISTS"
+  | "HAS_SCHEDULE_HISTORY"
+  | "HAS_DERIVED_CAMPAIGNS";
+
+export type CommercialCampaignSummary = {
+  id: UUID;
+  code: string;
+  name: string;
+  status: CommercialCampaignStatus;
+  audienceMode: CommercialCampaignAudienceMode;
+  source: CommercialCampaignSource;
+  startsAt: Instant;
+  endsAt: Instant;
+  configuredAccountCount: number | null;
+  frozenAccountCount: number | null;
+  lineageId: UUID;
+  revisionNumber: number;
+  creationReason: CommercialCampaignCreationReason;
+  version: number;
+  createdAt: Instant;
+  updatedAt: Instant;
+  availableActions: CommercialCampaignAction[];
+  blockedActions: Partial<Record<CommercialCampaignAction, CommercialCampaignBlocker[]>>;
+  ownerIdentityRestricted: boolean;
+  audienceIdentityRestricted: boolean;
+};
+
+export type CommercialCampaignAudienceInput = {
+  mode: CommercialCampaignAudienceMode;
+  explicitAccountIds: UUID[];
+  segmentId: UUID | null;
+  segmentActivationId: UUID | null;
+};
+
+export type CommercialCampaignDetail = {
+  summary: CommercialCampaignSummary;
+  description: string | null;
+  reason: string;
+  audience: CommercialCampaignAudienceInput;
+  sourceCampaignId: UUID | null;
+  scheduledAt: Instant | null;
+  activatedAt: Instant | null;
+  pausedAt: Instant | null;
+  resumedAt: Instant | null;
+  endedAt: Instant | null;
+  archivedAt: Instant | null;
+};
+
+export type CommercialCampaignWriteInput = {
+  name: string;
+  description: string | null;
+  startsAt: Instant;
+  endsAt: Instant;
+  source: CommercialCampaignSource;
+  reason: string;
+  audience: CommercialCampaignAudienceInput;
+};
+
+export type CommercialCampaignAudienceReference = { accountId: UUID };
+export type CommercialCampaignAudienceIdentity = {
+  accountId: UUID;
+  accountName: string | null;
+  accountSlug: string | null;
+  ownerEmail: string | null;
+  active: boolean;
+};
+export type CommercialCampaignSchedulePreview = {
+  campaignId: UUID;
+  campaignVersion: number;
+  mode: CommercialCampaignAudienceMode;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
+  previewToken: string;
+  targetedAccountCount: number | null;
+  publicAudience: boolean;
+  schedulable: boolean;
+  blockers: CommercialCampaignBlocker[];
+  sample: CommercialCampaignAudienceReference[];
+  segmentId: UUID | null;
+  segmentActivationId: UUID | null;
+  fingerprint: string;
+  registryVersion: string;
+};
+export type CommercialCampaignFrozenAudience = {
+  campaignId: UUID;
+  snapshotId: UUID;
+  mode: CommercialCampaignAudienceMode;
+  publicAudience: boolean;
+  immutableAccountCount: number;
+  segmentId: UUID | null;
+  segmentActivationId: UUID | null;
+  evaluatedAt: Instant;
+  reviewedByActorUserId: UUID;
+  evidenceExpiresAt: Instant;
+  campaignVersion: number;
+  catalogRevision: number;
+  registryVersion: string;
+  audienceFingerprint: string;
+  reason: string;
+  startsAt: Instant;
+  endsAt: Instant;
+  accounts: PageResponse<CommercialCampaignAudienceReference>;
+};
+export type CommercialCampaignFrozenIdentityAudience = {
+  campaignId: UUID;
+  snapshotId: UUID;
+  immutableAccountCount: number;
+  accounts: PageResponse<CommercialCampaignAudienceIdentity>;
+};
+export type CommercialCampaignOwner = {
+  campaignId: UUID;
+  adminUserId: UUID;
+  userId: UUID;
+  email: string;
+  username: string;
+  displayName: string | null;
+  active: boolean;
+};
+export type CommercialCampaignOwnerChoice = {
+  adminUserId: UUID;
+  email: string;
+  username: string;
+  displayName: string | null;
+};
+export type CommercialCampaignRevision = {
+  id: UUID;
+  code: string;
+  status: CommercialCampaignStatus;
+  revisionNumber: number;
+  sourceCampaignId: UUID | null;
+  version: number;
+  createdAt: Instant;
+};
+export type CommercialCampaignComparison = {
+  sourceCampaignId: UUID;
+  comparedCampaignId: UUID;
+  sameLineage: boolean;
+  directSuccessor: boolean;
+  changedFields: string[];
+  source: CommercialCampaignDetail;
+  compared: CommercialCampaignDetail;
+};
+export type CommercialCampaignHistory = {
+  id: UUID;
+  action: string;
+  outcome: "SUCCEEDED" | "FAILED";
+  actorUserId: UUID | null;
+  actorEmail: string | null;
+  reason: string | null;
+  occurredAt: Instant;
+};
+export type CommercialCampaignSegmentChoice = {
+  id: UUID;
+  code: string;
+  name: string;
+  revisionNumber: number;
+  kind: CommercialSegmentKind;
+  activationId: UUID;
+  activationNumber: number | null;
+  immutableAccountCount: number | null;
+  state: CommercialCampaignSegmentChoiceState;
+};
+
 export type PlanStatus = "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
 export type ProductSalesVisibility = "PUBLIC" | "DIRECT_ONLY";
 export type PlanExtensionPolicy = "CLOSED" | "ALLOW_LIST" | "OPEN_COMPATIBLE";

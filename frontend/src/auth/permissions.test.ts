@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  adminCommercialCampaignDetailSurfacePermissions,
   adminCommercialPolicyDetailSurfacePermissions,
   adminOverviewSurfacePermissions,
   adminPermissions,
@@ -75,6 +76,19 @@ describe("session permission bypasses", () => {
       adminPermissions.commercialPoliciesReadActivationAccounts,
       adminPermissions.commercialPoliciesPreviewAudience,
       adminPermissions.commercialPoliciesReadOwner,
+    ]);
+  });
+
+  test("Campaign evidence, history, comparison and owner surfaces remain independently reachable", () => {
+    expect(adminCommercialCampaignDetailSurfacePermissions).toEqual([
+      adminPermissions.campaignsRead,
+      adminPermissions.campaignsCompare,
+      adminPermissions.campaignsRevisions,
+      adminPermissions.campaignsHistory,
+      adminPermissions.campaignsPreviewSchedule,
+      adminPermissions.campaignsReadAudience,
+      adminPermissions.campaignsReadAudienceIdentities,
+      adminPermissions.campaignsOwner,
     ]);
   });
 });

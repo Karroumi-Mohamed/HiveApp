@@ -19,6 +19,7 @@ const quotaPackagesRoot = [...adminRoot, "quota-packages"] as const;
 const priceBooksRoot = [...adminRoot, "price-books"] as const;
 const policiesRoot = [...adminRoot, "commercial-policies"] as const;
 const segmentsRoot = [...adminRoot, "segments"] as const;
+const campaignsRoot = [...adminRoot, "campaigns"] as const;
 const subscriptionsRoot = [...adminRoot, "subscriptions"] as const;
 const registryRoot = [...adminRoot, "registry"] as const;
 
@@ -114,6 +115,28 @@ export const adminCommercialKeys = {
     accountChoices: (filters: Readonly<Record<string, unknown>>) =>
       [...segmentsRoot, "account-choices", filters] as const,
   },
+  campaigns: {
+    all: () => campaignsRoot,
+    list: (filters: Readonly<Record<string, unknown>>) => [...campaignsRoot, "list", filters] as const,
+    detail: (campaignId: string) => [...campaignsRoot, "detail", campaignId] as const,
+    schedulePreview: (campaignId: string, version: number) =>
+      [...campaignsRoot, "detail", campaignId, "schedule-preview", version] as const,
+    audience: (campaignId: string, page: number, identities: boolean) =>
+      [...campaignsRoot, "detail", campaignId, "audience", identities ? "identities" : "opaque", page] as const,
+    revisions: (campaignId: string, page: number) =>
+      [...campaignsRoot, "detail", campaignId, "revisions", page] as const,
+    comparison: (campaignId: string, comparedId: string) =>
+      [...campaignsRoot, "detail", campaignId, "comparison", comparedId] as const,
+    history: (campaignId: string, page: number) => [...campaignsRoot, "detail", campaignId, "history", page] as const,
+    owner: (campaignId: string) => [...campaignsRoot, "detail", campaignId, "owner"] as const,
+    accountChoices: (filters: Readonly<Record<string, unknown>>) =>
+      [...campaignsRoot, "account-choices", filters] as const,
+    segmentChoices: (filters: Readonly<Record<string, unknown>>) =>
+      [...campaignsRoot, "segment-choices", filters] as const,
+    exactSegmentChoice: (segmentId: string, activationId: string) =>
+      [...campaignsRoot, "segment-choices", "selected", segmentId, activationId] as const,
+    ownerChoices: (filters: Readonly<Record<string, unknown>>) => [...campaignsRoot, "owner-choices", filters] as const,
+  },
   subscriptions: {
     all: () => subscriptionsRoot,
     accounts: (filters: Readonly<Record<string, unknown>>) => [...subscriptionsRoot, "accounts", filters] as const,
@@ -170,6 +193,16 @@ export async function invalidateCommercialPolicyTargeting(queryClient: QueryClie
     queryClient,
     adminCommercialKeys.segments.all(),
     adminCommercialKeys.policies.all(),
+    ...affected,
+  );
+}
+
+/** Campaign definitions retain exact Segment activations until their reviewed audience is frozen. */
+export async function invalidateCommercialCampaignTargeting(queryClient: QueryClient, ...affected: QueryKey[]) {
+  await invalidateAdminCommercial(
+    queryClient,
+    adminCommercialKeys.segments.all(),
+    adminCommercialKeys.campaigns.all(),
     ...affected,
   );
 }
