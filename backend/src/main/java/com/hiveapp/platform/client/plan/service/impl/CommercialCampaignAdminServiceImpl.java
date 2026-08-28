@@ -21,6 +21,7 @@ import com.hiveapp.platform.client.plan.domain.entity.CommercialSegment;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialSegmentActivation;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialCampaignAudienceSnapshotRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialCampaignRepository;
+import com.hiveapp.platform.client.plan.domain.repository.CommercialOfferRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentActivationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialSegmentRepository;
 import com.hiveapp.platform.client.plan.dto.CommercialCampaignRequests;
@@ -90,6 +91,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
             CommercialCampaignStatus.PAUSED);
 
     private final CommercialCampaignRepository campaignRepository;
+    private final CommercialOfferRepository offerRepository;
     private final CommercialCampaignAudienceSnapshotRepository snapshotRepository;
     private final CommercialSegmentRepository segmentRepository;
     private final CommercialSegmentActivationRepository segmentActivationRepository;
@@ -139,6 +141,8 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 : groupedInteger(snapshotRepository.countFrozenAccounts(ids));
         Map<UUID, Integer> derivedCounts = ids.isEmpty() ? Map.of()
                 : groupedInteger(campaignRepository.countDerivedBySourceCampaignIds(ids));
+        Set<UUID> campaignsWithOffers = ids.isEmpty() ? Set.of()
+                : offerRepository.findCampaignIdsWithOffers(ids);
         Map<UUID, Integer> maximumRevisions = maximumRevisions(page.getContent());
         Map<UUID, Integer> liveByLineage = ids.isEmpty() ? Map.of()
                 : groupedInteger(campaignRepository.countLiveByLineageIds(
@@ -163,6 +167,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
             return toSummary(campaign, configured, frozenCounts.get(campaign.getId()),
                     maximumRevisions.getOrDefault(campaign.getLineageId(), campaign.getRevisionNumber()),
                     derivedCounts.getOrDefault(campaign.getId(), 0) > 0,
+                    campaignsWithOffers.contains(campaign.getId()),
                     scheduleBlockers, stateAt, permissions);
         });
     }
@@ -461,6 +466,9 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
             throw new InvalidStateException(
                     "A Campaign used as the source of another Campaign cannot be deleted.");
         }
+        if (offerRepository.existsByLineage_Campaign_Id(campaignId)) {
+            throw new InvalidStateException("A Campaign referenced by an Offer cannot be deleted.");
+        }
         campaignRepository.delete(campaign);
         campaignRepository.flush();
     }
@@ -747,6 +755,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
         Integer frozen = snapshotRepository.findByCampaign_Id(campaign.getId())
                 .map(CommercialCampaignAudienceSnapshot::getAffectedAccountCount).orElse(null);
         boolean hasDerivedCampaigns = campaignRepository.existsBySourceCampaign_Id(campaign.getId());
+        boolean hasOffers = offerRepository.existsByLineage_Campaign_Id(campaign.getId());
         int maximum = campaignRepository.findMaximumRevisionNumber(campaign.getLineageId());
         int otherLive = Math.toIntExact(campaignRepository.countOtherLiveRevisions(
                 campaign.getLineageId(), campaign.getId(), LIVE_STATUSES));
@@ -759,7 +768,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 ? campaign.getExplicitAccounts().stream().map(Account::getId)
                 .collect(Collectors.toCollection(LinkedHashSet::new)) : Set.of();
         return new CommercialCampaignViews.Detail(
-                toSummary(campaign, configured, frozen, maximum, hasDerivedCampaigns,
+                toSummary(campaign, configured, frozen, maximum, hasDerivedCampaigns, hasOffers,
                         scheduleBlockers, stateAt, actionPermissions()),
                 campaign.getDescription(), campaign.getReason(),
                 new CommercialCampaignViews.Audience(campaign.getAudienceMode(), explicitIds,
@@ -778,6 +787,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 .map(CommercialCampaignAudienceSnapshot::getAffectedAccountCount).orElse(null);
         int maximum = campaignRepository.findMaximumRevisionNumber(campaign.getLineageId());
         boolean hasDerivedCampaigns = campaignRepository.existsBySourceCampaign_Id(campaign.getId());
+        boolean hasOffers = offerRepository.existsByLineage_Campaign_Id(campaign.getId());
         int otherLive = Math.toIntExact(campaignRepository.countOtherLiveRevisions(
                 campaign.getLineageId(), campaign.getId(), LIVE_STATUSES));
         Map<UUID, LatestSegmentActivation> latestSegmentActivations = latestSegmentActivations(
@@ -786,7 +796,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
         List<CommercialCampaignBlocker> scheduleBlockers = scheduleStateBlockers(
                 campaign, configured, otherLive, latestSegmentActivations, stateAt);
         CommercialCampaignViews.Summary summary = toSummary(
-                campaign, configured, frozen, maximum, hasDerivedCampaigns,
+                campaign, configured, frozen, maximum, hasDerivedCampaigns, hasOffers,
                 scheduleBlockers, stateAt, actionPermissions());
         return new CommercialCampaignViews.OperationState(
                 campaign.getId(), campaign.getCode(), campaign.getName(), campaign.getStatus(),
@@ -824,7 +834,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
 
     private CommercialCampaignViews.Summary toSummary(
             CommercialCampaign campaign, Integer configured, Integer frozen,
-            int maximumRevision, boolean hasDerivedCampaigns,
+            int maximumRevision, boolean hasDerivedCampaigns, boolean hasOffers,
             List<CommercialCampaignBlocker> scheduleBlockers,
             Instant stateAt, ActionPermissions permissions) {
         return new CommercialCampaignViews.Summary(campaign.getId(), campaign.getCode(),
@@ -833,14 +843,15 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 campaign.getLineageId(), campaign.getRevisionNumber(), campaign.getCreationReason(),
                 campaign.getVersion(), campaign.getCreatedAt(), campaign.getUpdatedAt(),
                 availableActions(campaign, maximumRevision, frozen != null,
-                        hasDerivedCampaigns, scheduleBlockers, stateAt, permissions),
+                        hasDerivedCampaigns, hasOffers, scheduleBlockers, stateAt, permissions),
                 blockedActions(campaign, maximumRevision, frozen != null,
-                        hasDerivedCampaigns, scheduleBlockers, stateAt, permissions), true, true);
+                        hasDerivedCampaigns, hasOffers, scheduleBlockers, stateAt, permissions), true, true);
     }
 
     private List<CommercialCampaignAction> availableActions(
             CommercialCampaign campaign, int maximumRevision, boolean hasSnapshot,
-            boolean hasDerivedCampaigns, List<CommercialCampaignBlocker> scheduleBlockers,
+            boolean hasDerivedCampaigns, boolean hasOffers,
+            List<CommercialCampaignBlocker> scheduleBlockers,
             Instant stateAt, ActionPermissions permissions) {
         EnumSet<CommercialCampaignAction> actions = EnumSet.of(
                 CommercialCampaignAction.DUPLICATE, CommercialCampaignAction.COMPARE,
@@ -876,13 +887,15 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
             actions.add(CommercialCampaignAction.REVISE);
         }
         if (hasDerivedCampaigns) actions.remove(CommercialCampaignAction.DELETE_DRAFT);
+        if (hasOffers) actions.remove(CommercialCampaignAction.DELETE_DRAFT);
         actions.removeIf(action -> !permissions.allows(action));
         return List.copyOf(actions);
     }
 
     private Map<CommercialCampaignAction, List<CommercialCampaignBlocker>> blockedActions(
             CommercialCampaign campaign, int maximumRevision, boolean hasSnapshot,
-            boolean hasDerivedCampaigns, List<CommercialCampaignBlocker> scheduleBlockers,
+            boolean hasDerivedCampaigns, boolean hasOffers,
+            List<CommercialCampaignBlocker> scheduleBlockers,
             Instant stateAt, ActionPermissions permissions) {
         Map<CommercialCampaignAction, List<CommercialCampaignBlocker>> blocked =
                 new EnumMap<>(CommercialCampaignAction.class);
@@ -921,6 +934,10 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
         if (hasDerivedCampaigns) {
             block(blocked, CommercialCampaignAction.DELETE_DRAFT,
                     CommercialCampaignBlocker.HAS_DERIVED_CAMPAIGNS);
+        }
+        if (hasOffers) {
+            block(blocked, CommercialCampaignAction.DELETE_DRAFT,
+                    CommercialCampaignBlocker.HAS_OFFERS);
         }
         blocked.entrySet().removeIf(entry -> !permissions.allows(entry.getKey()));
         return Map.copyOf(blocked);

@@ -38,7 +38,8 @@ public class CommercialOfferController {
       @RequestParam(required = false) String direction) {
     var c = HiveAppContextHolder.getContext();
     return PageResponse.from(
-        service.offerCatalogue(c.currentAccountId(), offerPage(page, size, sort, direction)));
+        service.offerCatalogue(
+            c.currentAccountId(), offerPage(page, size, sort, direction)));
   }
 
   @GetMapping("/{id}")

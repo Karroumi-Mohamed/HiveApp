@@ -245,6 +245,37 @@ public class CommercialCatalogResolver {
     }
 
     /**
+     * Resolves one bounded page of independent exact selections against one shared catalogue
+     * snapshot. Query count is independent of the number of candidates.
+     */
+    @Transactional(readOnly = true)
+    public Map<UUID, SelectionResolution> resolveExactSelectionCandidates(
+            Collection<ExactSelectionCandidate> candidates,
+            Audience audience
+    ) {
+        List<ExactSelectionCandidate> bounded = candidates == null
+                ? List.of() : List.copyOf(candidates);
+        if (bounded.size() > 200) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "At most 200 exact commercial selections can be resolved per batch.");
+        }
+        if (bounded.stream().map(ExactSelectionCandidate::key).distinct().count() != bounded.size()) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "Exact commercial selection keys must be unique.");
+        }
+        CatalogData data = load();
+        Map<UUID, SelectionResolution> resolved = new LinkedHashMap<>();
+        for (ExactSelectionCandidate candidate : bounded) {
+            Plan plan = data.plansById().get(candidate.planId());
+            if (plan == null) continue;
+            resolved.put(candidate.key(), resolveSelection(
+                    data, plan, candidate.tuple(), candidate.addOnCodes(),
+                    candidate.quotaPackages(), audience, RetainedSelection.none()));
+        }
+        return Map.copyOf(resolved);
+    }
+
+    /**
      * Resolves one bounded subscription-override candidate page and the Account's retained
      * selections without loading unrelated Plans or the full extension catalogue.
      */
@@ -1183,6 +1214,22 @@ public class CommercialCatalogResolver {
             SelectionResolution proposedSelection,
             boolean selectable
     ) {}
+
+    public record ExactSelectionCandidate(
+            UUID key,
+            UUID planId,
+            PriceTuple tuple,
+            Set<String> addOnCodes,
+            List<QuotaPackageSelection> quotaPackages
+    ) {
+        public ExactSelectionCandidate {
+            java.util.Objects.requireNonNull(key, "Candidate key is required");
+            java.util.Objects.requireNonNull(planId, "Candidate Plan is required");
+            java.util.Objects.requireNonNull(tuple, "Candidate price tuple is required");
+            addOnCodes = Set.copyOf(addOnCodes == null ? Set.of() : addOnCodes);
+            quotaPackages = List.copyOf(quotaPackages == null ? List.of() : quotaPackages);
+        }
+    }
 
     public record PlanResolution(
             Plan plan,
