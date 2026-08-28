@@ -5,7 +5,10 @@ import com.hiveapp.shared.money.ExactDecimal;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.UUID;
+import com.hiveapp.shared.quota.QuotaLimitEntry;
+import com.hiveapp.shared.quota.QuotaLimitMode;
 
 public record SubscriptionEntitlementSnapshot(
         int schemaVersion,
@@ -21,16 +24,19 @@ public record SubscriptionEntitlementSnapshot(
         List<SubscriptionAddOnSnapshot> addOns,
         List<SubscriptionQuotaPackageSnapshot> quotaPackages,
         UUID planPriceEntryId,
-        SubscriptionCommercialPolicyEvaluation commercialPolicyEvaluation
+        SubscriptionCommercialPolicyEvaluation commercialPolicyEvaluation,
+        SubscriptionOfferEvaluation offerEvaluation
 ) {
     public static final int SCHEMA_VERSION_V1 = 1;
     public static final int SCHEMA_VERSION_V2 = 2;
-    public static final int CURRENT_SCHEMA_VERSION = 3;
+    public static final int SCHEMA_VERSION_V3 = 3;
+    public static final int CURRENT_SCHEMA_VERSION = 4;
 
     public SubscriptionEntitlementSnapshot {
         schemaVersion = schemaVersion == 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
         if (schemaVersion != SCHEMA_VERSION_V1
                 && schemaVersion != SCHEMA_VERSION_V2
+                && schemaVersion != SCHEMA_VERSION_V3
                 && schemaVersion != CURRENT_SCHEMA_VERSION) {
             throw new IllegalArgumentException("Unsupported subscription snapshot schema version: " + schemaVersion);
         }
@@ -60,7 +66,7 @@ public record SubscriptionEntitlementSnapshot(
     ) {
         this(schemaVersion, planCode, planName, planDefinitionVersion, basePrice, currencyCode,
                 billingCycle, effectiveFrom, effectiveUntil, features, addOns, quotaPackages,
-                planPriceEntryId, null);
+                planPriceEntryId, null, null);
     }
 
     /** Source-compatible constructor for persisted and test-owned schema-V1 snapshots. */
@@ -79,7 +85,7 @@ public record SubscriptionEntitlementSnapshot(
             List<SubscriptionQuotaPackageSnapshot> quotaPackages
     ) {
         this(schemaVersion, planCode, planName, planDefinitionVersion, basePrice, currencyCode,
-                billingCycle, effectiveFrom, effectiveUntil, features, addOns, quotaPackages, null, null);
+                billingCycle, effectiveFrom, effectiveUntil, features, addOns, quotaPackages, null, null, null);
     }
 
     public SubscriptionEntitlementSnapshot(
@@ -92,7 +98,7 @@ public record SubscriptionEntitlementSnapshot(
             List<SubscriptionQuotaPackageSnapshot> quotaPackages
     ) {
         this(SCHEMA_VERSION_V1, planCode, null, 0L, basePrice, currencyCode, billingCycle,
-                null, null, features, addOns, quotaPackages, null);
+                null, null, features, addOns, quotaPackages, null, null);
     }
 
     public SubscriptionEntitlementSnapshot(
@@ -116,7 +122,7 @@ public record SubscriptionEntitlementSnapshot(
         return new SubscriptionEntitlementSnapshot(
                 schemaVersion, planCode, planName, planDefinitionVersion, basePrice, currencyCode, billingCycle,
                 from, until, features, addOns, quotaPackages, planPriceEntryId,
-                commercialPolicyEvaluation);
+                commercialPolicyEvaluation, offerEvaluation);
     }
 
     public SubscriptionEntitlementSnapshot withCommercialPolicyEvaluation(
@@ -125,6 +131,52 @@ public record SubscriptionEntitlementSnapshot(
         return new SubscriptionEntitlementSnapshot(
                 CURRENT_SCHEMA_VERSION, planCode, planName, planDefinitionVersion,
                 basePrice, currencyCode, billingCycle, effectiveFrom, effectiveUntil,
-                features, addOns, quotaPackages, planPriceEntryId, evaluation);
+                features, addOns, quotaPackages, planPriceEntryId, evaluation, offerEvaluation);
+    }
+
+    /** Source-compatible schema-V3 constructor for callers that predate Offer provenance. */
+    public SubscriptionEntitlementSnapshot(int schemaVersion,String planCode,String planName,
+            long planDefinitionVersion,BigDecimal basePrice,String currencyCode,BillingCycle billingCycle,
+            Instant effectiveFrom,Instant effectiveUntil,List<SubscriptionFeatureSnapshot> features,
+            List<SubscriptionAddOnSnapshot> addOns,List<SubscriptionQuotaPackageSnapshot> quotaPackages,
+            UUID planPriceEntryId,SubscriptionCommercialPolicyEvaluation commercialPolicyEvaluation) {
+        this(schemaVersion,planCode,planName,planDefinitionVersion,basePrice,currencyCode,billingCycle,
+                effectiveFrom,effectiveUntil,features,addOns,quotaPackages,planPriceEntryId,
+                commercialPolicyEvaluation,null);
+    }
+
+    public SubscriptionEntitlementSnapshot withOfferEvaluation(SubscriptionOfferEvaluation evaluation) {
+        List<SubscriptionFeatureSnapshot> adjustedFeatures = applyOfferQuotaBonuses(evaluation);
+        return new SubscriptionEntitlementSnapshot(CURRENT_SCHEMA_VERSION,planCode,planName,
+                planDefinitionVersion,evaluation.finalPrice(),currencyCode,billingCycle,effectiveFrom,
+                effectiveUntil,adjustedFeatures,addOns,quotaPackages,planPriceEntryId,
+                commercialPolicyEvaluation,evaluation);
+    }
+
+    private List<SubscriptionFeatureSnapshot> applyOfferQuotaBonuses(SubscriptionOfferEvaluation evaluation) {
+        if (evaluation.quotaBonuses().isEmpty()) return features;
+        List<SubscriptionFeatureSnapshot> adjusted = new ArrayList<>();
+        for (SubscriptionFeatureSnapshot feature : features) {
+            List<QuotaLimitEntry> quotas = new ArrayList<>();
+            for (QuotaLimitEntry quota : feature.quotaConfigs()) {
+                long bonus = evaluation.quotaBonuses().stream()
+                        .filter(item -> item.featureCode().equals(feature.featureCode())
+                                && item.resource().equals(quota.resource()))
+                        .mapToLong(CommercialOfferEffectSnapshot.QuotaBonus::quantity)
+                        .reduce(0L, Math::addExact);
+                if (bonus > 0 && quota.mode() != QuotaLimitMode.FINITE) {
+                    throw new IllegalStateException("Offer quota bonus targets a non-finite quota.");
+                }
+                quotas.add(bonus == 0 ? quota : new QuotaLimitEntry(
+                        quota.resource(), quota.mode(), Math.addExact(quota.limit(), bonus)));
+            }
+            adjusted.add(new SubscriptionFeatureSnapshot(feature.featureCode(), quotas));
+        }
+        for (var bonus : evaluation.quotaBonuses()) {
+            boolean found = features.stream().anyMatch(feature -> feature.featureCode().equals(bonus.featureCode())
+                    && feature.quotaConfigs().stream().anyMatch(quota -> quota.resource().equals(bonus.resource())));
+            if (!found) throw new IllegalStateException("Offer quota bonus target is absent from the accepted selection.");
+        }
+        return List.copyOf(adjusted);
     }
 }

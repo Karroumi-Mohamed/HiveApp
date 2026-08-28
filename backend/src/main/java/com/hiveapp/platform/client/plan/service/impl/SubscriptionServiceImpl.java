@@ -41,6 +41,12 @@ import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.client.plan.service.BillingCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
+import com.hiveapp.platform.client.plan.service.CommercialOfferService;
+import com.hiveapp.platform.client.plan.dto.CommercialOfferRequests;
+import com.hiveapp.platform.client.plan.dto.CommercialOfferViews;
+import com.hiveapp.platform.client.plan.dto.SubscriptionOfferEvaluation;
+import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
+import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
@@ -124,7 +130,51 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final CommercialCatalogVersionService commercialCatalogVersionService;
     private final RegistryCatalogVersionService registryCatalogVersionService;
     private final CommercialPreviewTokenService previewTokenService;
+    private final ObjectProvider<CommercialOfferService> commercialOfferServiceProvider;
     private final Clock clock;
+
+    @Override @Transactional(readOnly = true)
+    @PermissionNode(key = "offer_catalog", description = "List eligible commercial Offers")
+    public Page<CommercialOfferViews.ClientOffer> offerCatalogue(UUID accountId, Pageable pageable) {
+        return commercialOfferServiceProvider.getObject().catalogue(accountId, pageable);
+    }
+
+    @Override @Transactional(readOnly = true)
+    @PermissionNode(key = "offer_detail", description = "Read an eligible commercial Offer")
+    public CommercialOfferViews.ClientOffer offerDetail(UUID accountId, UUID offerId) {
+        return commercialOfferServiceProvider.getObject().detail(accountId, offerId);
+    }
+
+    @Override @Transactional(readOnly = true)
+    @PermissionNode(key = "offer_code", description = "Resolve a private commercial Offer code")
+    public CommercialOfferViews.CodeResolution resolveOfferCode(UUID accountId, UUID actorUserId, CommercialOfferRequests.ResolveCode request) {
+        return commercialOfferServiceProvider.getObject().resolveCode(accountId, actorUserId, request);
+    }
+
+    @Override @Transactional(readOnly = true)
+    @PermissionNode(key = "offer_preview", description = "Preview a commercial Offer")
+    public CommercialOfferViews.EligibilityPreview previewOffer(UUID accountId, UUID actorUserId, UUID offerId, CommercialOfferRequests.Preview request) {
+        return commercialOfferServiceProvider.getObject().preview(accountId, actorUserId, offerId, request.discoveryToken(), false);
+    }
+
+    @Override @Transactional
+    @PermissionNode(key = "offer_accept", description = "Accept a commercial Offer")
+    public CommercialOfferViews.Acceptance acceptOffer(UUID accountId, UUID actorUserId, UUID offerId,
+                                                        String idempotencyKey, CommercialOfferRequests.Accept request) {
+        return commercialOfferServiceProvider.getObject().accept(accountId, actorUserId, offerId, idempotencyKey, request, false);
+    }
+
+    @Override @Transactional(readOnly = true)
+    @PermissionNode(key = "offer_history", description = "Read own Offer history")
+    public Page<CommercialOfferViews.ClientRedemption> offerHistory(UUID accountId, Pageable pageable) {
+        return commercialOfferServiceProvider.getObject().history(accountId, pageable);
+    }
+
+    @Override @Transactional(readOnly = true)
+    @PermissionNode(key = "offer_history_detail", description = "Read own Offer redemption")
+    public CommercialOfferViews.ClientRedemption offerRedemption(UUID accountId, UUID redemptionId) {
+        return commercialOfferServiceProvider.getObject().redemption(accountId, redemptionId);
+    }
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -386,7 +436,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 accountId, actorUserId, applyRequest,
                 CommercialCatalogResolver.Audience.CLIENT_CATALOG,
                 CommercialPreviewKind.SUBSCRIPTION_CHANGE,
-                null);
+                null, null, null);
     }
 
     @Override
@@ -402,7 +452,21 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 accountId, actorUserId, applyRequest,
                 CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
                 CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE,
-                reason);
+                reason, null, null);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "internal_offer_apply", guard = PermissionNode.Guard.OFF)
+    public SubscriptionChangeApplyResponse applyOfferChange(UUID accountId, UUID actorUserId,
+            SubscriptionChangeApplyRequest request, String reason, boolean operator,
+            UUID redemptionId, SubscriptionOfferEvaluation offerEvaluation) {
+        return applyChangeInternal(accountId, actorUserId, request,
+                operator ? CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR
+                        : CommercialCatalogResolver.Audience.CLIENT_CATALOG,
+                operator ? CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE
+                        : CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                reason, redemptionId, offerEvaluation);
     }
 
     private SubscriptionChangeApplyResponse applyChangeInternal(
@@ -411,7 +475,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             SubscriptionChangeApplyRequest applyRequest,
             CommercialCatalogResolver.Audience audience,
             CommercialPreviewKind previewKind,
-            String requestReason
+            String requestReason,
+            UUID offerRedemptionId,
+            SubscriptionOfferEvaluation offerEvaluation
     ) {
         accountRepository.findByIdForSubscriptionUpdate(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
@@ -444,7 +510,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         Subscription current = assessment.current();
         Plan targetPlan = assessment.targetPlan();
         ChangeSelection selection = assessment.selection();
-        SubscriptionEntitlementSnapshot targetSnapshot = assessment.targetSnapshot();
+        SubscriptionEntitlementSnapshot targetSnapshot = offerEvaluation == null
+                ? assessment.targetSnapshot() : assessment.targetSnapshot().withOfferEvaluation(offerEvaluation);
         SubscriptionChangePreviewResponse preview = assessment.toResponse(
                 catalogRevision, registryVersion, verified.evaluatedAt(), verified.expiresAt(),
                 applyRequest.previewToken());
@@ -467,7 +534,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 audience == CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR
                         ? SubscriptionChangeOrigin.PLATFORM_ADMIN
                         : SubscriptionChangeOrigin.CLIENT_SELF_SERVICE,
-                actorUserId, requestReason);
+                actorUserId, requestReason, offerRedemptionId, offerEvaluation);
 
         subscriptionChangeOperationRepository.findTopByAccountIdAndStatusIn(
                         accountId,
@@ -478,7 +545,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                             "Account already has an outstanding subscription change. Cancel it before creating another.");
                 });
 
-        Money targetPrice = Money.of(preview.previewPrice(), preview.currencyCode());
+        Money targetPrice = Money.of(offerEvaluation == null
+                ? preview.previewPrice() : offerEvaluation.finalPrice(), preview.currencyCode());
         if (targetPrice.amount().signum() > 0) {
             operation.setStatus(SubscriptionChangeStatus.AWAITING_CONFIRMATION);
             SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
@@ -906,11 +974,31 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         SubscriptionEntitlementSnapshot catalogueSnapshot = subscriptionSnapshotFactory
                 .fromResolvedSelection(target.plan(), target.price(), planned.resolution(),
                         current.getEntitlementSnapshot());
+        requireExactRequestedPrices(catalogueSnapshot, request);
         var terms = commercialPolicyTermsService.apply(
                 target.plan(), catalogueSnapshot, policyEvaluation, planned);
         return assessResolvedChange(
                 accountId, current, target.plan(), terms.snapshot(), selection,
                 request.effectiveTiming(), audience, terms.evaluation());
+    }
+
+    private void requireExactRequestedPrices(SubscriptionEntitlementSnapshot snapshot,
+            SubscriptionChangeRequest request) {
+        if (request.addOnPriceEntryIds().isEmpty() && request.quotaPackagePriceEntryIds().isEmpty()) return;
+        Map<String, UUID> addOnPrices = snapshot.addOns().stream().collect(Collectors.toMap(
+                SubscriptionAddOnSnapshot::code, SubscriptionAddOnSnapshot::priceEntryId));
+        Map<String, UUID> packagePrices = snapshot.quotaPackages().stream().collect(Collectors.toMap(
+                SubscriptionQuotaPackageSnapshot::code, SubscriptionQuotaPackageSnapshot::priceEntryId));
+        request.addOnPriceEntryIds().forEach((code, id) -> {
+            if (!Objects.equals(addOnPrices.get(code), id)) {
+                throw new StaleResourceVersionException("Exact Offer Add-on price is no longer selectable.");
+            }
+        });
+        request.quotaPackagePriceEntryIds().forEach((code, id) -> {
+            if (!Objects.equals(packagePrices.get(code), id)) {
+                throw new StaleResourceVersionException("Exact Offer capacity-package price is no longer selectable.");
+            }
+        });
     }
 
     private SubscriptionChangeAssessment assessSubscriptionChangeForApply(
@@ -934,10 +1022,16 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 preliminary.plan(), CommercialCatalogResolver.PriceTuple.from(preliminary.price()),
                 requestedAddOns, requestedPackages, audience, retained, policyEvaluation);
         requireResolvedSelection(planned.resolution(), audience);
-        var finalized = commercialSelectionFinalizer.finalizeSelection(
-                request.targetPlanCode(), request.planPriceSelection(), planned.addOnCodes(),
-                planned.quotaPackages(), audience,
-                retained, current.getEntitlementSnapshot(), policyEvaluation);
+        var finalized = request.addOnPriceEntryIds().isEmpty() && request.quotaPackagePriceEntryIds().isEmpty()
+                ? commercialSelectionFinalizer.finalizeSelection(
+                        request.targetPlanCode(), request.planPriceSelection(), planned.addOnCodes(),
+                        planned.quotaPackages(), audience, retained,
+                        current.getEntitlementSnapshot(), policyEvaluation)
+                : commercialSelectionFinalizer.finalizeSelection(
+                        request.targetPlanCode(), request.planPriceSelection(), planned.addOnCodes(),
+                        planned.quotaPackages(), audience, retained,
+                        current.getEntitlementSnapshot(), policyEvaluation,
+                        request.addOnPriceEntryIds(), request.quotaPackagePriceEntryIds());
         requireResolvedSelection(finalized.resolution(), audience);
 
         // The finalizer clears the persistence context; re-read the subscription while the
@@ -1370,7 +1464,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             SubscriptionChangeTiming timing,
             SubscriptionChangeOrigin origin,
             UUID actorUserId,
-            String requestReason
+            String requestReason,
+            UUID offerRedemptionId,
+            SubscriptionOfferEvaluation offerEvaluation
     ) {
         SubscriptionPeriodCalculator.Period targetPeriod = timing == SubscriptionChangeTiming.AT_RENEWAL
                 ? subscriptionPeriodCalculator.recurring(targetSnapshot.billingCycle(), current.getCurrentPeriodEnd())
@@ -1389,6 +1485,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         operation.setTargetSnapshot(
                 targetSnapshot.withEffectivePeriod(targetPeriod.startsAt(), targetPeriod.endsAt()));
         operation.setCommercialPolicyEvaluation(targetSnapshot.commercialPolicyEvaluation());
+        operation.setCommercialOfferEvaluation(offerEvaluation);
+        operation.setOfferRedemptionId(offerRedemptionId);
         operation.setRequestOrigin(origin);
         operation.setRequestedByUserId(actorUserId);
         operation.setRequestReason(requestReason);

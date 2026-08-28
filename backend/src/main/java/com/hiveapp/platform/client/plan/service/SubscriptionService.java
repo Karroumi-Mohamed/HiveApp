@@ -12,6 +12,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import java.util.UUID;
+import com.hiveapp.platform.client.plan.dto.CommercialOfferRequests;
+import com.hiveapp.platform.client.plan.dto.CommercialOfferViews;
+import com.hiveapp.platform.client.plan.dto.SubscriptionOfferEvaluation;
 
 public interface SubscriptionService {
     /** Internal cross-service lookup; callers carry their own authorization. */
@@ -36,9 +39,20 @@ public interface SubscriptionService {
     /** Internal operator surface; its caller must carry the platform-admin authorization guard. */
     SubscriptionChangeApplyResponse applyChangeAsOperator(
             UUID accountId, UUID actorUserId, SubscriptionChangeApplyRequest request, String reason);
+    SubscriptionChangeApplyResponse applyOfferChange(UUID accountId, UUID actorUserId,
+            SubscriptionChangeApplyRequest request, String reason, boolean operator,
+            UUID redemptionId, SubscriptionOfferEvaluation offerEvaluation);
     Page<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId, Pageable pageable);
     SubscriptionChangeOperationDto cancelPendingChange(
             UUID accountId, UUID operationId, UUID actorUserId);
     SubscriptionChangeOperationDto cancelPendingChangeAsOperator(
             UUID accountId, UUID operationId, UUID actorUserId, String reason);
+    Page<CommercialOfferViews.ClientOffer> offerCatalogue(UUID accountId, Pageable pageable);
+    CommercialOfferViews.ClientOffer offerDetail(UUID accountId, UUID offerId);
+    CommercialOfferViews.CodeResolution resolveOfferCode(UUID accountId, UUID actorUserId, CommercialOfferRequests.ResolveCode request);
+    CommercialOfferViews.EligibilityPreview previewOffer(UUID accountId, UUID actorUserId, UUID offerId, CommercialOfferRequests.Preview request);
+    CommercialOfferViews.Acceptance acceptOffer(UUID accountId, UUID actorUserId, UUID offerId,
+                                                 String idempotencyKey, CommercialOfferRequests.Accept request);
+    Page<CommercialOfferViews.ClientRedemption> offerHistory(UUID accountId, Pageable pageable);
+    CommercialOfferViews.ClientRedemption offerRedemption(UUID accountId, UUID redemptionId);
 }

@@ -74,6 +74,21 @@ public class CommercialSelectionFinalizer {
             SubscriptionEntitlementSnapshot currentSnapshot,
             CommercialPolicyEvaluator.Evaluation policyEvaluation
     ) {
+        return finalizeSelection(planCode, requestedPlanPrice, addOnCodes, quotaPackages, audience,
+                retained, currentSnapshot, policyEvaluation, Map.of(), Map.of());
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public FinalizedSelection finalizeSelection(
+            String planCode, ProductPriceSelectionRequest requestedPlanPrice,
+            Set<String> addOnCodes, List<QuotaPackageSelection> quotaPackages,
+            CommercialCatalogResolver.Audience audience,
+            CommercialCatalogResolver.RetainedSelection retained,
+            SubscriptionEntitlementSnapshot currentSnapshot,
+            CommercialPolicyEvaluator.Evaluation policyEvaluation,
+            Map<String, UUID> exactAddOnPrices,
+            Map<String, UUID> exactPackagePrices
+    ) {
         // Keep the catalogue revision stable through the final resolver pass and the caller's
         // transaction commit. Exact product-row locks alone do not cover unselected dependencies
         // or availability policy changes that can still alter the resolved selection.
@@ -107,6 +122,8 @@ public class CommercialSelectionFinalizer {
                 preliminary, preliminaryPlanPrice, selectedAddOns, selectedPackages, effectiveRetained);
 
         Set<UUID> priceIds = new LinkedHashSet<>(pin.newSalePriceIds().values());
+        priceIds.addAll(exactAddOnPrices.values());
+        priceIds.addAll(exactPackagePrices.values());
         addRetainedPriceIds(
                 priceIds, currentSnapshot, selectedAddOns, selectedPackageCodes, effectiveRetained);
 
@@ -136,7 +153,24 @@ public class CommercialSelectionFinalizer {
         CommercialCatalogResolver.requireSelectable(resolved, audience);
         SubscriptionEntitlementSnapshot snapshot = subscriptionSnapshotFactory.fromResolvedSelection(
                 finalPlan, finalPlanPrice, resolved, currentSnapshot);
+        requireExactPrices(snapshot, exactAddOnPrices, exactPackagePrices);
         return new FinalizedSelection(finalPlan, finalPlanPrice, resolved, snapshot);
+    }
+
+    private void requireExactPrices(SubscriptionEntitlementSnapshot snapshot,
+            Map<String, UUID> exactAddOnPrices, Map<String, UUID> exactPackagePrices) {
+        Map<String, UUID> actualAddOns = snapshot.addOns().stream().collect(Collectors.toMap(
+                com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot::code,
+                com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot::priceEntryId));
+        Map<String, UUID> actualPackages = snapshot.quotaPackages().stream().collect(Collectors.toMap(
+                com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot::code,
+                com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot::priceEntryId));
+        exactAddOnPrices.forEach((code, id) -> {
+            if (!Objects.equals(actualAddOns.get(code), id)) throw stale();
+        });
+        exactPackagePrices.forEach((code, id) -> {
+            if (!Objects.equals(actualPackages.get(code), id)) throw stale();
+        });
     }
 
     private CommercialCatalogResolver.RetainedSelection effectiveRetained(

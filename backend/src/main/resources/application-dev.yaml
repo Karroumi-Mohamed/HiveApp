@@ -17,6 +17,9 @@ spring:
   #   SPRING_MAIL_HOST=localhost SPRING_MAIL_PORT=1025 mvn -f backend/pom.xml spring-boot:run …
 
 hiveapp:
+  offers:
+    codes:
+      pepper: dev-only-offer-code-pepper-change-before-deployment
   jwt:
     secret: dev-only-hiveapp-jwt-secret-change-before-deployment
   activation:
