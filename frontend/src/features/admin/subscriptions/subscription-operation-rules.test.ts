@@ -6,6 +6,7 @@ import {
   operatorReasonError,
   operatorSubscriptionMutationFailureMessage,
   subscriptionOperationCanBeCancelled,
+  subscriptionOperationOriginLabel,
 } from "./subscription-operation-rules";
 
 describe("operator subscription operations", () => {
@@ -36,5 +37,9 @@ describe("operator subscription operations", () => {
       ),
     ).toContain("Corrigez");
     expect(operatorSubscriptionMutationFailureMessage(new ApiError(500, "HTTP_ERROR", "stack"), "Échec")).toBe("Échec");
+  });
+
+  test("uses the backend origin vocabulary for client self-service history", () => {
+    expect(subscriptionOperationOriginLabel.CLIENT_SELF_SERVICE).toBe("Portail client");
   });
 });

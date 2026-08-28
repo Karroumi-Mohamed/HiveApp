@@ -2172,10 +2172,10 @@ export type AdminSubscriptionChangeResult = SubscriptionChangeOperationCore & {
 
 /** Operator-only subscription history. These fields are intentionally absent from the client DTO. */
 export type AdminSubscriptionChangeOperation = AdminSubscriptionChangeResult & {
-  requestOrigin: "CLIENT" | "PLATFORM_ADMIN" | "SYSTEM";
+  requestOrigin: "CLIENT_SELF_SERVICE" | "PLATFORM_ADMIN" | "SYSTEM";
   requestedByUserId: UUID | null;
   requestReason: string | null;
-  cancellationOrigin: "CLIENT" | "PLATFORM_ADMIN" | "SYSTEM" | null;
+  cancellationOrigin: "CLIENT_SELF_SERVICE" | "PLATFORM_ADMIN" | "SYSTEM" | null;
   cancelledByUserId: UUID | null;
   cancellationReason: string | null;
   cancelledAt: Instant | null;

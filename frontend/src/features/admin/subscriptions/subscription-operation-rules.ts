@@ -44,7 +44,7 @@ export function operatorSubscriptionMutationFailureMessage(error: unknown, fallb
 }
 
 export const subscriptionOperationOriginLabel = {
-  CLIENT: "Portail client",
+  CLIENT_SELF_SERVICE: "Portail client",
   PLATFORM_ADMIN: "Administration plateforme",
   SYSTEM: "Système",
 } as const;
