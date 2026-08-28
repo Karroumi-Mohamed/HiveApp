@@ -138,6 +138,9 @@ public class CommercialCampaign extends BaseEntity {
     @Column(name = "paused_at")
     private Instant pausedAt;
 
+    @Column(name = "resumed_at")
+    private Instant resumedAt;
+
     @Column(name = "ended_at")
     private Instant endedAt;
 
@@ -251,7 +254,7 @@ public class CommercialCampaign extends BaseEntity {
             throw new IllegalStateException("Only a paused Campaign can resume.");
         }
         status = CommercialCampaignStatus.ACTIVE;
-        activatedAt = Objects.requireNonNull(now, "Resume time is required");
+        resumedAt = Objects.requireNonNull(now, "Resume time is required");
     }
 
     public void end(Instant now) {

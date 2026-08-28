@@ -1,7 +1,7 @@
 package com.hiveapp.platform.client.plan.service;
 
-import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
+import com.hiveapp.platform.client.account.dto.AccountIdentityDirectoryEntryDto;
+import com.hiveapp.platform.client.account.service.AccountDirectoryService;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignAudienceMode;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignBlocker;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentStatus;
@@ -41,7 +41,7 @@ public class CommercialCampaignAudienceResolver {
     private final CommercialCampaignRepository campaignRepository;
     private final CommercialSegmentRepository segmentRepository;
     private final CommercialSegmentActivationRepository activationRepository;
-    private final AccountRepository accountRepository;
+    private final AccountDirectoryService accountDirectoryService;
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Evaluation evaluate(CommercialCampaign campaign, Instant evaluatedAt) {
@@ -72,15 +72,17 @@ public class CommercialCampaignAudienceResolver {
     @Transactional(readOnly = true)
     public List<CommercialCampaignViews.AudienceIdentity> identities(Collection<UUID> ids) {
         if (ids == null || ids.isEmpty()) return List.of();
-        Map<UUID, Account> accounts = accountRepository.findAllWithOwnerByIdIn(ids).stream()
-                .collect(Collectors.toMap(Account::getId, Function.identity()));
+        Map<UUID, AccountIdentityDirectoryEntryDto> accounts =
+                accountDirectoryService.resolveIdentities(ids).stream()
+                        .collect(Collectors.toMap(
+                                AccountIdentityDirectoryEntryDto::id, Function.identity()));
         return ids.stream().distinct().map(id -> {
-            Account account = accounts.get(id);
+            AccountIdentityDirectoryEntryDto account = accounts.get(id);
             if (account == null) {
                 return new CommercialCampaignViews.AudienceIdentity(id, null, null, null, false);
             }
-            return new CommercialCampaignViews.AudienceIdentity(id, account.getName(), account.getSlug(),
-                    account.getOwner() == null ? null : account.getOwner().getEmail(), account.isActive());
+            return new CommercialCampaignViews.AudienceIdentity(id, account.name(), account.slug(),
+                    account.ownerEmail(), account.active());
         }).toList();
     }
 

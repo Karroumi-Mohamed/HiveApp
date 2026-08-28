@@ -5,7 +5,6 @@ import com.hiveapp.platform.admin.domain.entity.AdminUser;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.account.service.AccountDirectoryService;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignAction;
@@ -35,6 +34,7 @@ import com.hiveapp.platform.client.plan.service.CommercialPreviewTokenService;
 import com.hiveapp.platform.registry.definition.CampaignsFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
+import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
 import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.shared.audit.domain.AuditLog;
 import com.hiveapp.shared.audit.domain.AuditLogRepository;
@@ -84,7 +84,6 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
         implements CommercialCampaignAdminService {
 
     private static final String AUDIT_RESOURCE_TYPE = "COMMERCIAL_CAMPAIGN_ADMIN";
-    private static final String EVIDENCE_REGISTRY_VERSION = "CAMPAIGN_AUDIENCE_V1";
     private static final Set<CommercialCampaignStatus> LIVE_STATUSES = Set.of(
             CommercialCampaignStatus.SCHEDULED,
             CommercialCampaignStatus.ACTIVE,
@@ -94,12 +93,12 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
     private final CommercialCampaignAudienceSnapshotRepository snapshotRepository;
     private final CommercialSegmentRepository segmentRepository;
     private final CommercialSegmentActivationRepository segmentActivationRepository;
-    private final AccountRepository accountRepository;
     private final AccountDirectoryService accountDirectoryService;
     private final AdminUserRepository adminUserRepository;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
     private final CommercialCampaignAudienceResolver audienceResolver;
     private final CommercialCatalogVersionService catalogVersionService;
+    private final RegistryCatalogVersionService registryCatalogVersionService;
     private final CommercialPreviewTokenService previewTokenService;
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
@@ -141,13 +140,31 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
         Map<UUID, Integer> derivedCounts = ids.isEmpty() ? Map.of()
                 : groupedInteger(campaignRepository.countDerivedBySourceCampaignIds(ids));
         Map<UUID, Integer> maximumRevisions = maximumRevisions(page.getContent());
+        Map<UUID, Integer> liveByLineage = ids.isEmpty() ? Map.of()
+                : groupedInteger(campaignRepository.countLiveByLineageIds(
+                        page.getContent().stream().map(CommercialCampaign::getLineageId)
+                                .collect(Collectors.toSet()), LIVE_STATUSES));
+        Map<UUID, LatestSegmentActivation> latestSegmentActivations = latestSegmentActivations(
+                page.getContent().stream()
+                        .map(CommercialCampaign::getSegment)
+                        .filter(Objects::nonNull)
+                        .map(CommercialSegment::getId)
+                        .collect(Collectors.toSet()));
+        Instant stateAt = clock.instant();
         ActionPermissions permissions = actionPermissions();
-        return page.map(campaign -> toSummary(campaign,
-                campaign.getAudienceMode() == CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS
-                        ? explicitCounts.getOrDefault(campaign.getId(), 0) : null,
-                frozenCounts.get(campaign.getId()),
-                maximumRevisions.getOrDefault(campaign.getLineageId(), campaign.getRevisionNumber()),
-                derivedCounts.getOrDefault(campaign.getId(), 0) > 0, permissions));
+        return page.map(campaign -> {
+            Integer configured = campaign.getAudienceMode()
+                    == CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS
+                    ? explicitCounts.getOrDefault(campaign.getId(), 0) : null;
+            int otherLive = liveByLineage.getOrDefault(campaign.getLineageId(), 0)
+                    - (LIVE_STATUSES.contains(campaign.getStatus()) ? 1 : 0);
+            List<CommercialCampaignBlocker> scheduleBlockers = scheduleStateBlockers(
+                    campaign, configured, Math.max(0, otherLive), latestSegmentActivations, stateAt);
+            return toSummary(campaign, configured, frozenCounts.get(campaign.getId()),
+                    maximumRevisions.getOrDefault(campaign.getLineageId(), campaign.getRevisionNumber()),
+                    derivedCounts.getOrDefault(campaign.getId(), 0) > 0,
+                    scheduleBlockers, stateAt, permissions);
+        });
     }
 
     @Override
@@ -281,6 +298,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     @PermissionNode(key = "preview_schedule", description = "Preview and sign a Campaign schedule")
     public CommercialCampaignViews.AudiencePreview previewSchedule(UUID campaignId) {
+        String registryVersion = registryCatalogVersionService.currentVersion();
         CommercialCampaign campaign = requireCampaign(campaignId);
         return catalogVersionService.readConsistently(catalogRevision -> {
             Instant evaluatedAt = clock.instant();
@@ -288,10 +306,11 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
             UUID actor = adminMutationAuthorizer.currentActorUserId();
             var evidence = previewTokenService.issue(CommercialPreviewKind.COMMERCIAL_CAMPAIGN_SCHEDULE,
                     campaign.getId(), campaign.getVersion(), actor, catalogRevision,
-                    EVIDENCE_REGISTRY_VERSION, evaluation.fingerprint(), evaluatedAt);
+                    registryVersion, evaluation.fingerprint(), evaluatedAt);
             List<CommercialCampaignBlocker> blockers = scheduleBlockers(campaign, evaluation, evaluatedAt);
             return new CommercialCampaignViews.AudiencePreview(campaign.getId(), campaign.getVersion(),
-                    campaign.getAudienceMode(), evidence.evaluatedAt(), evidence.expiresAt(),
+                    campaign.getAudienceMode(), registryVersion,
+                    evidence.evaluatedAt(), evidence.expiresAt(),
                     evidence.token(), evaluation.publicAudience() ? null : evaluation.total(),
                     evaluation.publicAudience(), blockers.isEmpty(), blockers,
                     evaluation.sampleIds().stream().map(CommercialCampaignViews.AudienceReference::new).toList(),
@@ -309,6 +328,8 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
             throw new ForbiddenException(
                     "Scheduling requires current permission to preview the Campaign audience.");
         }
+        registryCatalogVersionService.lockForMutation();
+        String registryVersion = registryCatalogVersionService.currentVersion();
         UUID lineageId = requireLineage(campaignId);
         campaignRepository.findLineageForUpdate(lineageId);
         CommercialCampaign campaign = requireCampaignForUpdate(campaignId);
@@ -319,7 +340,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
         var evidence = previewTokenService.requireValid(request.previewToken(),
                 CommercialPreviewKind.COMMERCIAL_CAMPAIGN_SCHEDULE,
                 campaign.getId(), campaign.getVersion(), actor, catalogRevision,
-                EVIDENCE_REGISTRY_VERSION, evaluation.fingerprint(), StaleSchedulePreviewException::new);
+                registryVersion, evaluation.fingerprint(), StaleSchedulePreviewException::new);
         if (request.version() != campaign.getVersion()) throw new StaleSchedulePreviewException();
         List<CommercialCampaignBlocker> blockers = scheduleBlockers(campaign, evaluation, evaluatedAt);
         if (!blockers.isEmpty()) {
@@ -329,7 +350,8 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
         campaignRepository.save(campaign);
         snapshotRepository.save(CommercialCampaignAudienceSnapshot.record(campaign, actor,
                 evidence.evaluatedAt(), evidence.expiresAt(), request.version(), catalogRevision,
-                evaluation.fingerprint(), evaluation.segmentId(), evaluation.segmentActivationId(),
+                registryVersion, evaluation.fingerprint(), evaluation.segmentId(),
+                evaluation.segmentActivationId(),
                 request.reason(), evaluation.accountIds()));
         campaignRepository.flush();
         snapshotRepository.flush();
@@ -344,7 +366,11 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
             CommercialCampaignRequests.VersionReason request) {
         CommercialCampaign campaign = requireCampaignForUpdate(campaignId);
         requireVersion(campaign, request.version());
-        translate(() -> campaign.pause(clock.instant()));
+        Instant now = clock.instant();
+        if (!now.isBefore(campaign.getEndsAt())) {
+            throw new InvalidStateException("An expired Campaign cannot be paused.");
+        }
+        translate(() -> campaign.pause(now));
         campaignRepository.saveAndFlush(campaign);
         return toDetail(requireCampaign(campaignId));
     }
@@ -479,7 +505,10 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 snapshot.getAudienceMode(),
                 snapshot.getAudienceMode() == CommercialCampaignAudienceMode.PUBLIC,
                 snapshot.getAffectedAccountCount(), snapshot.getSegmentId(),
-                snapshot.getSegmentActivationId(), snapshot.getEvaluatedAt(),
+                snapshot.getSegmentActivationId(), snapshot.getActorUserId(),
+                snapshot.getEvaluatedAt(), snapshot.getEvidenceExpiresAt(),
+                snapshot.getCampaignVersion(), snapshot.getCatalogRevision(),
+                snapshot.getRegistryVersion(), snapshot.getAudienceFingerprint(), snapshot.getReason(),
                 snapshot.getStartsAt(), snapshot.getEndsAt(), PageResponse.from(references));
     }
 
@@ -571,10 +600,8 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                     throw new InvalidRequestException(
                             "EXPLICIT_ACCOUNTS requires only a non-empty Account set.");
                 }
-                List<Account> accounts = accountRepository.findAllById(request.explicitAccountIds());
-                if (accounts.size() != request.explicitAccountIds().size()) {
-                    throw new ResourceNotFoundException("Account", "ids", request.explicitAccountIds());
-                }
+                List<Account> accounts = accountDirectoryService.requireManagedAccounts(
+                        request.explicitAccountIds());
                 translate(() -> campaign.configureExplicitAudience(accounts));
             }
             case SEGMENT -> {
@@ -632,6 +659,58 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
         return List.copyOf(new LinkedHashSet<>(blockers));
     }
 
+    /**
+     * Cheap, bounded schedule blockers used by list/detail action contracts. The signed preview
+     * remains authoritative, but the UI must not advertise an apply action that current persisted
+     * state already proves cannot succeed.
+     */
+    private List<CommercialCampaignBlocker> scheduleStateBlockers(
+            CommercialCampaign campaign,
+            Integer explicitAccountCount,
+            int otherLiveRevisions,
+            Map<UUID, LatestSegmentActivation> latestSegmentActivations,
+            Instant evaluatedAt) {
+        if (campaign.getStatus() != CommercialCampaignStatus.DRAFT) return List.of();
+        List<CommercialCampaignBlocker> blockers = new ArrayList<>();
+        if (!campaign.getEndsAt().isAfter(campaign.getStartsAt())) {
+            blockers.add(CommercialCampaignBlocker.INVALID_WINDOW);
+        }
+        if (!campaign.getEndsAt().isAfter(evaluatedAt)) {
+            blockers.add(CommercialCampaignBlocker.WINDOW_ENDED);
+        }
+        if (otherLiveRevisions > 0) {
+            blockers.add(CommercialCampaignBlocker.LIVE_LINEAGE_REVISION_EXISTS);
+        }
+        switch (campaign.getAudienceMode()) {
+            case PUBLIC -> { }
+            case EXPLICIT_ACCOUNTS -> addAudienceSizeBlockers(
+                    explicitAccountCount == null ? 0 : explicitAccountCount, blockers);
+            case SEGMENT -> {
+                CommercialSegment segment = campaign.getSegment();
+                CommercialSegmentActivation activation = campaign.getSegmentActivation();
+                if (segment == null || segment.getStatus() != CommercialSegmentStatus.ACTIVE) {
+                    blockers.add(CommercialCampaignBlocker.SEGMENT_NOT_ACTIVE);
+                }
+                LatestSegmentActivation latest = segment == null
+                        ? null : latestSegmentActivations.get(segment.getId());
+                if (activation == null || latest == null || !activation.getId().equals(latest.id())) {
+                    blockers.add(CommercialCampaignBlocker.SEGMENT_ACTIVATION_STALE);
+                }
+                addAudienceSizeBlockers(
+                        activation == null ? 0 : activation.getAffectedAccountCount(), blockers);
+            }
+        }
+        return List.copyOf(new LinkedHashSet<>(blockers));
+    }
+
+    private void addAudienceSizeBlockers(
+            int accountCount, List<CommercialCampaignBlocker> blockers) {
+        if (accountCount == 0) blockers.add(CommercialCampaignBlocker.EMPTY_AUDIENCE);
+        if (accountCount > CommercialCampaignAudienceResolver.SNAPSHOT_ACCOUNT_LIMIT) {
+            blockers.add(CommercialCampaignBlocker.AUDIENCE_TOO_LARGE);
+        }
+    }
+
     private CommercialCampaignViews.Detail toDetail(CommercialCampaign campaign) {
         initializeAudience(campaign);
         Integer configured = campaign.getAudienceMode() == CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS
@@ -640,12 +719,19 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 .map(CommercialCampaignAudienceSnapshot::getAffectedAccountCount).orElse(null);
         boolean hasDerivedCampaigns = campaignRepository.existsBySourceCampaign_Id(campaign.getId());
         int maximum = campaignRepository.findMaximumRevisionNumber(campaign.getLineageId());
+        int otherLive = Math.toIntExact(campaignRepository.countOtherLiveRevisions(
+                campaign.getLineageId(), campaign.getId(), LIVE_STATUSES));
+        Map<UUID, LatestSegmentActivation> latestSegmentActivations = latestSegmentActivations(
+                campaign.getSegment() == null ? Set.of() : Set.of(campaign.getSegment().getId()));
+        Instant stateAt = clock.instant();
+        List<CommercialCampaignBlocker> scheduleBlockers = scheduleStateBlockers(
+                campaign, configured, otherLive, latestSegmentActivations, stateAt);
         Set<UUID> explicitIds = campaign.getAudienceMode() == CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS
                 ? campaign.getExplicitAccounts().stream().map(Account::getId)
                 .collect(Collectors.toCollection(LinkedHashSet::new)) : Set.of();
         return new CommercialCampaignViews.Detail(
                 toSummary(campaign, configured, frozen, maximum, hasDerivedCampaigns,
-                        actionPermissions()),
+                        scheduleBlockers, stateAt, actionPermissions()),
                 campaign.getDescription(), campaign.getReason(),
                 new CommercialCampaignViews.Audience(campaign.getAudienceMode(), explicitIds,
                         campaign.getSegment() == null ? null : campaign.getSegment().getId(),
@@ -653,6 +739,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                                 : campaign.getSegmentActivation().getId()),
                 campaign.getSourceCampaign() == null ? null : campaign.getSourceCampaign().getId(),
                 campaign.getScheduledAt(), campaign.getActivatedAt(), campaign.getPausedAt(),
+                campaign.getResumedAt(),
                 campaign.getEndedAt(), campaign.getArchivedAt());
     }
 
@@ -664,21 +751,24 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
 
     private CommercialCampaignViews.Summary toSummary(
             CommercialCampaign campaign, Integer configured, Integer frozen,
-            int maximumRevision, boolean hasDerivedCampaigns, ActionPermissions permissions) {
+            int maximumRevision, boolean hasDerivedCampaigns,
+            List<CommercialCampaignBlocker> scheduleBlockers,
+            Instant stateAt, ActionPermissions permissions) {
         return new CommercialCampaignViews.Summary(campaign.getId(), campaign.getCode(),
                 campaign.getName(), campaign.getStatus(), campaign.getAudienceMode(),
                 campaign.getSource(), campaign.getStartsAt(), campaign.getEndsAt(), configured, frozen,
                 campaign.getLineageId(), campaign.getRevisionNumber(), campaign.getCreationReason(),
                 campaign.getVersion(), campaign.getCreatedAt(), campaign.getUpdatedAt(),
                 availableActions(campaign, maximumRevision, frozen != null,
-                        hasDerivedCampaigns, permissions),
+                        hasDerivedCampaigns, scheduleBlockers, stateAt, permissions),
                 blockedActions(campaign, maximumRevision, frozen != null,
-                        hasDerivedCampaigns, permissions), true, true);
+                        hasDerivedCampaigns, scheduleBlockers, stateAt, permissions), true, true);
     }
 
     private List<CommercialCampaignAction> availableActions(
             CommercialCampaign campaign, int maximumRevision, boolean hasSnapshot,
-            boolean hasDerivedCampaigns, ActionPermissions permissions) {
+            boolean hasDerivedCampaigns, List<CommercialCampaignBlocker> scheduleBlockers,
+            Instant stateAt, ActionPermissions permissions) {
         EnumSet<CommercialCampaignAction> actions = EnumSet.of(
                 CommercialCampaignAction.DUPLICATE, CommercialCampaignAction.COMPARE,
                 CommercialCampaignAction.HISTORY, CommercialCampaignAction.REVISIONS,
@@ -688,14 +778,22 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
             actions.add(CommercialCampaignAction.READ_AUDIENCE_IDENTITIES);
         }
         switch (campaign.getStatus()) {
-            case DRAFT -> actions.addAll(Set.of(CommercialCampaignAction.UPDATE,
-                    CommercialCampaignAction.PREVIEW_SCHEDULE, CommercialCampaignAction.SCHEDULE,
-                    CommercialCampaignAction.DELETE_DRAFT, CommercialCampaignAction.REASSIGN_OWNER));
+            case DRAFT -> {
+                actions.addAll(Set.of(CommercialCampaignAction.UPDATE,
+                        CommercialCampaignAction.PREVIEW_SCHEDULE,
+                        CommercialCampaignAction.DELETE_DRAFT,
+                        CommercialCampaignAction.REASSIGN_OWNER));
+                if (scheduleBlockers.isEmpty()) actions.add(CommercialCampaignAction.SCHEDULE);
+            }
             case SCHEDULED -> actions.add(CommercialCampaignAction.END);
-            case ACTIVE -> actions.addAll(Set.of(CommercialCampaignAction.PAUSE,
-                    CommercialCampaignAction.END));
-            case PAUSED -> actions.addAll(Set.of(CommercialCampaignAction.RESUME,
-                    CommercialCampaignAction.END));
+            case ACTIVE -> {
+                actions.add(CommercialCampaignAction.END);
+                if (stateAt.isBefore(campaign.getEndsAt())) actions.add(CommercialCampaignAction.PAUSE);
+            }
+            case PAUSED -> {
+                actions.add(CommercialCampaignAction.END);
+                if (stateAt.isBefore(campaign.getEndsAt())) actions.add(CommercialCampaignAction.RESUME);
+            }
             case ENDED -> actions.add(CommercialCampaignAction.ARCHIVE);
             case ARCHIVED -> { }
         }
@@ -711,7 +809,8 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
 
     private Map<CommercialCampaignAction, List<CommercialCampaignBlocker>> blockedActions(
             CommercialCampaign campaign, int maximumRevision, boolean hasSnapshot,
-            boolean hasDerivedCampaigns, ActionPermissions permissions) {
+            boolean hasDerivedCampaigns, List<CommercialCampaignBlocker> scheduleBlockers,
+            Instant stateAt, ActionPermissions permissions) {
         Map<CommercialCampaignAction, List<CommercialCampaignBlocker>> blocked =
                 new EnumMap<>(CommercialCampaignAction.class);
         if (campaign.getStatus() != CommercialCampaignStatus.DRAFT) {
@@ -721,11 +820,17 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 block(blocked, action, CommercialCampaignBlocker.NOT_DRAFT);
             }
         }
+        scheduleBlockers.forEach(blocker -> block(
+                blocked, CommercialCampaignAction.SCHEDULE, blocker));
         if (campaign.getStatus() != CommercialCampaignStatus.ACTIVE) {
             block(blocked, CommercialCampaignAction.PAUSE, CommercialCampaignBlocker.NOT_ACTIVE);
+        } else if (!stateAt.isBefore(campaign.getEndsAt())) {
+            block(blocked, CommercialCampaignAction.PAUSE, CommercialCampaignBlocker.WINDOW_ENDED);
         }
         if (campaign.getStatus() != CommercialCampaignStatus.PAUSED) {
             block(blocked, CommercialCampaignAction.RESUME, CommercialCampaignBlocker.NOT_PAUSED);
+        } else if (!stateAt.isBefore(campaign.getEndsAt())) {
+            block(blocked, CommercialCampaignAction.RESUME, CommercialCampaignBlocker.WINDOW_ENDED);
         }
         if (campaign.getStatus() != CommercialCampaignStatus.ENDED) {
             block(blocked, CommercialCampaignAction.ARCHIVE, CommercialCampaignBlocker.NOT_ENDED);
@@ -941,6 +1046,14 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 row -> ((Number) row[1]).intValue()));
     }
 
+    private Map<UUID, LatestSegmentActivation> latestSegmentActivations(Set<UUID> segmentIds) {
+        if (segmentIds.isEmpty()) return Map.of();
+        return segmentActivationRepository.findLatestMetadata(segmentIds).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row ->
+                        new LatestSegmentActivation((UUID) row[1],
+                                ((Number) row[2]).intValue(), ((Number) row[3]).intValue())));
+    }
+
     private void block(Map<CommercialCampaignAction, List<CommercialCampaignBlocker>> blocked,
                        CommercialCampaignAction action, CommercialCampaignBlocker blocker) {
         blocked.computeIfAbsent(action, ignored -> new ArrayList<>()).add(blocker);
@@ -989,4 +1102,6 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
             return decisions.computeIfAbsent(permission, ceiling::allows);
         }
     }
+
+    private record LatestSegmentActivation(UUID id, int activationNumber, int accountCount) {}
 }
