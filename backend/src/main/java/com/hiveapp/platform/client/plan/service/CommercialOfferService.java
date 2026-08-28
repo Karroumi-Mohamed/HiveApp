@@ -12,16 +12,25 @@ public interface CommercialOfferService {
   CommercialOfferViews.CodeResolution resolveCode(
       UUID accountId, UUID actor, CommercialOfferRequests.ResolveCode r);
 
-  CommercialOfferViews.EligibilityPreview preview(
-      UUID accountId, UUID actor, UUID offerId, String discoveryToken, boolean operator);
+  CommercialOfferViews.ClientEligibilityPreview preview(
+      UUID accountId, UUID actor, UUID offerId, String discoveryToken);
 
-  CommercialOfferViews.Acceptance accept(
+  CommercialOfferViews.AccountEligibilityAssessment assessForOperator(
+      UUID accountId, UUID actor, UUID offerId);
+
+  CommercialOfferViews.ClientAcceptance acceptClient(
       UUID accountId,
       UUID actor,
       UUID offerId,
       String idempotencyKey,
-      CommercialOfferRequests.Accept r,
-      boolean operator);
+      CommercialOfferRequests.ClientAccept request);
+
+  CommercialOfferViews.AdminAcceptance acceptAsOperator(
+      UUID accountId,
+      UUID actor,
+      UUID offerId,
+      String idempotencyKey,
+      CommercialOfferRequests.OperatorAccept request);
 
   Page<CommercialOfferViews.ClientRedemption> history(UUID accountId, Pageable p);
 

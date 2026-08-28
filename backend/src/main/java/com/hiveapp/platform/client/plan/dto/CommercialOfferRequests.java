@@ -5,6 +5,7 @@ import com.hiveapp.platform.client.plan.domain.constant.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
 
 public final class CommercialOfferRequests {
@@ -18,7 +19,7 @@ public final class CommercialOfferRequests {
       @NotNull Instant endsAt,
       @NotNull CommercialOfferDiscovery discovery,
       @NotNull CommercialOfferAcceptance acceptance,
-      @Size(max = 64) String customerCode,
+      @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) @Size(max = 64) String customerCode,
       @Positive Long globalLimit,
       @Positive Long perAccountLimit,
       @NotNull @Valid CommercialOfferSelection selection,
@@ -41,7 +42,8 @@ public final class CommercialOfferRequests {
   }
 
   public record CustomerCodeChange(
-      @NotNull CustomerCodeChangeMode mode, @Size(max = 64) String value) {}
+      @NotNull CustomerCodeChangeMode mode,
+      @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) @Size(max = 64) String value) {}
 
   public record LineageTerms(
       @NotNull CommercialOfferDiscovery discovery,
@@ -74,6 +76,16 @@ public final class CommercialOfferRequests {
 
   public record Preview(@Size(max = 2048) String discoveryToken) {}
 
-  public record Accept(
-      @NotBlank @Size(max = 2048) String previewToken, @Size(max = 500) String reason) {}
+  public record ClientAccept(@NotBlank @Size(max = 2048) String previewToken) {}
+
+  public record OperatorAccept(
+      @NotBlank @Size(max = 2048) String previewToken,
+      @NotBlank @Size(max = 500) String reason) {}
+
+  public record RedemptionIdentityResolution(
+      @NotNull @Size(min = 1, max = 100) Set<UUID> redemptionIds) {
+    public RedemptionIdentityResolution {
+      redemptionIds = redemptionIds == null ? null : Set.copyOf(redemptionIds);
+    }
+  }
 }

@@ -36,6 +36,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCommercialPolicyEvaluation;
+import com.hiveapp.platform.client.plan.dto.ClientSubscriptionEntitlementState;
 import com.hiveapp.platform.client.plan.dto.EffectiveQuotaLimit;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageSelection;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
@@ -53,6 +54,7 @@ import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionImpactAnalyzer;
 import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
+import com.hiveapp.platform.client.plan.service.SubscriptionChangeOperationProjectionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeActivationService;
 import com.hiveapp.platform.client.plan.service.ProductPriceResolver;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
@@ -122,6 +124,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final SubscriptionPeriodCalculator subscriptionPeriodCalculator;
     private final SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
     private final SubscriptionCheckoutService subscriptionCheckoutService;
+    private final SubscriptionChangeOperationProjectionMapper operationProjectionMapper;
     private final SubscriptionChangeActivationService subscriptionChangeActivationService;
     private final ProductPriceResolver productPriceResolver;
     private final CommercialCatalogResolver commercialCatalogResolver;
@@ -156,15 +159,16 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     @Override @Transactional(readOnly = true)
     @PermissionNode(key = "offer_preview", description = "Preview a commercial Offer")
-    public CommercialOfferViews.EligibilityPreview previewOffer(UUID accountId, UUID actorUserId, UUID offerId, CommercialOfferRequests.Preview request) {
-        return commercialOfferServiceProvider.getObject().preview(accountId, actorUserId, offerId, request.discoveryToken(), false);
+    public CommercialOfferViews.ClientEligibilityPreview previewOffer(UUID accountId, UUID actorUserId, UUID offerId, CommercialOfferRequests.Preview request) {
+        return commercialOfferServiceProvider.getObject().preview(accountId, actorUserId, offerId, request.discoveryToken());
     }
 
     @Override
     @PermissionNode(key = "offer_accept", description = "Accept a commercial Offer")
-    public CommercialOfferViews.Acceptance acceptOffer(UUID accountId, UUID actorUserId, UUID offerId,
-                                                        String idempotencyKey, CommercialOfferRequests.Accept request) {
-        return commercialOfferServiceProvider.getObject().accept(accountId, actorUserId, offerId, idempotencyKey, request, false);
+    public CommercialOfferViews.ClientAcceptance acceptOffer(UUID accountId, UUID actorUserId, UUID offerId,
+                                                        String idempotencyKey, CommercialOfferRequests.ClientAccept request) {
+        return commercialOfferServiceProvider.getObject().acceptClient(
+                accountId, actorUserId, offerId, idempotencyKey, request);
     }
 
     @Override @Transactional(readOnly = true)
@@ -603,19 +607,21 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
             subscriptionCheckoutService.initiate(savedOperation, targetPrice, actorUserId);
             return new SubscriptionChangeApplyResponse(
-                    toDto(current), preview, toOperationDto(savedOperation));
+                    toDto(current), preview, operationProjectionMapper.internal(savedOperation));
         }
 
         if (request.effectiveTiming() == SubscriptionChangeTiming.AT_RENEWAL) {
             SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
-            return new SubscriptionChangeApplyResponse(toDto(current), preview, toOperationDto(savedOperation));
+            return new SubscriptionChangeApplyResponse(
+                    toDto(current), preview, operationProjectionMapper.internal(savedOperation));
         }
 
         SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
         savedOperation = subscriptionChangeActivationService.activate(
                 savedOperation, operation.getTargetSnapshot().effectiveFrom());
         return new SubscriptionChangeApplyResponse(
-                toDto(savedOperation.getResultSubscription()), preview, toOperationDto(savedOperation));
+                toDto(savedOperation.getResultSubscription()), preview,
+                operationProjectionMapper.internal(savedOperation));
     }
 
     @Override
@@ -626,7 +632,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             Pageable pageable
     ) {
         return subscriptionChangeOperationRepository.findAllByAccountId(accountId, pageable)
-                .map(this::toOperationDto);
+                .map(operationProjectionMapper::internal);
     }
 
     @Override
@@ -676,7 +682,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         operation.setCancelledByUserId(actorUserId);
         operation.setCancellationReason(reason);
         operation.setCancelledAt(clock.instant());
-        return toOperationDto(subscriptionChangeOperationRepository.saveAndFlush(operation));
+        return operationProjectionMapper.internal(
+                subscriptionChangeOperationRepository.saveAndFlush(operation));
     }
 
     private ClientPlanCatalogResponse.CatalogPlan toCatalogPlan(
@@ -1113,11 +1120,13 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         List<SubscriptionChangeConflict> conflicts = subscriptionImpactAnalyzer.analyze(
                 accountId, current, targetSnapshot);
         Money price = previewPrice(current, targetPlan, targetSnapshot, selection);
-        Set<String> effectiveFeatureCodes = targetSnapshot.features().stream()
-                .map(feature -> feature.featureCode())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        List<EffectiveQuotaLimit> effectiveQuotaLimits =
-                subscriptionImpactAnalyzer.effectiveQuotaLimits(targetSnapshot);
+        ClientSubscriptionEntitlementState currentEntitlements = clientEntitlementState(
+                current.getEntitlementSnapshot());
+        ClientSubscriptionEntitlementState targetEntitlements = clientEntitlementState(targetSnapshot);
+        Set<String> effectiveFeatureCodes = targetEntitlements.featureCodes();
+        List<EffectiveQuotaLimit> effectiveQuotaLimits = targetEntitlements.effectiveQuotaLimits();
+        SubscriptionPeriodCalculator.Period effectivePeriod = subscriptionPeriodCalculator.change(
+                targetSnapshot.billingCycle(), timing, current.getCurrentPeriodEnd());
         String fingerprint = subscriptionChangeFingerprint(
                 current, targetPlan, targetSnapshot, selection, timing,
                 price, conflicts, effectiveQuotaLimits, policyEvaluation, audience);
@@ -1126,7 +1135,25 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 current.getCurrentPrice(), price.amount(), price.currencyCode(),
                 conflicts.isEmpty() && !policyEvaluation.blocked(),
                 Set.copyOf(effectiveFeatureCodes), List.copyOf(effectiveQuotaLimits),
-                List.copyOf(conflicts), policyEvaluation, fingerprint);
+                List.copyOf(conflicts), policyEvaluation, timing, effectivePeriod,
+                currentEntitlements, targetEntitlements, fingerprint);
+    }
+
+    private ClientSubscriptionEntitlementState clientEntitlementState(
+            SubscriptionEntitlementSnapshot snapshot
+    ) {
+        Set<String> featureCodes = snapshot.features().stream()
+                .map(feature -> feature.featureCode())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> addOnCodes = snapshot.addOns().stream()
+                .map(SubscriptionAddOnSnapshot::code)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<QuotaPackageSelection> quotaPackages = snapshot.quotaPackages().stream()
+                .map(item -> new QuotaPackageSelection(item.code(), item.quantity()))
+                .toList();
+        return new ClientSubscriptionEntitlementState(
+                snapshot.planCode(), snapshot.billingCycle(), featureCodes,
+                subscriptionImpactAnalyzer.effectiveQuotaLimits(snapshot), addOnCodes, quotaPackages);
     }
 
     private String subscriptionChangeFingerprint(
@@ -1519,9 +1546,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             UUID offerRedemptionId,
             SubscriptionOfferEvaluation offerEvaluation
     ) {
-        SubscriptionPeriodCalculator.Period targetPeriod = timing == SubscriptionChangeTiming.AT_RENEWAL
-                ? subscriptionPeriodCalculator.recurring(targetSnapshot.billingCycle(), current.getCurrentPeriodEnd())
-                : subscriptionPeriodCalculator.recurring(targetSnapshot.billingCycle());
+        SubscriptionPeriodCalculator.Period targetPeriod = subscriptionPeriodCalculator.change(
+                targetSnapshot.billingCycle(), timing, current.getCurrentPeriodEnd());
         SubscriptionChangeOperation operation = new SubscriptionChangeOperation();
         operation.setAccount(current.getAccount());
         operation.setSourceSubscription(current);
@@ -1542,21 +1568,6 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         operation.setRequestedByUserId(actorUserId);
         operation.setRequestReason(requestReason);
         return operation;
-    }
-
-    private SubscriptionChangeOperationDto toOperationDto(SubscriptionChangeOperation operation) {
-        return new SubscriptionChangeOperationDto(
-                operation.getId(),
-                operation.getCreatedAt(),
-                operation.getUpdatedAt(),
-                operation.getTiming(),
-                operation.getStatus(),
-                operation.getEffectiveAt(),
-                operation.getSourceSubscription().getPlan().getCode(),
-                operation.getTargetPlan().getCode(),
-                operation.getAttentionReason(),
-                subscriptionCheckoutService.toDto(operation.getCheckout()),
-                operation.getCommercialPolicyEvaluation());
     }
 
     private SubscriptionDto toDto(Subscription subscription) {
@@ -1593,6 +1604,10 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             List<EffectiveQuotaLimit> effectiveQuotaLimits,
             List<SubscriptionChangeConflict> conflicts,
             SubscriptionCommercialPolicyEvaluation policyEvaluation,
+            SubscriptionChangeTiming timing,
+            SubscriptionPeriodCalculator.Period effectivePeriod,
+            ClientSubscriptionEntitlementState currentEntitlements,
+            ClientSubscriptionEntitlementState targetEntitlements,
             String fingerprint
     ) {
         private SubscriptionChangePreviewResponse toResponse(
@@ -1606,7 +1621,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                     current.getId(), current.getVersion(), catalogRevision, registryVersion,
                     evaluatedAt, expiresAt, previewToken, current.getPlan().getCode(),
                     targetPlan.getCode(), currentPrice, previewPrice, currencyCode,
-                    immediateAllowed, effectiveFeatureCodes, effectiveQuotaLimits,
+                    timing, effectivePeriod.startsAt(), effectivePeriod.endsAt(),
+                    currentEntitlements, targetEntitlements, immediateAllowed,
+                    effectiveFeatureCodes, effectiveQuotaLimits,
                     selection.addOnCodes(), selection.quotaPackages(), conflicts,
                     policyEvaluation);
         }

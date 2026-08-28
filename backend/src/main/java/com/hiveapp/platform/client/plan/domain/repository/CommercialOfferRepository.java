@@ -45,6 +45,7 @@ public interface CommercialOfferRepository
       "select o from CommercialOffer o where o.lineage.id=:lineage order by o.revisionNumber,o.id")
   List<CommercialOffer> lockLineage(@Param("lineage") UUID lineage);
 
+  @EntityGraph(attributePaths = {"sourceOffer"})
   Page<CommercialOffer> findAllByLineage_Id(UUID lineage, Pageable pageable);
 
   @Query(

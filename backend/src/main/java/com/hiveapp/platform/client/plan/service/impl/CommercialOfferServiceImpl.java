@@ -37,10 +37,6 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
   private final AccountRepository accounts;
   private final SubscriptionRepository subscriptions;
   private final SubscriptionChangeOperationRepository subscriptionOperations;
-  private final PlanRepository plans;
-  private final AddOnRepository addOns;
-  private final QuotaPackageRepository packages;
-  private final ProductPriceRepository prices;
   private final SubscriptionService subscriptionsService;
   private final CommercialCatalogVersionService catalogVersions;
   private final RegistryCatalogVersionService registryVersions;
@@ -49,6 +45,7 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
   private final CommercialOfferCodeHasher codeHasher;
   private final PlatformTransactionManager transactionManager;
   private final CommercialOfferClientProjectionMapper projections;
+  private final SubscriptionChangeOperationProjectionMapper operationProjections;
   private final CommercialOfferEligibilityService eligibility;
   private final CommercialOfferRedemptionTransitionService transitions;
   private final CommercialCatalogResolver catalogResolver;
@@ -150,10 +147,10 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
 
   @Override
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-  public CommercialOfferViews.EligibilityPreview preview(
-      UUID accountId, UUID actor, UUID id, String discoveryToken, boolean operator) {
-    var o = eligibility.requireAvailable(id, accountId, operator, true);
-    if (!operator && o.getDiscovery() == CommercialOfferDiscovery.CODE_ONLY) {
+  public CommercialOfferViews.ClientEligibilityPreview preview(
+      UUID accountId, UUID actor, UUID id, String discoveryToken) {
+    var o = eligibility.requireAvailable(id, accountId, false, true);
+    if (o.getDiscovery() == CommercialOfferDiscovery.CODE_ONLY) {
       previewTokens.requireValid(
           discoveryToken,
           CommercialPreviewKind.COMMERCIAL_OFFER_REDEMPTION,
@@ -166,53 +163,144 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
           OfferNotAvailableException::new);
     }
     try {
-      return buildPreview(o, accountId, actor, operator);
+      return buildPreview(o, accountId, actor, false);
     } catch (RuntimeException failure) {
-      throw clientSafeFailure(failure, operator, OfferNotAvailableException::new);
+      throw clientSafeFailure(failure, false, OfferNotAvailableException::new);
     }
   }
 
   @Override
-  public CommercialOfferViews.Acceptance accept(
+  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+  public CommercialOfferViews.AccountEligibilityAssessment assessForOperator(
+      UUID accountId, UUID actor, UUID offerId) {
+    CommercialOffer offer =
+        offers
+            .findDetailById(offerId)
+            .orElseThrow(() -> new ResourceNotFoundException("CommercialOffer", "id", offerId));
+    List<CommercialOfferEligibilityBlocker> blockers =
+        new ArrayList<>(eligibility.blockers(offer, accountId, true, true));
+    if (blockers.isEmpty()
+        && subscriptionOperations
+            .findTopByAccountIdAndStatusIn(
+                accountId,
+                List.of(
+                    SubscriptionChangeStatus.PENDING,
+                    SubscriptionChangeStatus.AWAITING_CONFIRMATION))
+            .isPresent()) {
+      blockers.add(CommercialOfferEligibilityBlocker.OUTSTANDING_SUBSCRIPTION_OPERATION);
+    }
+    if (!blockers.isEmpty()) {
+      return assessment(offerId, accountId, blockers, null, clock.instant());
+    }
+    try {
+      PreparedPreview prepared = preparePreview(offer, accountId, actor, true);
+      blockers.addAll(changeBlockers(offer, accountId, prepared));
+      if (!blockers.isEmpty()) {
+        return assessment(
+            offerId, accountId, blockers, null, prepared.changePreview().evaluatedAt());
+      }
+      CommercialOfferViews.ClientEligibilityPreview preview =
+          issuePreview(offer, accountId, actor, prepared);
+      return assessment(offerId, accountId, List.of(), preview, preview.evaluatedAt());
+    } catch (InvalidRequestException
+        | InvalidStateException
+        | OperationBlockedException
+        | ResourceNotFoundException
+        | StaleResourceVersionException unavailableSelection) {
+      return assessment(
+          offerId,
+          accountId,
+          List.of(CommercialOfferEligibilityBlocker.SELECTION_UNAVAILABLE),
+          null,
+          clock.instant());
+    }
+  }
+
+  @Override
+  public CommercialOfferViews.ClientAcceptance acceptClient(
       UUID accountId,
       UUID actor,
       UUID id,
       String key,
-      CommercialOfferRequests.Accept r,
-      boolean operator) {
+      CommercialOfferRequests.ClientAccept request) {
+    return accept(
+        accountId,
+        actor,
+        id,
+        key,
+        request.previewToken(),
+        false,
+        "Accepted commercial Offer",
+        this::clientAcceptance);
+  }
+
+  @Override
+  public CommercialOfferViews.AdminAcceptance acceptAsOperator(
+      UUID accountId,
+      UUID actor,
+      UUID id,
+      String key,
+      CommercialOfferRequests.OperatorAccept request) {
+    return accept(
+        accountId,
+        actor,
+        id,
+        key,
+        request.previewToken(),
+        true,
+        requiredOperatorReason(request.reason()),
+        this::adminAcceptance);
+  }
+
+  private <T> T accept(
+      UUID accountId,
+      UUID actor,
+      UUID id,
+      String key,
+      String previewToken,
+      boolean operator,
+      String applicationReason,
+      AcceptanceProjector<T> projector) {
     if (key == null || key.isBlank() || key.length() > 200)
       throw new InvalidRequestException(
           "Idempotency-Key is required and must not exceed 200 characters.");
     if (!operator) subscriptionsService.requireOfferApplyAuthority(accountId, actor);
-    String applicationReason =
-        operator ? requiredOperatorReason(r.reason()) : clientReason(r.reason());
     String keyHash = CommercialOfferAdminServiceImpl.sha(accountId + "|" + key);
-    String requestFingerprint = acceptanceRequestFingerprint(id, operator, r);
+    String requestFingerprint = acceptanceRequestFingerprint(id, operator, previewToken);
     try {
-      Reservation reservation;
+      Reservation<T> reservation;
       try {
         reservation =
             reserveWithConcurrencyRetry(
-                accountId, actor, id, keyHash, requestFingerprint, r.previewToken(), operator);
+                accountId,
+                actor,
+                id,
+                keyHash,
+                requestFingerprint,
+                previewToken,
+                operator,
+                projector);
       } catch (DataIntegrityViolationException concurrentReplay) {
         reservation =
             inNewTransaction(
                 TransactionDefinition.ISOLATION_READ_COMMITTED,
-                () -> replay(accountId, keyHash, requestFingerprint));
+                () -> replay(accountId, keyHash, requestFingerprint, projector));
       }
       if (reservation.replay() != null) return reservation.replay();
-      return applyReservation(accountId, actor, applicationReason, reservation, operator);
+      return applyReservation(
+          accountId, actor, applicationReason, reservation, operator, projector);
     } catch (RuntimeException failure) {
       throw clientSafeFailure(failure, operator, OfferNotAvailableException::new);
     }
   }
 
-  private CommercialOfferViews.Acceptance applyReservation(
+  private <T> T applyReservation(
       UUID accountId,
       UUID actor,
       String applicationReason,
-      Reservation acceptedReservation,
-      boolean operator) {
+      Reservation<T> acceptedReservation,
+      boolean operator,
+      AcceptanceProjector<T> projector) {
     try {
       var changePreview =
           operator
@@ -240,7 +328,7 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
                   acceptedReservation.evaluation());
       return inNewTransaction(
           TransactionDefinition.ISOLATION_READ_COMMITTED,
-          () -> complete(acceptedReservation.redemptionId(), applied.operation()));
+          () -> complete(acceptedReservation.redemptionId(), applied.operation(), projector));
     } catch (RuntimeException applicationFailure) {
       try {
         inNewTransaction(
@@ -257,14 +345,15 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     }
   }
 
-  private Reservation reserveWithConcurrencyRetry(
+  private <T> Reservation<T> reserveWithConcurrencyRetry(
       UUID accountId,
       UUID actor,
       UUID offerId,
       String keyHash,
       String requestFingerprint,
       String previewToken,
-      boolean operator) {
+      boolean operator,
+      AcceptanceProjector<T> projector) {
     for (int attempt = 0; attempt < 3; attempt++) {
       try {
         return inNewTransaction(
@@ -277,7 +366,8 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
                     keyHash,
                     requestFingerprint,
                     previewToken,
-                    operator));
+                    operator,
+                    projector));
       } catch (PessimisticLockingFailureException transientRace) {
         if (attempt == 2) throw new OfferRedemptionBlockedException();
       }
@@ -285,14 +375,15 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     throw new OfferRedemptionBlockedException();
   }
 
-  private Reservation reserve(
+  private <T> Reservation<T> reserve(
       UUID accountId,
       UUID actor,
       UUID offerId,
       String keyHash,
       String requestFingerprint,
       String previewToken,
-      boolean operator) {
+      boolean operator,
+      AcceptanceProjector<T> projector) {
     var account =
         accounts
             .findByIdForSubscriptionUpdate(accountId)
@@ -301,7 +392,7 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
       throw new ForbiddenException("Only the Account owner can accept a commercial Offer.");
     }
     var existing = redemptions.findByAccount_IdAndIdempotencyKeyHash(accountId, keyHash);
-    if (existing.isPresent()) return replay(existing.get(), requestFingerprint);
+    if (existing.isPresent()) return replay(existing.get(), requestFingerprint, projector);
     if (!account.isActive()) throw new OfferNotAvailableException();
 
     catalogVersions.lockForMutation();
@@ -318,9 +409,11 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
       throw new OfferNotAvailableException();
     }
 
-    CommercialOfferViews.EligibilityPreview currentPreview =
+    CommercialOfferViews.ClientEligibilityPreview currentPreview =
         buildPreview(offer, accountId, actor, operator);
-    requireNonNoOp(offer, accountId, currentPreview);
+    if (isNoOp(offer, accountId, currentPreview.finalPrice())) {
+      throw new OfferRedemptionBlockedException();
+    }
     previewTokens.requireValid(
         previewToken,
         CommercialPreviewKind.COMMERCIAL_OFFER_REDEMPTION,
@@ -355,50 +448,73 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
             evaluation,
             clock.instant());
     redemptions.saveAndFlush(redemption);
-    return new Reservation(
-        redemption.getId(), changeRequest(offer), evaluation, currentPreview, null);
+    return new Reservation<>(
+        redemption.getId(),
+        changeRequest(offer, projections.exactPrices(List.of(offer))),
+        evaluation,
+        currentPreview,
+        null);
   }
 
-  private Reservation replay(UUID accountId, String keyHash, String requestFingerprint) {
+  private <T> Reservation<T> replay(
+      UUID accountId,
+      String keyHash,
+      String requestFingerprint,
+      AcceptanceProjector<T> projector) {
     accounts.findByIdForSubscriptionUpdate(accountId).orElseThrow(OfferNotAvailableException::new);
     CommercialOfferRedemption redemption =
         redemptions
             .findByAccount_IdAndIdempotencyKeyHash(accountId, keyHash)
             .orElseThrow(
                 () -> new InvalidStateException("Concurrent Offer acceptance was not committed."));
-    return replay(redemption, requestFingerprint);
+    return replay(redemption, requestFingerprint, projector);
   }
 
-  private Reservation replay(CommercialOfferRedemption redemption, String requestFingerprint) {
+  private <T> Reservation<T> replay(
+      CommercialOfferRedemption redemption,
+      String requestFingerprint,
+      AcceptanceProjector<T> projector) {
     if (!MessageDigest.isEqual(
         redemption.getRequestFingerprint().getBytes(java.nio.charset.StandardCharsets.US_ASCII),
         requestFingerprint.getBytes(java.nio.charset.StandardCharsets.US_ASCII))) {
       throw new IdempotencyConflictException();
     }
-    return new Reservation(
+    SubscriptionChangeOperation operation = recoverOperation(redemption);
+    return new Reservation<>(
         redemption.getId(),
         null,
         redemption.getCommercialEvaluation(),
         null,
-        new CommercialOfferViews.Acceptance(
-            redemption.getId(),
-            redemption.getSubscriptionOperationId(),
-            redemption.getStatus(),
-            true,
-            projections.accepted(redemption)));
+        projector.project(redemption, operation, true));
   }
 
-  private CommercialOfferViews.Acceptance complete(
-      UUID redemptionId, SubscriptionChangeOperationDto operation) {
+  private <T> T complete(
+      UUID redemptionId,
+      SubscriptionChangeOperationDto appliedOperation,
+      AcceptanceProjector<T> projector) {
     CommercialOfferRedemption redemption =
         redemptions.lockById(redemptionId).orElseThrow(OfferRedemptionBlockedException::new);
-    transitions.applyOperation(redemption, operation.id(), operation.status());
-    return new CommercialOfferViews.Acceptance(
-        redemption.getId(),
-        redemption.getSubscriptionOperationId(),
-        redemption.getStatus(),
-        false,
-        projections.accepted(redemption));
+    transitions.applyOperation(
+        redemption, appliedOperation.id(), appliedOperation.status());
+    SubscriptionChangeOperation operation =
+        subscriptionOperations
+            .findByOfferRedemptionId(redemptionId)
+            .orElseThrow(OfferRedemptionBlockedException::new);
+    return projector.project(redemption, operation, false);
+  }
+
+  private SubscriptionChangeOperation recoverOperation(CommercialOfferRedemption redemption) {
+    Optional<SubscriptionChangeOperation> found =
+        subscriptionOperations.findByOfferRedemptionId(redemption.getId());
+    if (found.isEmpty() && redemption.getSubscriptionOperationId() != null) {
+      found =
+          subscriptionOperations.findByIdAndAccountId(
+              redemption.getSubscriptionOperationId(), redemption.getAccount().getId());
+    }
+    found.ifPresent(
+        operation ->
+            transitions.applyOperation(redemption, operation.getId(), operation.getStatus()));
+    return found.orElse(null);
   }
 
   private void failOrRecover(UUID redemptionId) {
@@ -430,30 +546,57 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     return reason.trim();
   }
 
-  private String clientReason(String reason) {
-    return reason == null || reason.isBlank() ? "Accepted commercial Offer" : reason.trim();
-  }
-
   private String acceptanceRequestFingerprint(
-      UUID offerId, boolean operator, CommercialOfferRequests.Accept request) {
-    String normalizedReason = request.reason() == null ? "" : request.reason().trim();
+      UUID offerId, boolean operator, String previewToken) {
     return CommercialOfferAdminServiceImpl.sha(
         "offer-accept:v1|"
             + offerId
             + "|"
             + (operator ? "OPERATOR" : "CLIENT")
             + "|"
-            + CommercialOfferAdminServiceImpl.sha(request.previewToken())
-            + "|"
-            + normalizedReason);
+            + CommercialOfferAdminServiceImpl.sha(previewToken));
   }
 
-  private record Reservation(
+  private CommercialOfferViews.ClientAcceptance clientAcceptance(
+      CommercialOfferRedemption redemption,
+      SubscriptionChangeOperation operation,
+      boolean replayed) {
+    return new CommercialOfferViews.ClientAcceptance(
+        redemption.getId(),
+        operation == null ? redemption.getSubscriptionOperationId() : operation.getId(),
+        redemption.getStatus(),
+        replayed,
+        operation == null ? null : operationProjections.client(operation),
+        projections.accepted(redemption));
+  }
+
+  private CommercialOfferViews.AdminAcceptance adminAcceptance(
+      CommercialOfferRedemption redemption,
+      SubscriptionChangeOperation operation,
+      boolean replayed) {
+    return new CommercialOfferViews.AdminAcceptance(
+        redemption.getId(),
+        operation == null ? redemption.getSubscriptionOperationId() : operation.getId(),
+        redemption.getStatus(),
+        replayed,
+        operation == null ? null : operationProjections.admin(operation),
+        projections.accepted(redemption));
+  }
+
+  private record Reservation<T>(
       UUID redemptionId,
       SubscriptionChangeRequest selection,
       SubscriptionOfferEvaluation evaluation,
-      CommercialOfferViews.EligibilityPreview preview,
-      CommercialOfferViews.Acceptance replay) {}
+      CommercialOfferViews.ClientEligibilityPreview preview,
+      T replay) {}
+
+  @FunctionalInterface
+  private interface AcceptanceProjector<T> {
+    T project(
+        CommercialOfferRedemption redemption,
+        SubscriptionChangeOperation operation,
+        boolean replayed);
+  }
 
   @Override
   @Transactional(readOnly = true)
@@ -462,7 +605,15 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     Map<UUID, ProductPrice> exactPrices =
         projections.exactPrices(
             page.getContent().stream().map(CommercialOfferRedemption::getOffer).toList());
-    return page.map(redemption -> projections.clientRedemption(redemption, exactPrices));
+    Map<UUID, SubscriptionChangeOperation> operations = operationsByRedemption(page.getContent());
+    return page.map(
+        redemption -> {
+          SubscriptionChangeOperation operation = operations.get(redemption.getId());
+          return projections.clientRedemption(
+              redemption,
+              exactPrices,
+              operation == null ? null : operationProjections.client(operation));
+        });
   }
 
   @Override
@@ -472,75 +623,191 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         redemptions
             .findByIdAndAccount_Id(id, accountId)
             .orElseThrow(OfferNotAvailableException::new);
+    var operation =
+        subscriptionOperations.findByOfferRedemptionIdAndAccountId(id, accountId).orElse(null);
     return projections.clientRedemption(
-        redemption, projections.exactPrices(List.of(redemption.getOffer())));
+        redemption,
+        projections.exactPrices(List.of(redemption.getOffer())),
+        operation == null ? null : operationProjections.client(operation));
   }
 
-  private CommercialOfferViews.EligibilityPreview buildPreview(
+  private CommercialOfferViews.ClientEligibilityPreview buildPreview(
       CommercialOffer o, UUID accountId, UUID actor, boolean operator) {
-    SubscriptionChangeRequest request = changeRequest(o);
+    PreparedPreview prepared = preparePreview(o, accountId, actor, operator);
+    List<CommercialOfferEligibilityBlocker> blockers = changeBlockers(o, accountId, prepared);
+    if (!blockers.isEmpty()) {
+      if (!operator) throw new OfferNotAvailableException();
+      throw new InvalidStateException("Offer cannot be applied in the current Account state.");
+    }
+    return issuePreview(o, accountId, actor, prepared);
+  }
+
+  private PreparedPreview preparePreview(
+      CommercialOffer offer, UUID accountId, UUID actor, boolean operator) {
+    Map<UUID, ProductPrice> exactPrices = projections.exactPrices(List.of(offer));
+    SubscriptionChangeRequest request = changeRequest(offer, exactPrices);
     var p =
         operator
             ? subscriptionsService.previewOfferChangeAsOperator(accountId, actor, request)
             : subscriptionsService.previewOfferChange(accountId, actor, request);
     var policy = p.commercialPolicyEvaluation();
-    if (policy != null && policy.blocked()) {
-      if (operator) {
-        throw new InvalidStateException(
-            "Offer cannot be applied until commercial-policy conflicts are resolved.");
-      }
-      throw new OfferNotAvailableException();
-    }
     BigDecimal catalogue = policy == null ? p.previewPrice() : policy.catalogueRecurringPrice();
     BigDecimal fixedBase = policy == null ? catalogue : policy.fixedRecurringPrice();
     BigDecimal policyPrice = policy == null ? p.previewPrice() : policy.finalRecurringPrice();
-    BigDecimal freeReduction = freeProductReduction(o);
+    BigDecimal freeReduction = freeProductReduction(offer, exactPrices);
     BigDecimal offerBase = fixedBase.subtract(freeReduction).max(BigDecimal.ZERO);
-    BigDecimal offerPrice = discount(offerBase, o.getEffects());
+    BigDecimal offerPrice = discount(offerBase, offer.getEffects());
     int comparison = offerPrice.compareTo(policyPrice);
-    String winner = comparison < 0 ? "OFFER" : "POLICY";
+    CommercialOfferDiscountWinner winner =
+        comparison < 0
+            ? CommercialOfferDiscountWinner.OFFER
+            : CommercialOfferDiscountWinner.POLICY;
+    CommercialOfferDiscountDecisionCode decision =
+        winner == CommercialOfferDiscountWinner.OFFER
+            ? CommercialOfferDiscountDecisionCode.OFFER_LOWER_FINAL_PRICE
+            : CommercialOfferDiscountDecisionCode.POLICY_LOWER_OR_EQUAL_FINAL_PRICE;
     String winnerReason = winnerReason(winner);
     BigDecimal finalPrice = comparison < 0 ? offerPrice : policyPrice;
+    return new PreparedPreview(
+        request,
+        p,
+        projections.selection(offer, exactPrices),
+        catalogue,
+        policyPrice,
+        offerPrice,
+        finalPrice,
+        fixedBase,
+        freeReduction,
+        winner,
+        decision,
+        winnerReason);
+  }
+
+  private CommercialOfferViews.ClientEligibilityPreview issuePreview(
+      CommercialOffer offer, UUID accountId, UUID actor, PreparedPreview prepared) {
+    var p = prepared.changePreview();
     long catalog = catalogVersions.currentRevision();
     String registry = registryVersions.currentVersion();
     String fp =
         pricingFingerprint(
-            o,
+            offer,
             accountId,
             p.subscriptionId(),
             p.expectedSubscriptionVersion(),
-            catalogue,
-            policyPrice,
-            offerPrice,
-            finalPrice,
-            winner);
+            prepared.catalogue(),
+            prepared.policyPrice(),
+            prepared.offerPrice(),
+            prepared.finalPrice(),
+            prepared.winner());
     var evidence =
         previewTokens.issue(
             CommercialPreviewKind.COMMERCIAL_OFFER_REDEMPTION,
-            o.getId(),
-            o.getVersion(),
+            offer.getId(),
+            offer.getVersion(),
             actor,
             catalog,
             registry,
             fp,
             clock.instant());
-    return new CommercialOfferViews.EligibilityPreview(
-        o.getId(),
+    boolean checkoutRequired = prepared.finalPrice().signum() > 0;
+    SubscriptionChangeStatus expectedStatus =
+        checkoutRequired
+            ? SubscriptionChangeStatus.AWAITING_CONFIRMATION
+            : p.timing() == SubscriptionChangeTiming.AT_RENEWAL
+                ? SubscriptionChangeStatus.PENDING
+                : SubscriptionChangeStatus.APPLIED;
+    var change =
+        new CommercialOfferViews.ChangeReview(
+            p.currentPrice(),
+            p.timing(),
+            p.effectiveAt(),
+            p.effectiveUntil(),
+            p.immediateAllowed(),
+            p.currentEntitlements(),
+            p.targetEntitlements(),
+            p.conflicts(),
+            ClientCommercialPolicyEvaluation.from(p.commercialPolicyEvaluation()),
+            checkoutRequired,
+            prepared.finalPrice(),
+            expectedStatus);
+    return new CommercialOfferViews.ClientEligibilityPreview(
+        offer.getId(),
         p.subscriptionId(),
         p.expectedSubscriptionVersion(),
-        catalogue,
-        policyPrice,
-        offerPrice,
-        finalPrice,
+        prepared.selection(),
+        change,
+        prepared.catalogue(),
+        prepared.policyPrice(),
+        prepared.offerPrice(),
+        prepared.finalPrice(),
         p.currencyCode(),
-        fixedBase,
-        freeReduction,
-        winner,
-        winnerReason,
+        prepared.fixedBase(),
+        prepared.freeReduction(),
+        prepared.winner(),
+        prepared.decision(),
+        prepared.winnerReason(),
         evidence.evaluatedAt(),
         evidence.expiresAt(),
         evidence.token());
   }
+
+  private List<CommercialOfferEligibilityBlocker> changeBlockers(
+      CommercialOffer offer, UUID accountId, PreparedPreview prepared) {
+    List<CommercialOfferEligibilityBlocker> blockers = new ArrayList<>();
+    var preview = prepared.changePreview();
+    if (preview.commercialPolicyEvaluation() != null
+        && preview.commercialPolicyEvaluation().blocked()) {
+      blockers.add(CommercialOfferEligibilityBlocker.POLICY_CONFLICT);
+    }
+    if (preview.timing() == SubscriptionChangeTiming.IMMEDIATE
+        && !preview.immediateAllowed()) {
+      blockers.add(CommercialOfferEligibilityBlocker.IMMEDIATE_CHANGE_CONFLICT);
+    }
+    if (isNoOp(offer, accountId, prepared.finalPrice())) {
+      blockers.add(CommercialOfferEligibilityBlocker.NO_CHANGE);
+    }
+    return List.copyOf(new LinkedHashSet<>(blockers));
+  }
+
+  private CommercialOfferViews.AccountEligibilityAssessment assessment(
+      UUID offerId,
+      UUID accountId,
+      Collection<CommercialOfferEligibilityBlocker> blockers,
+      CommercialOfferViews.ClientEligibilityPreview preview,
+      Instant evaluatedAt) {
+    List<CommercialOfferEligibilityBlocker> stable =
+        List.copyOf(new LinkedHashSet<>(blockers));
+    return new CommercialOfferViews.AccountEligibilityAssessment(
+        offerId, accountId, stable.isEmpty(), stable, evaluatedAt, preview);
+  }
+
+  private Map<UUID, SubscriptionChangeOperation> operationsByRedemption(
+      Collection<CommercialOfferRedemption> redemptionPage) {
+    if (redemptionPage.isEmpty()) return Map.of();
+    Set<UUID> ids =
+        redemptionPage.stream()
+            .map(CommercialOfferRedemption::getId)
+            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    return subscriptionOperations.findAllByOfferRedemptionIdIn(ids).stream()
+        .collect(
+            java.util.stream.Collectors.toUnmodifiableMap(
+                SubscriptionChangeOperation::getOfferRedemptionId,
+                java.util.function.Function.identity()));
+  }
+
+  private record PreparedPreview(
+      SubscriptionChangeRequest request,
+      SubscriptionChangePreviewResponse changePreview,
+      CommercialOfferViews.ClientSelection selection,
+      BigDecimal catalogue,
+      BigDecimal policyPrice,
+      BigDecimal offerPrice,
+      BigDecimal finalPrice,
+      BigDecimal fixedBase,
+      BigDecimal freeReduction,
+      CommercialOfferDiscountWinner winner,
+      CommercialOfferDiscountDecisionCode decision,
+      String winnerReason) {}
 
   private Set<UUID> availableClientSelectionIds(
       List<CommercialOffer> candidates,
@@ -673,6 +940,12 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     return price != null && price.getOwnerType() == type && price.ownerId().equals(ownerId);
   }
 
+  private ProductPrice exactPrice(Map<UUID, ProductPrice> exactPrices, UUID id) {
+    ProductPrice price = exactPrices.get(id);
+    if (price == null) throw new OfferNotAvailableException();
+    return price;
+  }
+
   private boolean sameTuple(ProductPrice left, ProductPrice right) {
     return left.getCurrencyCode().equals(right.getCurrencyCode())
         && left.getBillingCycle() == right.getBillingCycle();
@@ -695,30 +968,24 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         || failure instanceof StaleResourceVersionException;
   }
 
-  private BigDecimal freeProductReduction(CommercialOffer offer) {
+  private BigDecimal freeProductReduction(
+      CommercialOffer offer, Map<UUID, ProductPrice> exactPrices) {
     BigDecimal total = BigDecimal.ZERO;
     for (var item : offer.getSelection().addOns())
       if (item.pricingMode() == CommercialOfferSelection.PricingMode.FREE)
-        total =
-            total.add(
-                prices
-                    .findById(item.priceId())
-                    .orElseThrow(OfferNotAvailableException::new)
-                    .getAmount());
+        total = total.add(exactPrice(exactPrices, item.priceId()).getAmount());
     for (var item : offer.getSelection().quotaPackages())
       if (item.pricingMode() == CommercialOfferSelection.PricingMode.FREE)
         total =
             total.add(
-                prices
-                    .findById(item.priceId())
-                    .orElseThrow(OfferNotAvailableException::new)
+                exactPrice(exactPrices, item.priceId())
                     .getAmount()
                     .multiply(BigDecimal.valueOf(item.quantity())));
     return total;
   }
 
   private SubscriptionOfferEvaluation offerEvaluation(
-      CommercialOffer offer, CommercialOfferViews.EligibilityPreview preview) {
+      CommercialOffer offer, CommercialOfferViews.ClientEligibilityPreview preview) {
     return new SubscriptionOfferEvaluation(
         offer.getCampaign().getId(),
         offer.getLineageId(),
@@ -729,13 +996,13 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         preview.offerPrice(),
         preview.finalPrice(),
         preview.currencyCode(),
-        preview.discountWinner(),
+        preview.discountWinner().name(),
         preview.winnerReason(),
         offer.getEffects().finiteQuotaBonuses());
   }
 
-  private String winnerReason(String winner) {
-    return "OFFER".equals(winner)
+  private String winnerReason(CommercialOfferDiscountWinner winner) {
+    return winner == CommercialOfferDiscountWinner.OFFER
         ? "Offer produces the lower payable recurring price."
         : "Commercial Policy produces an equal or lower payable recurring price; exact ties prefer"
             + " Policy.";
@@ -755,14 +1022,23 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     };
   }
 
-  private SubscriptionChangeRequest changeRequest(CommercialOffer o) {
+  private SubscriptionChangeRequest changeRequest(
+      CommercialOffer o, Map<UUID, ProductPrice> exactPrices) {
     var s = o.getSelection();
-    var plan = plans.findById(s.planId()).orElseThrow(OfferNotAvailableException::new);
+    ProductPrice planPrice = exactPrice(exactPrices, s.planPriceId());
+    if (planPrice.getOwnerType() != ProductPriceOwnerType.PLAN
+        || !planPrice.getPlan().getId().equals(s.planId())) {
+      throw new OfferNotAvailableException();
+    }
     Set<String> addonCodes = new LinkedHashSet<>();
     Map<String, UUID> addOnPrices = new LinkedHashMap<>();
     for (var item : s.addOns()) {
-      String code =
-          addOns.findById(item.addOnId()).orElseThrow(OfferNotAvailableException::new).getCode();
+      ProductPrice price = exactPrice(exactPrices, item.priceId());
+      if (price.getOwnerType() != ProductPriceOwnerType.ADD_ON
+          || !price.getAddOn().getId().equals(item.addOnId())) {
+        throw new OfferNotAvailableException();
+      }
+      String code = price.getAddOn().getCode();
       addonCodes.add(code);
       addOnPrices.put(code, item.priceId());
     }
@@ -771,17 +1047,18 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         s.quotaPackages().stream()
             .map(
                 x -> {
-                  String code =
-                      packages
-                          .findById(x.quotaPackageId())
-                          .orElseThrow(OfferNotAvailableException::new)
-                          .getCode();
+                  ProductPrice price = exactPrice(exactPrices, x.priceId());
+                  if (price.getOwnerType() != ProductPriceOwnerType.QUOTA_PACKAGE
+                      || !price.getQuotaPackage().getId().equals(x.quotaPackageId())) {
+                    throw new OfferNotAvailableException();
+                  }
+                  String code = price.getQuotaPackage().getCode();
                   packagePrices.put(code, x.priceId());
                   return new QuotaPackageSelection(code, x.quantity());
                 })
             .toList();
     return new SubscriptionChangeRequest(
-        plan.getCode(),
+        planPrice.getPlan().getCode(),
         addonCodes,
         qs,
         s.timing(),
@@ -790,8 +1067,8 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         packagePrices);
   }
 
-  private void requireNonNoOp(
-      CommercialOffer offer, UUID accountId, CommercialOfferViews.EligibilityPreview preview) {
+  private boolean isNoOp(
+      CommercialOffer offer, UUID accountId, BigDecimal finalPrice) {
     Subscription current =
         subscriptions
             .findTopByAccountIdAndStatusInOrderByCreatedAtDesc(
@@ -799,7 +1076,7 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
             .orElseThrow(OfferNotAvailableException::new);
     SubscriptionOfferEvaluation existing = current.getEntitlementSnapshot().offerEvaluation();
     if (existing != null && offer.getId().equals(existing.offerRevisionId())) {
-      throw new OfferRedemptionBlockedException();
+      return true;
     }
     boolean sameSelection =
         Objects.equals(
@@ -810,9 +1087,8 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     if (sameSelection
         && offer.getEffects().finiteQuotaBonuses().isEmpty()
         && current.getCurrentPrice() != null
-        && current.getCurrentPrice().compareTo(preview.finalPrice()) == 0) {
-      throw new OfferRedemptionBlockedException();
-    }
+        && current.getCurrentPrice().compareTo(finalPrice) == 0) return true;
+    return false;
   }
 
   private boolean sameAddOnPrices(
@@ -850,7 +1126,8 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     throw new OfferNotAvailableException();
   }
 
-  private String fingerprint(CommercialOffer o, UUID a, CommercialOfferViews.EligibilityPreview p) {
+  private String fingerprint(
+      CommercialOffer o, UUID a, CommercialOfferViews.ClientEligibilityPreview p) {
     return pricingFingerprint(
         o,
         a,
@@ -872,7 +1149,7 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
       BigDecimal policy,
       BigDecimal offer,
       BigDecimal result,
-      String winner) {
+      CommercialOfferDiscountWinner winner) {
     return CommercialOfferAdminServiceImpl.sha(
         fingerprint(o, a, s, v, catalogue, result)
             + "|"

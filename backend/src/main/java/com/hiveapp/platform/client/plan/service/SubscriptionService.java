@@ -88,15 +88,15 @@ public interface SubscriptionService {
   CommercialOfferViews.CodeResolution resolveOfferCode(
       UUID accountId, UUID actorUserId, CommercialOfferRequests.ResolveCode request);
 
-  CommercialOfferViews.EligibilityPreview previewOffer(
+  CommercialOfferViews.ClientEligibilityPreview previewOffer(
       UUID accountId, UUID actorUserId, UUID offerId, CommercialOfferRequests.Preview request);
 
-  CommercialOfferViews.Acceptance acceptOffer(
+  CommercialOfferViews.ClientAcceptance acceptOffer(
       UUID accountId,
       UUID actorUserId,
       UUID offerId,
       String idempotencyKey,
-      CommercialOfferRequests.Accept request);
+      CommercialOfferRequests.ClientAccept request);
 
   Page<CommercialOfferViews.ClientRedemption> offerHistory(UUID accountId, Pageable pageable);
 

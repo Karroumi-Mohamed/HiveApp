@@ -5,10 +5,18 @@ import com.hiveapp.platform.client.plan.domain.entity.CommercialOfferRedemption;
 import java.util.*;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.repository.*;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.repository.query.Param;
 
 public interface CommercialOfferRedemptionRepository
-    extends JpaRepository<CommercialOfferRedemption, UUID> {
+    extends JpaRepository<CommercialOfferRedemption, UUID>,
+        JpaSpecificationExecutor<CommercialOfferRedemption> {
+
+  @Override
+  @EntityGraph(attributePaths = {"offer"})
+  Page<CommercialOfferRedemption> findAll(
+      org.springframework.data.jpa.domain.Specification<CommercialOfferRedemption> specification,
+      Pageable pageable);
   @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
   @Query("select redemption from CommercialOfferRedemption redemption where redemption.id=:id")
   Optional<CommercialOfferRedemption> lockById(@Param("id") UUID id);
@@ -39,6 +47,9 @@ public interface CommercialOfferRedemptionRepository
   @EntityGraph(attributePaths = {"offer"})
   Optional<CommercialOfferRedemption> findByIdAndAccount_Id(UUID id, UUID accountId);
 
+  @EntityGraph(attributePaths = {"offer"})
+  Optional<CommercialOfferRedemption> findByIdAndOfferLineageId(UUID id, UUID offerLineageId);
+
   long countByOfferLineageIdAndAccount_IdAndStatusIn(
       UUID lineage, UUID accountId, Collection<CommercialOfferRedemptionStatus> statuses);
 
@@ -61,4 +72,11 @@ public interface CommercialOfferRedemptionRepository
           + "where redemption.offerLineageId=:offerLineageId")
   Page<CommercialOfferRedemption> findAllWithIdentitiesByOfferLineageId(
       @Param("offerLineageId") UUID offerLineageId, Pageable pageable);
+
+  @EntityGraph(attributePaths = {"account"})
+  @Query(
+      "select redemption from CommercialOfferRedemption redemption "
+          + "where redemption.offerLineageId=:offerLineageId and redemption.id in :ids")
+  List<CommercialOfferRedemption> findAllWithIdentitiesByOfferLineageIdAndIdIn(
+      @Param("offerLineageId") UUID offerLineageId, @Param("ids") Collection<UUID> ids);
 }

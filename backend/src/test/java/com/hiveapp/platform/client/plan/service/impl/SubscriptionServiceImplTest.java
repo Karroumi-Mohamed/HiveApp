@@ -40,9 +40,13 @@ import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeActivationService;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
+import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangePreviewResponse;
+import com.hiveapp.platform.client.plan.dto.EffectiveQuotaLimit;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
+import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCommercialPolicyEvaluation;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
@@ -54,6 +58,7 @@ import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.StaleResourceVersionException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
+import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import org.junit.jupiter.api.Test;
@@ -131,6 +136,10 @@ class SubscriptionServiceImplTest {
                 .thenAnswer(invocation -> invocation
                         .<java.util.function.LongFunction<Object>>getArgument(0).apply(1L));
         lenient().when(clock.instant()).thenReturn(NOW);
+        lenient().when(subscriptionPeriodCalculator.change(
+                        any(BillingCycle.class), any(SubscriptionChangeTiming.class),
+                        nullable(Instant.class)))
+                .thenReturn(period());
         lenient().when(commercialPolicyEvaluator.evaluate(any(), any()))
                 .thenAnswer(invocation -> CommercialPolicyEvaluator.Evaluation.empty(
                         invocation.getArgument(1)));
@@ -348,6 +357,105 @@ class SubscriptionServiceImplTest {
     }
 
     @Test
+    void previewProjectsSafeCurrentAndTargetEntitlementsWithAuthoritativeRenewalPeriod() {
+        UUID accountId = UUID.randomUUID();
+        Instant renewalAt = Instant.parse("2026-09-01T00:00:00Z");
+        Instant renewalUntil = Instant.parse("2027-09-01T00:00:00Z");
+        Plan free = plan("FREE", true);
+        Plan pro = plan("PRO", true);
+        pro.setBillingCycle(BillingCycle.YEARLY);
+        ReflectionTestUtils.setField(pro, "id", UUID.randomUUID());
+
+        SubscriptionEntitlementSnapshot currentSnapshot = new SubscriptionEntitlementSnapshot(
+                SubscriptionEntitlementSnapshot.CURRENT_SCHEMA_VERSION,
+                "FREE", "Free", 4L, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                NOW.minusSeconds(2_592_000), renewalAt,
+                List.of(new SubscriptionFeatureSnapshot(
+                        StaffFeature.CODE,
+                        List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 5L)))),
+                List.of(new SubscriptionAddOnSnapshot(
+                        "CURRENT_ADDON", "Current AddOn", 2L, BigDecimal.ONE, "USD",
+                        BillingCycle.MONTHLY, List.of(StaffFeature.CODE), UUID.randomUUID())),
+                List.of(new SubscriptionQuotaPackageSnapshot(
+                        "CURRENT_CAPACITY", "Current capacity", 2L, StaffFeature.CODE,
+                        StaffFeature.MEMBERS, 5L, 2, BigDecimal.ONE, "USD",
+                        BillingCycle.MONTHLY, UUID.randomUUID())),
+                UUID.randomUUID(), null, null);
+        Subscription current = subscription(free, SubscriptionStatus.ACTIVE);
+        current.setEntitlementSnapshot(currentSnapshot);
+        current.setCurrentPeriodStart(NOW.minusSeconds(2_592_000));
+        current.setCurrentPeriodEnd(renewalAt);
+        current.setCurrentMoney(Money.zero("USD"));
+
+        var targetSelection = new QuotaPackageSelection("TARGET_CAPACITY", 3);
+        SubscriptionEntitlementSnapshot targetSnapshot = new SubscriptionEntitlementSnapshot(
+                SubscriptionEntitlementSnapshot.CURRENT_SCHEMA_VERSION,
+                "PRO", "Pro", 7L, BigDecimal.valueOf(120), "USD", BillingCycle.YEARLY,
+                null, null,
+                List.of(new SubscriptionFeatureSnapshot(
+                        StaffFeature.CODE,
+                        List.of(new QuotaLimitEntry(StaffFeature.MEMBERS, 20L)))),
+                List.of(new SubscriptionAddOnSnapshot(
+                        "TARGET_ADDON", "Target AddOn", 3L, BigDecimal.TEN, "USD",
+                        BillingCycle.YEARLY, List.of(StaffFeature.CODE), UUID.randomUUID())),
+                List.of(new SubscriptionQuotaPackageSnapshot(
+                        targetSelection.packageCode(), "Target capacity", 3L, StaffFeature.CODE,
+                        StaffFeature.MEMBERS, 10L, targetSelection.quantity(), BigDecimal.TEN, "USD",
+                        BillingCycle.YEARLY, UUID.randomUUID())),
+                UUID.randomUUID(), null, null);
+        var currentLimits = List.of(new EffectiveQuotaLimit(
+                StaffFeature.CODE, StaffFeature.MEMBERS, QuotaLimitMode.FINITE, 5L, 10L, 15L));
+        var targetLimits = List.of(new EffectiveQuotaLimit(
+                StaffFeature.CODE, StaffFeature.MEMBERS, QuotaLimitMode.FINITE, 20L, 30L, 50L));
+
+        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(current));
+        allowClientPlan(pro, List.of(), List.of(), List.of());
+        when(subscriptionSnapshotFactory.fromResolvedSelection(
+                eq(pro), any(ProductPrice.class),
+                any(CommercialCatalogResolver.SelectionResolution.class), eq(currentSnapshot)))
+                .thenReturn(targetSnapshot);
+        when(subscriptionImpactAnalyzer.effectiveQuotaLimits(currentSnapshot)).thenReturn(currentLimits);
+        when(subscriptionImpactAnalyzer.effectiveQuotaLimits(targetSnapshot)).thenReturn(targetLimits);
+        when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.valueOf(160), "USD"));
+        when(subscriptionPeriodCalculator.change(
+                BillingCycle.YEARLY, SubscriptionChangeTiming.AT_RENEWAL, renewalAt))
+                .thenReturn(new SubscriptionPeriodCalculator.Period(renewalAt, renewalUntil));
+
+        var preview = subscriptionService.previewChange(
+                accountId, ACTOR_ID,
+                new SubscriptionChangeRequest(
+                        "PRO", Set.of("TARGET_ADDON"), List.of(targetSelection),
+                        SubscriptionChangeTiming.AT_RENEWAL));
+
+        assertThat(preview.timing()).isEqualTo(SubscriptionChangeTiming.AT_RENEWAL);
+        assertThat(preview.effectiveAt()).isEqualTo(renewalAt);
+        assertThat(preview.effectiveUntil()).isEqualTo(renewalUntil);
+        assertThat(preview.currentEntitlements().planCode()).isEqualTo("FREE");
+        assertThat(preview.currentEntitlements().billingCycle()).isEqualTo(BillingCycle.MONTHLY);
+        assertThat(preview.currentEntitlements().featureCodes()).containsExactly(StaffFeature.CODE);
+        assertThat(preview.currentEntitlements().effectiveQuotaLimits()).isEqualTo(currentLimits);
+        assertThat(preview.currentEntitlements().addOnCodes()).containsExactly("CURRENT_ADDON");
+        assertThat(preview.currentEntitlements().quotaPackages())
+                .containsExactly(new QuotaPackageSelection("CURRENT_CAPACITY", 2));
+        assertThat(preview.targetEntitlements().planCode()).isEqualTo("PRO");
+        assertThat(preview.targetEntitlements().billingCycle()).isEqualTo(BillingCycle.YEARLY);
+        assertThat(preview.targetEntitlements().featureCodes()).containsExactly(StaffFeature.CODE);
+        assertThat(preview.targetEntitlements().effectiveQuotaLimits()).isEqualTo(targetLimits);
+        assertThat(preview.targetEntitlements().addOnCodes()).containsExactly("TARGET_ADDON");
+        assertThat(preview.targetEntitlements().quotaPackages()).containsExactly(targetSelection);
+        assertThat(preview.effectiveFeatureCodes()).isEqualTo(preview.targetEntitlements().featureCodes());
+        assertThat(preview.effectiveQuotaLimits())
+                .isEqualTo(preview.targetEntitlements().effectiveQuotaLimits());
+
+        var client = ClientSubscriptionChangePreviewResponse.from(preview);
+        assertThat(client.timing()).isEqualTo(preview.timing());
+        assertThat(client.effectiveAt()).isEqualTo(preview.effectiveAt());
+        assertThat(client.effectiveUntil()).isEqualTo(preview.effectiveUntil());
+        assertThat(client.currentEntitlements()).isEqualTo(preview.currentEntitlements());
+        assertThat(client.targetEntitlements()).isEqualTo(preview.targetEntitlements());
+    }
+
+    @Test
     void catalogHidesActiveAddOnWhenItsFeatureIsNoLongerAvailableForNewSales() {
         UUID accountId = UUID.randomUUID();
         Plan plan = plan("FREE", true);
@@ -423,7 +531,9 @@ class SubscriptionServiceImplTest {
         when(subscriptionOverrideReader.read(current.getCustomOverrides()))
                 .thenReturn(SubscriptionOverrides.empty());
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.valueOf(29), "USD"));
-        when(subscriptionPeriodCalculator.recurring(BillingCycle.MONTHLY)).thenReturn(period());
+        when(subscriptionPeriodCalculator.change(
+                BillingCycle.MONTHLY, SubscriptionChangeTiming.IMMEDIATE, null))
+                .thenReturn(period());
         when(subscriptionChangeOperationRepository.saveAndFlush(any()))
                 .thenAnswer(invocation -> {
                     var operation = invocation.getArgument(0, SubscriptionChangeOperation.class);

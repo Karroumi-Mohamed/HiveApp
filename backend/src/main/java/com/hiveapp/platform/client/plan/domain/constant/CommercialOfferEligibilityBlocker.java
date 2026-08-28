@@ -1,0 +1,19 @@
+package com.hiveapp.platform.client.plan.domain.constant;
+
+/** Stable operator-visible reasons why one Account cannot currently accept an Offer. */
+public enum CommercialOfferEligibilityBlocker {
+  ACCOUNT_INACTIVE,
+  OFFER_NOT_PUBLISHED,
+  OFFER_WINDOW_NOT_STARTED,
+  OFFER_WINDOW_ENDED,
+  CAMPAIGN_NOT_ACTIVE,
+  ACCOUNT_OUTSIDE_AUDIENCE,
+  NO_ACTIVE_SUBSCRIPTION,
+  GLOBAL_CAPACITY_EXHAUSTED,
+  ACCOUNT_CAPACITY_EXHAUSTED,
+  OUTSTANDING_SUBSCRIPTION_OPERATION,
+  SELECTION_UNAVAILABLE,
+  POLICY_CONFLICT,
+  IMMEDIATE_CHANGE_CONFLICT,
+  NO_CHANGE
+}

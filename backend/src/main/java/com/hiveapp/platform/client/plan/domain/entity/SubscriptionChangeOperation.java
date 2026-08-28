@@ -31,9 +31,16 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "subscription_change_operations", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_subscription_change_pending_account", columnNames = "pending_account_id")
-})
+@Table(
+        name = "subscription_change_operations",
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_subscription_change_pending_account",
+                        columnNames = "pending_account_id"),
+                @UniqueConstraint(
+                        name = "uk_subscription_change_offer_redemption",
+                        columnNames = "offer_redemption_id")
+        })
 @Getter
 @Setter
 public class SubscriptionChangeOperation extends BaseEntity {
