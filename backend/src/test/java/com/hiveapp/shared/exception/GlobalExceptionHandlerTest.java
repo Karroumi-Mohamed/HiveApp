@@ -117,4 +117,20 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().code()).isEqualTo(ErrorCode.INVALID_ARGUMENT);
         assertThat(response.getBody().message()).contains("id").doesNotContain("script");
     }
+
+    @Test
+    void offerFailuresHaveStableDistinctAndPrivacySafeContracts() {
+        var stale = handler.handleStaleOfferPreview(new StaleOfferPreviewException());
+        var unavailable = handler.handleOfferNotAvailable(new OfferNotAvailableException());
+        var codeConflict = handler.handleOfferCodeConflict(new OfferCodeConflictException());
+        var blocked = handler.handleOfferRedemptionBlocked(new OfferRedemptionBlockedException());
+        var idempotency = handler.handleIdempotencyConflict(new IdempotencyConflictException());
+
+        assertThat(stale.getBody().code()).isEqualTo(ErrorCode.STALE_OFFER_PREVIEW);
+        assertThat(unavailable.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(unavailable.getBody().code()).isEqualTo(ErrorCode.OFFER_NOT_AVAILABLE);
+        assertThat(codeConflict.getBody().code()).isEqualTo(ErrorCode.OFFER_CODE_CONFLICT);
+        assertThat(blocked.getBody().code()).isEqualTo(ErrorCode.OFFER_REDEMPTION_BLOCKED);
+        assertThat(idempotency.getBody().code()).isEqualTo(ErrorCode.IDEMPOTENCY_CONFLICT);
+    }
 }

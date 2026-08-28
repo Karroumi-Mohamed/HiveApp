@@ -81,6 +81,42 @@ public class GlobalExceptionHandler {
                         "Conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(StaleOfferPreviewException.class)
+    public ResponseEntity<ApiError> handleStaleOfferPreview(StaleOfferPreviewException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.STALE_OFFER_PREVIEW,
+                        "Conflict", ex.getMessage()));
+    }
+
+    @ExceptionHandler(OfferCodeConflictException.class)
+    public ResponseEntity<ApiError> handleOfferCodeConflict(OfferCodeConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.OFFER_CODE_CONFLICT,
+                        "Conflict", ex.getMessage()));
+    }
+
+    @ExceptionHandler(OfferNotAvailableException.class)
+    public ResponseEntity<ApiError> handleOfferNotAvailable(OfferNotAvailableException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiError.of(404, ErrorCode.OFFER_NOT_AVAILABLE,
+                        "Not Found", ex.getMessage()));
+    }
+
+    @ExceptionHandler(OfferRedemptionBlockedException.class)
+    public ResponseEntity<ApiError> handleOfferRedemptionBlocked(
+            OfferRedemptionBlockedException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.OFFER_REDEMPTION_BLOCKED,
+                        "Conflict", ex.getMessage()));
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ApiError> handleIdempotencyConflict(IdempotencyConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.IDEMPOTENCY_CONFLICT,
+                        "Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ResponseEntity<ApiError> handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
         return ResponseEntity
