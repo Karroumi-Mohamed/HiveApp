@@ -25,6 +25,9 @@ hiveapp:
     base-url: ${HIVEAPP_FRONTEND_BASE_URL}
   billing:
     collection-enabled: ${HIVEAPP_BILLING_COLLECTION_ENABLED:false}
+  offers:
+    codes:
+      pepper: ${HIVEAPP_OFFER_CODE_PEPPER}
 
 server:
   port: 8080
