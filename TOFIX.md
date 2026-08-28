@@ -3082,6 +3082,9 @@ Business teams cannot run controlled campaigns without developer changes or unsa
 
 - Finish the Campaign admin table/editor/detail/timeline/audience/revision/history/owner workflows against the audited backend; never expose Account identities without the dedicated permission.
 - Implement Offer revision lifecycles, typed compatible effects, windows, overall/per-Account limits, optional permanently reserved normalized codes, eligibility preview, retire/restore/archive, and history under the Campaign-owned audience.
+- Keep discovery (`CATALOG`/`CODE_ONLY`) separate from acceptance channel (`CLIENT_OR_OPERATOR`/`OPERATOR_ONLY`); codes never grant access and raw codes never enter URLs, logs, audit, or analytics.
+- Bind limits, code reservation, and accumulated usage to the Offer lineage; bind each lineage to one exact Campaign revision and every published revision to exact products and Price entries.
+- Produce one authoritative combined Policy/Offer commercial evaluation and use one Account per reviewed Phase 11 operation. Bulk execution and lifecycle recovery remain Phase 12.
 - Keep Offers explicit and opt-in with immutable redemption provenance; never represent them as always-applicable active Policies. Preserve deterministic non-stacking discount precedence and hard restriction/safety vetoes.
 - Revalidate redemption under the Account lock, make retries idempotent, and materialize accepted effects through the normal subscription-operation/snapshot/billing path.
 - Add operational admin tables/detail/builders/preview/execution analytics and a client eligible-offer/detail/preview/accept/history surface protected by Account authority.

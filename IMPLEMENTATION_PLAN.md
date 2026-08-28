@@ -1789,11 +1789,13 @@ flowchart TD
 
 - **Prerequisites**: Batch 11.1.
 - **Action**: IMPLEMENT.
-- **Description**: Add Campaign/Offer revisions, scheduling/pause/end/archive, typed price/product/quota effects, normalized optional codes, audience and redemption limits, client eligibility/preview/acceptance/history, and authorized operator application through the subscription-operation engine.
+- **Description**: Add Campaign/Offer revisions, scheduling/pause/end/archive, explicit CATALOG/CODE_ONLY discovery and CLIENT_OR_OPERATOR/OPERATOR_ONLY acceptance, permanently reserved normalized codes, exact product/Price selections, typed discount/grant/quota effects, lineage-wide audience/redemption limits, client eligibility/preview/acceptance/history, and authorized one-Account operator application through the subscription-operation engine. Selected/filtered/bulk application remains Phase 12.
 - **Tests**: Lifecycle, scheduling, code collision, eligibility privacy, direct-only product, Money bounds, per-Account/global limit concurrency, idempotent redemption, pause/end behavior, account lock, snapshot/invoice evidence, and audit.
 - **Future UI Flow**: Campaign table/timeline, Offer builder and preview, audience/results tabs, client Offers page and acceptance flow.
 
 **Execution status — Campaign backend complete and independently audited 2026-08-28:** The operational Campaign aggregate/API now provides immutable revision lineages, one-draft and one-live concurrency rules, PUBLIC/explicit-Account/exact-Segment audiences, signed schedule evidence bound to the live commercial and registry snapshots, frozen targeted audiences with privacy-separated identity resolution, truthful backend actions/blockers, lifecycle scheduling with per-Campaign failure isolation, ownership, comparison, history, and bounded queries. The Campaign admin UI, Offer aggregate/effects/codes/capacity, client eligibility/redemption, and results remain in this batch and are not represented as complete.
+
+**Offer implementation contract refined and independently design-audited 2026-08-28:** Offer limits and permanent customer codes belong to a stable lineage fixed to one exact Campaign revision; published revisions pin exact products and Price entries. Discovery and acceptance channel are separate. One combined commercial evaluation chooses the greater selected Policy or Offer reduction on the Policy-fixed base, with Policy winning ties and hard restrictions always vetoing. Phase 11 handles current `ACTIVE`/`TRIALING` subscriptions and one Account per reviewed operation; bulk execution, recovery lifecycle, temporary reversion, free periods, and communications stay Phase 12. Operational counts come from durable Redemptions; conversion/revenue time series stay Phase 14.
 
 # Phase 12: Operational subscription and renewal jobs
 

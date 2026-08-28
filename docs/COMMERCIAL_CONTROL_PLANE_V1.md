@@ -134,21 +134,23 @@ DRAFT -> SCHEDULED -> ACTIVE -> PAUSED -> ACTIVE -> ENDED -> ARCHIVED
 
 The delivered Campaign backend owns one PUBLIC, explicit-Account, or exact active-Segment audience. Scheduling requires short-lived actor-bound review evidence and freezes targeted Account identities plus the selected Segment activation, catalogue/registry versions, evaluation window, fingerprint, and reason. PUBLIC deliberately stores no platform Account snapshot. Draft Segment references block Segment archive; after scheduling the immutable audience is self-contained, while retained Campaign provenance continues to block destructive Segment deletion.
 
-An Offer belongs to a Campaign revision and contains one or more typed commercial effects. The Campaign owns the audience and every Offer inherits it; a public Campaign does not snapshot the entire platform. An Offer has its own eligibility window, redemption limits, per-Account limit, optional code, and acceptance rules.
+An Offer lineage belongs permanently to one exact Campaign revision. It owns lineage-wide global/per-Account limits, permanent customer-code reservation, discovery mode (`CATALOG` or `CODE_ONLY`), and acceptance channel (`CLIENT_OR_OPERATOR` or `OPERATOR_ONLY`). Published revisions are immutable and pin exact Plan/AddOn/package and Price-entry identities plus typed compatible effects. The Campaign owns the audience and every Offer inherits it; a public Campaign does not snapshot the entire platform.
 
 - A public offer appears only to eligible Accounts.
 - A targeted offer is visible only to its snapshotted audience.
+- A code is a discovery input, never a credential. Authenticated Account-scoped lookup returns one generic unavailable response and never records the raw code.
 - An offer preview explains the resulting products, entitlements, quotas, billing cycle, adjustments, amount due, and effective time.
 - Acceptance revalidates eligibility, price, capacity, and conflicts under an Account lock.
 - Retries are idempotent. One Account cannot redeem beyond the configured limit.
 - Pausing/ending a campaign stops new redemption; it never reverses completed subscription snapshots.
-- An operator may apply an offer to selected Accounts only through the same previewed subscription-operation engine, with reason and per-Account results.
+- A Phase 11 operator may apply an offer to one Account through the same previewed subscription-operation engine, with reason and exact outcome. Selected/filtered/bulk application belongs to Phase 12.
 - Offer selection is explicit and opt-in. An Offer never becomes an always-applicable Commercial Policy and carries its own immutable redemption/provenance evidence.
-- One compatible Offer discount may win over other discount candidates without stacking. An applicable policy fixed price remains the base; restrictions and platform hard limits remain vetoes.
+- One combined commercial evaluation uses an applicable Policy fixed price as the base and compares the selected Policy and Offer discount by actual compatible monetary reduction. The larger wins without stacking; Policy wins a tie; restrictions and platform hard limits remain vetoes.
 - Once published, a customer-facing code is globally reserved permanently.
 - Global capacity is reserved when the subscription operation is created. Cancellation or failure before application releases capacity while retaining the historical redemption attempt.
 - The Offer window controls new acceptance. A later discount reversion requires an explicit Phase 12 scheduled operation; expiry never silently rewrites accepted terms.
 - Published Offer revisions are immutable. Retirement reversibly stops new redemption; archive is terminal.
+- Initial Offer redemption supports current `ACTIVE` and `TRIALING` subscriptions. Recovery for other lifecycle states is Phase 12.
 
 ## 7. Subscription operations
 
