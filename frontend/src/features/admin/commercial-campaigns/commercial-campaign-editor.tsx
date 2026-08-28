@@ -27,6 +27,7 @@ import {
   adjacentCampaignEditorSteps,
   type CampaignEditorStep,
   campaignEditorSteps,
+  campaignEditorSuccessDestination,
   shouldBlockCampaignEditorNavigation,
 } from "./commercial-campaign-editor-state";
 import {
@@ -261,6 +262,7 @@ function ReviewStep({
 }
 
 function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
+  const session = useAdminSession();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -302,7 +304,15 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
         adminCommercialKeys.campaigns.detail(campaign.summary.id),
       );
       toast.success(existing ? "Brouillon enregistré" : "Campagne créée");
-      navigate(`/admin/campaigns/${campaign.summary.id}`, { replace: true });
+      navigate(
+        campaignEditorSuccessDestination(
+          campaign.summary.id,
+          Boolean(existing),
+          session.can(adminPermissions.campaignsRead),
+          session.can(adminPermissions.campaignsList),
+        ),
+        { replace: true },
+      );
     },
     onError: (error) => {
       if (error instanceof ApiError && error.code === "STALE_RESOURCE_VERSION") setVersionConflict(true);

@@ -150,6 +150,7 @@ function renderCreateEditor(permissions: string[]) {
     [
       { path: "/admin/campaigns/new", element: <AdminCommercialCampaignCreatePage /> },
       { path: "/admin/campaigns", element: <p>Liste des campagnes</p> },
+      { path: "/admin", element: <p>Vue d’ensemble</p> },
     ],
     { initialEntries: ["/admin/campaigns/new"] },
   );
@@ -208,6 +209,42 @@ describe("commercial campaign least-privilege wiring", () => {
     } finally {
       window.confirm = originalConfirm;
     }
+  });
+
+  test("returns a create-only operator to a readable surface after creation", async () => {
+    const permissions = [adminPermissions.campaignsCreate];
+    const requests: Array<{ url: string; method: string | undefined }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      requests.push({ url, method: init?.method });
+      if (url.endsWith("/api/admin/me")) return response(session(permissions));
+      if (url.endsWith("/api/admin/campaigns") && init?.method === "POST") {
+        return response(
+          {
+            ...detail(),
+            summary: { ...detail().summary, audienceMode: "PUBLIC" },
+            audience: {
+              mode: "PUBLIC",
+              explicitAccountIds: [],
+              segmentId: null,
+              segmentActivationId: null,
+            },
+          },
+          201,
+        );
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const view = renderCreateEditor(permissions);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.type(view.getByLabelText("Nom"), "Campagne création seule");
+    await user.type(view.getByLabelText("Motif opérationnel"), "Création contrôlée");
+    await user.click(view.getByRole("tab", { name: "Révision" }));
+    await user.click(view.getByRole("button", { name: "Créer le brouillon" }));
+    expect(await view.findByText("Vue d’ensemble")).toBeTruthy();
+    expect(
+      requests.filter((request) => request.url.endsWith("/api/admin/campaigns") && request.method === "POST"),
+    ).toHaveLength(1);
   });
 
   test("fetches a signed schedule review only on demand and submits that exact evidence", async () => {

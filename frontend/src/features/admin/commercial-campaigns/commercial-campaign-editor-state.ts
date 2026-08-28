@@ -23,3 +23,12 @@ export function shouldBlockCampaignEditorNavigation(
 ) {
   return dirty && !completed && currentPathname !== nextPathname;
 }
+export function campaignEditorSuccessDestination(
+  campaignId: string,
+  editing: boolean,
+  canRead: boolean,
+  canList: boolean,
+) {
+  if (editing || canRead) return `/admin/campaigns/${campaignId}`;
+  return canList ? "/admin/campaigns" : "/admin";
+}
