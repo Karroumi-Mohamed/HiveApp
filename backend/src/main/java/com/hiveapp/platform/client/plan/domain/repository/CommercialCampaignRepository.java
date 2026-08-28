@@ -32,6 +32,11 @@ public interface CommercialCampaignRepository extends JpaRepository<CommercialCa
     @Query("select campaign from CommercialCampaign campaign where campaign.id = :campaignId")
     Optional<CommercialCampaign> findDetailById(@Param("campaignId") UUID campaignId);
 
+    /** Bounded graph for action-state reads; it intentionally does not hydrate the audience. */
+    @EntityGraph(attributePaths = {"segment", "segmentActivation"})
+    @Query("select campaign from CommercialCampaign campaign where campaign.id = :campaignId")
+    Optional<CommercialCampaign> findOperationsById(@Param("campaignId") UUID campaignId);
+
     @Query("select campaign.lineageId from CommercialCampaign campaign where campaign.id = :campaignId")
     Optional<UUID> findLineageIdById(@Param("campaignId") UUID campaignId);
 
@@ -69,6 +74,10 @@ public interface CommercialCampaignRepository extends JpaRepository<CommercialCa
             + "left join campaign.explicitAccounts account where campaign.id in :campaignIds "
             + "group by campaign.id")
     List<Object[]> countExplicitAccountsByCampaignIds(@Param("campaignIds") Collection<UUID> campaignIds);
+
+    @Query("select count(account) from CommercialCampaign campaign "
+            + "left join campaign.explicitAccounts account where campaign.id = :campaignId")
+    long countExplicitAccountsByCampaignId(@Param("campaignId") UUID campaignId);
 
     @Query("select account.id from CommercialCampaign campaign join campaign.explicitAccounts account "
             + "where campaign.id = :campaignId order by account.id")

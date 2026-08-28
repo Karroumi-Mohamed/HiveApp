@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.plan.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignAction;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignAudienceMode;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignBlocker;
@@ -71,7 +72,14 @@ public final class CommercialCampaignViews {
             UUID lineageId, int revisionNumber, long version) {}
 
     /** Minimal acknowledgement shared by Campaign create/update/lifecycle mutations. */
-    public record Mutation(UUID campaignId, CommercialCampaignStatus status, long version) {}
+    public record Mutation(UUID campaignId, CommercialCampaignStatus status, long version) {
+        /**
+         * Lets the mutation-audit infrastructure associate create, duplicate and revise events
+         * with the newly created Campaign without widening the public acknowledgement contract.
+         */
+        @JsonIgnore
+        public UUID id() { return campaignId; }
+    }
 
     public record Audience(CommercialCampaignAudienceMode mode, Set<UUID> explicitAccountIds,
                            UUID segmentId, UUID segmentActivationId) {

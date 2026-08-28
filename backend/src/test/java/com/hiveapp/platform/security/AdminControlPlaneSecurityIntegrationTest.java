@@ -1403,6 +1403,9 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 "platform.campaigns.read_audience");
         LimitedAdmin identityReader = createLimitedAdmin(
                 "platform.campaigns.owner", "platform.campaigns.read_audience_identities");
+        LimitedAdmin operationsReader = createLimitedAdmin("platform.campaigns.read_operations");
+        LimitedAdmin editableDefinitionReader = createLimitedAdmin(
+                "platform.campaigns.read_editable_definition");
         LimitedAdmin mutator = createLimitedAdmin(
                 "platform.campaigns.create", "platform.campaigns.update",
                 "platform.campaigns.duplicate", "platform.campaigns.revise",
@@ -1416,6 +1419,18 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/admin/campaigns/{id}", missing)
                         .header("Authorization", bearer(opaqueReader.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/operations", missing)
+                        .header("Authorization", bearer(opaqueReader.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/operations", missing)
+                        .header("Authorization", bearer(operationsReader.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/editable-definition", missing)
+                        .header("Authorization", bearer(mutator.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/editable-definition", missing)
+                        .header("Authorization", bearer(editableDefinitionReader.token())))
                 .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/admin/campaigns/{id}/owner", missing)
                         .header("Authorization", bearer(opaqueReader.token())))

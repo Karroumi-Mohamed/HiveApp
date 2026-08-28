@@ -528,6 +528,90 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
     }
 
     @Test
+    void createAndDerivedCampaignAuditsBelongToTheNewCampaignWithoutWideningTheResponse()
+            throws Exception {
+        String token = loginAdminAndGetToken();
+        Instant start = Instant.now().plusSeconds(3600);
+        JsonNode created = response(mockMvc.perform(post("/api/admin/campaigns")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(create("Audit attribution", start,
+                                start.plusSeconds(3600), audience(
+                                        CommercialCampaignAudienceMode.PUBLIC,
+                                        Set.of(), null, null)))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.campaignId").isString())
+                .andExpect(jsonPath("$.id").doesNotExist())
+                .andExpect(jsonPath("$.name").doesNotExist()));
+        UUID sourceId = id(created);
+
+        assertThat(campaignAudits(sourceId))
+                .filteredOn(log -> "platform.campaigns.create".equals(log.getAction()))
+                .singleElement()
+                .satisfies(log -> assertThat(log.getResourceId()).isEqualTo(sourceId.toString()));
+        mockMvc.perform(get("/api/admin/campaigns/{id}/history", sourceId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[*].action", hasItem("platform.campaigns.create")));
+
+        JsonNode source = getCampaign(token, sourceId);
+        JsonNode duplicate = response(mockMvc.perform(
+                        post("/api/admin/campaigns/{id}/duplicate", sourceId)
+                                .header("Authorization", bearer(token))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(
+                                        new CommercialCampaignRequests.Duplicate(
+                                                source.at("/summary/version").asLong(),
+                                                "Audit attribution copy", "Copy with provenance"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").doesNotExist()));
+        UUID duplicateId = id(duplicate);
+
+        assertThat(campaignAudits(duplicateId))
+                .filteredOn(log -> "platform.campaigns.duplicate".equals(log.getAction()))
+                .singleElement()
+                .satisfies(log -> assertThat(log.getResourceId()).isEqualTo(duplicateId.toString()));
+        assertThat(campaignAudits(sourceId))
+                .noneMatch(log -> "platform.campaigns.duplicate".equals(log.getAction()));
+    }
+
+    @Test
+    void operationsReadDoesNotHydrateAnExplicitAudienceAsItGrows() throws Exception {
+        String token = loginAdminAndGetToken();
+        Instant start = Instant.now().plusSeconds(3600);
+        Account one = registerAccount("campaign-operation-one");
+        JsonNode small = createCampaign(token, create("Small operation audience", start,
+                start.plusSeconds(3600), audience(
+                        CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS,
+                        Set.of(one.getId()), null, null)));
+        Set<UUID> largeAudience = new java.util.LinkedHashSet<>();
+        largeAudience.add(one.getId());
+        for (int index = 0; index < 7; index++) {
+            largeAudience.add(registerAccount("campaign-operation-large-" + index).getId());
+        }
+        JsonNode large = createCampaign(token, create("Large operation audience", start,
+                start.plusSeconds(3600), audience(
+                        CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS,
+                        largeAudience, null, null)));
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+
+        statistics.clear();
+        mockMvc.perform(get("/api/admin/campaigns/{id}/operations", id(small))
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
+        long smallEntityLoads = statistics.getEntityLoadCount();
+        long smallStatements = statistics.getPrepareStatementCount();
+
+        statistics.clear();
+        mockMvc.perform(get("/api/admin/campaigns/{id}/operations", id(large))
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.blockedActions.SCHEDULE").doesNotExist());
+        assertThat(statistics.getEntityLoadCount()).isLessThanOrEqualTo(smallEntityLoads + 1);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(smallStatements);
+    }
+
+    @Test
     void draftSuccessorAdvertisesSchedulingOnlyAfterTheLiveRevisionEnds() throws Exception {
         String token = loginAdminAndGetToken();
         Instant start = Instant.now().plusSeconds(3600);

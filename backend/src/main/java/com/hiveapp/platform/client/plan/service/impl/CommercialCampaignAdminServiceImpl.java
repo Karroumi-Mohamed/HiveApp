@@ -179,7 +179,13 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
     @PermissionNode(key = "read_operations",
             description = "Read authoritative actions and blockers for one Campaign revision")
     public CommercialCampaignViews.OperationState operations(UUID campaignId) {
-        return toOperationState(requireCampaign(campaignId));
+        CommercialCampaign campaign = campaignRepository.findOperationsById(campaignId)
+                .orElseThrow(() -> notFound(campaignId));
+        Integer configured = campaign.getAudienceMode()
+                == CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS
+                ? Math.toIntExact(campaignRepository.countExplicitAccountsByCampaignId(campaignId))
+                : null;
+        return toOperationState(campaign, configured);
     }
 
     @Override
@@ -766,9 +772,8 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 campaign.getEndedAt(), campaign.getArchivedAt());
     }
 
-    private CommercialCampaignViews.OperationState toOperationState(CommercialCampaign campaign) {
-        Integer configured = campaign.getAudienceMode() == CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS
-                ? campaign.getExplicitAccounts().size() : null;
+    private CommercialCampaignViews.OperationState toOperationState(
+            CommercialCampaign campaign, Integer configured) {
         Integer frozen = snapshotRepository.findByCampaign_Id(campaign.getId())
                 .map(CommercialCampaignAudienceSnapshot::getAffectedAccountCount).orElse(null);
         int maximum = campaignRepository.findMaximumRevisionNumber(campaign.getLineageId());
