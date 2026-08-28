@@ -1234,10 +1234,10 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 
 ## MARKETING-FLOW-002 — Campaigns, offers, and redemption
 
-**Status:** `PARTIAL — CAMPAIGN BACKEND IMPLEMENTED AND INDEPENDENTLY AUDITED 2026-08-28; CAMPAIGN UI, OFFERS, AND REDEMPTION PENDING`
+**Status:** `PARTIAL — CAMPAIGN BACKEND AND ADMIN UI IMPLEMENTED AND INDEPENDENTLY AUDITED 2026-08-28; OFFERS AND REDEMPTION PENDING`
 
 - Campaign lifecycle is `DRAFT`, `SCHEDULED`, `ACTIVE`, `PAUSED`, `ENDED`, and terminal `ARCHIVED`.
-- Delivered Campaign operations include bounded list/search/filter/sort, guided draft terms and audience configuration, duplication/revision/compare/history, separately authorized ownership and Account identity lookup, signed schedule review, pause/resume/end/archive, safe draft deletion, and isolated scheduled start/end processing.
+- Delivered Campaign operations include bounded list/search/filter/sort, guided draft terms and audience configuration, duplication/revision/compare/history, separately authorized ownership and Account identity lookup, signed schedule review, pause/resume/end/archive, safe draft deletion, and isolated scheduled start/end processing. The admin UI exposes these as permission-independent surfaces, uses narrow operation/edit/evidence contracts rather than broad detail reads, and preserves stale-review, loading, error, mobile, and RTL behavior.
 - A targeted schedule freezes the exact explicit Accounts or exact active Segment activation selected at review. Its immutable evidence binds actor, Campaign/version, commercial-catalogue revision, registry snapshot, evaluation/expiry, fingerprint, reason, and schedule window. A public Campaign deliberately stores no platform-wide Account population; eligibility remains dynamic at Offer preview/acceptance.
 - Only a draft Campaign still depends on its source Segment for future scheduling and therefore blocks Segment archive. Once scheduled, the frozen audience is self-contained; retained Campaign history still blocks destructive Segment deletion so provenance cannot be orphaned.
 - Offers are immutable published revisions in a stable lineage. The lineage owns its exact Campaign revision, permanent customer-code reservation, discovery mode, acceptance channel, and lineage-wide global/per-Account limits; publishing a successor never resets usage.
