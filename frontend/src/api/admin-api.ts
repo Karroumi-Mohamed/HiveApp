@@ -26,6 +26,21 @@ import type {
   BulkOperationResult,
   ClientPlanCatalog,
   CommercialAvailabilityHistoryEntry,
+  CommercialCampaignAudienceMode,
+  CommercialCampaignComparison,
+  CommercialCampaignDetail,
+  CommercialCampaignFrozenAudience,
+  CommercialCampaignFrozenIdentityAudience,
+  CommercialCampaignHistory,
+  CommercialCampaignOwner,
+  CommercialCampaignOwnerChoice,
+  CommercialCampaignRevision,
+  CommercialCampaignSchedulePreview,
+  CommercialCampaignSegmentChoice,
+  CommercialCampaignSource,
+  CommercialCampaignStatus,
+  CommercialCampaignSummary,
+  CommercialCampaignWriteInput,
   CommercialLifecycleInput,
   CommercialOverview,
   CommercialPolicyActivation,
@@ -542,6 +557,69 @@ export const adminApi = {
     }),
   deleteProductPrice: (id: UUID, version: number) =>
     admin<void>(`/product-prices/${id}`, { method: "DELETE", query: { version } }),
+  commercialCampaigns: (query: {
+    search?: string;
+    status?: CommercialCampaignStatus;
+    audienceMode?: CommercialCampaignAudienceMode;
+    source?: CommercialCampaignSource;
+    includeArchived?: boolean;
+    page?: number;
+    size?: number;
+    sort?: string;
+    direction?: "asc" | "desc";
+  }) => admin<PageResponse<CommercialCampaignSummary>>("/campaigns", { query }),
+  commercialCampaign: (id: UUID) => admin<CommercialCampaignDetail>(`/campaigns/${id}`),
+  createCommercialCampaign: (input: CommercialCampaignWriteInput) =>
+    admin<CommercialCampaignDetail>("/campaigns", { method: "POST", body: jsonBody(input) }),
+  updateCommercialCampaign: (id: UUID, input: CommercialCampaignWriteInput & { version: number }) =>
+    admin<CommercialCampaignDetail>(`/campaigns/${id}`, { method: "PUT", body: jsonBody(input) }),
+  duplicateCommercialCampaign: (id: UUID, input: { version: number; name: string; reason: string }) =>
+    admin<CommercialCampaignDetail>(`/campaigns/${id}/duplicate`, { method: "POST", body: jsonBody(input) }),
+  reviseCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialCampaignDetail>(`/campaigns/${id}/revisions`, { method: "POST", body: jsonBody(input) }),
+  commercialCampaignRevisions: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<CommercialCampaignRevision>>(`/campaigns/${id}/revisions`, { query: { page, size } }),
+  compareCommercialCampaigns: (id: UUID, comparedId: UUID) =>
+    admin<CommercialCampaignComparison>(`/campaigns/${id}/compare/${comparedId}`),
+  commercialCampaignHistory: (id: UUID, page = 0, size = 20) =>
+    admin<PageResponse<CommercialCampaignHistory>>(`/campaigns/${id}/history`, { query: { page, size } }),
+  previewCommercialCampaignSchedule: (id: UUID) =>
+    admin<CommercialCampaignSchedulePreview>(`/campaigns/${id}/schedule-preview`),
+  scheduleCommercialCampaign: (id: UUID, input: { version: number; reason: string; previewToken: string }) =>
+    admin<CommercialCampaignDetail>(`/campaigns/${id}/schedule`, { method: "POST", body: jsonBody(input) }),
+  pauseCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialCampaignDetail>(`/campaigns/${id}/pause`, { method: "POST", body: jsonBody(input) }),
+  resumeCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialCampaignDetail>(`/campaigns/${id}/resume`, { method: "POST", body: jsonBody(input) }),
+  endCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialCampaignDetail>(`/campaigns/${id}/end`, { method: "POST", body: jsonBody(input) }),
+  archiveCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
+    admin<CommercialCampaignDetail>(`/campaigns/${id}/archive`, { method: "POST", body: jsonBody(input) }),
+  deleteCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
+    admin<void>(`/campaigns/${id}`, { method: "DELETE", body: jsonBody(input) }),
+  commercialCampaignOwner: (id: UUID) => admin<CommercialCampaignOwner>(`/campaigns/${id}/owner`),
+  reassignCommercialCampaignOwner: (id: UUID, input: { version: number; ownerAdminUserId: UUID; reason: string }) =>
+    admin<CommercialCampaignDetail>(`/campaigns/${id}/owner`, { method: "PUT", body: jsonBody(input) }),
+  commercialCampaignAudience: (id: UUID, page = 0, size = 20) =>
+    admin<CommercialCampaignFrozenAudience>(`/campaigns/${id}/audience`, { query: { page, size } }),
+  commercialCampaignAudienceIdentities: (id: UUID, page = 0, size = 20) =>
+    admin<CommercialCampaignFrozenIdentityAudience>(`/campaigns/${id}/audience-identities`, {
+      query: { page, size },
+    }),
+  commercialCampaignAccountChoices: (query: { query?: string; active?: boolean; page?: number; size?: number }) =>
+    admin<PageResponse<AccountDirectoryEntry>>("/campaigns/account-choices", { query }),
+  resolveCommercialCampaignAccountChoices: (ids: UUID[]) =>
+    admin<AccountDirectoryEntry[]>("/campaigns/account-choices/selected", { query: { ids } }),
+  commercialCampaignSegmentChoices: (query: { query?: string; page?: number; size?: number }) =>
+    admin<PageResponse<CommercialCampaignSegmentChoice>>("/campaigns/segment-choices", { query }),
+  resolveCommercialCampaignSegmentChoice: (segmentId: UUID, activationId: UUID) =>
+    admin<CommercialCampaignSegmentChoice>("/campaigns/segment-choices/selected", {
+      query: { segmentId, activationId },
+    }),
+  commercialCampaignOwnerChoices: (query: { query?: string; page?: number; size?: number }) =>
+    admin<PageResponse<CommercialCampaignOwnerChoice>>("/campaigns/owner-choices", { query }),
+  resolveCommercialCampaignOwnerChoices: (ids: UUID[]) =>
+    admin<CommercialCampaignOwnerChoice[]>("/campaigns/owner-choices/selected", { query: { ids } }),
   commercialPolicies: (query: {
     search?: string;
     status?: CommercialPolicyStatus;

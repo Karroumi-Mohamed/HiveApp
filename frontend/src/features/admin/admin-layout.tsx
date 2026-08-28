@@ -11,6 +11,7 @@ import {
   HandshakeIcon,
   HeartbeatIcon,
   HexagonIcon,
+  MegaphoneIcon,
   PackageIcon,
   PulseIcon,
   ReceiptIcon,
@@ -120,6 +121,12 @@ export function AdminLayout() {
           to: "/admin/segments",
           icon: FunnelIcon,
           visible: session.can(adminPermissions.segmentsList),
+        },
+        {
+          label: "Campagnes",
+          to: "/admin/campaigns",
+          icon: MegaphoneIcon,
+          visible: session.can(adminPermissions.campaignsList),
         },
         {
           label: "Politiques commerciales",

@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { AppProviders } from "@/app/providers";
 import {
+  adminCommercialCampaignDetailSurfacePermissions,
   adminCommercialPolicyDetailSurfacePermissions,
   adminCommercialSegmentDetailSurfacePermissions,
   adminOverviewSurfacePermissions,
@@ -27,6 +28,12 @@ import {
   AdminOperationalQuotaPackagesPage,
 } from "@/features/admin/commercial/admin-commercial-catalog-pages";
 import { AdminAddOnsPage, AdminQuotaPackagesPage } from "@/features/admin/commercial/admin-commercial-pages";
+import { AdminCommercialCampaignDetailPage } from "@/features/admin/commercial-campaigns/admin-commercial-campaign-detail-page";
+import { AdminCommercialCampaignsPage } from "@/features/admin/commercial-campaigns/admin-commercial-campaigns-page";
+import {
+  AdminCommercialCampaignCreatePage,
+  AdminCommercialCampaignEditPage,
+} from "@/features/admin/commercial-campaigns/commercial-campaign-editor";
 import { AdminCommercialPoliciesPage } from "@/features/admin/commercial-policies/admin-commercial-policies-page";
 import { AdminCommercialPolicyDetailPage } from "@/features/admin/commercial-policies/admin-commercial-policy-detail-page";
 import {
@@ -259,6 +266,38 @@ const router = createBrowserRouter([
         element: (
           <AdminReadPermissionGate anyOf={adminCommercialSegmentDetailSurfacePermissions}>
             <AdminCommercialSegmentDetailPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "campaigns",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.campaignsList]}>
+            <AdminCommercialCampaignsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "campaigns/new",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.campaignsCreate]}>
+            <AdminCommercialCampaignCreatePage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "campaigns/:campaignId/edit",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.campaignsRead, adminPermissions.campaignsUpdate]}>
+            <AdminCommercialCampaignEditPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "campaigns/:campaignId/:tab?",
+        element: (
+          <AdminReadPermissionGate anyOf={adminCommercialCampaignDetailSurfacePermissions}>
+            <AdminCommercialCampaignDetailPage />
           </AdminReadPermissionGate>
         ),
       },
