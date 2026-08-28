@@ -337,7 +337,7 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
                         .content(objectMapper.writeValueAsString(update))).andExpect(status().isOk()));
         mockMvc.perform(post("/api/admin/campaigns/{id}/schedule", id(first))
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
-                        .content(scheduleRequest(updated.at("/summary/version").asLong(),
+                        .content(scheduleRequest(updated.get("version").asLong(),
                                 reviewed.get("previewToken").asText())))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STALE_SCHEDULE_PREVIEW"));
@@ -502,11 +502,12 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
                         .content(versionReason(scheduled, "Reject second draft successor")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("DRAFT_SUCCESSOR_EXISTS"));
-        JsonNode duplicate = response(mockMvc.perform(post("/api/admin/campaigns/{id}/duplicate", id(draft))
+        JsonNode duplicateResult = response(mockMvc.perform(post("/api/admin/campaigns/{id}/duplicate", id(draft))
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CommercialCampaignRequests.Duplicate(
                                 scheduled.at("/summary/version").asLong(), "Independent campaign",
                                 "Create a new lineage")))).andExpect(status().isCreated()));
+        JsonNode duplicate = getCampaign(token, id(duplicateResult));
         assertThat(duplicate.at("/summary/lineageId").asText())
                 .isNotEqualTo(scheduled.at("/summary/lineageId").asText());
         assertThat(duplicate.get("sourceCampaignId").asText()).isEqualTo(id(draft).toString());
@@ -678,10 +679,11 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
 
     private JsonNode createCampaign(String token, CommercialCampaignRequests.Create request)
             throws Exception {
-        return response(mockMvc.perform(post("/api/admin/campaigns")
+        JsonNode result = response(mockMvc.perform(post("/api/admin/campaigns")
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated()));
+        return getCampaign(token, id(result));
     }
 
     private JsonNode preview(String token, UUID id) throws Exception {
@@ -690,18 +692,20 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
     }
 
     private JsonNode schedule(String token, UUID id, JsonNode preview, String reason) throws Exception {
-        return response(mockMvc.perform(post("/api/admin/campaigns/{id}/schedule", id)
+        response(mockMvc.perform(post("/api/admin/campaigns/{id}/schedule", id)
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CommercialCampaignRequests.Schedule(
                                 preview.get("campaignVersion").asLong(), reason,
                                 preview.get("previewToken").asText())))).andExpect(status().isOk()));
+        return getCampaign(token, id);
     }
 
     private JsonNode lifecycle(String token, UUID id, String action, JsonNode detail, String reason)
             throws Exception {
-        return response(mockMvc.perform(post("/api/admin/campaigns/{id}/" + action, id)
+        response(mockMvc.perform(post("/api/admin/campaigns/{id}/" + action, id)
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                         .content(versionReason(detail, reason))).andExpect(status().isOk()));
+        return getCampaign(token, id);
     }
 
     private JsonNode getCampaign(String token, UUID id) throws Exception {
@@ -782,11 +786,14 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
 
     private String versionReason(JsonNode detail, String reason) throws Exception {
         return objectMapper.writeValueAsString(new CommercialCampaignRequests.VersionReason(
-                detail.at("/summary/version").asLong(), reason));
+                detail.has("version") ? detail.get("version").asLong()
+                        : detail.at("/summary/version").asLong(), reason));
     }
 
     private UUID id(JsonNode detail) {
-        return UUID.fromString(detail.at("/summary/id").asText());
+        String value = detail.hasNonNull("campaignId")
+                ? detail.get("campaignId").asText() : detail.at("/summary/id").asText();
+        return UUID.fromString(value);
     }
 
     private Set<String> actionNames(JsonNode detail) {

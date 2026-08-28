@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
 import type {
   CommercialCampaignAction,
-  CommercialCampaignDetail,
+  CommercialCampaignOperationState,
   CommercialCampaignSchedulePreview,
 } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
@@ -81,7 +81,7 @@ export function CommercialCampaignReasonDialog({
   action,
   trigger,
 }: {
-  campaign: CommercialCampaignDetail;
+  campaign: CommercialCampaignOperationState;
   action: ReasonAction;
   trigger: ReactNode;
 }) {
@@ -89,16 +89,16 @@ export function CommercialCampaignReasonDialog({
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
-  const [name, setName] = useState(`${campaign.summary.name} — copie`);
+  const [name, setName] = useState(`${campaign.name} — copie`);
   const [confirmation, setConfirmation] = useState("");
-  const expectedVersion = useRef(campaign.summary.version);
+  const expectedVersion = useRef(campaign.version);
   const copy = reasonCopy[action];
   const changeOpen = (next: boolean) => {
-    if (next) expectedVersion.current = campaign.summary.version;
+    if (next) expectedVersion.current = campaign.version;
     setOpen(next);
     if (!next) {
       setReason("");
-      setName(`${campaign.summary.name} — copie`);
+      setName(`${campaign.name} — copie`);
       setConfirmation("");
     }
   };
@@ -106,35 +106,35 @@ export function CommercialCampaignReasonDialog({
     mutationFn: async () => {
       const input = { version: expectedVersion.current, reason: reason.trim() };
       if (action === "DUPLICATE")
-        return adminApi.duplicateCommercialCampaign(campaign.summary.id, { ...input, name: name.trim() });
-      if (action === "REVISE") return adminApi.reviseCommercialCampaign(campaign.summary.id, input);
-      if (action === "PAUSE") return adminApi.pauseCommercialCampaign(campaign.summary.id, input);
-      if (action === "RESUME") return adminApi.resumeCommercialCampaign(campaign.summary.id, input);
-      if (action === "END") return adminApi.endCommercialCampaign(campaign.summary.id, input);
-      if (action === "ARCHIVE") return adminApi.archiveCommercialCampaign(campaign.summary.id, input);
-      await adminApi.deleteCommercialCampaign(campaign.summary.id, input);
+        return adminApi.duplicateCommercialCampaign(campaign.id, { ...input, name: name.trim() });
+      if (action === "REVISE") return adminApi.reviseCommercialCampaign(campaign.id, input);
+      if (action === "PAUSE") return adminApi.pauseCommercialCampaign(campaign.id, input);
+      if (action === "RESUME") return adminApi.resumeCommercialCampaign(campaign.id, input);
+      if (action === "END") return adminApi.endCommercialCampaign(campaign.id, input);
+      if (action === "ARCHIVE") return adminApi.archiveCommercialCampaign(campaign.id, input);
+      await adminApi.deleteCommercialCampaign(campaign.id, input);
       return null;
     },
     onSuccess: async (result) => {
-      await invalidateCampaign(queryClient, campaign.summary.id);
+      await invalidateCampaign(queryClient, campaign.id);
       changeOpen(false);
       if (action === "DELETE_DRAFT") {
         toast.success("Brouillon supprimé");
         navigate("/admin/campaigns");
       } else if (action === "DUPLICATE" || action === "REVISE") {
         toast.success(action === "DUPLICATE" ? "Copie créée" : "Révision créée");
-        if (result) navigate(`/admin/campaigns/${result.summary.id}`);
+        if (result) navigate(`/admin/campaigns/${result.campaignId}`);
       } else toast.success("Cycle de vie mis à jour");
     },
     onError: async (error) => {
-      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.campaigns.detail(campaign.summary.id) });
+      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.campaigns.detail(campaign.id) });
       toast.error(campaignMutationMessage(error));
     },
   });
   const valid =
     Boolean(reason.trim()) &&
     (action !== "DUPLICATE" || Boolean(name.trim())) &&
-    (action !== "DELETE_DRAFT" || confirmation === campaign.summary.name);
+    (action !== "DELETE_DRAFT" || confirmation === campaign.name);
   return (
     <Dialog onOpenChange={changeOpen} open={open}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -159,10 +159,10 @@ export function CommercialCampaignReasonDialog({
             <Label htmlFor="campaign-delete-name">Saisissez le nom exact</Label>
             <button
               className="block max-w-full select-all truncate font-mono text-sm text-foreground underline-offset-4 hover:underline"
-              onClick={() => setConfirmation(campaign.summary.name)}
+              onClick={() => setConfirmation(campaign.name)}
               type="button"
             >
-              {campaign.summary.name}
+              {campaign.name}
             </button>
             <Input
               id="campaign-delete-name"
@@ -202,7 +202,7 @@ export function CommercialCampaignScheduleDialog({
   campaign,
   trigger,
 }: {
-  campaign: CommercialCampaignDetail;
+  campaign: CommercialCampaignOperationState;
   trigger: ReactNode;
 }) {
   const session = useAdminSession();
@@ -216,8 +216,8 @@ export function CommercialCampaignScheduleDialog({
   }>({ status: "idle", data: null });
   const previewRequest = useRef(0);
   const canPreview = session.can(adminPermissions.campaignsPreviewSchedule);
-  const campaignId = campaign.summary.id;
-  const campaignVersion = campaign.summary.version;
+  const campaignId = campaign.id;
+  const campaignVersion = campaign.version;
   const refresh = useCallback(async () => {
     const request = ++previewRequest.current;
     setPreview({ status: "loading", data: null });
@@ -266,21 +266,21 @@ export function CommercialCampaignScheduleDialog({
   const mutation = useMutation({
     mutationFn: () => {
       if (!reviewedCampaignScheduleReady(campaign, preview.data, Date.now())) throw new Error("Preuve expirée");
-      return adminApi.scheduleCommercialCampaign(campaign.summary.id, {
-        version: preview.data?.campaignVersion ?? campaign.summary.version,
+      return adminApi.scheduleCommercialCampaign(campaign.id, {
+        version: preview.data?.campaignVersion ?? campaign.version,
         reason: reason.trim(),
         previewToken: preview.data?.previewToken ?? "",
       });
     },
     onSuccess: async () => {
       changeOpen(false);
-      await invalidateCampaign(queryClient, campaign.summary.id);
+      await invalidateCampaign(queryClient, campaign.id);
       toast.success("Campagne planifiée avec l’audience vérifiée");
     },
     onError: async (error) => {
       previewRequest.current += 1;
       setPreview({ status: "idle", data: null });
-      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.campaigns.detail(campaign.summary.id) });
+      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.campaigns.detail(campaign.id) });
       if (open) await refresh();
       setClock(Date.now());
       toast.error(campaignMutationMessage(error));
@@ -401,6 +401,6 @@ export function CommercialCampaignScheduleDialog({
   );
 }
 
-export function campaignActionVisible(campaign: CommercialCampaignDetail, action: CommercialCampaignAction) {
-  return campaign.summary.availableActions.includes(action) || Boolean(campaign.summary.blockedActions[action]);
+export function campaignActionVisible(campaign: CommercialCampaignOperationState, action: CommercialCampaignAction) {
+  return campaign.availableActions.includes(action) || Boolean(campaign.blockedActions[action]);
 }

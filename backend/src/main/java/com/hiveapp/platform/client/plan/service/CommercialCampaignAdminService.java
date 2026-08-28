@@ -19,19 +19,21 @@ public interface CommercialCampaignAdminService {
                                                CommercialCampaignSource source,
                                                boolean includeArchived, Pageable pageable);
     CommercialCampaignViews.Detail get(UUID campaignId);
-    CommercialCampaignViews.Detail create(CommercialCampaignRequests.Create request);
-    CommercialCampaignViews.Detail update(UUID campaignId, CommercialCampaignRequests.Update request);
-    CommercialCampaignViews.Detail duplicate(UUID campaignId, CommercialCampaignRequests.Duplicate request);
-    CommercialCampaignViews.Detail revise(UUID campaignId, CommercialCampaignRequests.VersionReason request);
+    CommercialCampaignViews.OperationState operations(UUID campaignId);
+    CommercialCampaignViews.EditableDefinition editableDefinition(UUID campaignId);
+    CommercialCampaignViews.Mutation create(CommercialCampaignRequests.Create request);
+    CommercialCampaignViews.Mutation update(UUID campaignId, CommercialCampaignRequests.Update request);
+    CommercialCampaignViews.Mutation duplicate(UUID campaignId, CommercialCampaignRequests.Duplicate request);
+    CommercialCampaignViews.Mutation revise(UUID campaignId, CommercialCampaignRequests.VersionReason request);
     CommercialCampaignViews.Comparison compare(UUID campaignId, UUID comparedCampaignId);
     Page<CommercialCampaignViews.Revision> revisions(UUID campaignId, Pageable pageable);
     Page<CommercialCampaignViews.History> history(UUID campaignId, Pageable pageable);
     CommercialCampaignViews.AudiencePreview previewSchedule(UUID campaignId);
-    CommercialCampaignViews.Detail schedule(UUID campaignId, CommercialCampaignRequests.Schedule request);
-    CommercialCampaignViews.Detail pause(UUID campaignId, CommercialCampaignRequests.VersionReason request);
-    CommercialCampaignViews.Detail resume(UUID campaignId, CommercialCampaignRequests.VersionReason request);
-    CommercialCampaignViews.Detail end(UUID campaignId, CommercialCampaignRequests.VersionReason request);
-    CommercialCampaignViews.Detail archive(UUID campaignId, CommercialCampaignRequests.VersionReason request);
+    CommercialCampaignViews.Mutation schedule(UUID campaignId, CommercialCampaignRequests.Schedule request);
+    CommercialCampaignViews.Mutation pause(UUID campaignId, CommercialCampaignRequests.VersionReason request);
+    CommercialCampaignViews.Mutation resume(UUID campaignId, CommercialCampaignRequests.VersionReason request);
+    CommercialCampaignViews.Mutation end(UUID campaignId, CommercialCampaignRequests.VersionReason request);
+    CommercialCampaignViews.Mutation archive(UUID campaignId, CommercialCampaignRequests.VersionReason request);
     void deleteDraft(UUID campaignId, CommercialCampaignRequests.VersionReason request);
     CommercialCampaignViews.Owner owner(UUID campaignId);
     CommercialCampaignViews.OwnerMutation reassignOwner(

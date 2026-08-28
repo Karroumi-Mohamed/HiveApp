@@ -46,6 +46,33 @@ public final class CommercialCampaignViews {
         public UUID id() { return summary.id(); }
     }
 
+    /**
+     * Authoritative but definition-free state used to compose independently authorized
+     * Campaign operations. It intentionally exposes no audience, description, reason or owner.
+     */
+    public record OperationState(
+            UUID id, String code, String name, CommercialCampaignStatus status,
+            int revisionNumber, long version,
+            List<CommercialCampaignAction> availableActions,
+            Map<CommercialCampaignAction, List<CommercialCampaignBlocker>> blockedActions) {
+        public OperationState {
+            availableActions = List.copyOf(availableActions);
+            blockedActions = blockedActions.entrySet().stream().collect(
+                    java.util.stream.Collectors.toUnmodifiableMap(
+                            Map.Entry::getKey, entry -> List.copyOf(entry.getValue())));
+        }
+    }
+
+    /** Exact editable draft fields exposed by the update permission, without unrelated detail. */
+    public record EditableDefinition(
+            UUID campaignId, String code, String name, CommercialCampaignStatus status,
+            String description, String reason, Audience audience,
+            Instant startsAt, Instant endsAt, CommercialCampaignSource source,
+            UUID lineageId, int revisionNumber, long version) {}
+
+    /** Minimal acknowledgement shared by Campaign create/update/lifecycle mutations. */
+    public record Mutation(UUID campaignId, CommercialCampaignStatus status, long version) {}
+
     public record Audience(CommercialCampaignAudienceMode mode, Set<UUID> explicitAccountIds,
                            UUID segmentId, UUID segmentActivationId) {
         public Audience { explicitAccountIds = Set.copyOf(explicitAccountIds); }

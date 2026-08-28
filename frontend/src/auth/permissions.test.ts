@@ -82,6 +82,7 @@ describe("session permission bypasses", () => {
   test("Campaign evidence, history, comparison and owner surfaces remain independently reachable", () => {
     expect(adminCommercialCampaignDetailSurfacePermissions).toEqual([
       adminPermissions.campaignsRead,
+      adminPermissions.campaignsReadOperations,
       adminPermissions.campaignsCompare,
       adminPermissions.campaignsRevisions,
       adminPermissions.campaignsHistory,

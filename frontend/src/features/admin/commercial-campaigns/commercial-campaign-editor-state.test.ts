@@ -28,7 +28,9 @@ describe("commercial campaign editor navigation", () => {
   test("never sends a create-only operator to a read-gated Campaign detail", () => {
     expect(campaignEditorSuccessDestination("campaign-1", false, false, false)).toBe("/admin");
     expect(campaignEditorSuccessDestination("campaign-1", false, false, true)).toBe("/admin/campaigns");
-    expect(campaignEditorSuccessDestination("campaign-1", false, true, false)).toBe("/admin/campaigns/campaign-1");
+    expect(campaignEditorSuccessDestination("campaign-1", false, true, false)).toBe(
+      "/admin/campaigns/campaign-1/operations",
+    );
     expect(campaignEditorSuccessDestination("campaign-1", true, true, true)).toBe("/admin/campaigns/campaign-1");
   });
 });

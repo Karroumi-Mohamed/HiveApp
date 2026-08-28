@@ -119,6 +119,9 @@ export const adminCommercialKeys = {
     all: () => campaignsRoot,
     list: (filters: Readonly<Record<string, unknown>>) => [...campaignsRoot, "list", filters] as const,
     detail: (campaignId: string) => [...campaignsRoot, "detail", campaignId] as const,
+    operations: (campaignId: string) => [...campaignsRoot, "detail", campaignId, "operations"] as const,
+    editableDefinition: (campaignId: string) =>
+      [...campaignsRoot, "detail", campaignId, "editable-definition"] as const,
     schedulePreview: (campaignId: string, version: number) =>
       [...campaignsRoot, "detail", campaignId, "schedule-preview", version] as const,
     audience: (campaignId: string, page: number, identities: boolean) =>

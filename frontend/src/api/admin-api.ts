@@ -29,9 +29,12 @@ import type {
   CommercialCampaignAudienceMode,
   CommercialCampaignComparison,
   CommercialCampaignDetail,
+  CommercialCampaignEditableDefinition,
   CommercialCampaignFrozenAudience,
   CommercialCampaignFrozenIdentityAudience,
   CommercialCampaignHistory,
+  CommercialCampaignMutation,
+  CommercialCampaignOperationState,
   CommercialCampaignOwner,
   CommercialCampaignOwnerChoice,
   CommercialCampaignOwnerMutation,
@@ -570,14 +573,17 @@ export const adminApi = {
     direction?: "asc" | "desc";
   }) => admin<PageResponse<CommercialCampaignSummary>>("/campaigns", { query }),
   commercialCampaign: (id: UUID) => admin<CommercialCampaignDetail>(`/campaigns/${id}`),
+  commercialCampaignOperations: (id: UUID) => admin<CommercialCampaignOperationState>(`/campaigns/${id}/operations`),
+  commercialCampaignEditableDefinition: (id: UUID) =>
+    admin<CommercialCampaignEditableDefinition>(`/campaigns/${id}/editable-definition`),
   createCommercialCampaign: (input: CommercialCampaignWriteInput) =>
-    admin<CommercialCampaignDetail>("/campaigns", { method: "POST", body: jsonBody(input) }),
+    admin<CommercialCampaignMutation>("/campaigns", { method: "POST", body: jsonBody(input) }),
   updateCommercialCampaign: (id: UUID, input: CommercialCampaignWriteInput & { version: number }) =>
-    admin<CommercialCampaignDetail>(`/campaigns/${id}`, { method: "PUT", body: jsonBody(input) }),
+    admin<CommercialCampaignMutation>(`/campaigns/${id}`, { method: "PUT", body: jsonBody(input) }),
   duplicateCommercialCampaign: (id: UUID, input: { version: number; name: string; reason: string }) =>
-    admin<CommercialCampaignDetail>(`/campaigns/${id}/duplicate`, { method: "POST", body: jsonBody(input) }),
+    admin<CommercialCampaignMutation>(`/campaigns/${id}/duplicate`, { method: "POST", body: jsonBody(input) }),
   reviseCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
-    admin<CommercialCampaignDetail>(`/campaigns/${id}/revisions`, { method: "POST", body: jsonBody(input) }),
+    admin<CommercialCampaignMutation>(`/campaigns/${id}/revisions`, { method: "POST", body: jsonBody(input) }),
   commercialCampaignRevisions: (id: UUID, page = 0, size = 20) =>
     admin<PageResponse<CommercialCampaignRevision>>(`/campaigns/${id}/revisions`, { query: { page, size } }),
   compareCommercialCampaigns: (id: UUID, comparedId: UUID) =>
@@ -587,15 +593,15 @@ export const adminApi = {
   previewCommercialCampaignSchedule: (id: UUID) =>
     admin<CommercialCampaignSchedulePreview>(`/campaigns/${id}/schedule-preview`),
   scheduleCommercialCampaign: (id: UUID, input: { version: number; reason: string; previewToken: string }) =>
-    admin<CommercialCampaignDetail>(`/campaigns/${id}/schedule`, { method: "POST", body: jsonBody(input) }),
+    admin<CommercialCampaignMutation>(`/campaigns/${id}/schedule`, { method: "POST", body: jsonBody(input) }),
   pauseCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
-    admin<CommercialCampaignDetail>(`/campaigns/${id}/pause`, { method: "POST", body: jsonBody(input) }),
+    admin<CommercialCampaignMutation>(`/campaigns/${id}/pause`, { method: "POST", body: jsonBody(input) }),
   resumeCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
-    admin<CommercialCampaignDetail>(`/campaigns/${id}/resume`, { method: "POST", body: jsonBody(input) }),
+    admin<CommercialCampaignMutation>(`/campaigns/${id}/resume`, { method: "POST", body: jsonBody(input) }),
   endCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
-    admin<CommercialCampaignDetail>(`/campaigns/${id}/end`, { method: "POST", body: jsonBody(input) }),
+    admin<CommercialCampaignMutation>(`/campaigns/${id}/end`, { method: "POST", body: jsonBody(input) }),
   archiveCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
-    admin<CommercialCampaignDetail>(`/campaigns/${id}/archive`, { method: "POST", body: jsonBody(input) }),
+    admin<CommercialCampaignMutation>(`/campaigns/${id}/archive`, { method: "POST", body: jsonBody(input) }),
   deleteCommercialCampaign: (id: UUID, input: { version: number; reason: string }) =>
     admin<void>(`/campaigns/${id}`, { method: "DELETE", body: jsonBody(input) }),
   commercialCampaignOwner: (id: UUID) => admin<CommercialCampaignOwner>(`/campaigns/${id}/owner`),

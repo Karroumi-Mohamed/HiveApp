@@ -45,6 +45,7 @@ const shortDate = new Intl.DateTimeFormat("fr", { day: "2-digit", month: "short"
 
 function destinationForCampaign(campaign: CommercialCampaignSummary, can: (permission: string) => boolean) {
   if (can(adminPermissions.campaignsRead)) return `/admin/campaigns/${campaign.id}`;
+  if (can(adminPermissions.campaignsReadOperations)) return `/admin/campaigns/${campaign.id}/operations`;
   if (can(adminPermissions.campaignsReadAudience) || can(adminPermissions.campaignsReadAudienceIdentities))
     return `/admin/campaigns/${campaign.id}/audience`;
   if (can(adminPermissions.campaignsRevisions) || can(adminPermissions.campaignsCompare))

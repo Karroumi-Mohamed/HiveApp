@@ -107,6 +107,25 @@ function detail() {
   };
 }
 
+function editableDefinition() {
+  const campaign = detail();
+  return {
+    campaignId: campaign.summary.id,
+    code: campaign.summary.code,
+    name: campaign.summary.name,
+    status: campaign.summary.status,
+    description: campaign.description,
+    reason: campaign.reason,
+    audience: campaign.audience,
+    startsAt: campaign.summary.startsAt,
+    endsAt: campaign.summary.endsAt,
+    source: campaign.summary.source,
+    lineageId: campaign.summary.lineageId,
+    revisionNumber: campaign.summary.revisionNumber,
+    version: campaign.summary.version,
+  };
+}
+
 function renderDetail(entry: string, permissions: string[]) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   queryClient.setQueryData(["admin", "me", "admin-token"], session(permissions));
@@ -219,19 +238,7 @@ describe("commercial campaign least-privilege wiring", () => {
       requests.push({ url, method: init?.method });
       if (url.endsWith("/api/admin/me")) return response(session(permissions));
       if (url.endsWith("/api/admin/campaigns") && init?.method === "POST") {
-        return response(
-          {
-            ...detail(),
-            summary: { ...detail().summary, audienceMode: "PUBLIC" },
-            audience: {
-              mode: "PUBLIC",
-              explicitAccountIds: [],
-              segmentId: null,
-              segmentActivationId: null,
-            },
-          },
-          201,
-        );
+        return response({ campaignId, status: "DRAFT", version: 0 }, 201);
       }
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
@@ -275,7 +282,7 @@ describe("commercial campaign least-privilege wiring", () => {
       }
       if (url.endsWith(`/api/admin/campaigns/${campaignId}/schedule`) && init?.method === "POST") {
         scheduleBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-        return response({ ...detail(), summary: { ...detail().summary, status: "SCHEDULED", version: 5 } });
+        return response({ campaignId, status: "SCHEDULED", version: 5 });
       }
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
@@ -445,6 +452,35 @@ describe("commercial campaign least-privilege wiring", () => {
     expect(requests.some((url) => url.endsWith(`/campaigns/${campaignId}`))).toBeFalse();
   });
 
+  test("an operations-only operator sees authoritative actions without fetching Campaign detail", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}/operations`))
+        return response({
+          id: campaignId,
+          code: "CAMPAIGN-R1",
+          name: "Renouvellements",
+          status: "DRAFT",
+          revisionNumber: 1,
+          version: 4,
+          availableActions: ["UPDATE"],
+          blockedActions: {},
+        });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const view = renderDetail(`/admin/campaigns/${campaignId}/operations`, [
+      adminPermissions.campaignsReadOperations,
+      adminPermissions.campaignsUpdate,
+    ]);
+    expect(await view.findByRole("heading", { name: "Renouvellements" })).toBeTruthy();
+    expect(view.getByRole("link", { name: "Modifier" })).toBeTruthy();
+    expect(view.getByText("Actions disponibles")).toBeTruthy();
+    expect(requests.filter((url) => url.endsWith(`/api/admin/campaigns/${campaignId}/operations`))).toHaveLength(1);
+    expect(requests.some((url) => url.endsWith(`/api/admin/campaigns/${campaignId}`))).toBeFalse();
+  });
+
   test("an owner-only operator reassigns from the narrow owner version without reading Campaign detail", async () => {
     const requests: string[] = [];
     const mutationBodies: Array<Record<string, unknown>> = [];
@@ -563,7 +599,7 @@ describe("commercial campaign least-privilege wiring", () => {
     globalThis.fetch = (async (input) => {
       const url = String(input);
       requests.push(url);
-      if (url.endsWith(`/api/admin/campaigns/${campaignId}`)) return response(detail());
+      if (url.endsWith(`/api/admin/campaigns/${campaignId}/editable-definition`)) return response(editableDefinition());
       if (url.includes("/api/admin/campaigns/segment-choices/selected"))
         return response({
           id: segmentId,
@@ -579,8 +615,8 @@ describe("commercial campaign least-privilege wiring", () => {
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
     const view = renderEditor([
-      adminPermissions.campaignsRead,
       adminPermissions.campaignsUpdate,
+      adminPermissions.campaignsReadEditableDefinition,
       adminPermissions.campaignsResolveSegmentChoices,
     ]);
     const user = userEvent.setup({ document: view.container.ownerDocument });
@@ -593,5 +629,6 @@ describe("commercial campaign least-privilege wiring", () => {
       ).toBeTrue(),
     );
     expect(requests.some((url) => /segment-choices\?(?!.*selected)/.test(url))).toBeFalse();
+    expect(requests.some((url) => url.endsWith(`/api/admin/campaigns/${campaignId}`))).toBeFalse();
   });
 });

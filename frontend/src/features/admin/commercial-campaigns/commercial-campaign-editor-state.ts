@@ -25,10 +25,11 @@ export function shouldBlockCampaignEditorNavigation(
 }
 export function campaignEditorSuccessDestination(
   campaignId: string,
-  editing: boolean,
   canRead: boolean,
+  canReadOperations: boolean,
   canList: boolean,
 ) {
-  if (editing || canRead) return `/admin/campaigns/${campaignId}`;
+  if (canRead) return `/admin/campaigns/${campaignId}`;
+  if (canReadOperations) return `/admin/campaigns/${campaignId}/operations`;
   return canList ? "/admin/campaigns" : "/admin";
 }

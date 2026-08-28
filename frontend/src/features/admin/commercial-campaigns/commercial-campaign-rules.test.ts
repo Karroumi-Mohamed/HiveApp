@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { CommercialCampaignDetail, CommercialCampaignSchedulePreview } from "@/api/contracts";
+import type {
+  CommercialCampaignDetail,
+  CommercialCampaignOperationState,
+  CommercialCampaignSchedulePreview,
+} from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import {
   campaignFrozenAudienceLabel,
@@ -70,7 +74,7 @@ describe("commercial campaign draft rules", () => {
 });
 
 describe("commercial campaign schedule evidence", () => {
-  const campaign = { summary: { id: "campaign-1", version: 4 } } as CommercialCampaignDetail;
+  const campaign = { id: "campaign-1", version: 4 } as CommercialCampaignOperationState;
   const preview = {
     campaignId: "campaign-1",
     campaignVersion: 4,

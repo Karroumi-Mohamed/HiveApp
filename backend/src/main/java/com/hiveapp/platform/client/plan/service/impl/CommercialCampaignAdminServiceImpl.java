@@ -175,24 +175,44 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
     }
 
     @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_operations",
+            description = "Read authoritative actions and blockers for one Campaign revision")
+    public CommercialCampaignViews.OperationState operations(UUID campaignId) {
+        return toOperationState(requireCampaign(campaignId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_editable_definition",
+            description = "Read fields required to edit a draft Campaign")
+    public CommercialCampaignViews.EditableDefinition editableDefinition(UUID campaignId) {
+        CommercialCampaign campaign = requireCampaign(campaignId);
+        if (campaign.getStatus() != CommercialCampaignStatus.DRAFT) {
+            throw new InvalidStateException("Only a draft Campaign can be edited.");
+        }
+        return toEditableDefinition(campaign);
+    }
+
+    @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "create", description = "Create a draft Campaign")
-    public CommercialCampaignViews.Detail create(CommercialCampaignRequests.Create request) {
+    public CommercialCampaignViews.Mutation create(CommercialCampaignRequests.Create request) {
         validateWindow(request.startsAt(), request.endsAt());
         CommercialCampaign campaign = CommercialCampaign.draft(nextCode(request.name()), request.name(),
                 request.description(), request.startsAt(), request.endsAt(), request.source(),
                 request.reason(), currentOwner());
         applyAudience(campaign, request.audience());
         campaignRepository.saveAndFlush(campaign);
-        return toDetail(requireCampaign(campaign.getId()));
+        return toMutation(campaign);
     }
 
     @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "update", description = "Edit a draft Campaign")
-    public CommercialCampaignViews.Detail update(UUID campaignId,
+    public CommercialCampaignViews.Mutation update(UUID campaignId,
                                                    CommercialCampaignRequests.Update request) {
         validateWindow(request.startsAt(), request.endsAt());
         CommercialCampaign campaign = requireCampaignForUpdate(campaignId);
@@ -201,28 +221,28 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 request.endsAt(), request.source(), request.reason()));
         applyAudience(campaign, request.audience());
         campaignRepository.saveAndFlush(campaign);
-        return toDetail(requireCampaign(campaignId));
+        return toMutation(campaign);
     }
 
     @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "duplicate", description = "Duplicate a Campaign into a new lineage")
-    public CommercialCampaignViews.Detail duplicate(UUID campaignId,
+    public CommercialCampaignViews.Mutation duplicate(UUID campaignId,
             CommercialCampaignRequests.Duplicate request) {
         CommercialCampaign source = requireCampaignForUpdate(campaignId);
         requireVersion(source, request.version());
         CommercialCampaign duplicate = translate(() -> source.duplicate(nextCode(request.name()),
                 request.name(), currentOwner(), request.reason()));
         campaignRepository.saveAndFlush(duplicate);
-        return toDetail(requireCampaign(duplicate.getId()));
+        return toMutation(duplicate);
     }
 
     @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "revise", description = "Create a successor draft Campaign revision")
-    public CommercialCampaignViews.Detail revise(UUID campaignId,
+    public CommercialCampaignViews.Mutation revise(UUID campaignId,
             CommercialCampaignRequests.VersionReason request) {
         UUID lineageId = requireLineage(campaignId);
         List<CommercialCampaign> lineage = campaignRepository.findLineageForUpdate(lineageId);
@@ -246,7 +266,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
             throw new DraftSuccessorExistsException(
                     "A concurrent request already created this Campaign revision.");
         }
-        return toDetail(requireCampaign(successor.getId()));
+        return toMutation(successor);
     }
 
     @Override
@@ -322,7 +342,7 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
     @Transactional(isolation = Isolation.REPEATABLE_READ)
     @CommercialCatalogMutation
     @PermissionNode(key = "schedule", description = "Schedule a reviewed Campaign revision")
-    public CommercialCampaignViews.Detail schedule(UUID campaignId,
+    public CommercialCampaignViews.Mutation schedule(UUID campaignId,
             CommercialCampaignRequests.Schedule request) {
         if (!adminMutationAuthorizer.canManagePermission("platform.campaigns.preview_schedule")) {
             throw new ForbiddenException(
@@ -355,14 +375,14 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 request.reason(), evaluation.accountIds()));
         campaignRepository.flush();
         snapshotRepository.flush();
-        return toDetail(requireCampaign(campaignId));
+        return toMutation(campaign);
     }
 
     @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "pause", description = "Pause an active Campaign")
-    public CommercialCampaignViews.Detail pause(UUID campaignId,
+    public CommercialCampaignViews.Mutation pause(UUID campaignId,
             CommercialCampaignRequests.VersionReason request) {
         CommercialCampaign campaign = requireCampaignForUpdate(campaignId);
         requireVersion(campaign, request.version());
@@ -372,14 +392,14 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
         }
         translate(() -> campaign.pause(now));
         campaignRepository.saveAndFlush(campaign);
-        return toDetail(requireCampaign(campaignId));
+        return toMutation(campaign);
     }
 
     @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "resume", description = "Resume a paused Campaign")
-    public CommercialCampaignViews.Detail resume(UUID campaignId,
+    public CommercialCampaignViews.Mutation resume(UUID campaignId,
             CommercialCampaignRequests.VersionReason request) {
         CommercialCampaign campaign = requireCampaignForUpdate(campaignId);
         requireVersion(campaign, request.version());
@@ -389,33 +409,33 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
         }
         translate(() -> campaign.resume(now));
         campaignRepository.saveAndFlush(campaign);
-        return toDetail(requireCampaign(campaignId));
+        return toMutation(campaign);
     }
 
     @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "end", description = "End a scheduled or running Campaign")
-    public CommercialCampaignViews.Detail end(UUID campaignId,
+    public CommercialCampaignViews.Mutation end(UUID campaignId,
             CommercialCampaignRequests.VersionReason request) {
         CommercialCampaign campaign = requireCampaignForUpdate(campaignId);
         requireVersion(campaign, request.version());
         translate(() -> campaign.end(clock.instant()));
         campaignRepository.saveAndFlush(campaign);
-        return toDetail(requireCampaign(campaignId));
+        return toMutation(campaign);
     }
 
     @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "archive", description = "Archive an ended Campaign")
-    public CommercialCampaignViews.Detail archive(UUID campaignId,
+    public CommercialCampaignViews.Mutation archive(UUID campaignId,
             CommercialCampaignRequests.VersionReason request) {
         CommercialCampaign campaign = requireCampaignForUpdate(campaignId);
         requireVersion(campaign, request.version());
         translate(() -> campaign.archive(clock.instant()));
         campaignRepository.saveAndFlush(campaign);
-        return toDetail(requireCampaign(campaignId));
+        return toMutation(campaign);
     }
 
     @Override
@@ -744,6 +764,51 @@ public class CommercialCampaignAdminServiceImpl extends PlatformControlFeatureSe
                 campaign.getScheduledAt(), campaign.getActivatedAt(), campaign.getPausedAt(),
                 campaign.getResumedAt(),
                 campaign.getEndedAt(), campaign.getArchivedAt());
+    }
+
+    private CommercialCampaignViews.OperationState toOperationState(CommercialCampaign campaign) {
+        Integer configured = campaign.getAudienceMode() == CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS
+                ? campaign.getExplicitAccounts().size() : null;
+        Integer frozen = snapshotRepository.findByCampaign_Id(campaign.getId())
+                .map(CommercialCampaignAudienceSnapshot::getAffectedAccountCount).orElse(null);
+        int maximum = campaignRepository.findMaximumRevisionNumber(campaign.getLineageId());
+        boolean hasDerivedCampaigns = campaignRepository.existsBySourceCampaign_Id(campaign.getId());
+        int otherLive = Math.toIntExact(campaignRepository.countOtherLiveRevisions(
+                campaign.getLineageId(), campaign.getId(), LIVE_STATUSES));
+        Map<UUID, LatestSegmentActivation> latestSegmentActivations = latestSegmentActivations(
+                campaign.getSegment() == null ? Set.of() : Set.of(campaign.getSegment().getId()));
+        Instant stateAt = clock.instant();
+        List<CommercialCampaignBlocker> scheduleBlockers = scheduleStateBlockers(
+                campaign, configured, otherLive, latestSegmentActivations, stateAt);
+        CommercialCampaignViews.Summary summary = toSummary(
+                campaign, configured, frozen, maximum, hasDerivedCampaigns,
+                scheduleBlockers, stateAt, actionPermissions());
+        return new CommercialCampaignViews.OperationState(
+                campaign.getId(), campaign.getCode(), campaign.getName(), campaign.getStatus(),
+                campaign.getRevisionNumber(), campaign.getVersion(),
+                summary.availableActions(), summary.blockedActions());
+    }
+
+    private CommercialCampaignViews.EditableDefinition toEditableDefinition(
+            CommercialCampaign campaign) {
+        Set<UUID> explicitIds = campaign.getAudienceMode()
+                == CommercialCampaignAudienceMode.EXPLICIT_ACCOUNTS
+                ? campaign.getExplicitAccounts().stream().map(Account::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new)) : Set.of();
+        return new CommercialCampaignViews.EditableDefinition(
+                campaign.getId(), campaign.getCode(), campaign.getName(), campaign.getStatus(),
+                campaign.getDescription(), campaign.getReason(),
+                new CommercialCampaignViews.Audience(campaign.getAudienceMode(), explicitIds,
+                        campaign.getSegment() == null ? null : campaign.getSegment().getId(),
+                        campaign.getSegmentActivation() == null ? null
+                                : campaign.getSegmentActivation().getId()),
+                campaign.getStartsAt(), campaign.getEndsAt(), campaign.getSource(),
+                campaign.getLineageId(), campaign.getRevisionNumber(), campaign.getVersion());
+    }
+
+    private static CommercialCampaignViews.Mutation toMutation(CommercialCampaign campaign) {
+        return new CommercialCampaignViews.Mutation(
+                campaign.getId(), campaign.getStatus(), campaign.getVersion());
     }
 
     private CommercialCampaignViews.OwnerChoice toOwnerChoice(AdminUser adminUser) {

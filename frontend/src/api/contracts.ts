@@ -850,6 +850,33 @@ export type CommercialCampaignDetail = {
   archivedAt: Instant | null;
 };
 
+export type CommercialCampaignOperationState = Pick<
+  CommercialCampaignSummary,
+  "id" | "code" | "name" | "status" | "revisionNumber" | "version" | "availableActions" | "blockedActions"
+>;
+
+export type CommercialCampaignEditableDefinition = {
+  campaignId: UUID;
+  code: string;
+  name: string;
+  status: CommercialCampaignStatus;
+  description: string | null;
+  reason: string;
+  audience: CommercialCampaignAudienceInput;
+  startsAt: Instant;
+  endsAt: Instant;
+  source: CommercialCampaignSource;
+  lineageId: UUID;
+  revisionNumber: number;
+  version: number;
+};
+
+export type CommercialCampaignMutation = {
+  campaignId: UUID;
+  status: CommercialCampaignStatus;
+  version: number;
+};
+
 export type CommercialCampaignWriteInput = {
   name: string;
   description: string | null;

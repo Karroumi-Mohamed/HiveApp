@@ -213,13 +213,14 @@ class AdminRoleManagementIntegrationTest extends PlatformShellIntegrationTestSup
         Set<String> observerCampaignCodes = Set.of(
                 "platform.campaigns.list",
                 "platform.campaigns.read",
+                "platform.campaigns.read_operations",
                 "platform.campaigns.compare",
                 "platform.campaigns.revisions",
                 "platform.campaigns.history",
                 "platform.campaigns.preview_schedule",
                 "platform.campaigns.read_audience");
 
-        assertThat(allCampaignCodes).hasSize(26);
+        assertThat(allCampaignCodes).hasSize(28);
         assertThat(commercialCodes).containsAll(allCampaignCodes);
         assertThat(observerCodes.stream().filter(allCampaignCodes::contains)
                 .collect(java.util.stream.Collectors.toSet()))

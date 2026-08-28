@@ -19,6 +19,7 @@ import type {
   CommercialCampaignComparison,
   CommercialCampaignDetail,
   CommercialCampaignFrozenAudience,
+  CommercialCampaignOperationState,
   CommercialCampaignOwnerChoice,
 } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
@@ -75,16 +76,16 @@ import {
 const dateTime = (value: string | null | undefined) =>
   value ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 
-function actionBlockReason(campaign: CommercialCampaignDetail, action: CommercialCampaignAction) {
-  return campaign.summary.blockedActions[action]?.map((blocker) => campaignBlocker[blocker]).join(" ");
+function actionBlockReason(campaign: CommercialCampaignOperationState, action: CommercialCampaignAction) {
+  return campaign.blockedActions[action]?.map((blocker) => campaignBlocker[blocker]).join(" ");
 }
 
-function CampaignActions({ campaign }: { campaign: CommercialCampaignDetail }) {
+function CampaignActions({ campaign }: { campaign: CommercialCampaignOperationState }) {
   const session = useAdminSession();
   const canShow = (action: CommercialCampaignAction) =>
     campaignActionVisible(campaign, action) && session.can(campaignActionPermission[action]);
   const trigger = (action: CommercialCampaignAction, label: string, icon: ReactNode, destructive = false) => {
-    const disabled = !campaign.summary.availableActions.includes(action);
+    const disabled = !campaign.availableActions.includes(action);
     return (
       <Button
         aria-describedby={disabled ? `campaign-block-${action}` : undefined}
@@ -106,9 +107,9 @@ function CampaignActions({ campaign }: { campaign: CommercialCampaignDetail }) {
   };
   return (
     <div className="flex flex-wrap justify-end gap-1">
-      {campaign.summary.availableActions.includes("UPDATE") && session.can(adminPermissions.campaignsUpdate) ? (
+      {campaign.availableActions.includes("UPDATE") && session.can(adminPermissions.campaignsUpdate) ? (
         <Button asChild size="sm" variant="ghost">
-          <Link to={`/admin/campaigns/${campaign.summary.id}/edit`}>
+          <Link to={`/admin/campaigns/${campaign.id}/edit`}>
             <PencilSimpleIcon />
             Modifier
           </Link>
@@ -150,6 +151,46 @@ function CampaignActions({ campaign }: { campaign: CommercialCampaignDetail }) {
         ) : null;
       })}
     </div>
+  );
+}
+
+function OperationsPanel({ campaign }: { campaign: CommercialCampaignOperationState }) {
+  const status = campaignStatus[campaign.status];
+  const blockers = Object.entries(campaign.blockedActions).flatMap(([action, reasons]) =>
+    (reasons ?? []).map((reason) => ({ action: action as CommercialCampaignAction, reason })),
+  );
+  return (
+    <section className="space-y-5 border-y py-5" aria-label="État opérationnel">
+      <dl className="grid gap-4 sm:grid-cols-3">
+        <div>
+          <dt className="text-xs text-muted-foreground">Statut</dt>
+          <dd className="mt-1">
+            <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Version</dt>
+          <dd className="mt-1 font-medium tabular-nums">{campaign.version}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Actions disponibles</dt>
+          <dd className="mt-1 font-medium tabular-nums">{campaign.availableActions.length}</dd>
+        </div>
+      </dl>
+      {blockers.length ? (
+        <div>
+          <h2 className="text-sm font-semibold">Blocages actuels</h2>
+          <ul className="mt-2 space-y-2 text-sm">
+            {blockers.map(({ action, reason }) => (
+              <li className="flex gap-2" key={`${action}-${reason}`}>
+                <span className="font-medium">{campaignActionLabel[action]}</span>
+                <span className="text-muted-foreground">— {campaignBlocker[reason]}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -811,6 +852,11 @@ export function AdminCommercialCampaignDetailPage() {
     queryFn: () => adminApi.commercialCampaign(id),
     enabled: commercialQueryEnabled(session.can, adminPermissions.campaignsRead, Boolean(id)),
   });
+  const operations = useQuery({
+    queryKey: adminCommercialKeys.campaigns.operations(id),
+    queryFn: () => adminApi.commercialCampaignOperations(id),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.campaignsReadOperations, Boolean(id)),
+  });
   if (!id)
     return (
       <ErrorState
@@ -820,6 +866,9 @@ export function AdminCommercialCampaignDetailPage() {
     );
   const tabs = [
     session.can(adminPermissions.campaignsRead) ? { label: "Synthèse", to: `/admin/campaigns/${id}`, end: true } : null,
+    session.can(adminPermissions.campaignsReadOperations)
+      ? { label: "Opérations", to: `/admin/campaigns/${id}/operations` }
+      : null,
     session.can(adminPermissions.campaignsReadAudience) || session.can(adminPermissions.campaignsReadAudienceIdentities)
       ? { label: "Audience", to: `/admin/campaigns/${id}/audience` }
       : null,
@@ -831,12 +880,23 @@ export function AdminCommercialCampaignDetailPage() {
       : null,
     session.can(adminPermissions.campaignsOwner) ? { label: "Responsable", to: `/admin/campaigns/${id}/owner` } : null,
   ].filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
-  const validTabs = new Set([undefined, "audience", "revisions", "history", "owner"]);
+  const validTabs = new Set([undefined, "operations", "audience", "revisions", "history", "owner"]);
   if (!validTabs.has(tab)) return <Navigate replace to={`/admin/campaigns/${id}`} />;
+  if (!tab && !session.can(adminPermissions.campaignsRead) && session.can(adminPermissions.campaignsReadOperations))
+    return <Navigate replace to={`/admin/campaigns/${id}/operations`} />;
   if (session.can(adminPermissions.campaignsRead) && campaign.isLoading) return <LoadingState />;
   if (session.can(adminPermissions.campaignsRead) && (campaign.isError || !campaign.data))
     return <ErrorState retry={() => void campaign.refetch()} title="Campagne introuvable" />;
+  if (!campaign.data && session.can(adminPermissions.campaignsReadOperations) && operations.isLoading)
+    return <LoadingState />;
+  if (
+    !campaign.data &&
+    session.can(adminPermissions.campaignsReadOperations) &&
+    (operations.isError || !operations.data)
+  )
+    return <ErrorState retry={() => void operations.refetch()} title="État opérationnel indisponible" />;
   const detail = campaign.data;
+  const operationState = operations.data ?? detail?.summary;
   return (
     <section className="space-y-6">
       <Button asChild className="-ms-2" size="sm" variant="ghost">
@@ -846,18 +906,20 @@ export function AdminCommercialCampaignDetailPage() {
         </Link>
       </Button>
       <PageHeader
-        actions={detail ? <CampaignActions campaign={detail} /> : undefined}
+        actions={operationState ? <CampaignActions campaign={operationState} /> : undefined}
         description={
-          detail ? (
+          operationState ? (
             <span className="font-mono text-xs">
-              {detail.summary.code} · R{detail.summary.revisionNumber}
+              {operationState.code} · R{operationState.revisionNumber}
             </span>
           ) : undefined
         }
-        title={detail?.summary.name ?? "Campagne"}
+        title={operationState?.name ?? "Campagne"}
       />
       <SectionTabs ariaLabel="Sections de la campagne" tabs={tabs} />
-      {tab === "audience" ? (
+      {tab === "operations" && operationState ? (
+        <OperationsPanel campaign={operationState} />
+      ) : tab === "audience" ? (
         <AudiencePanel campaignId={id} />
       ) : tab === "revisions" ? (
         <RevisionsPanel campaignId={id} />

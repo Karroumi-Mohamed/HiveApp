@@ -1,10 +1,10 @@
 import { ArrowLeftIcon, ArrowRightIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, Navigate, useBlocker, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useBlocker, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { CommercialCampaignDetail, CommercialCampaignSegmentChoiceState } from "@/api/contracts";
+import type { CommercialCampaignEditableDefinition, CommercialCampaignSegmentChoiceState } from "@/api/contracts";
 import { ApiError } from "@/api/http";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
@@ -261,7 +261,7 @@ function ReviewStep({
   );
 }
 
-function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
+function CampaignEditor({ existing }: { existing?: CommercialCampaignEditableDefinition }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -292,23 +292,23 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
   const mutation = useMutation({
     mutationFn: () =>
       existing
-        ? adminApi.updateCommercialCampaign(existing.summary.id, {
+        ? adminApi.updateCommercialCampaign(existing.campaignId, {
             ...toCommercialCampaignWriteInput(draft),
-            version: existing.summary.version,
+            version: existing.version,
           })
         : adminApi.createCommercialCampaign(toCommercialCampaignWriteInput(draft)),
     onSuccess: async (campaign) => {
       completed.current = true;
       await invalidateCommercialCampaignTargeting(
         queryClient,
-        adminCommercialKeys.campaigns.detail(campaign.summary.id),
+        adminCommercialKeys.campaigns.detail(campaign.campaignId),
       );
       toast.success(existing ? "Brouillon enregistré" : "Campagne créée");
       navigate(
         campaignEditorSuccessDestination(
-          campaign.summary.id,
-          Boolean(existing),
+          campaign.campaignId,
           session.can(adminPermissions.campaignsRead),
+          session.can(adminPermissions.campaignsReadOperations),
           session.can(adminPermissions.campaignsList),
         ),
         { replace: true },
@@ -322,8 +322,10 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
   const reload = useMutation({
     mutationFn: async () => {
       if (!existing) return null;
-      await queryClient.invalidateQueries({ queryKey: adminCommercialKeys.campaigns.detail(existing.summary.id) });
-      return adminApi.commercialCampaign(existing.summary.id);
+      await queryClient.invalidateQueries({
+        queryKey: adminCommercialKeys.campaigns.editableDefinition(existing.campaignId),
+      });
+      return adminApi.commercialCampaignEditableDefinition(existing.campaignId);
     },
     onSuccess: (fresh) => {
       if (!fresh) return;
@@ -333,7 +335,7 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
       setDraft(next);
       setVersionConflict(false);
       setSubmitted(false);
-      queryClient.setQueryData(adminCommercialKeys.campaigns.detail(fresh.summary.id), fresh);
+      queryClient.setQueryData(adminCommercialKeys.campaigns.editableDefinition(fresh.campaignId), fresh);
       toast.success("Nouvelle version chargée");
     },
   });
@@ -372,7 +374,18 @@ function CampaignEditor({ existing }: { existing?: CommercialCampaignDetail }) {
   return (
     <section aria-label="Éditeur de campagne" className="space-y-6" ref={editorFocus} tabIndex={-1}>
       <Button asChild className="-ms-2" size="sm" variant="ghost">
-        <Link to={existing ? `/admin/campaigns/${existing.summary.id}` : "/admin/campaigns"}>
+        <Link
+          to={
+            existing
+              ? campaignEditorSuccessDestination(
+                  existing.campaignId,
+                  session.can(adminPermissions.campaignsRead),
+                  session.can(adminPermissions.campaignsReadOperations),
+                  session.can(adminPermissions.campaignsList),
+                )
+              : "/admin/campaigns"
+          }
+        >
           <ArrowLeftIcon className="rtl:rotate-180" />
           {existing ? "Campagne" : "Campagnes"}
         </Link>
@@ -449,9 +462,9 @@ export function AdminCommercialCampaignEditPage() {
   const { campaignId } = useParams();
   const id = validCampaignId(campaignId) ? campaignId : "";
   const campaign = useQuery({
-    queryKey: adminCommercialKeys.campaigns.detail(id),
-    queryFn: () => adminApi.commercialCampaign(id),
-    enabled: commercialQueryEnabled(session.can, adminPermissions.campaignsRead, Boolean(id)),
+    queryKey: adminCommercialKeys.campaigns.editableDefinition(id),
+    queryFn: () => adminApi.commercialCampaignEditableDefinition(id),
+    enabled: commercialQueryEnabled(session.can, adminPermissions.campaignsReadEditableDefinition, Boolean(id)),
   });
   if (!session.can(adminPermissions.campaignsUpdate)) return <PermissionState />;
   if (!id)
@@ -461,11 +474,9 @@ export function AdminCommercialCampaignEditPage() {
         title="Adresse de campagne invalide"
       />
     );
-  if (!session.can(adminPermissions.campaignsRead)) return <Navigate replace to={`/admin/campaigns/${id}`} />;
+  if (!session.can(adminPermissions.campaignsReadEditableDefinition)) return <PermissionState />;
   if (campaign.isLoading) return <LoadingState />;
   if (campaign.isError || !campaign.data)
     return <ErrorState retry={() => void campaign.refetch()} title="Campagne introuvable" />;
-  if (!campaign.data.summary.availableActions.includes("UPDATE"))
-    return <Navigate replace to={`/admin/campaigns/${id}`} />;
   return <CampaignEditor existing={campaign.data} />;
 }

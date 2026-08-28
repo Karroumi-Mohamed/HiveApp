@@ -67,29 +67,40 @@ public class CommercialCampaignAdminController {
         return service.get(campaignId);
     }
 
+    @GetMapping("/{campaignId}/operations")
+    public CommercialCampaignViews.OperationState operations(@PathVariable UUID campaignId) {
+        return service.operations(campaignId);
+    }
+
+    @GetMapping("/{campaignId}/editable-definition")
+    public CommercialCampaignViews.EditableDefinition editableDefinition(
+            @PathVariable UUID campaignId) {
+        return service.editableDefinition(campaignId);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public CommercialCampaignViews.Detail create(
+    public CommercialCampaignViews.Mutation create(
             @Valid @RequestBody CommercialCampaignRequests.Create request) {
         return service.create(request);
     }
 
     @PutMapping("/{campaignId}")
-    public CommercialCampaignViews.Detail update(@PathVariable UUID campaignId,
+    public CommercialCampaignViews.Mutation update(@PathVariable UUID campaignId,
             @Valid @RequestBody CommercialCampaignRequests.Update request) {
         return service.update(campaignId, request);
     }
 
     @PostMapping("/{campaignId}/duplicate")
     @ResponseStatus(HttpStatus.CREATED)
-    public CommercialCampaignViews.Detail duplicate(@PathVariable UUID campaignId,
+    public CommercialCampaignViews.Mutation duplicate(@PathVariable UUID campaignId,
             @Valid @RequestBody CommercialCampaignRequests.Duplicate request) {
         return service.duplicate(campaignId, request);
     }
 
     @PostMapping("/{campaignId}/revisions")
     @ResponseStatus(HttpStatus.CREATED)
-    public CommercialCampaignViews.Detail revise(@PathVariable UUID campaignId,
+    public CommercialCampaignViews.Mutation revise(@PathVariable UUID campaignId,
             @Valid @RequestBody CommercialCampaignRequests.VersionReason request) {
         return service.revise(campaignId, request);
     }
@@ -120,31 +131,31 @@ public class CommercialCampaignAdminController {
     }
 
     @PostMapping("/{campaignId}/schedule")
-    public CommercialCampaignViews.Detail schedule(@PathVariable UUID campaignId,
+    public CommercialCampaignViews.Mutation schedule(@PathVariable UUID campaignId,
             @Valid @RequestBody CommercialCampaignRequests.Schedule request) {
         return service.schedule(campaignId, request);
     }
 
     @PostMapping("/{campaignId}/pause")
-    public CommercialCampaignViews.Detail pause(@PathVariable UUID campaignId,
+    public CommercialCampaignViews.Mutation pause(@PathVariable UUID campaignId,
             @Valid @RequestBody CommercialCampaignRequests.VersionReason request) {
         return service.pause(campaignId, request);
     }
 
     @PostMapping("/{campaignId}/resume")
-    public CommercialCampaignViews.Detail resume(@PathVariable UUID campaignId,
+    public CommercialCampaignViews.Mutation resume(@PathVariable UUID campaignId,
             @Valid @RequestBody CommercialCampaignRequests.VersionReason request) {
         return service.resume(campaignId, request);
     }
 
     @PostMapping("/{campaignId}/end")
-    public CommercialCampaignViews.Detail end(@PathVariable UUID campaignId,
+    public CommercialCampaignViews.Mutation end(@PathVariable UUID campaignId,
             @Valid @RequestBody CommercialCampaignRequests.VersionReason request) {
         return service.end(campaignId, request);
     }
 
     @PostMapping("/{campaignId}/archive")
-    public CommercialCampaignViews.Detail archive(@PathVariable UUID campaignId,
+    public CommercialCampaignViews.Mutation archive(@PathVariable UUID campaignId,
             @Valid @RequestBody CommercialCampaignRequests.VersionReason request) {
         return service.archive(campaignId, request);
     }

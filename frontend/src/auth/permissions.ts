@@ -156,8 +156,10 @@ export const adminPermissions = {
   commercialPoliciesResolveSegmentChoices: permission("commercial_policies", "resolve_segment_choices"),
   campaignsList: permission("campaigns", "list"),
   campaignsRead: permission("campaigns", "read"),
+  campaignsReadOperations: permission("campaigns", "read_operations"),
   campaignsCreate: permission("campaigns", "create"),
   campaignsUpdate: permission("campaigns", "update"),
+  campaignsReadEditableDefinition: permission("campaigns", "read_editable_definition"),
   campaignsDuplicate: permission("campaigns", "duplicate"),
   campaignsRevise: permission("campaigns", "revise"),
   campaignsCompare: permission("campaigns", "compare"),
@@ -338,6 +340,7 @@ export const adminCommercialSegmentDetailSurfacePermissions = [
 
 export const adminCommercialCampaignDetailSurfacePermissions = [
   adminPermissions.campaignsRead,
+  adminPermissions.campaignsReadOperations,
   adminPermissions.campaignsCompare,
   adminPermissions.campaignsRevisions,
   adminPermissions.campaignsHistory,

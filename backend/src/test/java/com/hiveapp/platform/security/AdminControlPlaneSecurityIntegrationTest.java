@@ -1569,7 +1569,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(create)))
                 .andExpect(status().isCreated()));
-        UUID campaignId = UUID.fromString(campaign.at("/summary/id").asText());
+        UUID campaignId = UUID.fromString(campaign.get("campaignId").asText());
         LimitedAdmin ownerManager = createLimitedAdmin(
                 "platform.campaigns.owner",
                 "platform.campaigns.reassign_owner",
@@ -1610,6 +1610,80 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void campaignOperationsAndEditingUseNarrowContractsWithoutLeakingDetail() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        Instant start = Instant.now().plusSeconds(3600);
+        var create = new CommercialCampaignRequests.Create(
+                "Narrow Campaign " + UUID.randomUUID(), "Sensitive description",
+                start, start.plusSeconds(3600), CommercialCampaignSource.MARKETING,
+                "Sensitive commercial reason",
+                new CommercialCampaignRequests.Audience(
+                        CommercialCampaignAudienceMode.PUBLIC, Set.of(), null, null));
+        JsonNode created = responseJson(mockMvc.perform(post("/api/admin/campaigns")
+                        .header("Authorization", bearer(superToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(create)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.campaignId").isString())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.version").isNumber())
+                .andExpect(jsonPath("$.name").doesNotExist())
+                .andExpect(jsonPath("$.audience").doesNotExist())
+                .andExpect(jsonPath("$.description").doesNotExist()));
+        UUID campaignId = UUID.fromString(created.get("campaignId").asText());
+
+        LimitedAdmin operator = createLimitedAdmin(
+                "platform.campaigns.read_operations", "platform.campaigns.update");
+        mockMvc.perform(get("/api/admin/campaigns/{id}/operations", campaignId)
+                        .header("Authorization", bearer(operator.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(campaignId.toString()))
+                .andExpect(jsonPath("$.availableActions", hasItem("UPDATE")))
+                .andExpect(jsonPath("$.audience").doesNotExist())
+                .andExpect(jsonPath("$.description").doesNotExist())
+                .andExpect(jsonPath("$.reason").doesNotExist())
+                .andExpect(jsonPath("$.owner").doesNotExist());
+        mockMvc.perform(get("/api/admin/campaigns/{id}", campaignId)
+                        .header("Authorization", bearer(operator.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/campaigns/{id}/editable-definition", campaignId)
+                        .header("Authorization", bearer(operator.token())))
+                .andExpect(status().isForbidden());
+
+        LimitedAdmin editor = createLimitedAdmin(
+                "platform.campaigns.read_editable_definition", "platform.campaigns.update");
+        JsonNode editable = responseJson(mockMvc.perform(
+                        get("/api/admin/campaigns/{id}/editable-definition", campaignId)
+                                .header("Authorization", bearer(editor.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.campaignId").value(campaignId.toString()))
+                .andExpect(jsonPath("$.description").value("Sensitive description"))
+                .andExpect(jsonPath("$.summary").doesNotExist())
+                .andExpect(jsonPath("$.owner").doesNotExist())
+                .andExpect(jsonPath("$.availableActions").doesNotExist()));
+        var update = new CommercialCampaignRequests.Update(
+                editable.get("version").asLong(), editable.get("name").asText(),
+                "Updated without broad detail", start, start.plusSeconds(5400),
+                CommercialCampaignSource.MARKETING, "Narrow update",
+                new CommercialCampaignRequests.Audience(
+                        CommercialCampaignAudienceMode.PUBLIC, Set.of(), null, null));
+        mockMvc.perform(put("/api/admin/campaigns/{id}", campaignId)
+                        .header("Authorization", bearer(editor.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(update)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.campaignId").value(campaignId.toString()))
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.version").value(editable.get("version").asLong() + 1))
+                .andExpect(jsonPath("$.name").doesNotExist())
+                .andExpect(jsonPath("$.audience").doesNotExist())
+                .andExpect(jsonPath("$.description").doesNotExist());
+        mockMvc.perform(get("/api/admin/campaigns/{id}", campaignId)
+                        .header("Authorization", bearer(editor.token())))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void campaignScheduleActionRequiresBothPreviewAndApplyPermissions() throws Exception {
         String superToken = loginAdminAndGetToken();
         Instant start = Instant.now().plusSeconds(3600);
@@ -1628,7 +1702,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 "platform.campaigns.read", "platform.campaigns.schedule");
 
         mockMvc.perform(get("/api/admin/campaigns/{id}",
-                        campaign.at("/summary/id").asText())
+                        campaign.get("campaignId").asText())
                         .header("Authorization", bearer(scheduleOnly.token())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.summary.availableActions",
@@ -1639,7 +1713,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 "platform.campaigns.schedule");
         JsonNode preview = responseJson(mockMvc.perform(
                         get("/api/admin/campaigns/{id}/schedule-preview",
-                                campaign.at("/summary/id").asText())
+                                campaign.get("campaignId").asText())
                                 .header("Authorization", bearer(reviewerAndScheduler.token())))
                 .andExpect(status().isOk()));
         List<UUID> remainingPermissionIds = List.of(
@@ -1661,11 +1735,11 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                                 rolePreview.get("assignmentCount").asLong()))))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/admin/campaigns/{id}/schedule",
-                        campaign.at("/summary/id").asText())
+                        campaign.get("campaignId").asText())
                         .header("Authorization", bearer(reviewerAndScheduler.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CommercialCampaignRequests.Schedule(
-                                campaign.at("/summary/version").asLong(),
+                                campaign.get("version").asLong(),
                                 "Reauthorize both reviewed operations",
                                 preview.get("previewToken").asText()))))
                 .andExpect(status().isForbidden())

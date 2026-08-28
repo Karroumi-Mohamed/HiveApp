@@ -3,6 +3,8 @@ import type {
   CommercialCampaignAudienceMode,
   CommercialCampaignBlocker,
   CommercialCampaignDetail,
+  CommercialCampaignEditableDefinition,
+  CommercialCampaignOperationState,
   CommercialCampaignSchedulePreview,
   CommercialCampaignSegmentChoiceState,
   CommercialCampaignSource,
@@ -146,14 +148,17 @@ export function emptyCommercialCampaignDraft(now = Date.now()): CommercialCampai
   };
 }
 
-export function draftFromCommercialCampaign(campaign: CommercialCampaignDetail): CommercialCampaignDraft {
+export function draftFromCommercialCampaign(
+  campaign: CommercialCampaignDetail | CommercialCampaignEditableDefinition,
+): CommercialCampaignDraft {
+  const definition = "summary" in campaign ? campaign.summary : campaign;
   return {
-    name: campaign.summary.name,
+    name: definition.name,
     description: campaign.description ?? "",
-    source: campaign.summary.source,
+    source: definition.source,
     reason: campaign.reason,
-    startsAt: toLocalDateTime(campaign.summary.startsAt),
-    endsAt: toLocalDateTime(campaign.summary.endsAt),
+    startsAt: toLocalDateTime(definition.startsAt),
+    endsAt: toLocalDateTime(definition.endsAt),
     audienceMode: campaign.audience.mode,
     explicitAccountIds: [...campaign.audience.explicitAccountIds],
     segmentId: campaign.audience.segmentId ?? "",
@@ -216,14 +221,14 @@ export const campaignSegmentStateLabel: Record<CommercialCampaignSegmentChoiceSt
 };
 
 export function reviewedCampaignScheduleReady(
-  campaign: CommercialCampaignDetail,
+  campaign: CommercialCampaignOperationState,
   preview: CommercialCampaignSchedulePreview | null | undefined,
   now = Date.now(),
 ) {
   return Boolean(
     preview &&
-      preview.campaignId === campaign.summary.id &&
-      preview.campaignVersion === campaign.summary.version &&
+      preview.campaignId === campaign.id &&
+      preview.campaignVersion === campaign.version &&
       preview.previewToken &&
       preview.schedulable &&
       preview.blockers.length === 0 &&
