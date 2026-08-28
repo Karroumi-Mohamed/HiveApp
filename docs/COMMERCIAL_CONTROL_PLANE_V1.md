@@ -94,7 +94,7 @@ Target kinds are deliberately closed rather than user-authored expressions. Thro
 - subscribers of a selected Plan revision;
 - an exact active Segment revision/activation with an immutable Account audience.
 
-A reusable typed Segment is the Phase 11.1 extension of this same target contract. It is implemented and independently audited; Campaign, Offer, and redemption behavior remains Phase 11.2.
+A reusable typed Segment is the Phase 11.1 extension of this same target contract. It is implemented and independently audited. The Phase 11.2 Campaign backend is also implemented and independently audited; its admin UI, Offers, and redemption remain.
 
 Delivered Phase 10 effects are:
 
@@ -131,6 +131,8 @@ Campaign lifecycle:
 ```text
 DRAFT -> SCHEDULED -> ACTIVE -> PAUSED -> ACTIVE -> ENDED -> ARCHIVED
 ```
+
+The delivered Campaign backend owns one PUBLIC, explicit-Account, or exact active-Segment audience. Scheduling requires short-lived actor-bound review evidence and freezes targeted Account identities plus the selected Segment activation, catalogue/registry versions, evaluation window, fingerprint, and reason. PUBLIC deliberately stores no platform Account snapshot. Draft Segment references block Segment archive; after scheduling the immutable audience is self-contained, while retained Campaign provenance continues to block destructive Segment deletion.
 
 An Offer belongs to a Campaign revision and contains one or more typed commercial effects. The Campaign owns the audience and every Offer inherits it; a public Campaign does not snapshot the entire platform. An Offer has its own eligibility window, redemption limits, per-Account limit, optional code, and acceptance rules.
 
@@ -247,4 +249,4 @@ Each slice requires backend and frontend real-life workflow audits before the ne
 
 Existing Accounts retain the exact accepted Plan/AddOn/package revision and Price-book-entry identities, amounts, currency/cycle, and package quantity even if those catalogue items later become paused, inactive, direct-only, or otherwise unavailable for new selection. A retained item remains visible and removable, but cannot be newly selected or increased unless it is currently eligible.
 
-Typed Segments are complete and independently audited in Phase 11.1. Campaigns, Offers, and redemption remain Phase 11.2; reviewed trial/lifecycle commands, free periods, renewal instructions, selected/filtered/scheduled execution and job retry/progress/cutoff handling remain Phase 12; settlement ledgers remain Phase 13; durable analytics remain Phase 14. None of those remaining capabilities is represented as complete here.
+Typed Segments and the Campaign backend are complete and independently audited through Phase 11.2. The Campaign admin UI, Offers, and redemption remain Phase 11.2; reviewed trial/lifecycle commands, free periods, renewal instructions, selected/filtered/scheduled subscriber execution and job retry/progress/cutoff handling remain Phase 12; settlement ledgers remain Phase 13; durable analytics remain Phase 14. None of those remaining capabilities is represented as complete here.
