@@ -24,25 +24,36 @@ public interface CommercialOfferRedemptionRepository
   @Query(
       "select redemption.id from CommercialOfferRedemption redemption where"
           + " redemption.status='RESERVED' and ((redemption.subscriptionOperationId is null and"
-          + " (redemption.reservedAt<=:abandonedBefore or exists(select operation.id from"
+          + " (redemption.applicationLeaseExpiresAt<=:now or exists(select operation.id from"
           + " SubscriptionChangeOperation operation where"
           + " operation.offerRedemptionId=redemption.id))) or (redemption.subscriptionOperationId"
           + " is not null and (exists(select operation.id from SubscriptionChangeOperation"
           + " operation where operation.id=redemption.subscriptionOperationId and operation.status"
-          + " in :terminalStatuses) or (redemption.reservedAt<=:abandonedBefore and not"
+          + " in :terminalStatuses) or (redemption.applicationLeaseExpiresAt<=:now and not"
           + " exists(select operation.id from SubscriptionChangeOperation operation where"
           + " operation.id=redemption.subscriptionOperationId))))) order by redemption.reservedAt,"
           + " redemption.id")
   Page<UUID> findActionableIds(
-      @Param("abandonedBefore") java.time.Instant abandonedBefore,
+      @Param("now") java.time.Instant now,
       @Param("terminalStatuses")
           Collection<com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus>
               terminalStatuses,
       Pageable pageable);
 
+  @Query("select redemption.account.id from CommercialOfferRedemption redemption where redemption.id=:id")
+  Optional<UUID> findAccountIdById(@Param("id") UUID id);
+
   @EntityGraph(attributePaths = {"offer"})
   Optional<CommercialOfferRedemption> findByAccount_IdAndIdempotencyKeyHash(
       UUID accountId, String hash);
+
+  @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+  @EntityGraph(attributePaths = {"offer"})
+  @Query(
+      "select redemption from CommercialOfferRedemption redemption where"
+          + " redemption.account.id=:accountId and redemption.idempotencyKeyHash=:hash")
+  Optional<CommercialOfferRedemption> lockByAccountIdAndIdempotencyKeyHash(
+      @Param("accountId") UUID accountId, @Param("hash") String hash);
 
   @EntityGraph(attributePaths = {"offer"})
   Optional<CommercialOfferRedemption> findByIdAndAccount_Id(UUID id, UUID accountId);

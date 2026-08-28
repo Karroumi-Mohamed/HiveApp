@@ -87,6 +87,7 @@ public final class CommercialOfferViews {
       CommercialOfferSelection selection,
       ClientSelection resolvedSelection,
       CommercialOfferEffectSnapshot effects,
+      long lineageVersion,
       long version) {}
 
   /** Minimal acknowledgement for Offer mutations; definition reads remain separately authorized. */
@@ -177,12 +178,16 @@ public final class CommercialOfferViews {
       UUID offerId,
       CommercialOfferStatus offerStatus,
       long offerVersion,
+      long lineageVersion,
       UUID adminUserId,
       UUID userId,
       String email,
       String username,
       String displayName,
       boolean active) {}
+
+  /** Minimal acknowledgement for a versioned Offer-lineage ownership mutation. */
+  public record OwnerMutation(UUID offerId, UUID adminUserId, long lineageVersion) {}
 
   /** Minimal active-operator identity used only by separately authorized owner choosers. */
   public record OwnerChoice(UUID adminUserId, String email, String username, String displayName) {}
@@ -199,7 +204,7 @@ public final class CommercialOfferViews {
 
   public record ProductCompatibility(
       ProductSalesVisibility salesVisibility,
-      String extensionPolicy,
+      PlanExtensionPolicy extensionPolicy,
       Set<String> allowedPlanCodes,
       Set<String> blockedPlanCodes,
       Set<String> dependencyCodes,
@@ -224,6 +229,7 @@ public final class CommercialOfferViews {
   }
 
   public record PricedChoice(
+      ProductPriceOwnerType ownerType,
       UUID productId,
       String productCode,
       String productName,
@@ -235,8 +241,8 @@ public final class CommercialOfferViews {
       BillingCycle billingCycle,
       Instant effectiveFrom,
       Instant effectiveUntil,
-      String productState,
-      String priceState,
+      CommercialOfferProductState productState,
+      ProductPriceStatus priceState,
       ProductCompatibility compatibility) {}
 
   public record QuotaResourceChoice(
@@ -282,8 +288,8 @@ public final class CommercialOfferViews {
   public record ChangeReview(
       @ExactDecimal BigDecimal currentPrice,
       SubscriptionChangeTiming timing,
-      Instant effectiveAt,
-      Instant effectiveUntil,
+      Instant estimatedEffectiveAt,
+      Instant estimatedEffectiveUntil,
       boolean immediateAllowed,
       ClientSubscriptionEntitlementState currentEntitlements,
       ClientSubscriptionEntitlementState targetEntitlements,
@@ -349,6 +355,9 @@ public final class CommercialOfferViews {
       UUID subscriptionOperationId,
       CommercialOfferRedemptionStatus status,
       boolean replayed,
+      CommercialOfferAcceptanceProgress progress,
+      CommercialOfferAcceptanceNextAction nextAction,
+      Instant retryAfter,
       ClientSubscriptionChangeOperationDto operation,
       AcceptedTerms acceptedTerms) {}
 
@@ -357,6 +366,9 @@ public final class CommercialOfferViews {
       UUID subscriptionOperationId,
       CommercialOfferRedemptionStatus status,
       boolean replayed,
+      CommercialOfferAcceptanceProgress progress,
+      CommercialOfferAcceptanceNextAction nextAction,
+      Instant retryAfter,
       AdminSubscriptionChangeOperationDto operation,
       AcceptedTerms acceptedTerms) {}
 

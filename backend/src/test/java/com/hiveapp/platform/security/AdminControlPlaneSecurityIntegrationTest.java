@@ -2186,8 +2186,8 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
             throws Exception {
         UUID absentOffer = UUID.randomUUID();
         UUID absentAccount = UUID.randomUUID();
-        CommercialOfferRequests.Accept request =
-                new CommercialOfferRequests.Accept("review-token", "Authority matrix");
+        CommercialOfferRequests.OperatorAccept request =
+                new CommercialOfferRequests.OperatorAccept("review-token", "Authority matrix");
         LimitedAdmin missingOfferPreview = createLimitedAdmin(
                 "platform.offers.apply_for_account",
                 "platform.subscriptions.preview_change",
@@ -2223,13 +2223,17 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         mockMvc.perform(get("/api/admin/offers/{id}/stats", absent)
                         .header("Authorization", bearer(stats.token())))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/admin/offers/{id}/redemption-identities", absent)
-                        .header("Authorization", bearer(stats.token())))
+        mockMvc.perform(post("/api/admin/offers/{id}/redemption-identity-resolution", absent)
+                        .header("Authorization", bearer(stats.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"redemptionIds\":[\"" + UUID.randomUUID() + "\"]}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
 
-        mockMvc.perform(get("/api/admin/offers/{id}/redemption-identities", absent)
-                        .header("Authorization", bearer(identities.token())))
+        mockMvc.perform(post("/api/admin/offers/{id}/redemption-identity-resolution", absent)
+                        .header("Authorization", bearer(identities.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"redemptionIds\":[\"" + UUID.randomUUID() + "\"]}"))
                 .andExpect(status().isNotFound());
         mockMvc.perform(get("/api/admin/offers/{id}/stats", absent)
                         .header("Authorization", bearer(identities.token())))
@@ -2241,7 +2245,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
             String token,
             UUID offerId,
             UUID accountId,
-            CommercialOfferRequests.Accept request) throws Exception {
+            CommercialOfferRequests.OperatorAccept request) throws Exception {
         return mockMvc.perform(post(
                         "/api/admin/offers/{id}/accounts/{accountId}/apply", offerId, accountId)
                 .header("Authorization", bearer(token))

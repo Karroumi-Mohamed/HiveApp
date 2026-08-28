@@ -230,7 +230,12 @@ public record SubscriptionEntitlementSnapshot(
 
   public SubscriptionEntitlementSnapshot withOfferEvaluation(
       SubscriptionOfferEvaluation evaluation) {
-    List<SubscriptionFeatureSnapshot> adjustedFeatures = applyOfferQuotaBonuses(evaluation);
+    return withOfferQuotaBonuses(evaluation.quotaBonuses()).withOfferProvenance(evaluation);
+  }
+
+  public SubscriptionEntitlementSnapshot withOfferQuotaBonuses(
+      List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses) {
+    List<SubscriptionFeatureSnapshot> adjustedFeatures = applyOfferQuotaBonuses(quotaBonuses);
     return new SubscriptionEntitlementSnapshot(
         CURRENT_SCHEMA_VERSION,
         planCode,
@@ -246,18 +251,38 @@ public record SubscriptionEntitlementSnapshot(
         quotaPackages,
         planPriceEntryId,
         commercialPolicyEvaluation,
+        offerEvaluation);
+  }
+
+  public SubscriptionEntitlementSnapshot withOfferProvenance(
+      SubscriptionOfferEvaluation evaluation) {
+    return new SubscriptionEntitlementSnapshot(
+        CURRENT_SCHEMA_VERSION,
+        planCode,
+        planName,
+        planDefinitionVersion,
+        basePrice,
+        currencyCode,
+        billingCycle,
+        effectiveFrom,
+        effectiveUntil,
+        features,
+        addOns,
+        quotaPackages,
+        planPriceEntryId,
+        commercialPolicyEvaluation,
         evaluation);
   }
 
   private List<SubscriptionFeatureSnapshot> applyOfferQuotaBonuses(
-      SubscriptionOfferEvaluation evaluation) {
-    if (evaluation.quotaBonuses().isEmpty()) return features;
+      List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses) {
+    if (quotaBonuses == null || quotaBonuses.isEmpty()) return features;
     List<SubscriptionFeatureSnapshot> adjusted = new ArrayList<>();
     for (SubscriptionFeatureSnapshot feature : features) {
       List<QuotaLimitEntry> quotas = new ArrayList<>();
       for (QuotaLimitEntry quota : feature.quotaConfigs()) {
         long bonus =
-            evaluation.quotaBonuses().stream()
+            quotaBonuses.stream()
                 .filter(
                     item ->
                         item.featureCode().equals(feature.featureCode())
@@ -275,7 +300,7 @@ public record SubscriptionEntitlementSnapshot(
       }
       adjusted.add(new SubscriptionFeatureSnapshot(feature.featureCode(), quotas));
     }
-    for (var bonus : evaluation.quotaBonuses()) {
+    for (var bonus : quotaBonuses) {
       boolean found =
           features.stream()
               .anyMatch(

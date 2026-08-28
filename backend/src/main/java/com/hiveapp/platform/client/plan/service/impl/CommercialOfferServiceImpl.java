@@ -14,6 +14,7 @@ import java.time.*;
 import java.util.*;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.*;
@@ -50,6 +51,9 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
   private final CommercialOfferRedemptionTransitionService transitions;
   private final CommercialCatalogResolver catalogResolver;
   private final CommercialPolicyEvaluator policyEvaluator;
+
+  @Value("${hiveapp.offers.application-lease:PT5M}")
+  private Duration applicationLeaseDuration = Duration.ofMinutes(5);
 
   @Override
   @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -170,7 +174,7 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
   }
 
   @Override
-  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
   public CommercialOfferViews.AccountEligibilityAssessment assessForOperator(
       UUID accountId, UUID actor, UUID offerId) {
     CommercialOffer offer =
@@ -205,6 +209,8 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     } catch (InvalidRequestException
         | InvalidStateException
         | OperationBlockedException
+        | OfferNotAvailableException
+        | OfferRedemptionBlockedException
         | ResourceNotFoundException
         | StaleResourceVersionException unavailableSelection) {
       return assessment(
@@ -266,7 +272,8 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
           "Idempotency-Key is required and must not exceed 200 characters.");
     if (!operator) subscriptionsService.requireOfferApplyAuthority(accountId, actor);
     String keyHash = CommercialOfferAdminServiceImpl.sha(accountId + "|" + key);
-    String requestFingerprint = acceptanceRequestFingerprint(id, operator, previewToken);
+    String requestFingerprint =
+        acceptanceRequestFingerprint(id, actor, operator, previewToken, applicationReason);
     try {
       Reservation<T> reservation;
       try {
@@ -305,9 +312,15 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
       var changePreview =
           operator
               ? subscriptionsService.previewOfferChangeAsOperator(
-                  accountId, actor, acceptedReservation.selection())
+                  accountId,
+                  actor,
+                  acceptedReservation.selection(),
+                  acceptedReservation.evaluation().quotaBonuses())
               : subscriptionsService.previewOfferChange(
-                  accountId, actor, acceptedReservation.selection());
+                  accountId,
+                  actor,
+                  acceptedReservation.selection(),
+                  acceptedReservation.evaluation().quotaBonuses());
       var applied =
           operator
               ? subscriptionsService.applyOfferChangeAsOperator(
@@ -317,7 +330,7 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
                       acceptedReservation.selection(), changePreview.previewToken()),
                   applicationReason,
                   acceptedReservation.redemptionId(),
-                  acceptedReservation.evaluation())
+                  acceptedReservation.applicationClaimId())
               : subscriptionsService.applyOfferChange(
                   accountId,
                   actor,
@@ -325,16 +338,25 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
                       acceptedReservation.selection(), changePreview.previewToken()),
                   applicationReason,
                   acceptedReservation.redemptionId(),
-                  acceptedReservation.evaluation());
+                  acceptedReservation.applicationClaimId());
       return inNewTransaction(
           TransactionDefinition.ISOLATION_READ_COMMITTED,
-          () -> complete(acceptedReservation.redemptionId(), applied.operation(), projector));
+          () ->
+              complete(
+                  accountId,
+                  acceptedReservation.redemptionId(),
+                  applied.operation(),
+                  acceptedReservation.replaying(),
+                  projector));
     } catch (RuntimeException applicationFailure) {
       try {
         inNewTransaction(
             TransactionDefinition.ISOLATION_READ_COMMITTED,
             () -> {
-              failOrRecover(acceptedReservation.redemptionId());
+              failOrRecover(
+                  accountId,
+                  acceptedReservation.redemptionId(),
+                  acceptedReservation.applicationClaimId());
               return Boolean.TRUE;
             });
       } catch (RuntimeException reconciliationFailure) {
@@ -391,7 +413,7 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     if (!operator && !account.getOwner().getId().equals(actor)) {
       throw new ForbiddenException("Only the Account owner can accept a commercial Offer.");
     }
-    var existing = redemptions.findByAccount_IdAndIdempotencyKeyHash(accountId, keyHash);
+    var existing = redemptions.lockByAccountIdAndIdempotencyKeyHash(accountId, keyHash);
     if (existing.isPresent()) return replay(existing.get(), requestFingerprint, projector);
     if (!account.isActive()) throw new OfferNotAvailableException();
 
@@ -437,6 +459,10 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         used,
         offer.getPerAccountLimit() == null ? -1 : offer.getPerAccountLimit());
     SubscriptionOfferEvaluation evaluation = offerEvaluation(offer, currentPreview);
+    SubscriptionChangeRequest acceptedSelection =
+        changeRequest(offer, projections.exactPrices(List.of(offer)));
+    UUID applicationClaimId = UUID.randomUUID();
+    Instant reservedAt = clock.instant();
     CommercialOfferRedemption redemption =
         CommercialOfferRedemption.reserve(
             account,
@@ -445,15 +471,20 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
             actor,
             keyHash,
             requestFingerprint,
+            acceptedSelection,
             evaluation,
-            clock.instant());
+            reservedAt,
+            applicationClaimId,
+            reservedAt.plus(applicationLeaseDuration));
     redemptions.saveAndFlush(redemption);
     return new Reservation<>(
         redemption.getId(),
-        changeRequest(offer, projections.exactPrices(List.of(offer))),
+        acceptedSelection,
         evaluation,
         currentPreview,
-        null);
+        null,
+        applicationClaimId,
+        false);
   }
 
   private <T> Reservation<T> replay(
@@ -464,7 +495,7 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     accounts.findByIdForSubscriptionUpdate(accountId).orElseThrow(OfferNotAvailableException::new);
     CommercialOfferRedemption redemption =
         redemptions
-            .findByAccount_IdAndIdempotencyKeyHash(accountId, keyHash)
+            .lockByAccountIdAndIdempotencyKeyHash(accountId, keyHash)
             .orElseThrow(
                 () -> new InvalidStateException("Concurrent Offer acceptance was not committed."));
     return replay(redemption, requestFingerprint, projector);
@@ -480,54 +511,103 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
       throw new IdempotencyConflictException();
     }
     SubscriptionChangeOperation operation = recoverOperation(redemption);
+    Instant replayedAt = clock.instant();
+    if (operation == null
+        && redemption.getStatus() == CommercialOfferRedemptionStatus.RESERVED
+        && redemption.applicationLeaseExpired(replayedAt)) {
+      UUID applicationClaimId = UUID.randomUUID();
+      redemption.reclaimApplication(
+          applicationClaimId, replayedAt.plus(applicationLeaseDuration), replayedAt);
+      redemptions.saveAndFlush(redemption);
+      return new Reservation<>(
+          redemption.getId(),
+          redemption.getAcceptedSelection(),
+          redemption.getCommercialEvaluation(),
+          null,
+          null,
+          applicationClaimId,
+          true);
+    }
     return new Reservation<>(
         redemption.getId(),
         null,
         redemption.getCommercialEvaluation(),
         null,
-        projector.project(redemption, operation, true));
+        projector.project(redemption, operation, true),
+        redemption.getApplicationClaimId(),
+        true);
   }
 
   private <T> T complete(
+      UUID accountId,
       UUID redemptionId,
       SubscriptionChangeOperationDto appliedOperation,
+      boolean replayed,
       AcceptanceProjector<T> projector) {
+    accounts.findByIdForSubscriptionUpdate(accountId).orElseThrow(OfferNotAvailableException::new);
     CommercialOfferRedemption redemption =
         redemptions.lockById(redemptionId).orElseThrow(OfferRedemptionBlockedException::new);
-    transitions.applyOperation(
-        redemption, appliedOperation.id(), appliedOperation.status());
+    if (!redemption.getAccount().getId().equals(accountId)) {
+      throw new OfferRedemptionBlockedException();
+    }
     SubscriptionChangeOperation operation =
         subscriptionOperations
-            .findByOfferRedemptionId(redemptionId)
+            .findByOfferRedemptionIdAndAccountId(
+                redemptionId, redemption.getAccount().getId())
             .orElseThrow(OfferRedemptionBlockedException::new);
-    return projector.project(redemption, operation, false);
+    if (!operation.getId().equals(appliedOperation.id())) {
+      throw new OfferRedemptionBlockedException();
+    }
+    requireMatchingOperation(redemption, operation);
+    return projector.project(redemption, operation, replayed);
   }
 
   private SubscriptionChangeOperation recoverOperation(CommercialOfferRedemption redemption) {
     Optional<SubscriptionChangeOperation> found =
-        subscriptionOperations.findByOfferRedemptionId(redemption.getId());
+        subscriptionOperations.findByOfferRedemptionIdAndAccountId(
+            redemption.getId(), redemption.getAccount().getId());
     if (found.isEmpty() && redemption.getSubscriptionOperationId() != null) {
       found =
           subscriptionOperations.findByIdAndAccountId(
               redemption.getSubscriptionOperationId(), redemption.getAccount().getId());
     }
     found.ifPresent(
-        operation ->
-            transitions.applyOperation(redemption, operation.getId(), operation.getStatus()));
+        operation -> {
+          transitions.applyOperation(redemption, operation);
+          redemptions.saveAndFlush(redemption);
+        });
     return found.orElse(null);
   }
 
-  private void failOrRecover(UUID redemptionId) {
+  private void failOrRecover(UUID accountId, UUID redemptionId, UUID applicationClaimId) {
+    accounts.findByIdForSubscriptionUpdate(accountId).orElseThrow(OfferNotAvailableException::new);
     CommercialOfferRedemption redemption =
         redemptions.lockById(redemptionId).orElseThrow(OfferRedemptionBlockedException::new);
+    if (!redemption.getAccount().getId().equals(accountId)) {
+      throw new OfferRedemptionBlockedException();
+    }
     if (redemption.getStatus() != CommercialOfferRedemptionStatus.RESERVED) return;
-    var operation = subscriptionOperations.findByOfferRedemptionId(redemptionId);
+    if (!redemption.hasApplicationClaim(applicationClaimId)) return;
+    var operation =
+        subscriptionOperations.findByOfferRedemptionIdAndAccountId(
+            redemptionId, redemption.getAccount().getId());
     if (operation.isPresent()) {
       var found = operation.orElseThrow();
-      transitions.applyOperation(redemption, found.getId(), found.getStatus());
+      transitions.applyOperation(redemption, found);
+      redemptions.saveAndFlush(redemption);
       return;
     }
     transitions.failReservation(redemption, "SUBSCRIPTION_APPLICATION_FAILED");
+    redemptions.saveAndFlush(redemption);
+  }
+
+  private void requireMatchingOperation(
+      CommercialOfferRedemption redemption, SubscriptionChangeOperation operation) {
+    if (!redemption.getId().equals(operation.getOfferRedemptionId())
+        || !redemption.getAccount().getId().equals(operation.getAccount().getId())
+        || !redemption.hasApplicationClaim(operation.getOfferApplicationClaimId())) {
+      throw new OfferRedemptionBlockedException();
+    }
   }
 
   private <T> T inNewTransaction(int isolation, Supplier<T> work) {
@@ -547,14 +627,23 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
   }
 
   private String acceptanceRequestFingerprint(
-      UUID offerId, boolean operator, String previewToken) {
+      UUID offerId,
+      UUID actor,
+      boolean operator,
+      String previewToken,
+      String normalizedApplicationReason) {
     return CommercialOfferAdminServiceImpl.sha(
-        "offer-accept:v1|"
+        "offer-accept:v2|"
             + offerId
+            + "|"
+            + actor
             + "|"
             + (operator ? "OPERATOR" : "CLIENT")
             + "|"
-            + CommercialOfferAdminServiceImpl.sha(previewToken));
+            + CommercialOfferAdminServiceImpl.sha(previewToken)
+            + (operator
+                ? "|" + CommercialOfferAdminServiceImpl.sha(normalizedApplicationReason)
+                : ""));
   }
 
   private CommercialOfferViews.ClientAcceptance clientAcceptance(
@@ -566,6 +655,9 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         operation == null ? redemption.getSubscriptionOperationId() : operation.getId(),
         redemption.getStatus(),
         replayed,
+        acceptanceProgress(redemption, operation),
+        acceptanceNextAction(redemption, operation),
+        retryAfter(redemption, operation),
         operation == null ? null : operationProjections.client(operation),
         projections.accepted(redemption));
   }
@@ -579,8 +671,39 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         operation == null ? redemption.getSubscriptionOperationId() : operation.getId(),
         redemption.getStatus(),
         replayed,
+        acceptanceProgress(redemption, operation),
+        acceptanceNextAction(redemption, operation),
+        retryAfter(redemption, operation),
         operation == null ? null : operationProjections.admin(operation),
         projections.accepted(redemption));
+  }
+
+  private CommercialOfferAcceptanceProgress acceptanceProgress(
+      CommercialOfferRedemption redemption, SubscriptionChangeOperation operation) {
+    if (operation != null) return CommercialOfferAcceptanceProgress.OPERATION_AVAILABLE;
+    return redemption.getStatus() == CommercialOfferRedemptionStatus.RESERVED
+        ? CommercialOfferAcceptanceProgress.IN_PROGRESS
+        : CommercialOfferAcceptanceProgress.TERMINAL_WITHOUT_OPERATION;
+  }
+
+  private CommercialOfferAcceptanceNextAction acceptanceNextAction(
+      CommercialOfferRedemption redemption, SubscriptionChangeOperation operation) {
+    if (operation == null) {
+      return redemption.getStatus() == CommercialOfferRedemptionStatus.RESERVED
+          ? CommercialOfferAcceptanceNextAction.RETRY_LATER
+          : CommercialOfferAcceptanceNextAction.NONE;
+    }
+    return operation.getStatus() == SubscriptionChangeStatus.PENDING
+            || operation.getStatus() == SubscriptionChangeStatus.AWAITING_CONFIRMATION
+        ? CommercialOfferAcceptanceNextAction.TRACK_OPERATION
+        : CommercialOfferAcceptanceNextAction.NONE;
+  }
+
+  private Instant retryAfter(
+      CommercialOfferRedemption redemption, SubscriptionChangeOperation operation) {
+    return operation == null && redemption.getStatus() == CommercialOfferRedemptionStatus.RESERVED
+        ? redemption.getApplicationLeaseExpiresAt()
+        : null;
   }
 
   private record Reservation<T>(
@@ -588,7 +711,9 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
       SubscriptionChangeRequest selection,
       SubscriptionOfferEvaluation evaluation,
       CommercialOfferViews.ClientEligibilityPreview preview,
-      T replay) {}
+      T replay,
+      UUID applicationClaimId,
+      boolean replaying) {}
 
   @FunctionalInterface
   private interface AcceptanceProjector<T> {
@@ -648,8 +773,10 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
     SubscriptionChangeRequest request = changeRequest(offer, exactPrices);
     var p =
         operator
-            ? subscriptionsService.previewOfferChangeAsOperator(accountId, actor, request)
-            : subscriptionsService.previewOfferChange(accountId, actor, request);
+            ? subscriptionsService.previewOfferChangeAsOperator(
+                accountId, actor, request, offer.getEffects().finiteQuotaBonuses())
+            : subscriptionsService.previewOfferChange(
+                accountId, actor, request, offer.getEffects().finiteQuotaBonuses());
     var policy = p.commercialPolicyEvaluation();
     BigDecimal catalogue = policy == null ? p.previewPrice() : policy.catalogueRecurringPrice();
     BigDecimal fixedBase = policy == null ? catalogue : policy.fixedRecurringPrice();
@@ -763,6 +890,9 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
         && !preview.immediateAllowed()) {
       blockers.add(CommercialOfferEligibilityBlocker.IMMEDIATE_CHANGE_CONFLICT);
     }
+    if (prepared.finalPrice().signum() > 0) {
+      blockers.add(CommercialOfferEligibilityBlocker.PAID_CHECKOUT_UNAVAILABLE);
+    }
     if (isNoOp(offer, accountId, prepared.finalPrice())) {
       blockers.add(CommercialOfferEligibilityBlocker.NO_CHANGE);
     }
@@ -784,11 +914,18 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
   private Map<UUID, SubscriptionChangeOperation> operationsByRedemption(
       Collection<CommercialOfferRedemption> redemptionPage) {
     if (redemptionPage.isEmpty()) return Map.of();
-    Set<UUID> ids =
+    Map<UUID, UUID> redemptionAccounts =
         redemptionPage.stream()
-            .map(CommercialOfferRedemption::getId)
-            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-    return subscriptionOperations.findAllByOfferRedemptionIdIn(ids).stream()
+            .collect(
+                java.util.stream.Collectors.toUnmodifiableMap(
+                    CommercialOfferRedemption::getId,
+                    redemption -> redemption.getAccount().getId()));
+    return subscriptionOperations.findAllByOfferRedemptionIdIn(redemptionAccounts.keySet()).stream()
+        .filter(
+            operation ->
+                Objects.equals(
+                    redemptionAccounts.get(operation.getOfferRedemptionId()),
+                    operation.getAccount().getId()))
         .collect(
             java.util.stream.Collectors.toUnmodifiableMap(
                 SubscriptionChangeOperation::getOfferRedemptionId,

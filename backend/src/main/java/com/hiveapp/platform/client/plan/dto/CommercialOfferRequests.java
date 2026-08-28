@@ -46,6 +46,7 @@ public final class CommercialOfferRequests {
       @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) @Size(max = 64) String value) {}
 
   public record LineageTerms(
+      @NotNull @PositiveOrZero Long expectedLineageVersion,
       @NotNull CommercialOfferDiscovery discovery,
       @NotNull CommercialOfferAcceptance acceptance,
       @Positive Long globalLimit,
@@ -66,7 +67,7 @@ public final class CommercialOfferRequests {
       @NotBlank @Size(max = 2048) String previewToken) {}
 
   public record ReassignOwner(
-      @NotNull @PositiveOrZero Long version,
+      @NotNull @PositiveOrZero Long lineageVersion,
       @NotNull UUID ownerAdminUserId,
       @NotBlank @Size(max = 500) String reason) {}
 

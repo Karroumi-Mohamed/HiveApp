@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.service;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.CommercialOfferRequests;
+import com.hiveapp.platform.client.plan.dto.CommercialOfferEffectSnapshot;
 import com.hiveapp.platform.client.plan.dto.CommercialOfferViews;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
@@ -12,6 +13,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOfferEvaluation;
 import java.util.UUID;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -40,11 +42,17 @@ public interface SubscriptionService {
 
   /** Client-authorized preview for an exact Offer selection, including DIRECT_ONLY products. */
   SubscriptionChangePreviewResponse previewOfferChange(
-      UUID accountId, UUID actorUserId, SubscriptionChangeRequest request);
+      UUID accountId,
+      UUID actorUserId,
+      SubscriptionChangeRequest request,
+      List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses);
 
   /** Operator Offer preview; the calling admin surface must carry both platform permissions. */
   SubscriptionChangePreviewResponse previewOfferChangeAsOperator(
-      UUID accountId, UUID actorUserId, SubscriptionChangeRequest request);
+      UUID accountId,
+      UUID actorUserId,
+      SubscriptionChangeRequest request,
+      List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses);
 
   SubscriptionChangeApplyResponse applyChange(
       UUID accountId, UUID actorUserId, SubscriptionChangeApplyRequest request);
@@ -62,7 +70,7 @@ public interface SubscriptionService {
       SubscriptionChangeApplyRequest request,
       String reason,
       UUID redemptionId,
-      SubscriptionOfferEvaluation offerEvaluation);
+      UUID applicationToken);
 
   /** Operator Offer apply; the calling admin surface must carry both platform permissions. */
   SubscriptionChangeApplyResponse applyOfferChangeAsOperator(
@@ -71,7 +79,7 @@ public interface SubscriptionService {
       SubscriptionChangeApplyRequest request,
       String reason,
       UUID redemptionId,
-      SubscriptionOfferEvaluation offerEvaluation);
+      UUID applicationToken);
 
   Page<SubscriptionChangeOperationDto> listChangeOperations(UUID accountId, Pageable pageable);
 

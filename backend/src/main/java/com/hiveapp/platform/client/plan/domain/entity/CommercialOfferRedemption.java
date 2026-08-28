@@ -2,10 +2,12 @@ package com.hiveapp.platform.client.plan.domain.entity;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.plan.domain.constant.*;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOfferEvaluation;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.*;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -59,9 +61,19 @@ public class CommercialOfferRedemption extends BaseEntity {
   @Column(name = "request_fingerprint", nullable = false, updatable = false, length = 64)
   private String requestFingerprint;
 
+  @Column(name = "application_claim_id", nullable = false)
+  private UUID applicationClaimId;
+
+  @Column(name = "application_lease_expires_at", nullable = false)
+  private Instant applicationLeaseExpiresAt;
+
   @JdbcTypeCode(SqlTypes.JSON)
   @Column(name = "commercial_evaluation", nullable = false, updatable = false)
   private SubscriptionOfferEvaluation commercialEvaluation;
+
+  @JdbcTypeCode(SqlTypes.JSON)
+  @Column(name = "accepted_selection", nullable = false, updatable = false)
+  private SubscriptionChangeRequest acceptedSelection;
 
   @Column(name = "subscription_operation_id")
   private UUID subscriptionOperationId;
@@ -89,8 +101,11 @@ public class CommercialOfferRedemption extends BaseEntity {
       UUID actor,
       String keyHash,
       String fingerprint,
+      SubscriptionChangeRequest acceptedSelection,
       SubscriptionOfferEvaluation evaluation,
-      Instant now) {
+      Instant now,
+      UUID applicationClaimId,
+      Instant applicationLeaseExpiresAt) {
     var r = new CommercialOfferRedemption();
     r.account = account;
     r.offer = offer;
@@ -101,14 +116,40 @@ public class CommercialOfferRedemption extends BaseEntity {
     r.actorUserId = actor;
     r.idempotencyKeyHash = keyHash;
     r.requestFingerprint = fingerprint;
+    r.acceptedSelection = Objects.requireNonNull(acceptedSelection);
+    r.applicationClaimId = Objects.requireNonNull(applicationClaimId);
+    r.applicationLeaseExpiresAt = Objects.requireNonNull(applicationLeaseExpiresAt);
     r.commercialEvaluation = java.util.Objects.requireNonNull(evaluation);
     r.reservedAt = now;
     return r;
   }
 
-  public void linkOperation(UUID id) {
+  public void reclaimApplication(UUID claimId, Instant leaseExpiresAt, Instant now) {
+    requireReserved();
+    if (subscriptionOperationId != null) {
+      throw new IllegalStateException("An Offer redemption with an operation cannot be reclaimed.");
+    }
+    if (!applicationLeaseExpired(Objects.requireNonNull(now))) {
+      throw new IllegalStateException("An active Offer application claim cannot be replaced.");
+    }
+    applicationClaimId = Objects.requireNonNull(claimId);
+    applicationLeaseExpiresAt = Objects.requireNonNull(leaseExpiresAt);
+  }
+
+  public boolean hasApplicationClaim(UUID claimId) {
+    return applicationClaimId != null && applicationClaimId.equals(claimId);
+  }
+
+  public boolean applicationLeaseExpired(Instant now) {
+    return applicationLeaseExpiresAt != null && !applicationLeaseExpiresAt.isAfter(now);
+  }
+
+  public void linkOperation(UUID id, UUID claimId) {
     if (status != CommercialOfferRedemptionStatus.RESERVED)
       throw new IllegalStateException("Only a reserved redemption can link an operation.");
+    if (!hasApplicationClaim(claimId)) {
+      throw new IllegalStateException("A stale Offer application claim cannot link an operation.");
+    }
     if (subscriptionOperationId != null && !subscriptionOperationId.equals(id)) {
       throw new IllegalStateException("Offer redemption is linked to another operation.");
     }

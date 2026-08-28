@@ -6,6 +6,8 @@ import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferRedemptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferSurface;
 import com.hiveapp.platform.client.plan.domain.constant.RetainedEntitlementState;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyDecisionOutcome;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyProductType;
@@ -22,8 +24,10 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
+import com.hiveapp.platform.client.plan.domain.repository.CommercialOfferRedemptionRepository;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.ClientCommercialPolicyDecision;
+import com.hiveapp.platform.client.plan.dto.CommercialOfferEffectSnapshot;
 import com.hiveapp.platform.client.plan.dto.CommercialPolicyDecisionSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
@@ -56,6 +60,7 @@ import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeOperationProjectionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeActivationService;
+import com.hiveapp.platform.client.plan.service.CommercialOfferRedemptionTransitionService;
 import com.hiveapp.platform.client.plan.service.ProductPriceResolver;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogVersionService;
@@ -75,6 +80,7 @@ import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.exception.StaleResourceVersionException;
+import com.hiveapp.shared.exception.OfferRedemptionBlockedException;
 import com.hiveapp.shared.money.Money;
 import com.hiveapp.shared.security.EffectivePermissionService;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
@@ -123,6 +129,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final SubscriptionImpactAnalyzer subscriptionImpactAnalyzer;
     private final SubscriptionPeriodCalculator subscriptionPeriodCalculator;
     private final SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
+    private final CommercialOfferRedemptionRepository commercialOfferRedemptionRepository;
+    private final CommercialOfferRedemptionTransitionService commercialOfferRedemptionTransitions;
     private final SubscriptionCheckoutService subscriptionCheckoutService;
     private final SubscriptionChangeOperationProjectionMapper operationProjectionMapper;
     private final SubscriptionChangeActivationService subscriptionChangeActivationService;
@@ -392,7 +400,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return previewChangeInternal(
                 accountId, actorUserId, request,
                 CommercialCatalogResolver.Audience.CLIENT_CATALOG,
-                CommercialPreviewKind.SUBSCRIPTION_CHANGE);
+                CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                List.of());
     }
 
     @Override
@@ -406,7 +415,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return previewChangeInternal(
                 accountId, actorUserId, request,
                 CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
-                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE);
+                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE,
+                List.of());
     }
 
     @Override
@@ -415,12 +425,14 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     public SubscriptionChangePreviewResponse previewOfferChange(
             UUID accountId,
             UUID actorUserId,
-            SubscriptionChangeRequest request
+            SubscriptionChangeRequest request,
+            List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses
     ) {
         return previewChangeInternal(
                 accountId, actorUserId, request,
                 CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
-                CommercialPreviewKind.SUBSCRIPTION_CHANGE);
+                CommercialPreviewKind.SUBSCRIPTION_CHANGE,
+                quotaBonuses);
     }
 
     @Override
@@ -429,12 +441,14 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     public SubscriptionChangePreviewResponse previewOfferChangeAsOperator(
             UUID accountId,
             UUID actorUserId,
-            SubscriptionChangeRequest request
+            SubscriptionChangeRequest request,
+            List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses
     ) {
         return previewChangeInternal(
                 accountId, actorUserId, request,
                 CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
-                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE);
+                CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE,
+                quotaBonuses);
     }
 
     private SubscriptionChangePreviewResponse previewChangeInternal(
@@ -442,13 +456,14 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             UUID actorUserId,
             SubscriptionChangeRequest request,
             CommercialCatalogResolver.Audience audience,
-            CommercialPreviewKind previewKind
+            CommercialPreviewKind previewKind,
+            List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses
     ) {
         String registryVersion = registryCatalogVersionService.currentVersion();
         return commercialCatalogVersionService.readConsistently(catalogRevision -> {
             Instant evaluatedAt = clock.instant();
             SubscriptionChangeAssessment assessment = assessSubscriptionChangePreview(
-                    accountId, request, audience, evaluatedAt);
+                    accountId, request, audience, evaluatedAt, quotaBonuses);
             var evidence = previewTokenService.issue(
                     previewKind,
                     assessment.current().getId(), assessment.current().getVersion(), actorUserId,
@@ -504,11 +519,11 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @PermissionNode(key = "internal_client_offer_apply", guard = PermissionNode.Guard.OFF)
     public SubscriptionChangeApplyResponse applyOfferChange(UUID accountId, UUID actorUserId,
             SubscriptionChangeApplyRequest request, String reason,
-            UUID redemptionId, SubscriptionOfferEvaluation offerEvaluation) {
+            UUID redemptionId, UUID applicationToken) {
         return applyChangeInternal(accountId, actorUserId, request,
                 CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
                 CommercialPreviewKind.SUBSCRIPTION_CHANGE,
-                reason, redemptionId, offerEvaluation);
+                reason, redemptionId, applicationToken);
     }
 
     @Override
@@ -517,11 +532,11 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     public SubscriptionChangeApplyResponse applyOfferChangeAsOperator(
             UUID accountId, UUID actorUserId,
             SubscriptionChangeApplyRequest request, String reason,
-            UUID redemptionId, SubscriptionOfferEvaluation offerEvaluation) {
+            UUID redemptionId, UUID applicationToken) {
         return applyChangeInternal(accountId, actorUserId, request,
                 CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
                 CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE,
-                reason, redemptionId, offerEvaluation);
+                reason, redemptionId, applicationToken);
     }
 
     private SubscriptionChangeApplyResponse applyChangeInternal(
@@ -532,16 +547,28 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             CommercialPreviewKind previewKind,
             String requestReason,
             UUID offerRedemptionId,
-            SubscriptionOfferEvaluation offerEvaluation
+            UUID applicationClaimId
     ) {
         accountRepository.findByIdForSubscriptionUpdate(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account", "id", accountId));
+        com.hiveapp.platform.client.plan.domain.entity.CommercialOfferRedemption offerRedemption = null;
+        if (offerRedemptionId != null) {
+            offerRedemption = requireOfferApplicationClaim(
+                    accountId, actorUserId, offerRedemptionId, applicationClaimId, previewKind);
+            if (!Objects.equals(offerRedemption.getAcceptedSelection(), applyRequest.selection())) {
+                throw new OfferRedemptionBlockedException();
+            }
+        }
+        SubscriptionOfferEvaluation offerEvaluation = offerRedemption == null
+                ? null : offerRedemption.getCommercialEvaluation();
         SubscriptionChangeRequest request = applyRequest.selection();
         long catalogRevision = commercialCatalogVersionService.currentRevision();
         String registryVersion = registryCatalogVersionService.currentVersion();
         SubscriptionChangeAssessment assessment;
         try {
-            assessment = assessSubscriptionChangeForApply(accountId, request, audience);
+            assessment = assessSubscriptionChangeForApply(
+                    accountId, request, audience,
+                    offerEvaluation == null ? List.of() : offerEvaluation.quotaBonuses());
         } catch (InvalidRequestException | InvalidStateException | ResourceNotFoundException
                  | StaleResourceVersionException exception) {
             // Once evidence is supplied, a changed or no-longer-selectable commercial input is
@@ -566,7 +593,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         Plan targetPlan = assessment.targetPlan();
         ChangeSelection selection = assessment.selection();
         SubscriptionEntitlementSnapshot targetSnapshot = offerEvaluation == null
-                ? assessment.targetSnapshot() : assessment.targetSnapshot().withOfferEvaluation(offerEvaluation);
+                ? assessment.targetSnapshot() : assessment.targetSnapshot().withOfferProvenance(offerEvaluation);
         SubscriptionChangePreviewResponse preview = assessment.toResponse(
                 catalogRevision, registryVersion, verified.evaluatedAt(), verified.expiresAt(),
                 applyRequest.previewToken());
@@ -586,10 +613,10 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 selection.addOnCodes(), selection.quotaPackages());
         SubscriptionChangeOperation operation = newChangeOperation(
                 current, targetPlan, requestedSelection, targetSnapshot, request.effectiveTiming(),
-                audience == CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR
+                previewKind == CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE
                         ? SubscriptionChangeOrigin.PLATFORM_ADMIN
                         : SubscriptionChangeOrigin.CLIENT_SELF_SERVICE,
-                actorUserId, requestReason, offerRedemptionId, offerEvaluation);
+                actorUserId, requestReason, offerRedemptionId, applicationClaimId, offerEvaluation);
 
         subscriptionChangeOperationRepository.findTopByAccountIdAndStatusIn(
                         accountId,
@@ -602,6 +629,9 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
         Money targetPrice = Money.of(offerEvaluation == null
                 ? preview.previewPrice() : offerEvaluation.finalPrice(), preview.currencyCode());
+        if (offerRedemption != null && targetPrice.amount().signum() > 0) {
+            throw new OfferRedemptionBlockedException();
+        }
         if (targetPrice.amount().signum() > 0) {
             operation.setStatus(SubscriptionChangeStatus.AWAITING_CONFIRMATION);
             SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
@@ -612,6 +642,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
         if (request.effectiveTiming() == SubscriptionChangeTiming.AT_RENEWAL) {
             SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
+            completeOfferApplication(offerRedemption, savedOperation);
             return new SubscriptionChangeApplyResponse(
                     toDto(current), preview, operationProjectionMapper.internal(savedOperation));
         }
@@ -619,9 +650,43 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         SubscriptionChangeOperation savedOperation = subscriptionChangeOperationRepository.saveAndFlush(operation);
         savedOperation = subscriptionChangeActivationService.activate(
                 savedOperation, operation.getTargetSnapshot().effectiveFrom());
+        completeOfferApplication(offerRedemption, savedOperation);
         return new SubscriptionChangeApplyResponse(
                 toDto(savedOperation.getResultSubscription()), preview,
                 operationProjectionMapper.internal(savedOperation));
+    }
+
+    private com.hiveapp.platform.client.plan.domain.entity.CommercialOfferRedemption requireOfferApplicationClaim(
+            UUID accountId,
+            UUID actorUserId,
+            UUID redemptionId,
+            UUID applicationClaimId,
+            CommercialPreviewKind previewKind
+    ) {
+        var redemption = commercialOfferRedemptionRepository.lockById(redemptionId)
+                .orElseThrow(OfferRedemptionBlockedException::new);
+        CommercialOfferSurface expectedSurface =
+                previewKind == CommercialPreviewKind.ADMIN_SUBSCRIPTION_CHANGE
+                        ? CommercialOfferSurface.OPERATOR : CommercialOfferSurface.CLIENT;
+        if (redemption.getStatus() != CommercialOfferRedemptionStatus.RESERVED
+                || !redemption.getAccount().getId().equals(accountId)
+                || !redemption.getActorUserId().equals(actorUserId)
+                || redemption.getSurface() != expectedSurface
+                || applicationClaimId == null
+                || !redemption.hasApplicationClaim(applicationClaimId)) {
+            throw new OfferRedemptionBlockedException();
+        }
+        return redemption;
+    }
+
+    private void completeOfferApplication(
+            com.hiveapp.platform.client.plan.domain.entity.CommercialOfferRedemption redemption,
+            SubscriptionChangeOperation operation
+    ) {
+        if (redemption != null) {
+            commercialOfferRedemptionTransitions.applyOperation(redemption, operation);
+            commercialOfferRedemptionRepository.saveAndFlush(redemption);
+        }
     }
 
     @Override
@@ -1011,7 +1076,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             UUID accountId,
             SubscriptionChangeRequest request,
             CommercialCatalogResolver.Audience audience,
-            Instant evaluatedAt
+            Instant evaluatedAt,
+            List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses
     ) {
         Subscription current = getSubscription(accountId);
         CommercialPolicyEvaluator.Evaluation policyEvaluation =
@@ -1035,8 +1101,10 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         requireExactRequestedPrices(catalogueSnapshot, request);
         var terms = commercialPolicyTermsService.apply(
                 target.plan(), catalogueSnapshot, policyEvaluation, planned);
+        SubscriptionEntitlementSnapshot targetSnapshot =
+                terms.snapshot().withOfferQuotaBonuses(quotaBonuses);
         return assessResolvedChange(
-                accountId, current, target.plan(), terms.snapshot(), selection,
+                accountId, current, target.plan(), targetSnapshot, selection,
                 request.effectiveTiming(), audience, terms.evaluation());
     }
 
@@ -1062,7 +1130,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private SubscriptionChangeAssessment assessSubscriptionChangeForApply(
             UUID accountId,
             SubscriptionChangeRequest request,
-            CommercialCatalogResolver.Audience audience
+            CommercialCatalogResolver.Audience audience,
+            List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses
     ) {
         Subscription current = getSubscription(accountId);
         CommercialPolicyEvaluator.Evaluation policyEvaluation =
@@ -1102,8 +1171,10 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 planned.acceptedGrants(), planned.rejectedGrants());
         var terms = commercialPolicyTermsService.apply(
                 finalized.plan(), finalized.snapshot(), policyEvaluation, finalizedPlan);
+        SubscriptionEntitlementSnapshot targetSnapshot =
+                terms.snapshot().withOfferQuotaBonuses(quotaBonuses);
         return assessResolvedChange(
-                accountId, current, finalized.plan(), terms.snapshot(), selection,
+                accountId, current, finalized.plan(), targetSnapshot, selection,
                 request.effectiveTiming(), audience, terms.evaluation());
     }
 
@@ -1129,7 +1200,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 targetSnapshot.billingCycle(), timing, current.getCurrentPeriodEnd());
         String fingerprint = subscriptionChangeFingerprint(
                 current, targetPlan, targetSnapshot, selection, timing,
-                price, conflicts, effectiveQuotaLimits, policyEvaluation, audience);
+                price, conflicts, effectiveQuotaLimits,
+                policyEvaluation, audience);
         return new SubscriptionChangeAssessment(
                 current, targetPlan, targetSnapshot, selection,
                 current.getCurrentPrice(), price.amount(), price.currencyCode(),
@@ -1544,6 +1616,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             UUID actorUserId,
             String requestReason,
             UUID offerRedemptionId,
+            UUID offerApplicationClaimId,
             SubscriptionOfferEvaluation offerEvaluation
     ) {
         SubscriptionPeriodCalculator.Period targetPeriod = subscriptionPeriodCalculator.change(
@@ -1564,6 +1637,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         operation.setCommercialPolicyEvaluation(targetSnapshot.commercialPolicyEvaluation());
         operation.setCommercialOfferEvaluation(offerEvaluation);
         operation.setOfferRedemptionId(offerRedemptionId);
+        operation.setOfferApplicationClaimId(offerApplicationClaimId);
         operation.setRequestOrigin(origin);
         operation.setRequestedByUserId(actorUserId);
         operation.setRequestReason(requestReason);

@@ -39,6 +39,8 @@ import com.hiveapp.platform.client.plan.service.SubscriptionImpactAnalyzer;
 import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeActivationService;
+import com.hiveapp.platform.client.plan.service.CommercialOfferRedemptionTransitionService;
+import com.hiveapp.platform.client.plan.service.SubscriptionChangeOperationProjectionMapper;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangePreviewResponse;
@@ -48,6 +50,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionCommercialPolicyEvaluation;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.StaffFeature;
@@ -111,7 +114,10 @@ class SubscriptionServiceImplTest {
     @Mock private SubscriptionImpactAnalyzer subscriptionImpactAnalyzer;
     @Mock private SubscriptionPeriodCalculator subscriptionPeriodCalculator;
     @Mock private SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
+    @Mock private com.hiveapp.platform.client.plan.domain.repository.CommercialOfferRedemptionRepository commercialOfferRedemptionRepository;
+    @Mock private CommercialOfferRedemptionTransitionService commercialOfferRedemptionTransitions;
     @Mock private SubscriptionCheckoutService subscriptionCheckoutService;
+    @Mock private SubscriptionChangeOperationProjectionMapper operationProjectionMapper;
     @Mock private SubscriptionChangeActivationService subscriptionChangeActivationService;
     @Mock private com.hiveapp.platform.client.plan.service.ProductPriceResolver productPriceResolver;
     @Mock private CommercialCatalogResolver commercialCatalogResolver;
@@ -217,6 +223,16 @@ class SubscriptionServiceImplTest {
                                     snapshot.basePrice(), snapshot.currencyCode(), List.of(), List.of());
                     return new CommercialPolicySubscriptionTermsService.AppliedTerms(
                             snapshot.withCommercialPolicyEvaluation(evaluation), evaluation);
+                });
+        lenient().when(operationProjectionMapper.internal(any()))
+                .thenAnswer(invocation -> {
+                    SubscriptionChangeOperation operation = invocation.getArgument(0);
+                    return new SubscriptionChangeOperationDto(
+                            operation.getId(), operation.getCreatedAt(), operation.getUpdatedAt(),
+                            operation.getTiming(), operation.getStatus(), operation.getEffectiveAt(),
+                            operation.getSourceSubscription().getPlan().getCode(),
+                            operation.getTargetPlan().getCode(), operation.getAttentionReason(), null,
+                            operation.getCommercialPolicyEvaluation());
                 });
     }
 
@@ -414,8 +430,10 @@ class SubscriptionServiceImplTest {
                 eq(pro), any(ProductPrice.class),
                 any(CommercialCatalogResolver.SelectionResolution.class), eq(currentSnapshot)))
                 .thenReturn(targetSnapshot);
-        when(subscriptionImpactAnalyzer.effectiveQuotaLimits(currentSnapshot)).thenReturn(currentLimits);
-        when(subscriptionImpactAnalyzer.effectiveQuotaLimits(targetSnapshot)).thenReturn(targetLimits);
+        when(subscriptionImpactAnalyzer.effectiveQuotaLimits(any(SubscriptionEntitlementSnapshot.class)))
+                .thenAnswer(invocation -> "FREE".equals(
+                        invocation.<SubscriptionEntitlementSnapshot>getArgument(0).planCode())
+                        ? currentLimits : targetLimits);
         when(billingCalculator.calculateMoney(any())).thenReturn(Money.of(BigDecimal.valueOf(160), "USD"));
         when(subscriptionPeriodCalculator.change(
                 BillingCycle.YEARLY, SubscriptionChangeTiming.AT_RENEWAL, renewalAt))

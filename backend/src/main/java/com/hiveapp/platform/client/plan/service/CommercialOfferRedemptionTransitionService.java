@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.service;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferRedemptionStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialOfferRedemption;
+import com.hiveapp.platform.client.plan.domain.entity.SubscriptionChangeOperation;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialOfferCapacityRepository;
 import com.hiveapp.shared.exception.OfferRedemptionBlockedException;
 import java.time.Clock;
@@ -22,11 +23,15 @@ public class CommercialOfferRedemptionTransitionService {
 
   public void applyOperation(
       CommercialOfferRedemption redemption,
-      UUID operationId,
-      SubscriptionChangeStatus operationStatus) {
+      SubscriptionChangeOperation operation) {
+    if (!redemption.getId().equals(operation.getOfferRedemptionId())
+        || !redemption.getAccount().getId().equals(operation.getAccount().getId())
+        || !redemption.hasApplicationClaim(operation.getOfferApplicationClaimId())) {
+      throw new OfferRedemptionBlockedException();
+    }
     if (redemption.getStatus() != CommercialOfferRedemptionStatus.RESERVED) return;
-    redemption.linkOperation(operationId);
-    switch (operationStatus) {
+    redemption.linkOperation(operation.getId(), operation.getOfferApplicationClaimId());
+    switch (operation.getStatus()) {
       case APPLIED -> {
         capacity(redemption).apply();
         redemption.apply(clock.instant());

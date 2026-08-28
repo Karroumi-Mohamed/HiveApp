@@ -26,10 +26,8 @@ class CommercialOfferDefinitionAssessor {
 
   private final CommercialCampaignRepository campaigns;
   private final CommercialOfferCodeReservationRepository codes;
-  private final ProductPriceRepository prices;
   private final PlanFeatureRepository planFeatures;
   private final AddOnRepository addOns;
-  private final QuotaPackageRepository quotaPackages;
   private final CommercialCatalogResolver catalogResolver;
   private final CommercialOfferCodeHasher codeHasher;
   private final CommercialOfferClientProjectionMapper clientProjection;
@@ -288,7 +286,13 @@ class CommercialOfferDefinitionAssessor {
       validateDirectOnly(campaign, price.getQuotaPackage().getSalesVisibility(), path, issues);
     }
 
-    validateQuotaBonuses(selection.planId(), selectedAddOnIds, effects, issues);
+    validateQuotaBonuses(
+        selection.planId(),
+        selectedAddOnIds,
+        selection.quotaPackages(),
+        byId,
+        effects,
+        issues);
     if (structurallyValid) {
       try {
         var candidate =
@@ -384,32 +388,106 @@ class CommercialOfferDefinitionAssessor {
   private void validateQuotaBonuses(
       UUID planId,
       Set<UUID> addOnIds,
+      List<CommercialOfferSelection.PackageSelection> selectedPackages,
+      Map<UUID, ProductPrice> exactPrices,
       CommercialOfferEffectSnapshot effects,
       List<CommercialOfferViews.DefinitionIssue> issues) {
     if (effects == null) return;
-    Map<String, List<com.hiveapp.shared.quota.QuotaLimitEntry>> quotas = new HashMap<>();
+    record QuotaKey(String featureCode, String resource) {}
+    Map<QuotaKey, Long> finiteLimits = new LinkedHashMap<>();
     planFeatures.findAllByPlanId(planId).stream()
         .filter(item -> item.getMode() == PlanFeatureMode.INCLUDED)
-        .forEach(item -> quotas.put(item.getFeature().getCode(), item.getQuotaConfigs()));
+        .forEach(
+            item ->
+                item.getQuotaConfigs().stream()
+                    .filter(limit -> limit.mode() == QuotaLimitMode.FINITE)
+                    .forEach(
+                        limit ->
+                            finiteLimits.putIfAbsent(
+                                new QuotaKey(item.getFeature().getCode(), limit.resource()),
+                                limit.limit())));
     if (!addOnIds.isEmpty()) {
       addOns.findAllDetailedByIdIn(addOnIds).stream()
           .flatMap(addOn -> addOn.getFeatures().stream())
-          .forEach(feature -> quotas.put(feature.getFeature().getCode(), feature.getQuotaConfigs()));
+          .forEach(
+              feature ->
+                  feature.getQuotaConfigs().stream()
+                      .filter(limit -> limit.mode() == QuotaLimitMode.FINITE)
+                      .forEach(
+                          limit ->
+                              finiteLimits.putIfAbsent(
+                                  new QuotaKey(
+                                      feature.getFeature().getCode(), limit.resource()),
+                                  limit.limit())));
     }
+    Map<QuotaKey, Long> purchasedCapacity = new LinkedHashMap<>();
+    Set<QuotaKey> purchasedCapacityOverflow = new LinkedHashSet<>();
+    for (var selected : selectedPackages) {
+      ProductPrice price = exactPrices.get(selected.priceId());
+      if (price == null
+          || price.getOwnerType() != ProductPriceOwnerType.QUOTA_PACKAGE
+          || !Objects.equals(price.getQuotaPackage().getId(), selected.quotaPackageId())) {
+        continue;
+      }
+      QuotaKey key =
+          new QuotaKey(
+              price.getQuotaPackage().getFeature().getCode(),
+              price.getQuotaPackage().getResource());
+      try {
+        long selectedCapacity =
+            Math.multiplyExact(
+                price.getQuotaPackage().getCapacityPerUnit(), selected.quantity());
+        purchasedCapacity.merge(key, selectedCapacity, Math::addExact);
+      } catch (ArithmeticException overflow) {
+        purchasedCapacityOverflow.add(key);
+      }
+    }
+    purchasedCapacity.forEach(
+        (key, capacity) -> {
+          Long finiteLimit = finiteLimits.get(key);
+          if (finiteLimit != null) {
+            try {
+              Math.addExact(finiteLimit, capacity);
+            } catch (ArithmeticException overflow) {
+              purchasedCapacityOverflow.add(key);
+            }
+          }
+        });
+    if (!purchasedCapacityOverflow.isEmpty()) {
+      issue(
+          issues,
+          CommercialOfferDefinitionIssueCode.QUOTA_BONUS_OVERFLOW,
+          "selection.quotaPackages",
+          "The selected quota package capacity exceeds the supported finite quota range.");
+    }
+    Map<QuotaKey, Long> accumulatedBonuses = new LinkedHashMap<>();
     for (int i = 0; i < effects.finiteQuotaBonuses().size(); i++) {
       var bonus = effects.finiteQuotaBonuses().get(i);
-      boolean finite =
-          quotas.getOrDefault(bonus.featureCode(), List.of()).stream()
-              .anyMatch(
-                  limit ->
-                      Objects.equals(limit.resource(), bonus.resource())
-                          && limit.mode() == QuotaLimitMode.FINITE);
-      if (!finite) {
+      QuotaKey key = new QuotaKey(bonus.featureCode(), bonus.resource());
+      Long finiteLimit = finiteLimits.get(key);
+      String fieldPath = "effects.finiteQuotaBonuses[" + i + "]";
+      if (finiteLimit == null) {
         issue(
             issues,
             CommercialOfferDefinitionIssueCode.QUOTA_BONUS_NOT_IN_SELECTION,
-            "effects.finiteQuotaBonuses[" + i + "]",
+            fieldPath,
             "An Offer quota bonus must target a finite quota in the exact selection.");
+        continue;
+      }
+      if (purchasedCapacityOverflow.contains(key)) continue;
+      try {
+        long accumulated =
+            Math.addExact(accumulatedBonuses.getOrDefault(key, 0L), bonus.quantity());
+        long selectedLimit =
+            Math.addExact(finiteLimit, purchasedCapacity.getOrDefault(key, 0L));
+        Math.addExact(selectedLimit, accumulated);
+        accumulatedBonuses.put(key, accumulated);
+      } catch (ArithmeticException overflow) {
+        issue(
+            issues,
+            CommercialOfferDefinitionIssueCode.QUOTA_BONUS_OVERFLOW,
+            fieldPath,
+            "The combined Offer quota bonus exceeds the supported finite quota range.");
       }
     }
   }
@@ -461,7 +539,7 @@ class CommercialOfferDefinitionAssessor {
           CommercialOfferDefinitionIssueCode.CUSTOMER_CODE_INVALID,
           path,
           "Customer code format is invalid.");
-      return new CodeState(false);
+      return new CodeState(raw != null && !raw.isBlank());
     }
     if (hash != null) {
       codes.findByNormalizedCodeHash(hash)

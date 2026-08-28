@@ -7,6 +7,7 @@ import com.hiveapp.platform.client.plan.domain.entity.CommercialOfferRedemption;
 import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferDiscountDecisionCode;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferDiscountWinner;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferProductState;
 import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.CommercialOfferViews;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOfferEvaluation;
@@ -48,6 +49,7 @@ class CommercialOfferAdminProjectionMapper {
     return switch (price.getOwnerType()) {
       case PLAN ->
           new CommercialOfferViews.PricedChoice(
+              price.getOwnerType(),
               price.getPlan().getId(),
               price.getPlan().getCode(),
               price.getPlan().getName(),
@@ -59,11 +61,11 @@ class CommercialOfferAdminProjectionMapper {
               price.getBillingCycle(),
               price.getEffectiveFrom(),
               price.getEffectiveUntil(),
-              price.getPlan().getStatus().name(),
-              price.getStatus().name(),
+              CommercialOfferProductState.valueOf(price.getPlan().getStatus().name()),
+              price.getStatus(),
               new CommercialOfferViews.ProductCompatibility(
                   price.getPlan().getSalesVisibility(),
-                  price.getPlan().getExtensionPolicy().name(),
+                  price.getPlan().getExtensionPolicy(),
                   Set.of(),
                   Set.of(),
                   Set.of(),
@@ -76,6 +78,7 @@ class CommercialOfferAdminProjectionMapper {
                   null));
       case ADD_ON ->
           new CommercialOfferViews.PricedChoice(
+              price.getOwnerType(),
               price.getAddOn().getId(),
               price.getAddOn().getCode(),
               price.getAddOn().getName(),
@@ -87,8 +90,8 @@ class CommercialOfferAdminProjectionMapper {
               price.getBillingCycle(),
               price.getEffectiveFrom(),
               price.getEffectiveUntil(),
-              price.getAddOn().getStatus().name(),
-              price.getStatus().name(),
+              CommercialOfferProductState.valueOf(price.getAddOn().getStatus().name()),
+              price.getStatus(),
               new CommercialOfferViews.ProductCompatibility(
                   price.getAddOn().getSalesVisibility(),
                   null,
@@ -104,6 +107,7 @@ class CommercialOfferAdminProjectionMapper {
                   null));
       case QUOTA_PACKAGE ->
           new CommercialOfferViews.PricedChoice(
+              price.getOwnerType(),
               price.getQuotaPackage().getId(),
               price.getQuotaPackage().getCode(),
               price.getQuotaPackage().getName(),
@@ -115,8 +119,8 @@ class CommercialOfferAdminProjectionMapper {
               price.getBillingCycle(),
               price.getEffectiveFrom(),
               price.getEffectiveUntil(),
-              price.getQuotaPackage().getStatus().name(),
-              price.getStatus().name(),
+              CommercialOfferProductState.valueOf(price.getQuotaPackage().getStatus().name()),
+              price.getStatus(),
               new CommercialOfferViews.ProductCompatibility(
                   price.getQuotaPackage().getSalesVisibility(),
                   null,

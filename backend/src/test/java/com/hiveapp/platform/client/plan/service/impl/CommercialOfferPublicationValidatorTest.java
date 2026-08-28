@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.hiveapp.platform.client.plan.domain.constant.*;
@@ -10,6 +11,7 @@ import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.repository.*;
 import com.hiveapp.platform.client.plan.dto.CommercialOfferSelection;
+import com.hiveapp.platform.client.plan.dto.CommercialOfferViews;
 import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import java.time.Clock;
 import java.time.Instant;
@@ -18,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,75 +35,82 @@ class CommercialOfferPublicationValidatorTest {
   @Mock private AddOnRepository addOns;
   @Mock private QuotaPackageRepository quotaPackages;
   @Mock private CommercialCatalogResolver catalogResolver;
+  @Mock private CommercialOfferDefinitionAssessor definitionAssessor;
   @Mock private CommercialOffer offer;
   @Mock private CommercialCampaign campaign;
   @Mock private Plan plan;
   @Mock private ProductPrice planPrice;
 
+  @BeforeEach
+  void persistedPublicationState() {
+    lenient().when(offer.getDiscovery()).thenReturn(CommercialOfferDiscovery.CATALOG);
+    lenient().when(offer.getCampaign()).thenReturn(campaign);
+    lenient().when(offer.getStartsAt()).thenReturn(NOW.plusSeconds(60));
+    lenient().when(offer.getEndsAt()).thenReturn(NOW.plusSeconds(3600));
+    lenient().when(campaign.getStatus()).thenReturn(CommercialCampaignStatus.SCHEDULED);
+    lenient().when(campaign.getStartsAt()).thenReturn(NOW);
+    lenient().when(campaign.getEndsAt()).thenReturn(NOW.plusSeconds(7200));
+  }
+
   @Test
   void operationalActionsDeeplyValidateASelectionWithoutMakingListRowsQueryHeavy() {
-    UUID planId = UUID.randomUUID();
-    UUID priceId = UUID.randomUUID();
-    when(offer.getStatus()).thenReturn(CommercialOfferStatus.DRAFT);
-    when(offer.getDiscovery()).thenReturn(CommercialOfferDiscovery.CATALOG);
-    when(offer.getCampaign()).thenReturn(campaign);
-    when(offer.getStartsAt()).thenReturn(NOW.plusSeconds(60));
-    when(offer.getEndsAt()).thenReturn(NOW.plusSeconds(3600));
-    when(offer.getSelection())
+    when(definitionAssessor.assessOffer(offer))
         .thenReturn(
-            new CommercialOfferSelection(
-                planId, priceId, List.of(), List.of(), SubscriptionChangeTiming.IMMEDIATE));
-    when(campaign.getStatus()).thenReturn(CommercialCampaignStatus.SCHEDULED);
-    when(campaign.getStartsAt()).thenReturn(NOW);
-    when(campaign.getEndsAt()).thenReturn(NOW.plusSeconds(7200));
-    when(prices.findOwned(ProductPriceOwnerType.PLAN, planId, priceId))
-        .thenReturn(Optional.empty());
-
+            new CommercialOfferDefinitionAssessor.Assessment(
+                null,
+                null,
+                true,
+                List.of(
+                    new CommercialOfferViews.DefinitionIssue(
+                        CommercialOfferDefinitionIssueCode.PRICE_OWNER_MISMATCH,
+                        "selection.planPriceId",
+                        "The exact Plan price is unavailable."))));
     var validator =
         new CommercialOfferPublicationValidator(
-            offers,
-            prices,
-            planFeatures,
-            addOns,
-            quotaPackages,
-            catalogResolver,
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            offers, definitionAssessor, Clock.fixed(NOW, ZoneOffset.UTC));
 
     assertThat(validator.actionBlockers(offer, false))
-        .doesNotContain(CommercialOfferBlocker.INVALID_SELECTION);
+        .contains(CommercialOfferBlocker.INVALID_SELECTION);
     assertThat(validator.hasInvalidSelection(offer)).isTrue();
   }
 
   @Test
   void publicCampaignCannotPublishAnExactDirectOnlyProduct() {
-    UUID planId = UUID.randomUUID();
-    UUID priceId = UUID.randomUUID();
-    when(offer.getSelection())
+    when(definitionAssessor.assessOffer(offer))
         .thenReturn(
-            new CommercialOfferSelection(
-                planId, priceId, List.of(), List.of(), SubscriptionChangeTiming.IMMEDIATE));
-    when(offer.getStartsAt()).thenReturn(NOW.plusSeconds(60));
-    when(offer.getEndsAt()).thenReturn(NOW.plusSeconds(3600));
-    when(offer.getCampaign()).thenReturn(campaign);
-    when(campaign.getAudienceMode()).thenReturn(CommercialCampaignAudienceMode.PUBLIC);
-    when(prices.findOwned(ProductPriceOwnerType.PLAN, planId, priceId))
-        .thenReturn(Optional.of(planPrice));
-    when(planPrice.getStatus()).thenReturn(ProductPriceStatus.ACTIVE);
-    when(planPrice.getEffectiveFrom()).thenReturn(NOW);
-    when(planPrice.getEffectiveUntil()).thenReturn(NOW.plusSeconds(7200));
-    when(planPrice.getPlan()).thenReturn(plan);
-    when(plan.getSalesVisibility()).thenReturn(ProductSalesVisibility.DIRECT_ONLY);
-
+            new CommercialOfferDefinitionAssessor.Assessment(
+                null,
+                null,
+                true,
+                List.of(
+                    new CommercialOfferViews.DefinitionIssue(
+                        CommercialOfferDefinitionIssueCode.DIRECT_ONLY_REQUIRES_TARGETED_CAMPAIGN,
+                        "selection.planId",
+                        "DIRECT_ONLY products require a targeted Campaign."))));
     var validator =
         new CommercialOfferPublicationValidator(
-            offers,
-            prices,
-            planFeatures,
-            addOns,
-            quotaPackages,
-            catalogResolver,
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            offers, definitionAssessor, Clock.fixed(NOW, ZoneOffset.UTC));
 
     assertThat(validator.hasInvalidSelection(offer)).isTrue();
+  }
+
+  @Test
+  void listSafePublicationBlockersUseOnlyPersistedState() {
+    when(offer.getDiscovery()).thenReturn(CommercialOfferDiscovery.CODE_ONLY);
+    when(offer.getCustomerCodeHash()).thenReturn(null);
+    when(campaign.getStatus()).thenReturn(CommercialCampaignStatus.DRAFT);
+    when(offer.getStartsAt()).thenReturn(NOW.minusSeconds(7200));
+    when(offer.getEndsAt()).thenReturn(NOW);
+    when(campaign.getStartsAt()).thenReturn(NOW.minusSeconds(3600));
+    var validator =
+        new CommercialOfferPublicationValidator(
+            offers, definitionAssessor, Clock.fixed(NOW, ZoneOffset.UTC));
+
+    assertThat(validator.cheapActionBlockers(offer, false))
+        .containsExactlyInAnyOrder(
+            CommercialOfferBlocker.CODE_REQUIRED,
+            CommercialOfferBlocker.CAMPAIGN_NOT_LIVE,
+            CommercialOfferBlocker.WINDOW_OUTSIDE_CAMPAIGN,
+            CommercialOfferBlocker.WINDOW_ENDED);
   }
 }

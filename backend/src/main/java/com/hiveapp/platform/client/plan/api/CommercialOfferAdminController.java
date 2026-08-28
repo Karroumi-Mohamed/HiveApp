@@ -183,7 +183,7 @@ public class CommercialOfferAdminController {
   }
 
   @PutMapping("/{id}/owner")
-  public CommercialOfferViews.Mutation owner(
+  public CommercialOfferViews.OwnerMutation owner(
       @PathVariable UUID id, @Valid @RequestBody CommercialOfferRequests.ReassignOwner r) {
     return service.reassignOwner(id, r);
   }

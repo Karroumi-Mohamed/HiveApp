@@ -53,7 +53,8 @@ public interface CommercialOfferAdminService {
 
   CommercialOfferViews.Owner owner(UUID id);
 
-  CommercialOfferViews.Mutation reassignOwner(UUID id, CommercialOfferRequests.ReassignOwner r);
+  CommercialOfferViews.OwnerMutation reassignOwner(
+      UUID id, CommercialOfferRequests.ReassignOwner r);
 
   CommercialOfferViews.Stats stats(UUID id);
 
