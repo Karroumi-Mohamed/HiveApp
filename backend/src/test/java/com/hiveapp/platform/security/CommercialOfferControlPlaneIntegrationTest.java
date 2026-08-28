@@ -13,6 +13,7 @@ import com.hiveapp.platform.client.plan.domain.constant.*;
 import com.hiveapp.platform.client.plan.domain.entity.*;
 import com.hiveapp.platform.client.plan.domain.repository.*;
 import com.hiveapp.platform.client.plan.dto.*;
+import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -467,7 +468,9 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
             .filter(
                 price ->
                     planFeatures.findAllByPlanId(price.getPlan().getId()).stream()
-                        .anyMatch(feature -> !feature.getQuotaConfigs().isEmpty()))
+                        .filter(feature -> feature.getMode() == PlanFeatureMode.INCLUDED)
+                        .flatMap(feature -> feature.getQuotaConfigs().stream())
+                        .anyMatch(limit -> limit.mode() == QuotaLimitMode.FINITE))
             .findFirst()
             .orElseThrow();
     String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
