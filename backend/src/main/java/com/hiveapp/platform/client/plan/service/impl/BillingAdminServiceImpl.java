@@ -1,5 +1,7 @@
 package com.hiveapp.platform.client.plan.service.impl;
 
+import com.hiveapp.platform.client.account.dto.AccountBillingProfileModels;
+import com.hiveapp.platform.client.account.service.AccountBillingProfileService;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.BillingInvoiceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxOperation;
@@ -8,6 +10,7 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentKind;
 import com.hiveapp.platform.client.plan.domain.constant.BillingRefundStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingProviderEventStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingTimelineEntryType;
 import com.hiveapp.platform.client.plan.domain.entity.BillingInvoice;
 import com.hiveapp.platform.client.plan.domain.entity.BillingOutboxCommand;
 import com.hiveapp.platform.client.plan.domain.entity.BillingProviderEvent;
@@ -63,6 +66,7 @@ public class BillingAdminServiceImpl extends PlatformControlFeatureService
     private final SubscriptionCheckoutService checkouts;
     private final BillingOutboxTransactionService outboxTransactions;
     private final BillingRecoveryService recovery;
+    private final AccountBillingProfileService billingProfiles;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -123,6 +127,49 @@ public class BillingAdminServiceImpl extends PlatformControlFeatureService
                 has("read_account_identity"),
                 has("read_payments"),
                 has("read_payment_references"));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_invoice_document",
+            description = "Read immutable commercial Invoice document data")
+    public BillingModels.InvoiceDocument invoiceDocument(UUID invoiceId) {
+        return reads.adminDocument(invoiceId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_account_timeline",
+            description = "Read one Account financial timeline")
+    public Page<BillingModels.FinancialTimelineEntry> financialTimeline(
+            UUID accountId,
+            BillingTimelineEntryType type,
+            String currencyCode,
+            Instant occurredFrom,
+            Instant occurredUntil,
+            Pageable pageable
+    ) {
+        return reads.financialTimeline(
+                accountId, type, currencyCode, occurredFrom, occurredUntil, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_account_billing_profile",
+            description = "Read one Account billing profile")
+    public AccountBillingProfileModels.Profile billingProfile(UUID accountId) {
+        return billingProfiles.get(accountId);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "update_account_billing_profile",
+            description = "Update one Account billing profile for future Invoices")
+    public AccountBillingProfileModels.Profile updateBillingProfile(
+            UUID accountId,
+            AccountBillingProfileModels.UpdateRequest request
+    ) {
+        return billingProfiles.update(accountId, request);
     }
 
     @Override

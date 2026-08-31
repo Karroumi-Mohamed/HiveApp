@@ -1,6 +1,9 @@
 package com.hiveapp.platform.client.plan.service.impl;
 
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
+import com.hiveapp.platform.client.account.dto.AccountBillingProfileModels;
+import com.hiveapp.platform.client.account.service.AccountBillingProfileService;
+import com.hiveapp.platform.client.plan.domain.constant.BillingTimelineEntryType;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeStatus;
@@ -147,6 +150,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final ObjectProvider<CommercialOfferService> commercialOfferServiceProvider;
     private final EffectivePermissionService effectivePermissionService;
     private final BillingReadService billingReadService;
+    private final AccountBillingProfileService billingProfileService;
     private final Clock clock;
 
     @Override
@@ -167,6 +171,51 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             UUID invoiceId
     ) {
         return billingReadService.clientDetail(accountId, invoiceId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_invoice_document",
+            description = "Read own Account commercial Invoice document data")
+    public com.hiveapp.platform.client.plan.dto.BillingModels.InvoiceDocument invoiceDocument(
+            UUID accountId,
+            UUID invoiceId
+    ) {
+        return billingReadService.clientDocument(accountId, invoiceId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_financial_timeline",
+            description = "Read own Account financial timeline")
+    public Page<com.hiveapp.platform.client.plan.dto.BillingModels.FinancialTimelineEntry> financialTimeline(
+            UUID accountId,
+            BillingTimelineEntryType type,
+            String currencyCode,
+            Instant occurredFrom,
+            Instant occurredUntil,
+            Pageable pageable
+    ) {
+        return billingReadService.financialTimeline(
+                accountId, type, currencyCode, occurredFrom, occurredUntil, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_billing_profile", description = "Read own Account billing profile")
+    public AccountBillingProfileModels.Profile billingProfile(UUID accountId) {
+        return billingProfileService.get(accountId);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "update_billing_profile",
+            description = "Update own Account billing profile for future Invoices")
+    public AccountBillingProfileModels.Profile updateBillingProfile(
+            UUID accountId,
+            AccountBillingProfileModels.UpdateRequest request
+    ) {
+        return billingProfileService.update(accountId, request);
     }
 
     @Override @Transactional(readOnly = true)

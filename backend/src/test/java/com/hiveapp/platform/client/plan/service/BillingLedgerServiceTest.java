@@ -1,6 +1,8 @@
 package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
+import com.hiveapp.platform.client.account.dto.AccountBillingProfileModels;
+import com.hiveapp.platform.client.account.service.AccountBillingProfileService;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.BillingInvoiceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingLineType;
@@ -20,6 +22,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageSnapshot;
 import com.hiveapp.shared.money.Money;
+import com.hiveapp.shared.payment.BillingProperties;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -47,13 +50,16 @@ class BillingLedgerServiceTest {
     @Mock private BillingInvoiceRepository invoices;
     @Mock private BillingPaymentAttemptRepository payments;
     @Mock private BillingOutboxCommandRepository outbox;
+    @Mock private AccountBillingProfileService billingProfiles;
 
     private BillingLedgerService service;
 
     @BeforeEach
     void setUp() {
+        BillingProperties properties = new BillingProperties();
         service = new BillingLedgerService(
-                invoices, payments, outbox, Clock.fixed(NOW, ZoneOffset.UTC));
+                invoices, payments, outbox, billingProfiles, properties,
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -61,6 +67,9 @@ class BillingLedgerServiceTest {
         SubscriptionCheckout checkout = checkout();
         SubscriptionEntitlementSnapshot snapshot = snapshot();
         when(invoices.findByCheckoutId(checkout.getId())).thenReturn(Optional.empty());
+        when(billingProfiles.snapshot(checkout.getAccount().getId())).thenReturn(
+                new AccountBillingProfileModels.Snapshot(
+                        "Acme SARL", "billing@acme.test", "ICE-42", "Casablanca", "MA"));
         when(invoices.saveAndFlush(any())).thenAnswer(invocation -> withId(invocation.getArgument(0)));
         when(payments.saveAndFlush(any())).thenAnswer(invocation -> withId(invocation.getArgument(0)));
 
@@ -70,6 +79,9 @@ class BillingLedgerServiceTest {
         BillingInvoice invoice = payment.getInvoice();
         assertThat(invoice.getStatus()).isEqualTo(BillingInvoiceStatus.OPEN);
         assertThat(invoice.getInvoiceNumber()).startsWith("INV-20260831-");
+        assertThat(invoice.getSellerName()).isEqualTo("HiveApp");
+        assertThat(invoice.getCustomerName()).isEqualTo("Acme SARL");
+        assertThat(invoice.getCustomerTaxId()).isEqualTo("ICE-42");
         assertThat(invoice.getLines()).extracting(line -> line.getType())
                 .containsExactly(
                         BillingLineType.PLAN,
@@ -202,6 +214,7 @@ class BillingLedgerServiceTest {
 
     private SubscriptionCheckout checkout() {
         Account account = new Account();
+        account.setName("Acme");
         ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
         SubscriptionChangeOperation operation = new SubscriptionChangeOperation();
         ReflectionTestUtils.setField(operation, "id", UUID.randomUUID());

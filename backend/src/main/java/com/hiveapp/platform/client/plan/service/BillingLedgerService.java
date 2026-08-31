@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.plan.service;
 
+import com.hiveapp.platform.client.account.service.AccountBillingProfileService;
 import com.hiveapp.platform.client.plan.domain.constant.BillingLineType;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxOperation;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxStatus;
@@ -16,6 +17,7 @@ import com.hiveapp.platform.client.plan.domain.repository.BillingPaymentAttemptR
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.money.Money;
+import com.hiveapp.shared.payment.BillingProperties;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
@@ -31,6 +33,8 @@ public class BillingLedgerService {
     private final BillingInvoiceRepository invoices;
     private final BillingPaymentAttemptRepository payments;
     private final BillingOutboxCommandRepository outbox;
+    private final AccountBillingProfileService billingProfiles;
+    private final BillingProperties billingProperties;
     private final Clock clock;
 
     @Transactional
@@ -58,6 +62,15 @@ public class BillingLedgerService {
                 snapshot.effectiveUntil(),
                 requestedByUserId,
                 now);
+        var customer = billingProfiles.snapshot(checkout.getAccount().getId());
+        var issuer = billingProperties.getIssuer();
+        invoice.snapshotDocumentParties(
+                new BillingInvoice.PartySnapshot(
+                        issuer.getName(), null, issuer.getAddress(),
+                        issuer.getCountryCode(), issuer.getTaxId()),
+                new BillingInvoice.PartySnapshot(
+                        customer.legalName(), customer.billingEmail(), customer.address(),
+                        customer.countryCode(), customer.taxId()));
         Money catalogue = addComponentLines(invoice, snapshot);
         catalogue.requireSameCurrency(finalTotal);
         Money adjustment = finalTotal.subtract(catalogue);

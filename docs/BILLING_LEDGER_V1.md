@@ -129,9 +129,26 @@ outbox/provider-event reconciliation status, verified-event reprocessing, eviden
 charge retry, and stable drill-down from subscription operations. Backend actions
 and blockers are authoritative; the UI never manufactures lifecycle availability.
 
-Client surfaces provide bounded own Invoice history and detail with download-ready immutable
-document data. PDF rendering and tax-compliant jurisdictional numbering remain separate outputs;
+Client surfaces provide bounded own Invoice history and detail with printable immutable commercial-
+document data. Dedicated PDF generation and tax-compliant jurisdictional numbering remain separate outputs;
 the ledger contract must be complete before a document is labelled a tax Invoice.
+
+### 7.1 Account financial timeline and document foundation
+
+- The Account financial timeline is a bounded chronological projection over the authoritative
+  Invoice, Payment, Credit, and Refund tables. It does not copy mutable totals into a second source
+  of truth and never labels pending attempts as collected value.
+- Admin and client timeline reads are separate permissions. Client reads are always fixed to the
+  authenticated Account; admin reads take an explicit Account and never reveal provider/operator
+  references through the timeline surface.
+- The Account owns one editable billing profile because the subscription and Invoice belong to the
+  Account rather than to an arbitrary Company. Issuing an Invoice freezes the current Account
+  billing identity and configured platform issuer identity on that Invoice. Later profile/config
+  edits affect only later Invoices.
+- The UI may render and print a jurisdiction-neutral **commercial billing document** from the
+  immutable snapshot. It must expose missing fiscal fields and must not call the result a tax
+  Invoice, VAT Invoice, or jurisdiction-compliant fiscal document until numbering, tax, issuer,
+  customer, and jurisdiction rules are implemented and validated.
 
 ## 8. Verification gate
 

@@ -14,10 +14,22 @@ public class BillingProperties {
 
     private Simulator simulator = new Simulator();
 
+    /** Identity frozen onto newly issued commercial billing documents. */
+    private Issuer issuer = new Issuer();
+
     @Getter
     @Setter
     public static class Simulator {
         private PaymentStatus outcome = PaymentStatus.PENDING;
         private String failureReason = "Configured simulated payment failure";
+    }
+
+    @Getter
+    @Setter
+    public static class Issuer {
+        private String name = "HiveApp";
+        private String address;
+        private String countryCode;
+        private String taxId;
     }
 }

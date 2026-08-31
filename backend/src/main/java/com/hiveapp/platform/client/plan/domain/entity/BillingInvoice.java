@@ -86,6 +86,33 @@ public class BillingInvoice extends BaseEntity {
     @Column(name = "requested_by_user_id", updatable = false)
     private UUID requestedByUserId;
 
+    @Column(name = "seller_name", nullable = false, updatable = false, length = 240)
+    private String sellerName;
+
+    @Column(name = "seller_address", updatable = false, length = 1000)
+    private String sellerAddress;
+
+    @Column(name = "seller_country_code", updatable = false, length = 2)
+    private String sellerCountryCode;
+
+    @Column(name = "seller_tax_id", updatable = false, length = 100)
+    private String sellerTaxId;
+
+    @Column(name = "customer_name", nullable = false, updatable = false, length = 240)
+    private String customerName;
+
+    @Column(name = "customer_billing_email", updatable = false, length = 254)
+    private String customerBillingEmail;
+
+    @Column(name = "customer_address", updatable = false, length = 1000)
+    private String customerAddress;
+
+    @Column(name = "customer_country_code", updatable = false, length = 2)
+    private String customerCountryCode;
+
+    @Column(name = "customer_tax_id", updatable = false, length = 100)
+    private String customerTaxId;
+
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position ASC")
     private List<BillingInvoiceLine> lines = new ArrayList<>();
@@ -125,10 +152,29 @@ public class BillingInvoice extends BaseEntity {
             throw new IllegalArgumentException("A non-system Invoice requires a requesting user");
         }
         invoice.requestedByUserId = requestedByUserId;
+        invoice.sellerName = "HiveApp";
+        invoice.customerName = requirePartyName(checkout.getAccount().getName());
         if (invoice.status == BillingInvoiceStatus.SETTLED_ZERO) {
             invoice.settledAt = issuedAt;
         }
         return invoice;
+    }
+
+    public void snapshotDocumentParties(PartySnapshot seller, PartySnapshot customer) {
+        if (getId() != null) {
+            throw new IllegalStateException("Invoice document identity is immutable after persistence");
+        }
+        Objects.requireNonNull(seller, "Seller identity is required");
+        Objects.requireNonNull(customer, "Customer identity is required");
+        sellerName = requirePartyName(seller.name());
+        sellerAddress = optional(seller.address());
+        sellerCountryCode = optional(seller.countryCode());
+        sellerTaxId = optional(seller.taxId());
+        customerName = requirePartyName(customer.name());
+        customerBillingEmail = optional(customer.billingEmail());
+        customerAddress = optional(customer.address());
+        customerCountryCode = optional(customer.countryCode());
+        customerTaxId = optional(customer.taxId());
     }
 
     public void addLine(BillingInvoiceLine line) {
@@ -174,6 +220,8 @@ public class BillingInvoice extends BaseEntity {
     @PreUpdate
     void validateInvoice() {
         setTotal(Money.of(totalAmount, currencyCode));
+        sellerName = requirePartyName(sellerName);
+        customerName = requirePartyName(customerName);
         if (periodStart != null && periodEnd != null && !periodEnd.isAfter(periodStart)) {
             throw new IllegalStateException("Invoice period end must be after its start");
         }
@@ -193,4 +241,23 @@ public class BillingInvoice extends BaseEntity {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
         return "INV-" + date.toString().replace("-", "") + "-" + suffix;
     }
+
+    private static String requirePartyName(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("Invoice document party name is required");
+        }
+        return value.trim();
+    }
+
+    private static String optional(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    public record PartySnapshot(
+            String name,
+            String billingEmail,
+            String address,
+            String countryCode,
+            String taxId
+    ) {}
 }

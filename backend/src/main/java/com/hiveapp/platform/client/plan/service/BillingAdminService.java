@@ -1,10 +1,12 @@
 package com.hiveapp.platform.client.plan.service;
 
+import com.hiveapp.platform.client.account.dto.AccountBillingProfileModels;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.BillingInvoiceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxOperation;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingProviderEventStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingTimelineEntryType;
 import com.hiveapp.platform.client.plan.dto.BillingModels;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -25,6 +27,22 @@ public interface BillingAdminService {
             Pageable pageable);
 
     BillingModels.InvoiceDetail invoice(UUID invoiceId);
+
+    BillingModels.InvoiceDocument invoiceDocument(UUID invoiceId);
+
+    Page<BillingModels.FinancialTimelineEntry> financialTimeline(
+            UUID accountId,
+            BillingTimelineEntryType type,
+            String currencyCode,
+            Instant occurredFrom,
+            Instant occurredUntil,
+            Pageable pageable);
+
+    AccountBillingProfileModels.Profile billingProfile(UUID accountId);
+
+    AccountBillingProfileModels.Profile updateBillingProfile(
+            UUID accountId,
+            AccountBillingProfileModels.UpdateRequest request);
 
     BillingModels.AccountIdentity accountIdentity(UUID invoiceId);
 

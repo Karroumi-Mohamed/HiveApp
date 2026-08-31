@@ -1,5 +1,7 @@
 package com.hiveapp.platform.client.plan.service;
 
+import com.hiveapp.platform.client.account.dto.AccountBillingProfileModels;
+import com.hiveapp.platform.client.plan.domain.constant.BillingTimelineEntryType;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.CommercialOfferRequests;
@@ -15,6 +17,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionOfferEvaluation;
 import com.hiveapp.platform.client.plan.dto.BillingModels;
 import java.util.UUID;
 import java.util.List;
+import java.time.Instant;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -114,4 +117,20 @@ public interface SubscriptionService {
   Page<BillingModels.InvoiceRow> invoiceHistory(UUID accountId, Pageable pageable);
 
   BillingModels.ClientInvoiceDetail invoice(UUID accountId, UUID invoiceId);
+
+  BillingModels.InvoiceDocument invoiceDocument(UUID accountId, UUID invoiceId);
+
+  Page<BillingModels.FinancialTimelineEntry> financialTimeline(
+      UUID accountId,
+      BillingTimelineEntryType type,
+      String currencyCode,
+      Instant occurredFrom,
+      Instant occurredUntil,
+      Pageable pageable);
+
+  AccountBillingProfileModels.Profile billingProfile(UUID accountId);
+
+  AccountBillingProfileModels.Profile updateBillingProfile(
+      UUID accountId,
+      AccountBillingProfileModels.UpdateRequest request);
 }

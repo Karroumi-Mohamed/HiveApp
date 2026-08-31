@@ -129,6 +129,7 @@ class BillingRecoveryServiceTest {
 
     private Fixture failedFixture(boolean ambiguousTransportFailure) {
         Account account = withId(new Account());
+        account.setName("Acme");
         SubscriptionChangeOperation operation = withId(new SubscriptionChangeOperation());
         operation.setAccount(account);
         operation.setStatus(SubscriptionChangeStatus.NEEDS_ATTENTION);

@@ -47,6 +47,7 @@ import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -339,6 +340,20 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         String token = registerClientAndGetToken();
         UUID accountId = currentAccountId(token);
 
+        var billingProfile = Map.of(
+                "legalName", "Acme Billing SARL",
+                "billingEmail", "billing@acme.test",
+                "taxId", "ICE-ACME-42",
+                "address", "42 Avenue Hassan II, Casablanca",
+                "countryCode", "MA");
+        mockMvc.perform(put("/api/v1/subscriptions/billing-profile")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(billingProfile)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.legalName").value("Acme Billing SARL"))
+                .andExpect(jsonPath("$.explicitlyConfigured").value(true));
+
         String applyResponse = apply(token, new SubscriptionChangeRequest("PRO", Set.of(), List.of()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.subscription.plan.code").value("FREE"))
@@ -359,6 +374,8 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
 
         var invoice = billingInvoiceRepository.findByCheckoutId(checkoutId).orElseThrow();
         assertThat(invoice.getStatus()).isEqualTo(BillingInvoiceStatus.OPEN);
+        assertThat(invoice.getCustomerName()).isEqualTo("Acme Billing SARL");
+        assertThat(invoice.getCustomerTaxId()).isEqualTo("ICE-ACME-42");
         assertThat(invoice.getLines()).isNotEmpty();
         assertThat(invoice.getLines().stream()
                 .map(line -> line.getLineAmount())
@@ -450,9 +467,20 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andExpect(jsonPath("$.lines[0].sourceCode").value("PRO"))
                 .andExpect(jsonPath("$.payments[*].externalReference").doesNotExist())
                 .andExpect(jsonPath("$.payments[*].operatorUserId").doesNotExist());
+        mockMvc.perform(get("/api/v1/subscriptions/invoices/{invoiceId}/document", invoice.getId())
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.customer.name").value("Acme Billing SARL"))
+                .andExpect(jsonPath("$.customer.taxId").value("ICE-ACME-42"))
+                .andExpect(jsonPath("$.fiscalReady").value(false))
+                .andExpect(jsonPath("$.missingFiscalFields",
+                        hasItem("JURISDICTIONAL_NUMBERING_NOT_IMPLEMENTED")));
 
         String otherClient = registerClientAndGetToken();
         mockMvc.perform(get("/api/v1/subscriptions/invoices/{invoiceId}", invoice.getId())
+                        .header("Authorization", bearer(otherClient)))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/subscriptions/invoices/{invoiceId}/document", invoice.getId())
                         .header("Authorization", bearer(otherClient)))
                 .andExpect(status().isNotFound());
 
@@ -474,6 +502,10 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                         .value(hasItem("manual-contract-" + checkoutId)))
                 .andExpect(jsonPath("$.payments[?(@.kind == 'MANUAL')].operatorUserId")
                         .isNotEmpty());
+        mockMvc.perform(get("/api/admin/billing/invoices/{invoiceId}/document", invoice.getId())
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.customer.name").value("Acme Billing SARL"));
 
         mockMvc.perform(get("/api/admin/billing/payments/{paymentId}/refund-preview", manualPayment.getId())
                         .header("Authorization", bearer(adminToken)))
@@ -497,6 +529,38 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andExpect(jsonPath("$.status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.providerReference").value(
                         "refund-bank-" + invoice.getId()));
+
+        mockMvc.perform(get("/api/v1/subscriptions/financial-timeline")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.type == 'INVOICE')].invoiceNumber",
+                        hasItem(invoice.getInvoiceNumber())))
+                .andExpect(jsonPath("$.content[?(@.type == 'PAYMENT')]").isNotEmpty())
+                .andExpect(jsonPath("$.content[?(@.type == 'REFUND')]").isNotEmpty());
+        mockMvc.perform(get("/api/admin/billing/accounts/{accountId}/timeline", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .param("type", "REFUND"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].invoiceId").value(invoice.getId().toString()));
+
+        var renamedProfile = Map.of(
+                "legalName", "Acme Renamed SARL",
+                "billingEmail", "finance@acme.test",
+                "taxId", "ICE-NEW-84",
+                "address", "Rabat",
+                "countryCode", "MA");
+        mockMvc.perform(put("/api/admin/billing/accounts/{accountId}/profile", accountId)
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(renamedProfile)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.legalName").value("Acme Renamed SARL"));
+        mockMvc.perform(get("/api/admin/billing/invoices/{invoiceId}/document", invoice.getId())
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.customer.name").value("Acme Billing SARL"))
+                .andExpect(jsonPath("$.customer.taxId").value("ICE-ACME-42"));
 
         var usable = subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));

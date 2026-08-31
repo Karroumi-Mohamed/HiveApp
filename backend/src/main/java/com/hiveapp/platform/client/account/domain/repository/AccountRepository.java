@@ -35,4 +35,8 @@ public interface AccountRepository extends JpaRepository<Account, UUID>, JpaSpec
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select account from Account account where account.id = :accountId")
     Optional<Account> findByIdForSubscriptionUpdate(@Param("accountId") UUID accountId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select account from Account account where account.id = :accountId")
+    Optional<Account> findByIdForBillingProfileUpdate(@Param("accountId") UUID accountId);
 }

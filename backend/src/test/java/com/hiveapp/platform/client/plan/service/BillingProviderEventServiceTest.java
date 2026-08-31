@@ -163,6 +163,7 @@ class BillingProviderEventServiceTest {
 
     private Fixture fixture(BigDecimal amount) {
         Account account = withId(new Account());
+        account.setName("Acme");
         SubscriptionChangeOperation operation = withId(new SubscriptionChangeOperation());
         operation.setAccount(account);
         operation.setTiming(SubscriptionChangeTiming.IMMEDIATE);

@@ -1,10 +1,12 @@
 package com.hiveapp.platform.client.plan.api;
 
+import com.hiveapp.platform.client.account.dto.AccountBillingProfileModels;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.BillingInvoiceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxOperation;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingProviderEventStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingTimelineEntryType;
 import com.hiveapp.platform.client.plan.dto.BillingModels;
 import com.hiveapp.platform.client.plan.service.BillingAdminService;
 import com.hiveapp.shared.api.PageResponse;
@@ -22,6 +24,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -79,6 +82,39 @@ public class BillingAdminController {
     @GetMapping("/invoices/{invoiceId}")
     public BillingModels.InvoiceDetail invoice(@PathVariable UUID invoiceId) {
         return billing.invoice(invoiceId);
+    }
+
+    @GetMapping("/invoices/{invoiceId}/document")
+    public BillingModels.InvoiceDocument invoiceDocument(@PathVariable UUID invoiceId) {
+        return billing.invoiceDocument(invoiceId);
+    }
+
+    @GetMapping("/accounts/{accountId}/timeline")
+    public PageResponse<BillingModels.FinancialTimelineEntry> financialTimeline(
+            @PathVariable UUID accountId,
+            @RequestParam(required = false) BillingTimelineEntryType type,
+            @RequestParam(required = false) String currencyCode,
+            @RequestParam(required = false) Instant occurredFrom,
+            @RequestParam(required = false) Instant occurredUntil,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return PageResponse.from(billing.financialTimeline(
+                accountId, type, currencyCode, occurredFrom, occurredUntil,
+                timelinePage(page, size)));
+    }
+
+    @GetMapping("/accounts/{accountId}/profile")
+    public AccountBillingProfileModels.Profile billingProfile(@PathVariable UUID accountId) {
+        return billing.billingProfile(accountId);
+    }
+
+    @PutMapping("/accounts/{accountId}/profile")
+    public AccountBillingProfileModels.Profile updateBillingProfile(
+            @PathVariable UUID accountId,
+            @Valid @RequestBody AccountBillingProfileModels.UpdateRequest request
+    ) {
+        return billing.updateBillingProfile(accountId, request);
     }
 
     @GetMapping("/invoices/{invoiceId}/account-identity")
@@ -218,5 +254,13 @@ public class BillingAdminController {
             throw new InvalidRequestException("Idempotency-Key must contain 1 to 160 characters.");
         }
         return normalized;
+    }
+
+    private org.springframework.data.domain.Pageable timelinePage(int page, int size) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new InvalidRequestException(
+                    "Timeline page must be non-negative and size must be between 1 and 100.");
+        }
+        return org.springframework.data.domain.PageRequest.of(page, size);
     }
 }

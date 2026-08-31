@@ -10,6 +10,7 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentKind;
 import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingRefundKind;
 import com.hiveapp.platform.client.plan.domain.constant.BillingRefundStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingTimelineEntryType;
 import com.hiveapp.shared.payment.PaymentStatus;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
@@ -114,6 +115,43 @@ public final class BillingModels {
             BigDecimal creditedAmount,
             BigDecimal refundedAmount
     ) {}
+
+    public record FinancialTimelineEntry(
+            UUID recordId,
+            BillingTimelineEntryType type,
+            String status,
+            BigDecimal amount,
+            String currencyCode,
+            UUID invoiceId,
+            String invoiceNumber,
+            Instant occurredAt
+    ) {}
+
+    public record DocumentParty(
+            String name,
+            String billingEmail,
+            String address,
+            String countryCode,
+            String taxId
+    ) {}
+
+    /** Jurisdiction-neutral immutable data for print/export; never a tax-compliance claim. */
+    public record InvoiceDocument(
+            InvoiceRow invoice,
+            DocumentParty seller,
+            DocumentParty customer,
+            List<InvoiceLine> lines,
+            BigDecimal creditedAmount,
+            BigDecimal refundedAmount,
+            boolean fiscalReady,
+            List<String> missingFiscalFields
+    ) {
+        public InvoiceDocument {
+            lines = lines == null ? List.of() : List.copyOf(lines);
+            missingFiscalFields = missingFiscalFields == null
+                    ? List.of() : List.copyOf(missingFiscalFields);
+        }
+    }
 
     public record SafePayment(
             BillingPaymentKind kind,

@@ -1,5 +1,7 @@
 package com.hiveapp.platform.client.plan.api;
 
+import com.hiveapp.platform.client.account.dto.AccountBillingProfileModels;
+import com.hiveapp.platform.client.plan.domain.constant.BillingTimelineEntryType;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangeOperationDto;
@@ -19,12 +21,14 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -118,5 +122,44 @@ public class SubscriptionController {
     public BillingModels.ClientInvoiceDetail invoice(@PathVariable UUID invoiceId) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
         return subscriptionService.invoice(accountId, invoiceId);
+    }
+
+    @GetMapping("/invoices/{invoiceId}/document")
+    public BillingModels.InvoiceDocument invoiceDocument(@PathVariable UUID invoiceId) {
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return subscriptionService.invoiceDocument(accountId, invoiceId);
+    }
+
+    @GetMapping("/financial-timeline")
+    public PageResponse<BillingModels.FinancialTimelineEntry> financialTimeline(
+            @RequestParam(required = false) BillingTimelineEntryType type,
+            @RequestParam(required = false) String currencyCode,
+            @RequestParam(required = false) Instant occurredFrom,
+            @RequestParam(required = false) Instant occurredUntil,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "Timeline page must be non-negative and size must be between 1 and 100.");
+        }
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return PageResponse.from(subscriptionService.financialTimeline(
+                accountId, type, currencyCode, occurredFrom, occurredUntil,
+                org.springframework.data.domain.PageRequest.of(page, size)));
+    }
+
+    @GetMapping("/billing-profile")
+    public AccountBillingProfileModels.Profile billingProfile() {
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return subscriptionService.billingProfile(accountId);
+    }
+
+    @PutMapping("/billing-profile")
+    public AccountBillingProfileModels.Profile updateBillingProfile(
+            @Valid @RequestBody AccountBillingProfileModels.UpdateRequest request
+    ) {
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return subscriptionService.updateBillingProfile(accountId, request);
     }
 }

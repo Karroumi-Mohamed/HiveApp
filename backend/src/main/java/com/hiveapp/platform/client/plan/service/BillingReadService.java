@@ -1,19 +1,24 @@
 package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingRefundStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingTimelineEntryType;
 import com.hiveapp.platform.client.plan.domain.entity.BillingCredit;
 import com.hiveapp.platform.client.plan.domain.entity.BillingInvoice;
 import com.hiveapp.platform.client.plan.domain.entity.BillingInvoiceLine;
 import com.hiveapp.platform.client.plan.domain.entity.BillingPaymentAttempt;
 import com.hiveapp.platform.client.plan.domain.entity.BillingRefund;
 import com.hiveapp.platform.client.plan.domain.repository.BillingCreditRepository;
+import com.hiveapp.platform.client.plan.domain.repository.BillingFinancialTimelineRepository;
 import com.hiveapp.platform.client.plan.domain.repository.BillingInvoiceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.BillingPaymentAttemptRepository;
 import com.hiveapp.platform.client.plan.domain.repository.BillingRefundRepository;
 import com.hiveapp.platform.client.plan.dto.BillingModels;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -29,6 +34,7 @@ public class BillingReadService {
     private final BillingPaymentAttemptRepository payments;
     private final BillingCreditRepository credits;
     private final BillingRefundRepository refunds;
+    private final BillingFinancialTimelineRepository timeline;
 
     @Transactional(readOnly = true)
     public Page<BillingModels.InvoiceRow> listAdmin(
@@ -96,6 +102,48 @@ public class BillingReadService {
     }
 
     @Transactional(readOnly = true)
+    public Page<BillingModels.FinancialTimelineEntry> financialTimeline(
+            UUID accountId,
+            BillingTimelineEntryType type,
+            String currencyCode,
+            Instant occurredFrom,
+            Instant occurredUntil,
+            Pageable pageable
+    ) {
+        String currency = currencyCode == null || currencyCode.isBlank()
+                ? null : currencyCode.trim().toUpperCase(Locale.ROOT);
+        if (currency != null && currency.length() != 3) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "Currency must use 3 letters.");
+        }
+        if (occurredFrom != null && occurredUntil != null && !occurredUntil.isAfter(occurredFrom)) {
+            throw new com.hiveapp.shared.exception.InvalidRequestException(
+                    "occurredUntil must be after occurredFrom.");
+        }
+        return timeline.findByAccount(
+                accountId, type == null ? null : type.name(), currency,
+                occurredFrom, occurredUntil, pageable).map(row ->
+                new BillingModels.FinancialTimelineEntry(
+                        UUID.fromString(row.getRecordId()), BillingTimelineEntryType.valueOf(row.getEntryType()),
+                        row.getEntryStatus(), row.getAmount(), row.getCurrencyCode(),
+                        UUID.fromString(row.getInvoiceId()), row.getInvoiceNumber(), row.getOccurredAt().toInstant()));
+    }
+
+    @Transactional(readOnly = true)
+    public BillingModels.InvoiceDocument adminDocument(UUID invoiceId) {
+        BillingInvoice invoice = invoices.findDetailedById(invoiceId)
+                .orElseThrow(() -> new ResourceNotFoundException("BillingInvoice", "id", invoiceId));
+        return document(invoice);
+    }
+
+    @Transactional(readOnly = true)
+    public BillingModels.InvoiceDocument clientDocument(UUID accountId, UUID invoiceId) {
+        BillingInvoice invoice = invoices.findDetailedByIdAndAccountId(invoiceId, accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("BillingInvoice", "id", invoiceId));
+        return document(invoice);
+    }
+
+    @Transactional(readOnly = true)
     public List<BillingModels.Payment> payments(UUID invoiceId, boolean includeSensitiveReferences) {
         if (!invoices.existsById(invoiceId)) {
             throw new ResourceNotFoundException("BillingInvoice", "id", invoiceId);
@@ -121,6 +169,42 @@ public class BillingReadService {
                 includeSensitiveReferences ? refund.getOperatorUserId() : null,
                 includeSensitiveReferences ? refund.getProviderReference() : null,
                 refund.getFailureReason(), refund.getCompletedAt(), refund.getCreatedAt());
+    }
+
+    private BillingModels.InvoiceDocument document(BillingInvoice invoice) {
+        UUID invoiceId = invoice.getId();
+        List<BillingCredit> creditRows = credits.findAllByInvoiceIdOrderByCreatedAtDesc(invoiceId);
+        List<BillingRefund> refundRows = refunds.findAllByPaymentInvoiceIdOrderByCreatedAtDesc(invoiceId);
+        BigDecimal credited = creditRows.stream().map(BillingCredit::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal refunded = refundRows.stream()
+                .filter(refund -> refund.getStatus() == BillingRefundStatus.SUCCEEDED)
+                .map(BillingRefund::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<String> missing = new ArrayList<>();
+        requireFiscal(invoice.getSellerAddress(), "SELLER_ADDRESS", missing);
+        requireFiscal(invoice.getSellerCountryCode(), "SELLER_COUNTRY", missing);
+        requireFiscal(invoice.getSellerTaxId(), "SELLER_TAX_ID", missing);
+        requireFiscal(invoice.getCustomerAddress(), "CUSTOMER_ADDRESS", missing);
+        requireFiscal(invoice.getCustomerCountryCode(), "CUSTOMER_COUNTRY", missing);
+        requireFiscal(invoice.getCustomerTaxId(), "CUSTOMER_TAX_ID", missing);
+        missing.add("TAX_CALCULATION_NOT_IMPLEMENTED");
+        missing.add("JURISDICTIONAL_NUMBERING_NOT_IMPLEMENTED");
+        return new BillingModels.InvoiceDocument(
+                invoiceRow(invoice, false),
+                new BillingModels.DocumentParty(
+                        invoice.getSellerName(), null, invoice.getSellerAddress(),
+                        invoice.getSellerCountryCode(), invoice.getSellerTaxId()),
+                new BillingModels.DocumentParty(
+                        invoice.getCustomerName(), invoice.getCustomerBillingEmail(),
+                        invoice.getCustomerAddress(), invoice.getCustomerCountryCode(),
+                        invoice.getCustomerTaxId()),
+                invoice.getLines().stream().map(this::line).toList(),
+                credited, refunded, missing.isEmpty(), missing);
+    }
+
+    private void requireFiscal(String value, String code, List<String> missing) {
+        if (value == null || value.isBlank()) missing.add(code);
     }
 
     private BillingModels.InvoiceRow invoiceRow(BillingInvoice invoice, boolean includeAccountIdentity) {

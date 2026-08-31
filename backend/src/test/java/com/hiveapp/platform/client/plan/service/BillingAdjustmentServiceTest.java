@@ -178,6 +178,7 @@ class BillingAdjustmentServiceTest {
 
     private BillingInvoice invoice(String amount) {
         Account account = new Account();
+        account.setName("Acme");
         ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
         SubscriptionChangeOperation operation = new SubscriptionChangeOperation();
         ReflectionTestUtils.setField(operation, "id", UUID.randomUUID());
