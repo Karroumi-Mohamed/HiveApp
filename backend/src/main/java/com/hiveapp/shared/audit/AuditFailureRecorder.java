@@ -33,6 +33,7 @@ class AuditFailureRecorder {
                 .outcome(AuditOutcome.FAILED)
                 .requestMethod(draft.requestMethod())
                 .requestPath(draft.requestPath())
+                .requestId(draft.requestId())
                 .requestData(draft.requestData())
                 .failureType(failure.getClass().getName())
                 .build());

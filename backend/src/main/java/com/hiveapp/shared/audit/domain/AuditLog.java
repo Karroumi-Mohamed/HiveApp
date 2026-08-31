@@ -24,7 +24,8 @@ import java.util.UUID;
         @Index(name = "idx_audit_actor_time", columnList = "actor_user_id, occurred_at"),
         @Index(name = "idx_audit_account_time", columnList = "target_account_id, occurred_at"),
         @Index(name = "idx_audit_resource", columnList = "resource_type, resource_id"),
-        @Index(name = "idx_audit_action_time", columnList = "action, occurred_at")
+        @Index(name = "idx_audit_action_time", columnList = "action, occurred_at"),
+        @Index(name = "idx_audit_request_id", columnList = "request_id")
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -75,6 +76,9 @@ public class AuditLog {
     @Column(name = "request_path", updatable = false, length = 500)
     private String requestPath;
 
+    @Column(name = "request_id", updatable = false, length = 128)
+    private String requestId;
+
     @Column(name = "request_data", updatable = false, columnDefinition = "TEXT")
     private String requestData;
 
@@ -99,6 +103,7 @@ public class AuditLog {
             AuditOutcome outcome,
             String requestMethod,
             String requestPath,
+            String requestId,
             String requestData,
             String resultData,
             String failureType
@@ -116,6 +121,7 @@ public class AuditLog {
         this.outcome = outcome;
         this.requestMethod = requestMethod;
         this.requestPath = requestPath;
+        this.requestId = requestId;
         this.requestData = requestData;
         this.resultData = resultData;
         this.failureType = failureType;

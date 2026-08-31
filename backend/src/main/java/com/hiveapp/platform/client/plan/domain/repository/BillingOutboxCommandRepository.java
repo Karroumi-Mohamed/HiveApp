@@ -53,4 +53,15 @@ public interface BillingOutboxCommandRepository extends JpaRepository<BillingOut
     Optional<BillingOutboxCommand> findByAggregateIdAndOperationForUpdate(
             @Param("aggregateId") UUID aggregateId,
             @Param("operation") BillingOutboxOperation operation);
+
+    @Query("select command.status as value, count(command) as total, "
+            + "min(command.createdAt) as oldest "
+            + "from BillingOutboxCommand command group by command.status")
+    List<CountByStatus> countByStatus();
+
+    interface CountByStatus {
+        BillingOutboxStatus getValue();
+        long getTotal();
+        Instant getOldest();
+    }
 }

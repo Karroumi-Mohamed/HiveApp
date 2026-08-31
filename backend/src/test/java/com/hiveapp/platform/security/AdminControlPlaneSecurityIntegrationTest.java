@@ -66,6 +66,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationTestSupport {
@@ -2565,6 +2566,133 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .header("Idempotency-Key", "authority-" + UUID.randomUUID())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)));
+    }
+
+    @Test
+    void platformActivityMetadataIdentityAndPayloadAuthoritiesStayIndependent() throws Exception {
+        LimitedAdmin metadata = createLimitedAdmin("platform.activities.read");
+        JsonNode metadataPage = objectMapper.readTree(mockMvc.perform(get("/api/admin/activities")
+                        .header("Authorization", bearer(metadata.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].actorIdentity").value((Object) null))
+                .andExpect(jsonPath("$.content[0].accountIdentity").value((Object) null))
+                .andReturn().getResponse().getContentAsString());
+        UUID activityId = UUID.fromString(metadataPage.get("content").get(0).get("id").asText());
+
+        mockMvc.perform(get("/api/admin/activities/{id}/payload", activityId)
+                        .header("Authorization", bearer(metadata.token())))
+                .andExpect(status().isForbidden());
+
+        LimitedAdmin payloadReader = createLimitedAdmin(
+                "platform.activities.read", "platform.activities.read_payload");
+        mockMvc.perform(get("/api/admin/activities/{id}/payload", activityId)
+                        .header("Authorization", bearer(payloadReader.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(activityId.toString()));
+
+        LimitedAdmin identityReader = createLimitedAdmin(
+                "platform.activities.read",
+                "platform.activities.read_actor_identity",
+                "platform.activities.read_account_identity");
+        mockMvc.perform(get("/api/admin/activities")
+                        .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].actorIdentity.email").isString());
+    }
+
+    @Test
+    void platformCommunicationRecipientAndFailureEvidenceStayIndependent() throws Exception {
+        LimitedAdmin metadata = createLimitedAdmin("platform.communications.read");
+        mockMvc.perform(get("/api/admin/communications")
+                        .header("Authorization", bearer(metadata.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].recipientUserId").value((Object) null))
+                .andExpect(jsonPath("$.content[0].recipientEmail").value((Object) null))
+                .andExpect(jsonPath("$.content[0].attemptedAt").value((Object) null))
+                .andExpect(jsonPath("$.content[0].failureCode").value((Object) null));
+
+        LimitedAdmin evidence = createLimitedAdmin(
+                "platform.communications.read",
+                "platform.communications.read_recipient_identity",
+                "platform.communications.read_failure_evidence");
+        mockMvc.perform(get("/api/admin/communications")
+                        .header("Authorization", bearer(evidence.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].recipientUserId").isString())
+                .andExpect(jsonPath("$.content[0].recipientEmail").isString())
+                .andExpect(jsonPath("$.content[0].failureEvidenceVisible").value(true));
+    }
+
+    @Test
+    void observabilityHealthBacklogAndLogAccessAuthoritiesStayIndependent() throws Exception {
+        LimitedAdmin health = createLimitedAdmin("platform.observability.read_health");
+        LimitedAdmin backlogs = createLimitedAdmin("platform.observability.read_backlogs");
+        LimitedAdmin logs = createLimitedAdmin("platform.observability.read_log_access");
+
+        mockMvc.perform(get("/api/admin/observability/health")
+                        .header("Authorization", bearer(health.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.components[0].key").isString());
+        mockMvc.perform(get("/api/admin/observability/backlogs")
+                        .header("Authorization", bearer(health.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/observability/backlogs")
+                        .header("Authorization", bearer(backlogs.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.components.length()").value(3));
+        mockMvc.perform(get("/api/admin/observability/log-access")
+                        .header("Authorization", bearer(logs.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.configured").value(false))
+                .andExpect(jsonPath("$.destination").value((Object) null));
+    }
+
+    @Test
+    void requestCorrelationIsReturnedInErrorsAndPersistedOnActivities() throws Exception {
+        String superToken = loginAdminAndGetToken();
+        String requestId = "ops-correlation-" + UUID.randomUUID();
+
+        mockMvc.perform(post("/api/admin/roles")
+                        .header("Authorization", bearer(superToken))
+                        .header("X-Request-ID", requestId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateAdminRoleRequest(
+                                "Correlated " + UUID.randomUUID(), null, java.util.List.of()))))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("X-Request-ID", requestId));
+
+        mockMvc.perform(get("/api/admin/activities")
+                        .param("actionPrefix", "platform.roles.create")
+                        .header("Authorization", bearer(superToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[*].requestId", hasItem(requestId)));
+
+        mockMvc.perform(get("/api/admin/activities")
+                        .param("size", "0")
+                        .header("Authorization", bearer(superToken))
+                        .header("X-Request-ID", requestId))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string("X-Request-ID", requestId))
+                .andExpect(jsonPath("$.requestId").value(requestId));
+    }
+
+    @Test
+    void operationsSearchesRejectUnboundedRangesAndPages() throws Exception {
+        String token = loginAdminAndGetToken();
+
+        for (String path : List.of("/api/admin/activities", "/api/admin/communications")) {
+            mockMvc.perform(get(path)
+                            .param("size", "101")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+            mockMvc.perform(get(path)
+                            .param("from", "2024-01-01T00:00:00Z")
+                            .param("until", "2026-01-02T00:00:00Z")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
     }
 
     private LimitedAdmin createLimitedAdmin(String... permissionCodes) throws Exception {

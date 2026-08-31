@@ -32,6 +32,10 @@ hiveapp:
   offers:
     codes:
       pepper: ${HIVEAPP_OFFER_CODE_PEPPER}
+  observability:
+    logs:
+      provider: ${HIVEAPP_LOG_PROVIDER:}
+      url: ${HIVEAPP_LOG_URL:}
 
 server:
   port: 8080

@@ -5,6 +5,7 @@ import com.hiveapp.shared.audit.domain.AuditLog;
 import com.hiveapp.shared.audit.domain.AuditLogRepository;
 import com.hiveapp.shared.audit.domain.AuditOutcome;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
+import com.hiveapp.shared.observability.RequestCorrelation;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -52,6 +53,7 @@ public class AuditTrail {
                 .outcome(AuditOutcome.SUCCEEDED)
                 .requestMethod(request == null ? null : request.getMethod())
                 .requestPath(request == null ? null : request.getRequestURI())
+                .requestId(RequestCorrelation.currentId())
                 .requestData(payloadSanitizer.value(Map.of("before", before == null ? Map.of() : before)))
                 .resultData(payloadSanitizer.value(Map.of("after", after == null ? Map.of() : after)))
                 .build());

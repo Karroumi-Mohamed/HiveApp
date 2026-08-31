@@ -2,6 +2,7 @@ package com.hiveapp.shared.audit;
 
 import com.hiveapp.shared.audit.domain.AuditActorSurface;
 import com.hiveapp.shared.security.HiveAppUserDetails;
+import com.hiveapp.shared.observability.RequestCorrelation;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 import dev.karroumi.permissionizer.PermissionNode;
@@ -63,6 +64,7 @@ class AuditDraftFactory {
                 fallbackResourceId(method, arguments),
                 request == null ? null : request.getMethod(),
                 request == null ? null : request.getRequestURI(),
+                RequestCorrelation.currentId(),
                 payloadSanitizer.arguments(method, arguments, parameterNames));
     }
 

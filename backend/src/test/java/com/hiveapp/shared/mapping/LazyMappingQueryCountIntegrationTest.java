@@ -2,6 +2,8 @@ package com.hiveapp.shared.mapping;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
+import com.hiveapp.identity.domain.constant.InitialAccessMethod;
+import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
 import com.hiveapp.platform.client.member.dto.AssignRoleRequest;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
@@ -277,6 +279,29 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
         assertConstantOperationalPage(adminToken, "/api/admin/quota-packages");
     }
 
+    @Test
+    void operationsPagesUseConstantStatementCountsWithIdentityFieldsEnabled() throws Exception {
+        String adminToken = loginAdminAndGetToken();
+        createOperator(adminToken, "operations-one");
+
+        long oneActivity = statementsFor(() -> operationsPage(adminToken, "/api/admin/activities", 1));
+        long oneDelivery = statementsFor(() -> operationsPage(adminToken, "/api/admin/communications", 1));
+
+        createOperator(adminToken, "operations-two");
+        createOperator(adminToken, "operations-three");
+        createOperator(adminToken, "operations-four");
+
+        long fullActivities = statementsFor(() -> operationsPage(adminToken, "/api/admin/activities", 25));
+        long fullDeliveries = statementsFor(() -> operationsPage(adminToken, "/api/admin/communications", 25));
+
+        assertThat(Math.abs(fullActivities - oneActivity))
+                .as("activity identity labels must be resolved in bulk rather than per audit row")
+                .isLessThanOrEqualTo(1L);
+        assertThat(Math.abs(fullDeliveries - oneDelivery))
+                .as("communication evidence must not issue a statement per delivery")
+                .isLessThanOrEqualTo(1L);
+    }
+
     /**
      * Role DETAIL, not just the list. This surface is what a role screen opens, and it was
      * left relying on open-in-view when the list paths were fixed.
@@ -327,6 +352,27 @@ class LazyMappingQueryCountIntegrationTest extends PlatformShellIntegrationTestS
 
     private interface RequestBlock {
         void run() throws Exception;
+    }
+
+    private void createOperator(String token, String prefix) throws Exception {
+        String marker = UUID.randomUUID().toString();
+        mockMvc.perform(post("/api/admin/users")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateAdminUserRequest(
+                                "Ops",
+                                "Evidence",
+                                prefix + "-" + marker + "@hiveapp.test",
+                                InitialAccessMethod.EMAIL_LINK,
+                                false))))
+                .andExpect(status().isCreated());
+    }
+
+    private void operationsPage(String token, String path, int size) throws Exception {
+        mockMvc.perform(get(path)
+                        .param("size", Integer.toString(size))
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
     }
 
     /**

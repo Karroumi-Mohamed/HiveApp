@@ -16,6 +16,7 @@ record AuditDraft(
         String resourceId,
         String requestMethod,
         String requestPath,
+        String requestId,
         String requestData
 ) {
 }

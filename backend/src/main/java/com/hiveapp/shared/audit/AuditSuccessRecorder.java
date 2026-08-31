@@ -50,6 +50,7 @@ class AuditSuccessRecorder {
                 .outcome(outcome)
                 .requestMethod(draft.requestMethod())
                 .requestPath(draft.requestPath())
+                .requestId(draft.requestId())
                 .requestData(draft.requestData())
                 .resultData(resultData)
                 .failureType(failureType)

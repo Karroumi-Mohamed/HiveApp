@@ -10,6 +10,8 @@ spring:
     show-sql: false
 
 hiveapp:
+  scheduling:
+    enabled: false
   offers:
     codes:
       pepper: test-only-offer-code-pepper-never-use-in-production

@@ -33,6 +33,15 @@ public class IdentityServiceImpl implements IdentityService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<UserView> findUserViews(java.util.Collection<UUID> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return userRepository.findAllById(new java.util.LinkedHashSet<>(ids)).stream()
+                .map(IdentityServiceImpl::toView)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public boolean usernameExists(String username) {
         return userRepository.existsByUsername(username);
     }

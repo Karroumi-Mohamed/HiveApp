@@ -145,8 +145,10 @@ public class SecurityConfig {
                 "Access-Control-Request-Method",
                 "Access-Control-Request-Headers",
                 "X-Company-ID",
-                "X-Is-B2B"));
-        configuration.setExposedHeaders(List.of("Access-Control-Allow-Origin", "Access-Control-Allow-Credentials"));
+                "X-Is-B2B",
+                "X-Request-ID"));
+        configuration.setExposedHeaders(List.of(
+                "Access-Control-Allow-Origin", "Access-Control-Allow-Credentials", "X-Request-ID"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

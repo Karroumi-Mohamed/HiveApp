@@ -19,6 +19,9 @@ public interface IdentityService {
     /** Identity facts. Prefer this whenever a relationship is not being established. */
     Optional<UserView> findUserView(UUID id);
 
+    /** Bulk identity facts for authorized cross-domain read models. */
+    List<UserView> findUserViews(java.util.Collection<UUID> ids);
+
 
     /** Uniqueness questions belong to identity, not to its callers. */
     boolean usernameExists(String username);
