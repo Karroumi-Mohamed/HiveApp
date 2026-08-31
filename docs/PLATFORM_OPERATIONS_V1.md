@@ -77,7 +77,7 @@ Delivery metadata never grants access to the target Account, operator, or member
 ### 3.3 API and UI
 
 - `GET /api/admin/communications/summary` returns counts by durable delivery status and purpose.
-- `GET /api/admin/communications` supports a bounded range, status, purpose, Account id, recipient user id, and stable pagination.
+- `GET /api/admin/communications` supports a bounded range, status, purpose, Account id, recipient user id, and stable pagination. Filtering by recipient user id requires `read_recipient_identity`, because confirming that a user has delivery history is itself identity evidence.
 - `GET /api/admin/communications/{id}` returns one delivery record under the same field-level permission rules.
 
 The UI is a status workbench with filters, a delivery timeline, identity fields only when allowed, and a clear explanation that regeneration belongs to the relevant identity-management page. `SUPPRESSED` means the development transport intentionally did not deliver; it must never be labelled sent.
@@ -153,4 +153,6 @@ Implemented on 2026-08-31 in backend commit `16904e8` and frontend commit `02103
 - Lists are range-bounded and server-paginated. Identity enrichment is bulk-resolved only when authorized; query-count tests pin that boundary.
 - Request correlation now spans the response header, normalized errors, MDC lifetime, and new audit evidence, with invalid incoming identifiers replaced rather than trusted.
 - The frontend replaces all three placeholders with French-first operational tables, compact narrow-screen records, permission-gated detail queries, honest empty/error/retry states, and no resend, content-preview, secret, or raw-log claim.
-- Backend verification is green at 812 tests; frontend verification is green at 346 tests. Authenticated browser QA covered activity detail, communications empty state, health/backlog navigation, light/dark desktop, narrow layouts, and RTL direction. Delivery-failure and least-privilege evidence paths are additionally exercised by automated integration/wiring tests.
+- The final adversarial pass requires base `read` before every supplementary evidence permission, protects recipient-id filtering behind `read_recipient_identity`, and strips credentials, query strings, and fragments from configured external-log destinations.
+- The operational pages expose the API's bounded date, resource, Account, actor, and recipient filters through a shared responsive filter pattern. Development-suppressed delivery is labelled as intentionally not sent, and communication totals are explicitly identified as all-time rather than part of the filtered range.
+- Backend verification is green at 813 tests; frontend verification is green at 348 tests. Authenticated browser QA covered activity detail, advanced filters, communication delivery states, health/backlog navigation, light/dark desktop, narrow layouts, and RTL direction. Delivery-failure and least-privilege evidence paths are additionally exercised by automated integration/wiring tests.
