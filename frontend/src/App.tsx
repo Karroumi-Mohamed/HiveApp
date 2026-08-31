@@ -5,10 +5,14 @@ import {
   adminCommercialCampaignEditPermissions,
   adminCommercialPolicyDetailSurfacePermissions,
   adminCommercialSegmentDetailSurfacePermissions,
+  adminOfferDetailSurfacePermissions,
+  adminOfferEditPermissions,
   adminOverviewSurfacePermissions,
   adminPermissions,
   adminPriceBookDetailSurfacePermissions,
   adminSubscriptionDetailSurfacePermissions,
+  clientOfferSurfacePermissions,
+  clientPermissions,
   clientSubscriptionSurfacePermissions,
 } from "@/auth/permissions";
 import { AdminReadPermissionGate, ClientReadPermissionGate } from "@/components/patterns/permission-gate";
@@ -35,6 +39,9 @@ import {
   AdminCommercialCampaignCreatePage,
   AdminCommercialCampaignEditPage,
 } from "@/features/admin/commercial-campaigns/commercial-campaign-editor";
+import { AdminOfferDetailPage } from "@/features/admin/commercial-offers/admin-offer-detail-page";
+import { AdminOfferCreatePage, AdminOfferEditPage } from "@/features/admin/commercial-offers/admin-offer-editor";
+import { AdminOffersPage } from "@/features/admin/commercial-offers/admin-offers-page";
 import { AdminCommercialPoliciesPage } from "@/features/admin/commercial-policies/admin-commercial-policies-page";
 import { AdminCommercialPolicyDetailPage } from "@/features/admin/commercial-policies/admin-commercial-policy-detail-page";
 import {
@@ -77,6 +84,7 @@ import { ClientCollaborationsPage } from "@/features/client/collaborations/clien
 import { ClientCompaniesPage } from "@/features/client/companies/client-companies-page";
 import { ClientMePage } from "@/features/client/me/client-me-page";
 import { ClientMembersPage } from "@/features/client/members/client-members-page";
+import { ClientOffersPage } from "@/features/client/offers/client-offers-page";
 import { ClientOrganizationPage } from "@/features/client/organization/client-organization-page";
 import { ClientOverviewPage } from "@/features/client/overview/client-overview-page";
 import { ClientRolesPage } from "@/features/client/roles/client-roles-page";
@@ -303,6 +311,48 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: "offers",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.offersList]}>
+            <AdminOffersPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "offers/new",
+        element: (
+          <AdminReadPermissionGate
+            allOf={[adminPermissions.offersCreate, adminPermissions.offersPreviewCreateDefinition]}
+          >
+            <AdminOfferCreatePage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "offers/:offerId/edit",
+        element: (
+          <AdminReadPermissionGate allOf={adminOfferEditPermissions}>
+            <AdminOfferEditPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "offers/:offerId/redemptions/:redemptionId",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.offersReadRedemptionDetail]}>
+            <AdminOfferDetailPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "offers/:offerId/:tab?",
+        element: (
+          <AdminReadPermissionGate anyOf={adminOfferDetailSurfacePermissions}>
+            <AdminOfferDetailPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
         path: "commercial-policies",
         element: (
           <AdminReadPermissionGate allOf={[adminPermissions.commercialPoliciesList]}>
@@ -387,6 +437,30 @@ const router = createBrowserRouter([
         element: (
           <ClientReadPermissionGate anyOf={clientSubscriptionSurfacePermissions}>
             <ClientSubscriptionPage />
+          </ClientReadPermissionGate>
+        ),
+      },
+      {
+        path: "offers",
+        element: (
+          <ClientReadPermissionGate anyOf={clientOfferSurfacePermissions}>
+            <ClientOffersPage />
+          </ClientReadPermissionGate>
+        ),
+      },
+      {
+        path: "offers/redemptions/:redemptionId",
+        element: (
+          <ClientReadPermissionGate allOf={[clientPermissions.subscriptionOfferHistoryDetail]}>
+            <ClientOffersPage />
+          </ClientReadPermissionGate>
+        ),
+      },
+      {
+        path: "offers/:offerId",
+        element: (
+          <ClientReadPermissionGate allOf={[clientPermissions.subscriptionOfferDetail]}>
+            <ClientOffersPage />
           </ClientReadPermissionGate>
         ),
       },

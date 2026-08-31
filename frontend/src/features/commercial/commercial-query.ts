@@ -20,6 +20,7 @@ const priceBooksRoot = [...adminRoot, "price-books"] as const;
 const policiesRoot = [...adminRoot, "commercial-policies"] as const;
 const segmentsRoot = [...adminRoot, "segments"] as const;
 const campaignsRoot = [...adminRoot, "campaigns"] as const;
+const offersRoot = [...adminRoot, "offers"] as const;
 const subscriptionsRoot = [...adminRoot, "subscriptions"] as const;
 const registryRoot = [...adminRoot, "registry"] as const;
 
@@ -140,6 +141,30 @@ export const adminCommercialKeys = {
       [...campaignsRoot, "segment-choices", "selected", segmentId, activationId] as const,
     ownerChoices: (filters: Readonly<Record<string, unknown>>) => [...campaignsRoot, "owner-choices", filters] as const,
   },
+  offers: {
+    all: () => offersRoot,
+    list: (filters: Readonly<Record<string, unknown>>) => [...offersRoot, "list", filters] as const,
+    detail: (offerId: string) => [...offersRoot, "detail", offerId] as const,
+    operations: (offerId: string) => [...offersRoot, "detail", offerId, "operations"] as const,
+    editableDefinition: (offerId: string) => [...offersRoot, "detail", offerId, "editable-definition"] as const,
+    revisions: (offerId: string, page: number) => [...offersRoot, "detail", offerId, "revisions", page] as const,
+    comparison: (offerId: string, comparedId: string) =>
+      [...offersRoot, "detail", offerId, "comparison", comparedId] as const,
+    history: (offerId: string, page: number) => [...offersRoot, "detail", offerId, "history", page] as const,
+    owner: (offerId: string) => [...offersRoot, "detail", offerId, "owner"] as const,
+    stats: (offerId: string) => [...offersRoot, "detail", offerId, "stats"] as const,
+    redemptions: (offerId: string, filters: Readonly<Record<string, unknown>>) =>
+      [...offersRoot, "detail", offerId, "redemptions", filters] as const,
+    redemption: (offerId: string, redemptionId: string) =>
+      [...offersRoot, "detail", offerId, "redemptions", redemptionId] as const,
+    accountChoices: (filters: Readonly<Record<string, unknown>>) =>
+      [...offersRoot, "account-choices", filters] as const,
+    productChoices: (ownerType: string, filters: Readonly<Record<string, unknown>>) =>
+      [...offersRoot, "product-choices", ownerType, filters] as const,
+    campaignChoices: (filters: Readonly<Record<string, unknown>>) =>
+      [...offersRoot, "campaign-choices", filters] as const,
+    ownerChoices: (filters: Readonly<Record<string, unknown>>) => [...offersRoot, "owner-choices", filters] as const,
+  },
   subscriptions: {
     all: () => subscriptionsRoot,
     accounts: (filters: Readonly<Record<string, unknown>>) => [...subscriptionsRoot, "accounts", filters] as const,
@@ -173,6 +198,16 @@ export const clientCommercialKeys = {
     [...clientRoot, normalizedContext(context), "subscription", "catalog"] as const,
   changes: (context: ClientCommercialContext, filters: Readonly<Record<string, unknown>> = {}) =>
     [...clientRoot, normalizedContext(context), "subscription", "changes", filters] as const,
+  offers: {
+    catalogue: (context: ClientCommercialContext, filters: Readonly<Record<string, unknown>>) =>
+      [...clientRoot, normalizedContext(context), "offers", "catalogue", filters] as const,
+    detail: (context: ClientCommercialContext, offerId: string) =>
+      [...clientRoot, normalizedContext(context), "offers", "detail", offerId] as const,
+    history: (context: ClientCommercialContext, filters: Readonly<Record<string, unknown>>) =>
+      [...clientRoot, normalizedContext(context), "offers", "history", filters] as const,
+    redemption: (context: ClientCommercialContext, redemptionId: string) =>
+      [...clientRoot, normalizedContext(context), "offers", "redemption", redemptionId] as const,
+  },
 } as const;
 
 export function adminCommercialInvalidationKeys(affected: readonly QueryKey[]) {

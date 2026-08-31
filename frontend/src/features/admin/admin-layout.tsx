@@ -17,6 +17,7 @@ import {
   ReceiptIcon,
   ShieldCheckIcon,
   StackIcon,
+  TagIcon,
   UserCircleIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -127,6 +128,12 @@ export function AdminLayout() {
           to: "/admin/campaigns",
           icon: MegaphoneIcon,
           visible: session.can(adminPermissions.campaignsList),
+        },
+        {
+          label: "Offres",
+          to: "/admin/offers",
+          icon: TagIcon,
+          visible: session.can(adminPermissions.offersList),
         },
         {
           label: "Politiques commerciales",

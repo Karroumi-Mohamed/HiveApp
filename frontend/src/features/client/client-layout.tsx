@@ -5,11 +5,16 @@ import {
   GitBranchIcon,
   HandshakeIcon,
   ShieldCheckIcon,
+  TagIcon,
   UserCircleIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
-import { clientPermissions, clientSubscriptionSurfacePermissions } from "@/auth/permissions";
+import {
+  clientOfferSurfacePermissions,
+  clientPermissions,
+  clientSubscriptionSurfacePermissions,
+} from "@/auth/permissions";
 import { useClientSession } from "@/auth/session-provider";
 import { type ProductNavigationGroup, ProductShell } from "@/components/patterns/product-shell";
 import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
@@ -75,6 +80,12 @@ export function ClientLayout() {
           to: "/app/subscription",
           icon: CreditCardIcon,
           visible: clientSubscriptionSurfacePermissions.some(session.can),
+        },
+        {
+          label: "Offres",
+          to: "/app/offers",
+          icon: TagIcon,
+          visible: clientOfferSurfacePermissions.some(session.can),
         },
         { label: "Mon accès", to: "/app/me", icon: UserCircleIcon },
       ],

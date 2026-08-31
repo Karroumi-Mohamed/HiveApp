@@ -182,6 +182,42 @@ export const adminPermissions = {
   campaignsResolveSegmentChoices: permission("campaigns", "resolve_segment_choices"),
   campaignsReadAudience: permission("campaigns", "read_audience"),
   campaignsReadAudienceIdentities: permission("campaigns", "read_audience_identities"),
+  offersList: permission("offers", "list"),
+  offersRead: permission("offers", "read"),
+  offersReadOperations: permission("offers", "read_operations"),
+  offersReadEditableDefinition: permission("offers", "read_editable_definition"),
+  offersPreviewCreateDefinition: permission("offers", "preview_create_definition"),
+  offersPreviewUpdateDefinition: permission("offers", "preview_update_definition"),
+  offersCreate: permission("offers", "create"),
+  offersUpdate: permission("offers", "update"),
+  offersDuplicate: permission("offers", "duplicate"),
+  offersRevise: permission("offers", "revise"),
+  offersRevisions: permission("offers", "revisions"),
+  offersCompare: permission("offers", "compare"),
+  offersPreviewPublish: permission("offers", "preview_publish"),
+  offersPublish: permission("offers", "publish"),
+  offersRetire: permission("offers", "retire"),
+  offersRestore: permission("offers", "restore"),
+  offersArchive: permission("offers", "archive"),
+  offersDelete: permission("offers", "delete"),
+  offersReadOwner: permission("offers", "read_owner"),
+  offersReassignOwner: permission("offers", "reassign_owner"),
+  offersReadStats: permission("offers", "read_stats"),
+  offersReadRedemptions: permission("offers", "read_redemptions"),
+  offersReadRedemptionDetail: permission("offers", "read_redemption_detail"),
+  offersReadRedemptionIdentities: permission("offers", "read_redemption_identities"),
+  offersHistory: permission("offers", "history"),
+  offersChooseAccounts: permission("offers", "choose_accounts"),
+  offersResolveAccountChoices: permission("offers", "resolve_account_choices"),
+  offersChooseProducts: permission("offers", "choose_products"),
+  offersResolveProductChoices: permission("offers", "resolve_product_choices"),
+  offersChooseQuotaResources: permission("offers", "choose_quota_resources"),
+  offersChooseOwners: permission("offers", "choose_owners"),
+  offersResolveOwnerChoices: permission("offers", "resolve_owner_choices"),
+  offersChooseCampaigns: permission("offers", "choose_campaigns"),
+  offersResolveCampaignChoices: permission("offers", "resolve_campaign_choices"),
+  offersPreviewForAccount: permission("offers", "preview_for_account"),
+  offersApplyForAccount: permission("offers", "apply_for_account"),
   segmentsList: permission("segments", "list"),
   segmentsRead: permission("segments", "read_detail"),
   segmentsCreate: permission("segments", "create"),
@@ -284,6 +320,13 @@ export const clientPermissions = {
   subscriptionApply: permission("subscription", "apply"),
   subscriptionReadChanges: permission("subscription", "read_changes"),
   subscriptionCancel: permission("subscription", "cancel_change"),
+  subscriptionOfferCatalog: permission("subscription", "offer_catalog"),
+  subscriptionOfferDetail: permission("subscription", "offer_detail"),
+  subscriptionOfferCode: permission("subscription", "offer_code"),
+  subscriptionOfferPreview: permission("subscription", "offer_preview"),
+  subscriptionOfferAccept: permission("subscription", "offer_accept"),
+  subscriptionOfferHistory: permission("subscription", "offer_history"),
+  subscriptionOfferHistoryDetail: permission("subscription", "offer_history_detail"),
 } as const;
 
 /**
@@ -354,6 +397,31 @@ export const adminCommercialCampaignDetailSurfacePermissions = [
 export const adminCommercialCampaignEditPermissions = [
   adminPermissions.campaignsUpdate,
   adminPermissions.campaignsReadEditableDefinition,
+] as const;
+
+export const adminOfferDetailSurfacePermissions = [
+  adminPermissions.offersRead,
+  adminPermissions.offersReadOperations,
+  adminPermissions.offersRevisions,
+  adminPermissions.offersCompare,
+  adminPermissions.offersHistory,
+  adminPermissions.offersPreviewPublish,
+  adminPermissions.offersReadOwner,
+  adminPermissions.offersReadStats,
+  adminPermissions.offersReadRedemptions,
+  adminPermissions.offersPreviewForAccount,
+] as const;
+
+export const adminOfferEditPermissions = [
+  adminPermissions.offersUpdate,
+  adminPermissions.offersReadEditableDefinition,
+  adminPermissions.offersPreviewUpdateDefinition,
+] as const;
+
+export const clientOfferSurfacePermissions = [
+  clientPermissions.subscriptionOfferCatalog,
+  clientPermissions.subscriptionOfferCode,
+  clientPermissions.subscriptionOfferHistory,
 ] as const;
 
 /** Each overview card family is independently readable, including registry sync on its own. */

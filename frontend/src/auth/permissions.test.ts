@@ -3,11 +3,14 @@ import {
   adminCommercialCampaignDetailSurfacePermissions,
   adminCommercialCampaignEditPermissions,
   adminCommercialPolicyDetailSurfacePermissions,
+  adminOfferDetailSurfacePermissions,
+  adminOfferEditPermissions,
   adminOverviewSurfacePermissions,
   adminPermissions,
   adminPriceBookDetailSurfacePermissions,
   adminProfileCan,
   adminSubscriptionDetailSurfacePermissions,
+  clientOfferSurfacePermissions,
   clientPermissions,
   clientProfileCan,
   clientSubscriptionSurfacePermissions,
@@ -100,5 +103,37 @@ describe("session permission bypasses", () => {
       adminPermissions.campaignsReadEditableDefinition,
     ]);
     expect(adminCommercialCampaignEditPermissions).not.toContain(adminPermissions.campaignsRead);
+  });
+
+  test("Offer operational evidence remains reachable without broad definition access", () => {
+    expect(adminOfferDetailSurfacePermissions).toEqual([
+      adminPermissions.offersRead,
+      adminPermissions.offersReadOperations,
+      adminPermissions.offersRevisions,
+      adminPermissions.offersCompare,
+      adminPermissions.offersHistory,
+      adminPermissions.offersPreviewPublish,
+      adminPermissions.offersReadOwner,
+      adminPermissions.offersReadStats,
+      adminPermissions.offersReadRedemptions,
+      adminPermissions.offersPreviewForAccount,
+    ]);
+  });
+
+  test("Offer editing uses definition-specific permissions", () => {
+    expect(adminOfferEditPermissions).toEqual([
+      adminPermissions.offersUpdate,
+      adminPermissions.offersReadEditableDefinition,
+      adminPermissions.offersPreviewUpdateDefinition,
+    ]);
+    expect(adminOfferEditPermissions).not.toContain(adminPermissions.offersRead);
+  });
+
+  test("the client Offer hub exposes catalogue, private code and history independently", () => {
+    expect(clientOfferSurfacePermissions).toEqual([
+      clientPermissions.subscriptionOfferCatalog,
+      clientPermissions.subscriptionOfferCode,
+      clientPermissions.subscriptionOfferHistory,
+    ]);
   });
 });
