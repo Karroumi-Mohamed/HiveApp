@@ -2306,6 +2306,9 @@ export type Subscription = {
   currentPeriodStart: Instant;
   currentPeriodEnd: Instant;
   cancelAtPeriodEnd: boolean;
+  pastDueAt: Instant | null;
+  graceEndsAt: Instant | null;
+  suspendedAt: Instant | null;
 };
 
 export type SubscriptionEntitlementSnapshot = {
@@ -2358,6 +2361,9 @@ export type AdminSubscription = {
   currentPeriodStart: Instant;
   currentPeriodEnd: Instant;
   cancelAtPeriodEnd: boolean;
+  pastDueAt: Instant | null;
+  graceEndsAt: Instant | null;
+  suspendedAt: Instant | null;
   customOverrides: {
     schemaVersion: number;
     addOnCodes: string[];

@@ -379,6 +379,32 @@ export function SubscriptionDetail({ accountId }: { accountId: string }) {
           )
         ) : data ? (
           <div className="grid gap-5 lg:grid-cols-[1fr_0.85fr]">
+            {data.status === "PAST_DUE" || data.status === "SUSPENDED" ? (
+              <section
+                className={`border-s-2 ps-4 lg:col-span-2 ${
+                  data.status === "SUSPENDED" ? "border-destructive" : "border-warning"
+                }`}
+                role="status"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="font-semibold">
+                      {data.status === "SUSPENDED" ? "Abonnement suspendu" : "Recouvrement en cours"}
+                    </h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {data.status === "SUSPENDED"
+                        ? `Suspendu depuis le ${dateTime(data.suspendedAt)}. Les données sont conservées sans accès opérationnel.`
+                        : `Échu le ${dateTime(data.pastDueAt)} · accès maintenu jusqu’au ${dateTime(data.graceEndsAt)}.`}
+                    </p>
+                  </div>
+                  {session.can(adminPermissions.billingListInvoices) ? (
+                    <Button asChild className="self-start" size="sm" variant="outline">
+                      <Link to={`/admin/billing?view=invoices&accountId=${data.accountId}`}>Voir les factures</Link>
+                    </Button>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
             <section className="rounded-xl border bg-card p-5">
               <div className="flex items-start justify-between">
                 <div>

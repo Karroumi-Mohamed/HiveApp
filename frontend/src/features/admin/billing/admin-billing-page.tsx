@@ -41,7 +41,7 @@ import { adminBillingKeys } from "./billing-query";
 const dateTime = (value: string | null) =>
   value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 
-function InvoiceList() {
+function InvoiceList({ accountId }: { accountId?: string }) {
   const session = useAdminSession();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<BillingInvoiceStatus | "all">("all");
@@ -49,6 +49,7 @@ function InvoiceList() {
   const [sorting, setSorting] = useState<SortingState>([{ id: "issuedAt", desc: true }]);
   const request = {
     search: search.trim() || undefined,
+    accountId,
     status: status === "all" ? undefined : status,
     page,
     size: 20,
@@ -551,7 +552,7 @@ export function AdminBillingPage() {
         value={view}
       />
       {view === "invoices" ? (
-        <InvoiceList />
+        <InvoiceList accountId={params.get("accountId") ?? undefined} />
       ) : view === "reconciliation" ? (
         <ReconciliationList />
       ) : (

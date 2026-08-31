@@ -932,6 +932,41 @@ export function ClientSubscriptionPage() {
         <ClientInvoiceHistory />
       ) : tab === "current" && canReadSubscription && subscription.data ? (
         <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
+          {subscription.data.status === "PAST_DUE" || subscription.data.status === "SUSPENDED" ? (
+            <section
+              className={`border-s-2 ps-4 lg:col-span-2 ${
+                subscription.data.status === "SUSPENDED" ? "border-destructive" : "border-warning"
+              }`}
+              role="status"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="font-semibold">
+                    {subscription.data.status === "SUSPENDED" ? "Accès suspendu" : "Paiement à régulariser"}
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {subscription.data.status === "SUSPENDED"
+                      ? `Suspendu depuis le ${date(subscription.data.suspendedAt)}. Un paiement confirmé réactive l’abonnement.`
+                      : `Accès maintenu jusqu’au ${date(subscription.data.graceEndsAt)} pendant le recouvrement.`}
+                  </p>
+                </div>
+                {canReadInvoices ? (
+                  <Button
+                    className="self-start"
+                    onClick={() => {
+                      const next = new URLSearchParams(params);
+                      next.set("tab", "invoices");
+                      setParams(next, { replace: true });
+                    }}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Voir les factures
+                  </Button>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
           <section className="rounded-xl border bg-card p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -953,7 +988,11 @@ export function ClientSubscriptionPage() {
                 <dd className="font-medium">{date(subscription.data.currentPeriodStart)}</dd>
               </div>
               <div className="flex justify-between gap-4 text-sm">
-                <dt className="text-muted-foreground">Renouvellement</dt>
+                <dt className="text-muted-foreground">
+                  {subscription.data.status === "PAST_DUE" || subscription.data.status === "SUSPENDED"
+                    ? "Période échue"
+                    : "Renouvellement"}
+                </dt>
                 <dd className="font-medium">{date(subscription.data.currentPeriodEnd)}</dd>
               </div>
               <div className="flex justify-between gap-4 text-sm">

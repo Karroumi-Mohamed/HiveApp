@@ -125,6 +125,9 @@ const subscription: AdminSubscription = {
   currentPeriodStart: "2026-08-01T00:00:00Z",
   currentPeriodEnd: "2026-09-01T00:00:00Z",
   cancelAtPeriodEnd: false,
+  pastDueAt: null,
+  graceEndsAt: null,
+  suspendedAt: null,
   customOverrides: { schemaVersion: 1, addOnCodes: [], quotaPackages: [] },
   entitlementSnapshot: null,
 };
