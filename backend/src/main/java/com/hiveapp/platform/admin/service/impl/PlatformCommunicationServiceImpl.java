@@ -143,6 +143,9 @@ public class PlatformCommunicationServiceImpl extends PlatformControlFeatureServ
 
     private NormalizedQuery normalize(Query request) {
         Query source = request == null ? new Query(null, null, null, null, null, null) : request;
+        if (source.recipientUserId() != null) {
+            require("read_recipient_identity");
+        }
         Instant until = source.until() == null ? clock.instant() : source.until();
         Instant from = source.from() == null ? until.minus(DEFAULT_RANGE) : source.from();
         if (!from.isBefore(until)) {

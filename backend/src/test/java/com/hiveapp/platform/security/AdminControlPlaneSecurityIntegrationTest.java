@@ -2590,6 +2590,25 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(activityId.toString()));
 
+        LimitedAdmin supplementaryOnly = createLimitedAdmin(
+                "platform.activities.read_payload",
+                "platform.activities.read_actor_identity",
+                "platform.activities.read_account_identity");
+        mockMvc.perform(get("/api/admin/activities/{id}/payload", activityId)
+                        .header("Authorization", bearer(supplementaryOnly.token())))
+                .andExpect(status().isForbidden());
+        String resolutionBody = "{\"activityIds\":[\"" + activityId + "\"]}";
+        mockMvc.perform(post("/api/admin/activities/actor-identities")
+                        .header("Authorization", bearer(supplementaryOnly.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resolutionBody))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/activities/account-identities")
+                        .header("Authorization", bearer(supplementaryOnly.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resolutionBody))
+                .andExpect(status().isForbidden());
+
         LimitedAdmin identityReader = createLimitedAdmin(
                 "platform.activities.read",
                 "platform.activities.read_actor_identity",
@@ -2603,24 +2622,47 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     @Test
     void platformCommunicationRecipientAndFailureEvidenceStayIndependent() throws Exception {
         LimitedAdmin metadata = createLimitedAdmin("platform.communications.read");
-        mockMvc.perform(get("/api/admin/communications")
+        JsonNode metadataPage = objectMapper.readTree(mockMvc.perform(get("/api/admin/communications")
                         .header("Authorization", bearer(metadata.token())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].recipientUserId").value((Object) null))
                 .andExpect(jsonPath("$.content[0].recipientEmail").value((Object) null))
                 .andExpect(jsonPath("$.content[0].attemptedAt").value((Object) null))
-                .andExpect(jsonPath("$.content[0].failureCode").value((Object) null));
+                .andExpect(jsonPath("$.content[0].failureCode").value((Object) null))
+                .andReturn().getResponse().getContentAsString());
+        UUID deliveryId = UUID.fromString(metadataPage.get("content").get(0).get("id").asText());
 
         LimitedAdmin evidence = createLimitedAdmin(
                 "platform.communications.read",
                 "platform.communications.read_recipient_identity",
                 "platform.communications.read_failure_evidence");
-        mockMvc.perform(get("/api/admin/communications")
+        JsonNode evidencePage = objectMapper.readTree(mockMvc.perform(get("/api/admin/communications")
                         .header("Authorization", bearer(evidence.token())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].recipientUserId").isString())
                 .andExpect(jsonPath("$.content[0].recipientEmail").isString())
-                .andExpect(jsonPath("$.content[0].failureEvidenceVisible").value(true));
+                .andExpect(jsonPath("$.content[0].failureEvidenceVisible").value(true))
+                .andReturn().getResponse().getContentAsString());
+        String recipientUserId = evidencePage.get("content").get(0).get("recipientUserId").asText();
+
+        mockMvc.perform(get("/api/admin/communications")
+                        .param("recipientUserId", recipientUserId)
+                        .header("Authorization", bearer(metadata.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/communications")
+                        .param("recipientUserId", recipientUserId)
+                        .header("Authorization", bearer(evidence.token())))
+                .andExpect(status().isOk());
+
+        LimitedAdmin supplementaryOnly = createLimitedAdmin(
+                "platform.communications.read_recipient_identity",
+                "platform.communications.read_failure_evidence");
+        mockMvc.perform(get("/api/admin/communications/{id}/recipient", deliveryId)
+                        .header("Authorization", bearer(supplementaryOnly.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/communications/{id}/failure-evidence", deliveryId)
+                        .header("Authorization", bearer(supplementaryOnly.token())))
+                .andExpect(status().isForbidden());
     }
 
     @Test

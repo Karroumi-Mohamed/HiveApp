@@ -17,6 +17,7 @@ import com.hiveapp.shared.payment.BillingProperties;
 import com.hiveapp.shared.payment.PaymentGateway;
 import dev.karroumi.permissionizer.PermissionNode;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -234,10 +235,16 @@ public class PlatformObservabilityServiceImpl extends PlatformControlFeatureServ
         if (normalized == null || normalized.length() > 2_048) return null;
         try {
             URI uri = URI.create(normalized);
-            return ("https".equalsIgnoreCase(uri.getScheme())
-                    || "http".equalsIgnoreCase(uri.getScheme())) && uri.getHost() != null
-                    ? uri.toString() : null;
-        } catch (IllegalArgumentException ignored) {
+            if (!("https".equalsIgnoreCase(uri.getScheme())
+                    || "http".equalsIgnoreCase(uri.getScheme())) || uri.getHost() == null) {
+                return null;
+            }
+            // A configured investigation URL is rendered to operators. Never forward embedded
+            // credentials, query tokens, or fragments from configuration into the browser.
+            return new URI(
+                    uri.getScheme(), null, uri.getHost(), uri.getPort(), uri.getPath(), null, null)
+                    .toString();
+        } catch (IllegalArgumentException | URISyntaxException ignored) {
             return null;
         }
     }
