@@ -1853,6 +1853,7 @@ creation remain open.
 - **Acceptance Criteria**: Bounded summary/time-series/drill-down endpoints, currency/cycle dimensions, completeness timestamps, stable historical facts, no configured-price-as-revenue labels, and permission-separated sensitive evidence.
 - **Tests**: Timezone/interval boundaries, mixed currency, event idempotency, historical stability, incomplete data, permission/privacy, query count, and drill-down totals.
 - **Future UI Flow**: Operational commercial dashboard with range/filter controls, accessible charts, and links to exact filtered tables.
+- **Frozen Contract (2026-08-31)**: `docs/COMMERCIAL_ANALYTICS_V1.md` defines authoritative sources, exact metric names, bounded timezone-aware queries, independent permissions, API surfaces, operational drill-down, truthful incompleteness, and the near-quota usage-snapshot deferral. V1 must not introduce a second mutable analytics truth where an authoritative durable record already exists.
 
 # Phase 15: Cross-surface consistency and adversarial audit
 

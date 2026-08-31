@@ -1283,6 +1283,8 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - Every endpoint takes a bounded time range, timezone, interval, and safe filters; returns completeness time and dimensions; and never sums different currencies or cycles into one unlabeled number.
 - Summary cards/charts link to the filtered operational table that explains the number. Missing/incomplete data is shown honestly rather than as zero.
 - Analytics read permissions do not imply access to sensitive payment references, owner email, or client business records.
+- The implementation contract is recorded in `docs/COMMERCIAL_ANALYTICS_V1.md`: V1 reads the authoritative ledger/lifecycle/operation/redemption records directly, exposes independently protected summary, financial, subscription, Offer, and operational surfaces, and uses explicit read watermarks rather than claiming provider finality.
+- Historical near/over-quota reporting is deferred until a cadence-based append-only usage-snapshot contract exists. V1 may report current capacity-package holdings, but it must not scan every Account's live business tables and present that unstable result as historical quota pressure.
 
 # Account subscription administration
 

@@ -3167,6 +3167,7 @@ Decorative totals may be mislabeled as revenue, mixed currency/cycle values can 
 - Add bounded timezone/interval/filter-aware summary and time-series APIs with explicit currency/cycle dimensions, completeness time, pagination, and no mixed-money total.
 - Make every summary/chart link to a filtered operational table. Expose missing/incomplete data honestly and keep sensitive settlement evidence under separate permissions.
 - Add event idempotency, historical stability, time-bound validation, mixed-currency, permission/privacy, query-count, and realistic drill-down tests.
+- Follow the frozen `docs/COMMERCIAL_ANALYTICS_V1.md` contract. Keep current product holdings separate from historical adoption/churn, and defer historical near-quota pressure until a cadence-based append-only usage snapshot exists instead of issuing per-Account live business-table reads from the dashboard.
 
 ---
 
