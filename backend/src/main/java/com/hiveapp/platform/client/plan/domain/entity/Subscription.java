@@ -57,11 +57,11 @@ public class Subscription extends BaseEntity {
 
     /**
      * Non-null only while this subscription can provide entitlement. Its uniqueness enforces
-     * one ACTIVE or TRIALING subscription per account while allowing historical subscriptions.
+     * one entitled-or-grace subscription per account while allowing historical subscriptions.
      */
     @Column(name = "usable_account_id", columnDefinition = """
-            uuid check ((status in ('ACTIVE', 'TRIALING') and usable_account_id is not null and usable_account_id = account_id)
-            or (status not in ('ACTIVE', 'TRIALING') and usable_account_id is null))
+            uuid check ((status in ('ACTIVE', 'TRIALING', 'PAST_DUE') and usable_account_id is not null and usable_account_id = account_id)
+            or (status not in ('ACTIVE', 'TRIALING', 'PAST_DUE') and usable_account_id is null))
             """)
     private UUID usableAccountId;
 
@@ -94,6 +94,15 @@ public class Subscription extends BaseEntity {
 
     @Column(name = "cancel_at_period_end", nullable = false)
     private boolean cancelAtPeriodEnd;
+
+    @Column(name = "past_due_at")
+    private Instant pastDueAt;
+
+    @Column(name = "grace_ends_at")
+    private Instant graceEndsAt;
+
+    @Column(name = "suspended_at")
+    private Instant suspendedAt;
 
     /**
      * Snapshot of the calculated monthly price at the time overrides were last saved.
@@ -128,7 +137,9 @@ public class Subscription extends BaseEntity {
     @PrePersist
     @PreUpdate
     void synchronizeUsableAccountSlot() {
-        boolean usable = status == SubscriptionStatus.ACTIVE || status == SubscriptionStatus.TRIALING;
+        boolean usable = status == SubscriptionStatus.ACTIVE
+                || status == SubscriptionStatus.TRIALING
+                || status == SubscriptionStatus.PAST_DUE;
         usableAccountId = usable && account != null ? account.getId() : null;
         boolean currentLifecycle = status == SubscriptionStatus.ACTIVE
                 || status == SubscriptionStatus.TRIALING
@@ -150,6 +161,10 @@ public class Subscription extends BaseEntity {
         }
         if (currentPeriodStart == null || currentPeriodEnd == null || !currentPeriodEnd.isAfter(currentPeriodStart)) {
             throw new IllegalStateException("Subscription requires a valid current period");
+        }
+        if (status == SubscriptionStatus.PAST_DUE
+                && (pastDueAt == null || graceEndsAt == null || !graceEndsAt.isAfter(pastDueAt))) {
+            throw new IllegalStateException("A past-due subscription requires a future grace deadline");
         }
     }
 

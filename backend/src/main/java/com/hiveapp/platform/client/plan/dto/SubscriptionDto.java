@@ -14,7 +14,10 @@ public record SubscriptionDto(
         String currentPriceCurrencyCode,
         Instant currentPeriodStart,
         Instant currentPeriodEnd,
-        boolean cancelAtPeriodEnd
+        boolean cancelAtPeriodEnd,
+        Instant pastDueAt,
+        Instant graceEndsAt,
+        Instant suspendedAt
 ) {
     public record PlanSummaryDto(
             String code,

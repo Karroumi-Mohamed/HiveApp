@@ -625,6 +625,9 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
                 subscription.getCurrentPeriodStart(),
                 subscription.getCurrentPeriodEnd(),
                 subscription.isCancelAtPeriodEnd(),
+                subscription.getPastDueAt(),
+                subscription.getGraceEndsAt(),
+                subscription.getSuspendedAt(),
                 subscriptionOverrideReader.read(subscription.getCustomOverrides()),
                 subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()).orElse(null));
     }

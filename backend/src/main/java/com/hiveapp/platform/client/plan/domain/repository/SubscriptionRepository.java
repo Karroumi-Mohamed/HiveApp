@@ -72,6 +72,23 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
             @Param("statuses") Collection<SubscriptionStatus> statuses,
             @Param("cutoff") Instant cutoff);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select subscription from Subscription subscription "
+            + "where subscription.status = :status and subscription.graceEndsAt <= :cutoff")
+    List<Subscription> findGraceExpiredForUpdate(
+            @Param("status") SubscriptionStatus status,
+            @Param("cutoff") Instant cutoff);
+
+    @Query("select subscription from Subscription subscription "
+            + "where subscription.account.id = :accountId and ("
+            + "subscription.status in :ordinaryStatuses or "
+            + "(subscription.status = :pastDueStatus and subscription.graceEndsAt > :at))")
+    Optional<Subscription> findEntitledAt(
+            @Param("accountId") UUID accountId,
+            @Param("ordinaryStatuses") Collection<SubscriptionStatus> ordinaryStatuses,
+            @Param("pastDueStatus") SubscriptionStatus pastDueStatus,
+            @Param("at") Instant at);
+
     long countByPlan_Id(UUID planId);
 
     long countByPlan_IdAndStatus(UUID planId, SubscriptionStatus status);
@@ -149,6 +166,13 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
     default Optional<Subscription> findUsableByAccountId(UUID accountId) {
         return findActiveByAccountId(accountId)
                 .or(() -> findByAccountIdAndStatus(accountId, SubscriptionStatus.TRIALING));
+    }
+
+    default Optional<Subscription> findCurrentByAccountId(UUID accountId) {
+        return findTopByAccountIdAndStatusInOrderByCreatedAtDesc(
+                accountId,
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING,
+                        SubscriptionStatus.PAST_DUE, SubscriptionStatus.SUSPENDED));
     }
 
     @Override

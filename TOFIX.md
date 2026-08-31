@@ -678,7 +678,7 @@ Client self-service may select only versioned predefined quota packages explicit
 
 ### SUBSCRIPTION-003 — Subscription periods and lifecycle transitions are not implemented
 
-**Status:** `PARTIALLY RESOLVED — PERIOD FOUNDATION IMPLEMENTED 2026-08-10`
+**Status:** `PARTIALLY RESOLVED — RENEWAL/GRACE RECOVERY IMPLEMENTED 2026-08-31`
 
 **Evidence**
 
@@ -702,6 +702,20 @@ Define the lifecycle state machine and actor/event for every transition. Store u
 - A scheduled lifecycle worker expires due trials, completes and renews zero-priced periods, places paid periods in `PAST_DUE` without pretending payment succeeded, and closes replacement/cancel-at-period-end history.
 - Immediate and at-renewal plan changes are explicit operations. Renewal changes stay pending and cancellable, revalidate commercial availability and usage at execution, and enter `NEEDS_ATTENTION` instead of silently applying when conditions changed.
 - Tests cover trial expiry, free renewal/history, paid payment-due behavior, immediate replacement, pending renewal creation, and cancellation. Suspension/restoration, payment recovery, customer cancellation commands, grace policy, and communications remain later operator/billing flows rather than being claimed here.
+
+**Implementation evidence — 2026-08-31**
+
+- A paid period boundary creates one system-owned same-terms renewal operation, immutable Invoice,
+  Payment attempt, and durable provider command through the ordinary billing ledger; an explicit
+  pending at-renewal change remains authoritative and suppresses the default renewal.
+- Failed or pending collection moves the current subscription to `PAST_DUE` with persisted
+  `pastDueAt` and `graceEndsAt`. Entitlement remains valid only before that exact deadline, after
+  which scheduled processing moves it to non-entitled `SUSPENDED` without deleting customer data.
+- Trusted provider evidence or separately authorized manual settlement activates the already
+  invoiced next period from its original renewal boundary. Manual settlement can recover a failed
+  Checkout/operation while retaining the failed automatic Payment evidence.
+- Current admin/client read models include recovery timestamps. Reviewed lifecycle commands,
+  Account-specific grace extension, communications, and filtered/Plan populations remain open.
 
 ---
 

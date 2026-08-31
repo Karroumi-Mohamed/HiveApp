@@ -386,6 +386,11 @@ class CommercialAvailabilityControlPlaneIntegrationTest
                 transactionTemplate.executeWithoutResult(ignored -> {
                     var managed = subscriptionRepository.findById(managedSubscriptionId).orElseThrow();
                     managed.setStatus(managedStatus);
+                    if (managedStatus == SubscriptionStatus.PAST_DUE) {
+                        Instant pastDueAt = Instant.now();
+                        managed.setPastDueAt(pastDueAt);
+                        managed.setGraceEndsAt(pastDueAt.plusSeconds(3_600));
+                    }
                     subscriptionRepository.saveAndFlush(managed);
                 });
                 mockMvc.perform(get(

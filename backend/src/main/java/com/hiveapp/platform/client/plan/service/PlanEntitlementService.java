@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.Clock;
 import java.util.Optional;
 import java.util.Set;
 import java.util.HashSet;
@@ -23,11 +24,12 @@ public class PlanEntitlementService {
     private final SubscriptionRepository subscriptionRepository;
     private final PermissionRepository permissionRepository;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
+    private final Clock clock;
 
     @Transactional(readOnly = true)
     public boolean isPermissionEntitled(UUID accountId, String permissionCode) {
         Optional<Subscription> subscription = currentSubscription(accountId);
-        if (subscription.isEmpty() || isExpired(subscription.get().getCurrentPeriodEnd())) {
+        if (subscription.isEmpty()) {
             return false;
         }
 
@@ -45,7 +47,7 @@ public class PlanEntitlementService {
     @Transactional(readOnly = true)
     public Set<String> entitledFeatureCodes(UUID accountId) {
         Optional<Subscription> subscription = currentSubscription(accountId);
-        if (subscription.isEmpty() || isExpired(subscription.get().getCurrentPeriodEnd())) {
+        if (subscription.isEmpty()) {
             return Set.of();
         }
         Subscription current = subscription.get();
@@ -58,10 +60,13 @@ public class PlanEntitlementService {
     }
 
     private Optional<Subscription> currentSubscription(UUID accountId) {
-        Optional<Subscription> subscription = subscriptionRepository.findActiveByAccountId(accountId);
-        return subscription.isPresent()
-                ? subscription
-                : subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.TRIALING);
+        Instant now = clock.instant();
+        return subscriptionRepository.findEntitledAt(
+                accountId,
+                java.util.List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING),
+                SubscriptionStatus.PAST_DUE,
+                now).filter(subscription -> subscription.getStatus() == SubscriptionStatus.PAST_DUE
+                        || !isExpired(subscription.getCurrentPeriodEnd(), now));
     }
 
     private boolean snapshotEntitles(Subscription subscription, String featureCode) {
@@ -75,7 +80,7 @@ public class PlanEntitlementService {
                 && snapshot.features().stream().anyMatch(feature -> featureCode.equals(feature.featureCode()));
     }
 
-    private boolean isExpired(Instant currentPeriodEnd) {
-        return currentPeriodEnd != null && !currentPeriodEnd.isAfter(Instant.now());
+    private boolean isExpired(Instant currentPeriodEnd, Instant now) {
+        return currentPeriodEnd != null && !currentPeriodEnd.isAfter(now);
     }
 }

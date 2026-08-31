@@ -21,6 +21,9 @@ public record AdminSubscriptionDto(
         Instant currentPeriodStart,
         Instant currentPeriodEnd,
         boolean cancelAtPeriodEnd,
+        Instant pastDueAt,
+        Instant graceEndsAt,
+        Instant suspendedAt,
         SubscriptionOverrides customOverrides,
         SubscriptionEntitlementSnapshot entitlementSnapshot
 ) {}

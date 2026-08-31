@@ -54,7 +54,7 @@ public class SubscriptionCheckout extends BaseEntity {
     @Column(nullable = false, length = 3)
     private String currencyCode;
 
-    @Column(name = "requested_by_user_id", nullable = false)
+    @Column(name = "requested_by_user_id")
     private UUID requestedByUserId;
 
     @Enumerated(EnumType.STRING)
@@ -116,6 +116,12 @@ public class SubscriptionCheckout extends BaseEntity {
         } else if (confirmationSource != null || confirmationReference != null
                 || confirmationReason != null || confirmedByUserId != null || confirmedAt != null) {
             throw new IllegalStateException("Only confirmed checkouts may contain confirmation evidence");
+        }
+        if (requestedByUserId == null
+                && (changeOperation == null
+                || changeOperation.getRequestOrigin()
+                != com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin.SYSTEM)) {
+            throw new IllegalStateException("A non-system checkout requires a requesting user");
         }
     }
 }

@@ -44,10 +44,7 @@ public class SubscriptionChangeActivationService {
         if (accountRepository.findByIdForSubscriptionUpdate(accountId).isEmpty()) {
             return markNeedsAttention(operation, "The Account no longer exists.");
         }
-        Subscription current = subscriptionRepository.findActiveByAccountId(accountId)
-                .or(() -> subscriptionRepository.findByAccountIdAndStatus(
-                        accountId, SubscriptionStatus.TRIALING))
-                .orElse(null);
+        Subscription current = subscriptionRepository.findCurrentByAccountId(accountId).orElse(null);
         if (current == null || !current.getId().equals(operation.getSourceSubscription().getId())) {
             return markNeedsAttention(
                     operation, "The Account subscription changed after this operation was requested.");
@@ -72,7 +69,8 @@ public class SubscriptionChangeActivationService {
                 .withEffectivePeriod(period.startsAt(), period.endsAt()));
 
         var usable = subscriptionRepository.findAllByAccountIdAndStatusIn(
-                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
+                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING,
+                        SubscriptionStatus.PAST_DUE, SubscriptionStatus.SUSPENDED));
         usable.forEach(lifecycleManager::closeForReplacement);
         subscriptionRepository.saveAllAndFlush(usable);
 

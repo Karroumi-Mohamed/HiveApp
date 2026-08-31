@@ -83,7 +83,7 @@ public class BillingInvoice extends BaseEntity {
     @Column(name = "settled_at")
     private Instant settledAt;
 
-    @Column(name = "requested_by_user_id", nullable = false, updatable = false)
+    @Column(name = "requested_by_user_id", updatable = false)
     private UUID requestedByUserId;
 
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -119,7 +119,12 @@ public class BillingInvoice extends BaseEntity {
         invoice.periodStart = periodStart;
         invoice.periodEnd = periodEnd;
         invoice.issuedAt = Objects.requireNonNull(issuedAt, "Invoice issue time is required");
-        invoice.requestedByUserId = Objects.requireNonNull(requestedByUserId, "Invoice requester is required");
+        if (requestedByUserId == null
+                && checkout.getChangeOperation().getRequestOrigin()
+                != com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin.SYSTEM) {
+            throw new IllegalArgumentException("A non-system Invoice requires a requesting user");
+        }
+        invoice.requestedByUserId = requestedByUserId;
         if (invoice.status == BillingInvoiceStatus.SETTLED_ZERO) {
             invoice.settledAt = issuedAt;
         }

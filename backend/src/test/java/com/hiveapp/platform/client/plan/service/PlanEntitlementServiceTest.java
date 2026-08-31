@@ -19,6 +19,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.time.Clock;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -33,6 +35,7 @@ class PlanEntitlementServiceTest {
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private PermissionRepository permissionRepository;
     @Mock private SubscriptionSnapshotReader subscriptionSnapshotReader;
+    private static final Instant NOW = Instant.parse("2026-08-31T12:00:00Z");
 
     private PlanEntitlementService service;
     private UUID accountId;
@@ -43,7 +46,8 @@ class PlanEntitlementServiceTest {
         service = new PlanEntitlementService(
                 subscriptionRepository,
                 permissionRepository,
-                subscriptionSnapshotReader
+                subscriptionSnapshotReader,
+                Clock.fixed(NOW, ZoneOffset.UTC)
         );
         accountId = UUID.randomUUID();
         planId = UUID.randomUUID();
@@ -52,7 +56,7 @@ class PlanEntitlementServiceTest {
     @Test
     void activePlanFeatureEntitlesPermission() {
         Subscription subscription = subscription(SubscriptionStatus.ACTIVE, null);
-        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
+        current(subscription);
         when(permissionRepository.findByCode("platform.company.create"))
                 .thenReturn(Optional.of(permission("platform.company.create", "platform.company")));
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
@@ -63,12 +67,7 @@ class PlanEntitlementServiceTest {
 
     @Test
     void unexpiredTrialPlanFeatureEntitlesPermission() {
-        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.empty());
-        when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.TRIALING))
-                .thenReturn(Optional.of(subscription(
-                        SubscriptionStatus.TRIALING,
-                        Instant.now().plusSeconds(86_400)
-                )));
+        current(subscription(SubscriptionStatus.TRIALING, NOW.plusSeconds(86_400)));
         when(permissionRepository.findByCode("platform.company.create"))
                 .thenReturn(Optional.of(permission("platform.company.create", "platform.company")));
         when(subscriptionSnapshotReader.read(org.mockito.ArgumentMatchers.any()))
@@ -80,7 +79,7 @@ class PlanEntitlementServiceTest {
     @Test
     void subscriptionSnapshotEntitlesPermissionWithoutLivePlanFeature() {
         Subscription subscription = subscription(SubscriptionStatus.ACTIVE, null);
-        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
+        current(subscription);
         when(permissionRepository.findByCode("platform.company.create"))
                 .thenReturn(Optional.of(permission("platform.company.create", "platform.company")));
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
@@ -97,19 +96,14 @@ class PlanEntitlementServiceTest {
 
     @Test
     void expiredSubscriptionDoesNotEntitlePermission() {
-        when(subscriptionRepository.findActiveByAccountId(accountId))
-                .thenReturn(Optional.of(subscription(
-                        SubscriptionStatus.ACTIVE,
-                        Instant.now().minusSeconds(60)
-                )));
+        current(subscription(SubscriptionStatus.ACTIVE, NOW.minusSeconds(60)));
 
         assertThat(service.isPermissionEntitled(accountId, "platform.company.create")).isFalse();
     }
 
     @Test
     void missingSnapshotFailsClosedEvenWhenAnOverrideExists() {
-        when(subscriptionRepository.findActiveByAccountId(accountId))
-                .thenReturn(Optional.of(subscriptionWithoutSnapshot()));
+        current(subscriptionWithoutSnapshot());
         when(permissionRepository.findByCode("platform.company.create"))
                 .thenReturn(Optional.of(permission("platform.company.create", "platform.company")));
         when(subscriptionSnapshotReader.read(null)).thenReturn(Optional.empty());
@@ -119,9 +113,7 @@ class PlanEntitlementServiceTest {
 
     @Test
     void missingSubscriptionDoesNotEntitlePermission() {
-        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.empty());
-        when(subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.TRIALING))
-                .thenReturn(Optional.empty());
+        current(null);
 
         assertThat(service.isPermissionEntitled(accountId, "platform.company.create")).isFalse();
     }
@@ -129,7 +121,7 @@ class PlanEntitlementServiceTest {
     @Test
     void resolvesAllEntitledFeaturesFromOneSubscriptionSnapshot() {
         Subscription subscription = subscription(SubscriptionStatus.ACTIVE, null);
-        when(subscriptionRepository.findActiveByAccountId(accountId)).thenReturn(Optional.of(subscription));
+        current(subscription);
         when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
                 .thenReturn(Optional.of(new SubscriptionEntitlementSnapshot(
                         "PRO", java.math.BigDecimal.ZERO, "USD",
@@ -144,6 +136,36 @@ class PlanEntitlementServiceTest {
                 .containsExactlyInAnyOrder(
                         "platform.company", "platform.staff", "platform.organization");
         verifyNoInteractions(permissionRepository);
+    }
+
+    @Test
+    void pastDueSubscriptionRemainsEntitledInsidePersistedGrace() {
+        Subscription subscription = subscription(SubscriptionStatus.PAST_DUE, NOW.minusSeconds(60));
+        subscription.setPastDueAt(NOW.minusSeconds(60));
+        subscription.setGraceEndsAt(NOW.plusSeconds(60));
+        current(subscription);
+        when(permissionRepository.findByCode("platform.company.create"))
+                .thenReturn(Optional.of(permission("platform.company.create", "platform.company")));
+        when(subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()))
+                .thenReturn(Optional.of(subscription.getEntitlementSnapshot()));
+
+        assertThat(service.isPermissionEntitled(accountId, "platform.company.create")).isTrue();
+    }
+
+    @Test
+    void pastDueSubscriptionFailsClosedAtGraceDeadline() {
+        current(null);
+
+        assertThat(service.isPermissionEntitled(accountId, "platform.company.create")).isFalse();
+        verifyNoInteractions(permissionRepository);
+    }
+
+    private void current(Subscription subscription) {
+        when(subscriptionRepository.findEntitledAt(
+                accountId,
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING),
+                SubscriptionStatus.PAST_DUE,
+                NOW)).thenReturn(Optional.ofNullable(subscription));
     }
 
     private Subscription subscription(SubscriptionStatus status, Instant currentPeriodEnd) {

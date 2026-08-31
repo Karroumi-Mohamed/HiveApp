@@ -39,6 +39,7 @@ class SubscriptionLifecycleManagerTest {
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private SubscriptionPeriodRepository subscriptionPeriodRepository;
     @Mock private SubscriptionPeriodCalculator periodCalculator;
+    @Mock private SubscriptionBillingRenewalService billingRenewals;
     @Mock private Clock clock;
 
     @InjectMocks
@@ -77,8 +78,11 @@ class SubscriptionLifecycleManagerTest {
         lifecycleManager.processDueSubscriptions();
 
         assertThat(paid.getStatus()).isEqualTo(SubscriptionStatus.PAST_DUE);
+        assertThat(paid.getPastDueAt()).isEqualTo(NOW);
+        assertThat(paid.getGraceEndsAt()).isEqualTo(NOW.plusSeconds(72 * 60 * 60));
         assertThat(open.getStatus()).isEqualTo(SubscriptionPeriodStatus.PAYMENT_DUE);
         assertThat(open.getClosedAt()).isEqualTo(NOW);
+        verify(billingRenewals).ensureCharge(paid);
     }
 
     @Test
@@ -102,6 +106,25 @@ class SubscriptionLifecycleManagerTest {
         assertThat(free.getCurrentPeriodEnd()).isEqualTo(nextEnd);
         assertThat(completed.getStatus()).isEqualTo(SubscriptionPeriodStatus.COMPLETED);
         verify(subscriptionPeriodRepository, times(2)).save(any(SubscriptionPeriod.class));
+    }
+
+    @Test
+    void expiredGraceSuspendsEntitlementWithoutDeletingSubscription() {
+        Subscription pastDue = subscription(SubscriptionStatus.PAST_DUE, Money.of(new BigDecimal("20.00"), "USD"));
+        pastDue.setPastDueAt(NOW.minusSeconds(72 * 60 * 60));
+        pastDue.setGraceEndsAt(NOW);
+        when(clock.instant()).thenReturn(NOW);
+        when(subscriptionRepository.findDueUsableForUpdate(
+                List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING), NOW))
+                .thenReturn(List.of());
+        when(subscriptionRepository.findGraceExpiredForUpdate(SubscriptionStatus.PAST_DUE, NOW))
+                .thenReturn(List.of(pastDue));
+
+        lifecycleManager.processDueSubscriptions();
+
+        assertThat(pastDue.getStatus()).isEqualTo(SubscriptionStatus.SUSPENDED);
+        assertThat(pastDue.getSuspendedAt()).isEqualTo(NOW);
+        verify(subscriptionRepository).save(pastDue);
     }
 
     private Subscription subscription(SubscriptionStatus status, Money money) {

@@ -43,7 +43,9 @@ public class SubscriptionCheckoutService {
         if (operation.getId() == null) {
             throw new IllegalStateException("Change operation must be persisted before checkout initiation");
         }
-        if (requestedByUserId == null) {
+        if (requestedByUserId == null
+                && operation.getRequestOrigin()
+                != com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin.SYSTEM) {
             throw new IllegalArgumentException("Checkout requester is required");
         }
 
@@ -84,8 +86,8 @@ public class SubscriptionCheckoutService {
             }
             throw new InvalidStateException("Checkout was already confirmed with a different reference.");
         }
-        if (checkout.getStatus() != SubscriptionCheckoutStatus.PENDING_CONFIRMATION) {
-            throw new InvalidStateException("Only a pending checkout can be confirmed.");
+        if (!canSettleManually(checkout)) {
+            throw new InvalidStateException("Only a pending or failed checkout can be confirmed.");
         }
 
         Instant now = clock.instant();
@@ -99,8 +101,8 @@ public class SubscriptionCheckoutService {
             }
             throw new InvalidStateException("Checkout was already confirmed with a different reference.");
         }
-        if (checkout.getStatus() != SubscriptionCheckoutStatus.PENDING_CONFIRMATION) {
-            throw new InvalidStateException("Only a pending checkout can be confirmed.");
+        if (!canSettleManually(checkout)) {
+            throw new InvalidStateException("Only a pending or failed checkout can be confirmed.");
         }
         checkout.setStatus(SubscriptionCheckoutStatus.CONFIRMED);
         checkout.setConfirmationSource(CheckoutConfirmationSource.MANUAL_OPERATOR);
@@ -111,16 +113,22 @@ public class SubscriptionCheckoutService {
         checkoutRepository.save(checkout);
 
         SubscriptionChangeOperation operation = checkout.getChangeOperation();
-        if (operation.getStatus() != SubscriptionChangeStatus.AWAITING_CONFIRMATION) {
-            throw new InvalidStateException("Checkout change operation is not awaiting confirmation.");
+        if (operation.getStatus() != SubscriptionChangeStatus.AWAITING_CONFIRMATION
+                && operation.getStatus() != SubscriptionChangeStatus.NEEDS_ATTENTION) {
+            throw new InvalidStateException(
+                    "Checkout change operation is not awaiting confirmation or recovery.");
         }
+        operation.setAttentionReason(null);
         if (operation.getTiming() == SubscriptionChangeTiming.AT_RENEWAL
                 && operation.getEffectiveAt().isAfter(now)) {
             operation.setStatus(SubscriptionChangeStatus.PENDING);
             operation.setAttentionReason(null);
             operationRepository.save(operation);
         } else {
-            activationService.activate(operation, now);
+            activationService.activate(
+                    operation,
+                    operation.getTiming() == SubscriptionChangeTiming.AT_RENEWAL
+                            ? operation.getEffectiveAt() : now);
         }
         return checkout;
     }
@@ -168,5 +176,10 @@ public class SubscriptionCheckoutService {
             throw new IllegalArgumentException(message);
         }
         return value.trim();
+    }
+
+    private boolean canSettleManually(SubscriptionCheckout checkout) {
+        return checkout.getStatus() == SubscriptionCheckoutStatus.PENDING_CONFIRMATION
+                || checkout.getStatus() == SubscriptionCheckoutStatus.FAILED;
     }
 }

@@ -227,14 +227,14 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @Transactional(readOnly = true)
     @PermissionNode(key = "internal_subscription", guard = PermissionNode.Guard.OFF)
     public Subscription getSubscription(UUID accountId) {
-        return requireUsableSubscription(accountId);
+        return requireCurrentSubscription(accountId);
     }
 
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "read", description = "View my subscription")
     public SubscriptionDto getMySubscription(UUID accountId) {
-        return subscriptionMapper.toDto(requireUsableSubscription(accountId));
+        return subscriptionMapper.toDto(requireCurrentSubscription(accountId));
     }
 
     /**
@@ -245,6 +245,11 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return subscriptionRepository.findActiveByAccountId(accountId)
                 .or(() -> subscriptionRepository.findByAccountIdAndStatus(
                         accountId, SubscriptionStatus.TRIALING))
+                .orElseThrow(() -> new ResourceNotFoundException("Subscription", "accountId", accountId));
+    }
+
+    private Subscription requireCurrentSubscription(UUID accountId) {
+        return subscriptionRepository.findCurrentByAccountId(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Subscription", "accountId", accountId));
     }
 
@@ -274,7 +279,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             UUID accountId,
             CommercialCatalogResolver.Audience audience
     ) {
-        Subscription current = getSubscription(accountId);
+        Subscription current = requireUsableSubscription(accountId);
         CommercialPolicyEvaluator.Evaluation policyEvaluation =
                 commercialPolicyEvaluator.evaluate(accountId, clock.instant());
         SubscriptionOverrides currentOverrides = subscriptionOverrideReader.read(current.getCustomOverrides());
@@ -1101,7 +1106,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             Instant evaluatedAt,
             List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses
     ) {
-        Subscription current = getSubscription(accountId);
+        Subscription current = requireUsableSubscription(accountId);
         CommercialPolicyEvaluator.Evaluation policyEvaluation =
                 commercialPolicyEvaluator.evaluate(accountId, evaluatedAt);
         ClientPlanSelection target = requirePlanSelection(
@@ -1155,7 +1160,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
             CommercialCatalogResolver.Audience audience,
             List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses
     ) {
-        Subscription current = getSubscription(accountId);
+        Subscription current = requireUsableSubscription(accountId);
         CommercialPolicyEvaluator.Evaluation policyEvaluation =
                 commercialPolicyEvaluator.evaluate(accountId, clock.instant());
         // Preserve the ordinary client privacy boundary before exact lock-taking selection.
@@ -1185,7 +1190,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
         // The finalizer clears the persistence context; re-read the subscription while the
         // Account lock still prevents a competing subscription operation for this tenant.
-        current = getSubscription(accountId);
+        current = requireUsableSubscription(accountId);
         requireSameSubscriptionCurrency(current, finalized.planPrice());
         ChangeSelection selection = new ChangeSelection(planned.addOnCodes(), planned.quotaPackages());
         var finalizedPlan = new CommercialPolicySelectionPlanner.PlannedSelection(
@@ -1679,7 +1684,10 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 subscription.getCurrentPriceCurrencyCode(),
                 subscription.getCurrentPeriodStart(),
                 subscription.getCurrentPeriodEnd(),
-                subscription.isCancelAtPeriodEnd());
+                subscription.isCancelAtPeriodEnd(),
+                subscription.getPastDueAt(),
+                subscription.getGraceEndsAt(),
+                subscription.getSuspendedAt());
     }
 
     private record ChangeSelection(

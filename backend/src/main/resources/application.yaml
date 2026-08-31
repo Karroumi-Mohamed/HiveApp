@@ -25,6 +25,10 @@ hiveapp:
     base-url: ${HIVEAPP_FRONTEND_BASE_URL}
   billing:
     collection-enabled: ${HIVEAPP_BILLING_COLLECTION_ENABLED:false}
+  subscriptions:
+    # Persisted on each failed renewal so a later configuration change never rewrites an
+    # Account's already-started recovery window.
+    renewal-grace: ${HIVEAPP_SUBSCRIPTION_RENEWAL_GRACE:PT72H}
   offers:
     codes:
       pepper: ${HIVEAPP_OFFER_CODE_PEPPER}

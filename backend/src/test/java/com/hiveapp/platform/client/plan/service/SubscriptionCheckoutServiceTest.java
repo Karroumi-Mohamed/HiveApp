@@ -105,6 +105,29 @@ class SubscriptionCheckoutServiceTest {
         verify(activationService, never()).activate(any(), any());
     }
 
+    @Test
+    void manualSettlementRecoversFailedCheckoutAndOperation() {
+        SubscriptionChangeOperation operation = operation(SubscriptionChangeTiming.IMMEDIATE, NOW);
+        operation.setStatus(SubscriptionChangeStatus.NEEDS_ATTENTION);
+        operation.setAttentionReason("Card declined");
+        SubscriptionCheckout checkout = checkout(operation);
+        checkout.setStatus(SubscriptionCheckoutStatus.FAILED);
+        UUID operatorId = UUID.randomUUID();
+        when(clock.instant()).thenReturn(NOW);
+        when(checkoutRepository.findById(checkout.getId())).thenReturn(Optional.of(checkout));
+        when(checkoutRepository.findByIdForUpdate(checkout.getId())).thenReturn(Optional.of(checkout));
+        when(activationService.activate(operation, NOW)).thenReturn(operation);
+
+        SubscriptionCheckout result = checkoutService.confirmManual(
+                checkout.getId(), operatorId, "wire-900", "Wire transfer received");
+
+        assertThat(result.getStatus()).isEqualTo(SubscriptionCheckoutStatus.CONFIRMED);
+        assertThat(operation.getAttentionReason()).isNull();
+        verify(billingLedgerService).recordManualSettlement(
+                checkout.getId(), operatorId, "wire-900", "Wire transfer received");
+        verify(activationService).activate(operation, NOW);
+    }
+
     private SubscriptionChangeOperation operation(SubscriptionChangeTiming timing, Instant effectiveAt) {
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", UUID.randomUUID());

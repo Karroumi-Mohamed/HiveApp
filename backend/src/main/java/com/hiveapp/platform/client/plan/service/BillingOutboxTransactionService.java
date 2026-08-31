@@ -392,7 +392,10 @@ public class BillingOutboxTransactionService {
             operation.setAttentionReason(null);
             operations.save(operation);
         } else {
-            activationService.activate(operation, now);
+            activationService.activate(
+                    operation,
+                    operation.getTiming() == SubscriptionChangeTiming.AT_RENEWAL
+                            ? operation.getEffectiveAt() : now);
         }
     }
 

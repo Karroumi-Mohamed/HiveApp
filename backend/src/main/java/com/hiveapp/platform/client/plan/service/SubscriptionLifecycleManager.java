@@ -12,8 +12,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 
 @Service
 @RequiredArgsConstructor
@@ -22,7 +24,11 @@ public class SubscriptionLifecycleManager {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionPeriodRepository subscriptionPeriodRepository;
     private final SubscriptionPeriodCalculator periodCalculator;
+    private final SubscriptionBillingRenewalService billingRenewals;
     private final Clock clock;
+
+    @Value("${hiveapp.subscriptions.renewal-grace:PT72H}")
+    private Duration renewalGrace = Duration.ofHours(72);
 
     public void initialize(
             Subscription subscription,
@@ -33,6 +39,9 @@ public class SubscriptionLifecycleManager {
         subscription.setCurrentPeriodStart(period.startsAt());
         subscription.setCurrentPeriodEnd(period.endsAt());
         subscription.setCancelAtPeriodEnd(false);
+        subscription.setPastDueAt(null);
+        subscription.setGraceEndsAt(null);
+        subscription.setSuspendedAt(null);
         subscription.setEntitlementSnapshot(
                 subscription.getEntitlementSnapshot().withEffectivePeriod(period.startsAt(), period.endsAt()));
     }
@@ -61,6 +70,8 @@ public class SubscriptionLifecycleManager {
         List<Subscription> due = subscriptionRepository.findDueUsableForUpdate(
                 List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING), now);
         due.forEach(subscription -> processDue(subscription, now));
+        subscriptionRepository.findGraceExpiredForUpdate(SubscriptionStatus.PAST_DUE, now)
+                .forEach(subscription -> suspendAfterGrace(subscription, now));
     }
 
     private void processDue(Subscription subscription, Instant now) {
@@ -76,8 +87,25 @@ public class SubscriptionLifecycleManager {
             renewZeroPricedSubscription(subscription);
         } else {
             subscription.setStatus(SubscriptionStatus.PAST_DUE);
+            subscription.setPastDueAt(now);
+            subscription.setGraceEndsAt(graceDeadline(now));
+            subscription.setSuspendedAt(null);
             closeOpenPeriod(subscription, SubscriptionPeriodStatus.PAYMENT_DUE, now);
+            billingRenewals.ensureCharge(subscription);
         }
+        subscriptionRepository.save(subscription);
+    }
+
+    private Instant graceDeadline(Instant pastDueAt) {
+        if (renewalGrace == null || renewalGrace.isZero() || renewalGrace.isNegative()) {
+            throw new IllegalStateException("Renewal grace must be a positive duration");
+        }
+        return pastDueAt.plus(renewalGrace);
+    }
+
+    private void suspendAfterGrace(Subscription subscription, Instant now) {
+        subscription.setStatus(SubscriptionStatus.SUSPENDED);
+        subscription.setSuspendedAt(now);
         subscriptionRepository.save(subscription);
     }
 
