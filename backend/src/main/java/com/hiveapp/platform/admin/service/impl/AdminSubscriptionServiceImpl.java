@@ -35,6 +35,10 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeJobModels;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobItemStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobStatus;
+import com.hiveapp.platform.client.plan.service.SubscriptionChangeJobService;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.money.Money;
@@ -89,6 +93,7 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     private final ProductPriceRepository productPriceRepository;
     private final CommercialCatalogResolver commercialCatalogResolver;
     private final SubscriptionOverrideChoiceService subscriptionOverrideChoiceService;
+    private final SubscriptionChangeJobService subscriptionChangeJobService;
     private final Clock clock;
 
     @Override
@@ -520,6 +525,87 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     ) {
         return subscriptionCheckoutService.toDto(subscriptionCheckoutService.confirmManual(
                 checkoutId, actorUserId, reference, reason));
+    }
+
+    @Override
+    @PermissionNode(key = "preview_change_job",
+            description = "Preview a subscription population change job")
+    public SubscriptionChangeJobModels.Preview previewChangeJob(
+            UUID actorUserId,
+            SubscriptionChangeJobModels.PreviewRequest request
+    ) {
+        return subscriptionChangeJobService.preview(actorUserId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "confirm_change_job",
+            description = "Confirm a reviewed subscription population change job")
+    public SubscriptionChangeJobModels.Detail confirmChangeJob(
+            UUID jobId,
+            UUID actorUserId,
+            SubscriptionChangeJobModels.ConfirmRequest request
+    ) {
+        return subscriptionChangeJobService.confirm(jobId, actorUserId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "list_change_jobs",
+            description = "List subscription population jobs")
+    public Page<SubscriptionChangeJobModels.Summary> listChangeJobs(
+            SubscriptionChangeJobStatus status,
+            Pageable pageable
+    ) {
+        return subscriptionChangeJobService.list(status, pageable);
+    }
+
+    @Override
+    @PermissionNode(key = "read_change_job",
+            description = "Read a subscription population job")
+    public SubscriptionChangeJobModels.Detail getChangeJob(UUID jobId) {
+        return subscriptionChangeJobService.get(jobId);
+    }
+
+    @Override
+    @PermissionNode(key = "read_change_job_results",
+            description = "Read subscription job results")
+    public Page<SubscriptionChangeJobModels.Item> listChangeJobResults(
+            UUID jobId,
+            SubscriptionChangeJobItemStatus status,
+            Pageable pageable
+    ) {
+        return subscriptionChangeJobService.results(jobId, status, pageable);
+    }
+
+    @Override
+    @PermissionNode(key = "read_change_job_result_identities",
+            description = "Reveal Account identities in subscription job results")
+    public List<SubscriptionChangeJobModels.Identity> resolveChangeJobResultIdentities(
+            UUID jobId,
+            Collection<UUID> resultIds
+    ) {
+        return subscriptionChangeJobService.resolveIdentities(jobId, resultIds);
+    }
+
+    @Override
+    @PermissionNode(key = "cancel_change_job",
+            description = "Cancel an unstarted subscription population job")
+    public SubscriptionChangeJobModels.Detail cancelChangeJob(
+            UUID jobId,
+            UUID actorUserId,
+            SubscriptionChangeJobModels.CancelRequest request
+    ) {
+        return subscriptionChangeJobService.cancel(jobId, actorUserId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "retry_change_job",
+            description = "Retry failed subscription job results")
+    public SubscriptionChangeJobModels.Detail retryChangeJob(
+            UUID jobId,
+            UUID actorUserId,
+            SubscriptionChangeJobModels.RetryRequest request
+    ) {
+        return subscriptionChangeJobService.retry(jobId, actorUserId, request);
     }
 
     /**

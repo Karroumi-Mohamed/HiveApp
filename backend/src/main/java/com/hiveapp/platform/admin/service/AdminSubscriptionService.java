@@ -14,6 +14,9 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
 import com.hiveapp.platform.client.plan.dto.AssignablePlanPriceDto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobItemStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobStatus;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeJobModels;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
@@ -69,4 +72,19 @@ public interface AdminSubscriptionService {
             UUID accountId, UUID operationId, UUID actorUserId, String reason);
     SubscriptionCheckoutDto confirmCheckoutManually(
             UUID checkoutId, UUID actorUserId, String reference, String reason);
+    SubscriptionChangeJobModels.Preview previewChangeJob(
+            UUID actorUserId, SubscriptionChangeJobModels.PreviewRequest request);
+    SubscriptionChangeJobModels.Detail confirmChangeJob(
+            UUID jobId, UUID actorUserId, SubscriptionChangeJobModels.ConfirmRequest request);
+    Page<SubscriptionChangeJobModels.Summary> listChangeJobs(
+            SubscriptionChangeJobStatus status, Pageable pageable);
+    SubscriptionChangeJobModels.Detail getChangeJob(UUID jobId);
+    Page<SubscriptionChangeJobModels.Item> listChangeJobResults(
+            UUID jobId, SubscriptionChangeJobItemStatus status, Pageable pageable);
+    List<SubscriptionChangeJobModels.Identity> resolveChangeJobResultIdentities(
+            UUID jobId, Collection<UUID> resultIds);
+    SubscriptionChangeJobModels.Detail cancelChangeJob(
+            UUID jobId, UUID actorUserId, SubscriptionChangeJobModels.CancelRequest request);
+    SubscriptionChangeJobModels.Detail retryChangeJob(
+            UUID jobId, UUID actorUserId, SubscriptionChangeJobModels.RetryRequest request);
 }

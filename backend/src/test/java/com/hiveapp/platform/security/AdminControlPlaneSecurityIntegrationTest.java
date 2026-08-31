@@ -52,6 +52,7 @@ import java.util.UUID;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -2211,6 +2212,126 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         applyAbsentOffer(complete.token(), absentOffer, absentAccount, request)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("OFFER_NOT_AVAILABLE"));
+    }
+
+    @Test
+    void subscriptionJobActionsAreIndependentAndCheckPermissionBeforeExistence()
+            throws Exception {
+        UUID absentJob = UUID.randomUUID();
+        UUID absentAccount = UUID.randomUUID();
+        UUID absentResult = UUID.randomUUID();
+        LimitedAdmin jobReader = createLimitedAdmin(
+                "platform.subscriptions.read_change_job");
+        LimitedAdmin previewer = createLimitedAdmin(
+                "platform.subscriptions.preview_change_job");
+        LimitedAdmin confirmer = createLimitedAdmin(
+                "platform.subscriptions.confirm_change_job");
+        LimitedAdmin lister = createLimitedAdmin(
+                "platform.subscriptions.list_change_jobs");
+        LimitedAdmin resultReader = createLimitedAdmin(
+                "platform.subscriptions.read_change_job_results");
+        LimitedAdmin identityReader = createLimitedAdmin(
+                "platform.subscriptions.read_change_job_result_identities");
+        LimitedAdmin canceller = createLimitedAdmin(
+                "platform.subscriptions.cancel_change_job");
+        LimitedAdmin retrier = createLimitedAdmin(
+                "platform.subscriptions.retry_change_job");
+        String previewBody = objectMapper.writeValueAsString(Map.of(
+                "accountIds", List.of(absentAccount),
+                "selection", Map.of(
+                        "targetPlanCode", "PRO",
+                        "addOnCodes", List.of(),
+                        "quotaPackages", List.of()),
+                "reason", "Permission-before-existence proof"));
+
+        mockMvc.perform(post("/api/admin/subscription-change-jobs/preview")
+                        .header("Authorization", bearer(jobReader.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(previewBody))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(post("/api/admin/subscription-change-jobs/preview")
+                        .header("Authorization", bearer(previewer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(previewBody))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        mockMvc.perform(get("/api/admin/subscription-change-jobs")
+                        .header("Authorization", bearer(jobReader.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(get("/api/admin/subscription-change-jobs")
+                        .header("Authorization", bearer(lister.token())))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/admin/subscription-change-jobs/{id}", absentJob)
+                        .header("Authorization", bearer(jobReader.token())))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/subscription-change-jobs/{id}", absentJob)
+                        .header("Authorization", bearer(previewer.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+
+        String confirmationBody = "{\"previewToken\":\"missing-preview-evidence\"}";
+        mockMvc.perform(post("/api/admin/subscription-change-jobs/{id}/confirm", absentJob)
+                        .header("Authorization", bearer(jobReader.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(confirmationBody))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(post("/api/admin/subscription-change-jobs/{id}/confirm", absentJob)
+                        .header("Authorization", bearer(confirmer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(confirmationBody))
+                .andExpect(status().isNotFound());
+
+        String reasonBody = "{\"reason\":\"Permission-before-existence proof\"}";
+        mockMvc.perform(post("/api/admin/subscription-change-jobs/{id}/cancel", absentJob)
+                        .header("Authorization", bearer(jobReader.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(reasonBody))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(post("/api/admin/subscription-change-jobs/{id}/cancel", absentJob)
+                        .header("Authorization", bearer(canceller.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(reasonBody))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/admin/subscription-change-jobs/{id}/retry", absentJob)
+                        .header("Authorization", bearer(jobReader.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(reasonBody))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(post("/api/admin/subscription-change-jobs/{id}/retry", absentJob)
+                        .header("Authorization", bearer(retrier.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(reasonBody))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/admin/subscription-change-jobs/{id}/results", absentJob)
+                        .header("Authorization", bearer(jobReader.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(get("/api/admin/subscription-change-jobs/{id}/results", absentJob)
+                        .header("Authorization", bearer(resultReader.token())))
+                .andExpect(status().isNotFound());
+
+        String identitiesBody = "{\"resultIds\":[\"" + absentResult + "\"]}";
+        mockMvc.perform(post(
+                        "/api/admin/subscription-change-jobs/{id}/results/identities", absentJob)
+                        .header("Authorization", bearer(resultReader.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(identitiesBody))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(post(
+                        "/api/admin/subscription-change-jobs/{id}/results/identities", absentJob)
+                        .header("Authorization", bearer(identityReader.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(identitiesBody))
+                .andExpect(status().isNotFound());
     }
 
     @Test
