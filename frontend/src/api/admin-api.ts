@@ -1,4 +1,6 @@
 import type {
+  AccountBillingProfile,
+  AccountBillingProfileInput,
   AccountDirectoryEntry,
   AddOn,
   AddOnActivationPreview,
@@ -25,7 +27,9 @@ import type {
   BillingChargeRetryPreview,
   BillingCredit,
   BillingCycle,
+  BillingFinancialTimelineEntry,
   BillingInvoiceDetail,
+  BillingInvoiceDocument,
   BillingInvoiceRow,
   BillingInvoiceStatus,
   BillingOutboxOperation,
@@ -36,6 +40,7 @@ import type {
   BillingProviderEventStatus,
   BillingRefund,
   BillingRefundPreview,
+  BillingTimelineEntryType,
   BulkOperationResult,
   ClientPlanCatalog,
   CommercialAvailabilityHistoryEntry,
@@ -879,6 +884,24 @@ export const adminApi = {
     } = {},
   ) => admin<PageResponse<BillingInvoiceRow>>("/billing/invoices", { query }),
   billingInvoice: (id: UUID) => admin<BillingInvoiceDetail>(`/billing/invoices/${id}`),
+  billingInvoiceDocument: (id: UUID) => admin<BillingInvoiceDocument>(`/billing/invoices/${id}/document`),
+  billingFinancialTimeline: (
+    accountId: UUID,
+    query: {
+      type?: BillingTimelineEntryType;
+      currencyCode?: string;
+      occurredFrom?: string;
+      occurredUntil?: string;
+      page?: number;
+      size?: number;
+    } = {},
+  ) => admin<PageResponse<BillingFinancialTimelineEntry>>(`/billing/accounts/${accountId}/timeline`, { query }),
+  billingProfile: (accountId: UUID) => admin<AccountBillingProfile>(`/billing/accounts/${accountId}/profile`),
+  updateBillingProfile: (accountId: UUID, input: AccountBillingProfileInput) =>
+    admin<AccountBillingProfile>(`/billing/accounts/${accountId}/profile`, {
+      method: "PUT",
+      body: jsonBody(input),
+    }),
   billingInvoiceAccountIdentity: (id: UUID) =>
     admin<{ id: UUID; name: string }>(`/billing/invoices/${id}/account-identity`),
   billingInvoicePayments: (id: UUID) => admin<BillingPayment[]>(`/billing/invoices/${id}/payments`),

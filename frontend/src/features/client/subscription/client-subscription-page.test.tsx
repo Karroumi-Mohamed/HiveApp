@@ -696,4 +696,48 @@ describe("client subscription operations", () => {
     expect(view.container.textContent).not.toContain("policy-secret-id");
     expect(view.container.textContent).not.toContain("internal explanation");
   });
+
+  test("opens the billing surface with timeline permission alone", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname === "/api/v1/subscriptions/financial-timeline") return jsonResponse(pageResponse([]));
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderClient("/app/subscription?tab=invoices", [
+      clientPermissions.subscriptionReadFinancialTimeline,
+    ]);
+
+    expect(await view.findByText("Aucune opération financière")).toBeTruthy();
+    expect(view.queryByText("Aucune facture")).toBeNull();
+    expect(requests).toEqual(["/api/v1/subscriptions/financial-timeline"]);
+  });
+
+  test("opens the billing surface with profile permission alone", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname === "/api/v1/subscriptions/billing-profile") {
+        return jsonResponse({
+          accountId: "account-1",
+          legalName: "Acme SARL",
+          billingEmail: "billing@acme.test",
+          taxId: null,
+          address: null,
+          countryCode: "MA",
+          explicitlyConfigured: true,
+        });
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderClient("/app/subscription?tab=invoices", [clientPermissions.subscriptionReadBillingProfile]);
+
+    expect(await view.findByText("Acme SARL")).toBeTruthy();
+    expect(view.queryByText("Historique financier")).toBeNull();
+    expect(requests).toEqual(["/api/v1/subscriptions/billing-profile"]);
+  });
 });

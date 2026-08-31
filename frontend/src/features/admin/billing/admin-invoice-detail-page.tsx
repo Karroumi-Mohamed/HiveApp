@@ -1,4 +1,11 @@
-import { ArrowClockwiseIcon, ArrowLeftIcon, BankIcon, HandCoinsIcon, ReceiptIcon } from "@phosphor-icons/react";
+import {
+  ArrowClockwiseIcon,
+  ArrowLeftIcon,
+  BankIcon,
+  FileTextIcon,
+  HandCoinsIcon,
+  ReceiptIcon,
+} from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
@@ -528,10 +535,19 @@ export function AdminInvoiceDetailPage() {
       <PageHeader
         actions={
           invoice ||
+          session.can(adminPermissions.billingReadInvoiceDocument) ||
           session.can(adminPermissions.billingManualSettlement) ||
           (session.can(adminPermissions.billingPreviewChargeRetry) &&
             session.can(adminPermissions.billingRetryCharge)) ? (
             <>
+              {session.can(adminPermissions.billingReadInvoiceDocument) ? (
+                <Button asChild variant="ghost">
+                  <Link to={`/admin/billing/invoices/${invoiceId}/document`}>
+                    <FileTextIcon />
+                    Document
+                  </Link>
+                </Button>
+              ) : null}
               {session.can(adminPermissions.billingManualSettlement) && (!invoice || invoice.status === "OPEN") ? (
                 <Button onClick={() => setDialog("settlement")} variant="outline">
                   <BankIcon />

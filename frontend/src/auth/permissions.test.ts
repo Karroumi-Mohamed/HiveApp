@@ -48,6 +48,8 @@ describe("session permission bypasses", () => {
       clientPermissions.subscriptionCatalog,
       clientPermissions.subscriptionReadChanges,
       clientPermissions.subscriptionListInvoices,
+      clientPermissions.subscriptionReadFinancialTimeline,
+      clientPermissions.subscriptionReadBillingProfile,
     ]);
   });
 
@@ -59,6 +61,7 @@ describe("session permission bypasses", () => {
     ]);
     expect(adminInvoiceDetailSurfacePermissions).toEqual([
       adminPermissions.billingReadInvoice,
+      adminPermissions.billingReadInvoiceDocument,
       adminPermissions.billingReadAccountIdentity,
       adminPermissions.billingReadPayments,
       adminPermissions.billingManualSettlement,
@@ -73,6 +76,8 @@ describe("session permission bypasses", () => {
       adminPermissions.subscriptionsReadChanges,
       adminPermissions.subscriptionsReadLifecycleActions,
       adminPermissions.subscriptionsReadLifecycleHistory,
+      adminPermissions.billingReadAccountTimeline,
+      adminPermissions.billingReadAccountProfile,
     ]);
   });
 

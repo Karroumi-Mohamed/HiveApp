@@ -1,7 +1,12 @@
 import type {
   Account,
+  AccountBillingProfile,
+  AccountBillingProfileInput,
   AuthResponse,
+  BillingFinancialTimelineEntry,
+  BillingInvoiceDocument,
   BillingInvoiceRow,
+  BillingTimelineEntryType,
   ClientBillingInvoiceDetail,
   ClientPlanCatalog,
   ClientSubscriptionChangeApplyResponse,
@@ -228,6 +233,24 @@ export const clientApi = {
     } = {},
   ) => client<PageResponse<BillingInvoiceRow>>("/api/v1/subscriptions/invoices", { query }),
   subscriptionInvoice: (id: UUID) => client<ClientBillingInvoiceDetail>(`/api/v1/subscriptions/invoices/${id}`),
+  subscriptionInvoiceDocument: (id: UUID) =>
+    client<BillingInvoiceDocument>(`/api/v1/subscriptions/invoices/${id}/document`),
+  subscriptionFinancialTimeline: (
+    query: {
+      type?: BillingTimelineEntryType;
+      currencyCode?: string;
+      occurredFrom?: string;
+      occurredUntil?: string;
+      page?: number;
+      size?: number;
+    } = {},
+  ) => client<PageResponse<BillingFinancialTimelineEntry>>("/api/v1/subscriptions/financial-timeline", { query }),
+  billingProfile: () => client<AccountBillingProfile>("/api/v1/subscriptions/billing-profile"),
+  updateBillingProfile: (input: AccountBillingProfileInput) =>
+    client<AccountBillingProfile>("/api/v1/subscriptions/billing-profile", {
+      method: "PUT",
+      body: jsonBody(input),
+    }),
 };
 
 export const authApi = {

@@ -23,6 +23,19 @@ export function compareExactDecimals(left: ExactDecimal, right: ExactDecimal): n
   return leftFraction.padEnd(4, "0").localeCompare(rightFraction.padEnd(4, "0"));
 }
 
+/** Subtract non-negative exact decimals at the backend's four-decimal scale. */
+export function subtractExactDecimals(left: ExactDecimal, ...subtractors: ExactDecimal[]): ExactDecimal {
+  const scaled = (value: ExactDecimal) => {
+    const [integer = "0", fraction = ""] = value.split(".");
+    return BigInt(integer) * 10_000n + BigInt(fraction.padEnd(4, "0"));
+  };
+  const result = subtractors.reduce((current, value) => current - scaled(value), scaled(left));
+  if (result < 0n) throw new RangeError("Exact decimal subtraction cannot produce a negative commercial amount");
+  const integer = result / 10_000n;
+  const fraction = (result % 10_000n).toString().padStart(4, "0");
+  return `${integer}.${fraction}`;
+}
+
 /** Intl accepts decimal strings exactly even though TypeScript's older declaration omits them. */
 export function formatExactMoney(amount: ExactDecimal, currency: string): string {
   const formatter = new Intl.NumberFormat("fr-MA", {

@@ -22,7 +22,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { clientBillingKeys } from "@/features/admin/billing/billing-query";
 import { capacityUnitLabel } from "@/features/admin/commercial/commercial-presentation";
+import { BillingFinancialTimeline } from "@/features/billing/billing-financial-timeline";
+import { BillingProfilePanel } from "@/features/billing/billing-profile-panel";
 import {
   catalogAddOnSelectionState,
   currentCatalogPrice,
@@ -880,11 +883,14 @@ export function ClientSubscriptionPage() {
   const canReadCatalog = session.can(clientPermissions.subscriptionCatalog);
   const canReadChanges = session.can(clientPermissions.subscriptionReadChanges);
   const canReadInvoices = session.can(clientPermissions.subscriptionListInvoices);
+  const canReadTimeline = session.can(clientPermissions.subscriptionReadFinancialTimeline);
+  const canReadBillingProfile = session.can(clientPermissions.subscriptionReadBillingProfile);
+  const canReadBilling = canReadInvoices || canReadTimeline || canReadBillingProfile;
   const availableTabs = [
     ...(canReadSubscription ? [{ label: "Abonnement actuel", value: "current" as const }] : []),
     ...(canReadCatalog ? [{ label: "Changer de forfait", value: "catalog" as const }] : []),
     ...(canReadChanges ? [{ label: "Changements", value: "changes" as const }] : []),
-    ...(canReadInvoices ? [{ label: "Factures", value: "invoices" as const }] : []),
+    ...(canReadBilling ? [{ label: "Facturation", value: "invoices" as const }] : []),
   ];
   const requestedTab = params.get("tab") as "current" | "catalog" | "changes" | "invoices" | null;
   const tab = availableTabs.some((item) => item.value === requestedTab)
@@ -928,8 +934,27 @@ export function ClientSubscriptionPage() {
         <Configurator catalog={catalog.data} />
       ) : tab === "changes" && canReadChanges ? (
         <ChangeHistory />
-      ) : tab === "invoices" && canReadInvoices ? (
-        <ClientInvoiceHistory />
+      ) : tab === "invoices" && canReadBilling ? (
+        <div className="space-y-6">
+          <BillingProfilePanel
+            canRead={canReadBillingProfile}
+            canUpdate={session.can(clientPermissions.subscriptionUpdateBillingProfile)}
+            load={clientApi.billingProfile}
+            queryKey={clientBillingKeys.profile(commercialContext)}
+            save={clientApi.updateBillingProfile}
+          />
+          <BillingFinancialTimeline
+            enabled={canReadTimeline}
+            invoiceHref={
+              session.can(clientPermissions.subscriptionReadInvoice)
+                ? (invoiceId) => `/app/subscription?tab=invoices&invoice=${invoiceId}`
+                : undefined
+            }
+            load={clientApi.subscriptionFinancialTimeline}
+            queryKey={(query) => clientBillingKeys.timeline(commercialContext, query)}
+          />
+          {canReadInvoices ? <ClientInvoiceHistory /> : null}
+        </div>
       ) : tab === "current" && canReadSubscription && subscription.data ? (
         <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
           {subscription.data.status === "PAST_DUE" || subscription.data.status === "SUSPENDED" ? (

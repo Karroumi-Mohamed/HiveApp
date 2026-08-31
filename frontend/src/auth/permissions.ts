@@ -131,7 +131,11 @@ export const adminPermissions = {
   subscriptionsRetryChangeJob: permission("subscriptions", "retry_change_job"),
   billingListInvoices: permission("billing", "list_invoices"),
   billingReadInvoice: permission("billing", "read_invoice"),
+  billingReadInvoiceDocument: permission("billing", "read_invoice_document"),
   billingReadAccountIdentity: permission("billing", "read_account_identity"),
+  billingReadAccountTimeline: permission("billing", "read_account_timeline"),
+  billingReadAccountProfile: permission("billing", "read_account_billing_profile"),
+  billingUpdateAccountProfile: permission("billing", "update_account_billing_profile"),
   billingReadPayments: permission("billing", "read_payments"),
   billingReadPaymentReferences: permission("billing", "read_payment_references"),
   billingManualSettlement: permission("billing", "manual_settlement"),
@@ -354,6 +358,10 @@ export const clientPermissions = {
   subscriptionCancel: permission("subscription", "cancel_change"),
   subscriptionListInvoices: permission("subscription", "list_invoices"),
   subscriptionReadInvoice: permission("subscription", "read_invoice"),
+  subscriptionReadInvoiceDocument: permission("subscription", "read_invoice_document"),
+  subscriptionReadFinancialTimeline: permission("subscription", "read_financial_timeline"),
+  subscriptionReadBillingProfile: permission("subscription", "read_billing_profile"),
+  subscriptionUpdateBillingProfile: permission("subscription", "update_billing_profile"),
   subscriptionOfferCatalog: permission("subscription", "offer_catalog"),
   subscriptionOfferDetail: permission("subscription", "offer_detail"),
   subscriptionOfferCode: permission("subscription", "offer_code"),
@@ -373,6 +381,8 @@ export const clientSubscriptionSurfacePermissions = [
   clientPermissions.subscriptionCatalog,
   clientPermissions.subscriptionReadChanges,
   clientPermissions.subscriptionListInvoices,
+  clientPermissions.subscriptionReadFinancialTimeline,
+  clientPermissions.subscriptionReadBillingProfile,
 ] as const;
 
 export const adminBillingSurfacePermissions = [
@@ -383,6 +393,7 @@ export const adminBillingSurfacePermissions = [
 
 export const adminInvoiceDetailSurfacePermissions = [
   adminPermissions.billingReadInvoice,
+  adminPermissions.billingReadInvoiceDocument,
   adminPermissions.billingReadAccountIdentity,
   adminPermissions.billingReadPayments,
   adminPermissions.billingManualSettlement,
@@ -400,6 +411,8 @@ export const adminSubscriptionDetailSurfacePermissions = [
   adminPermissions.subscriptionsReadChanges,
   adminPermissions.subscriptionsReadLifecycleActions,
   adminPermissions.subscriptionsReadLifecycleHistory,
+  adminPermissions.billingReadAccountTimeline,
+  adminPermissions.billingReadAccountProfile,
 ] as const;
 
 export const adminSubscriptionJobDetailSurfacePermissions = [

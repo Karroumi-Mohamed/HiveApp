@@ -29,6 +29,7 @@ import {
   AdminObservabilityPlaceholderPage,
   AdminRoleTemplatesPlaceholderPage,
 } from "@/features/admin/admin-placeholder-pages";
+import { AdminBillingDocumentPage } from "@/features/admin/billing/admin-billing-document-page";
 import { AdminBillingPage } from "@/features/admin/billing/admin-billing-page";
 import { AdminInvoiceDetailPage } from "@/features/admin/billing/admin-invoice-detail-page";
 import {
@@ -95,6 +96,7 @@ import { ClientOffersPage } from "@/features/client/offers/client-offers-page";
 import { ClientOrganizationPage } from "@/features/client/organization/client-organization-page";
 import { ClientOverviewPage } from "@/features/client/overview/client-overview-page";
 import { ClientRolesPage } from "@/features/client/roles/client-roles-page";
+import { ClientBillingDocumentPage } from "@/features/client/subscription/client-billing-document-page";
 import { ClientSubscriptionPage } from "@/features/client/subscription/client-subscription-page";
 import { DesignSystemPreview } from "@/features/design-system/design-system-preview";
 
@@ -452,6 +454,14 @@ const router = createBrowserRouter([
           </AdminReadPermissionGate>
         ),
       },
+      {
+        path: "billing/invoices/:invoiceId/document",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.billingReadInvoiceDocument]}>
+            <AdminBillingDocumentPage />
+          </AdminReadPermissionGate>
+        ),
+      },
       { path: "activities", element: <AdminActivitiesPlaceholderPage /> },
       { path: "communications", element: <AdminCommunicationsPlaceholderPage /> },
       { path: "observability", element: <AdminObservabilityPlaceholderPage /> },
@@ -483,6 +493,14 @@ const router = createBrowserRouter([
         element: (
           <ClientReadPermissionGate anyOf={clientSubscriptionSurfacePermissions}>
             <ClientSubscriptionPage />
+          </ClientReadPermissionGate>
+        ),
+      },
+      {
+        path: "subscription/invoices/:invoiceId/document",
+        element: (
+          <ClientReadPermissionGate allOf={[clientPermissions.subscriptionReadInvoiceDocument]}>
+            <ClientBillingDocumentPage />
           </ClientReadPermissionGate>
         ),
       },

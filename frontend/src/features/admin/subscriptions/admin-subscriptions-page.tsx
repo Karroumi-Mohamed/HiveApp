@@ -33,6 +33,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { adminBillingKeys } from "@/features/admin/billing/billing-query";
+import { BillingFinancialTimeline } from "@/features/billing/billing-financial-timeline";
+import { BillingProfilePanel } from "@/features/billing/billing-profile-panel";
 import { AdminCommercialPolicyTerms } from "@/features/commercial/commercial-policy-terms";
 import {
   adminCommercialKeys,
@@ -452,6 +455,23 @@ export function SubscriptionDetail({ accountId }: { accountId: string }) {
         ) : null
       ) : null}
       <SubscriptionLifecyclePanel accountId={accountId} />
+      <BillingProfilePanel
+        canRead={session.can(adminPermissions.billingReadAccountProfile)}
+        canUpdate={session.can(adminPermissions.billingUpdateAccountProfile)}
+        load={() => adminApi.billingProfile(accountId)}
+        queryKey={adminBillingKeys.profile(accountId)}
+        save={(input) => adminApi.updateBillingProfile(accountId, input)}
+      />
+      <BillingFinancialTimeline
+        enabled={session.can(adminPermissions.billingReadAccountTimeline)}
+        invoiceHref={
+          session.can(adminPermissions.billingReadInvoice)
+            ? (invoiceId) => `/admin/billing/invoices/${invoiceId}`
+            : undefined
+        }
+        load={(query) => adminApi.billingFinancialTimeline(accountId, query)}
+        queryKey={(query) => adminBillingKeys.timeline(accountId, query)}
+      />
       {canChooseChange ? (
         changeCatalog.isLoading ? (
           <section className="rounded-xl border bg-card p-5">

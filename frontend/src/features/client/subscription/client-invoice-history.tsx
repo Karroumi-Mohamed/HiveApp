@@ -1,8 +1,8 @@
-import { ArrowLeftIcon, ArrowRightIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, ArrowRightIcon, FileTextIcon } from "@phosphor-icons/react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { SortingState } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { clientApi } from "@/api/client-api";
 import type { BillingInvoiceRow } from "@/api/contracts";
 import { clientPermissions } from "@/auth/permissions";
@@ -127,18 +127,28 @@ export function ClientInvoiceHistory() {
     const presentation = invoiceStatusPresentation[invoice.status];
     return (
       <div className="space-y-6">
-        <Button
-          onClick={() => {
-            const next = new URLSearchParams(params);
-            next.delete("invoice");
-            setParams(next);
-          }}
-          size="sm"
-          variant="ghost"
-        >
-          <ArrowLeftIcon className="rtl:rotate-180" />
-          Toutes les factures
-        </Button>
+        <div className="flex items-center justify-between gap-3">
+          <Button
+            onClick={() => {
+              const next = new URLSearchParams(params);
+              next.delete("invoice");
+              setParams(next);
+            }}
+            size="sm"
+            variant="ghost"
+          >
+            <ArrowLeftIcon className="rtl:rotate-180" />
+            Toutes les factures
+          </Button>
+          {session.can(clientPermissions.subscriptionReadInvoiceDocument) ? (
+            <Button asChild size="sm" variant="ghost">
+              <Link to={`/app/subscription/invoices/${selectedId}/document`}>
+                <FileTextIcon />
+                Document
+              </Link>
+            </Button>
+          ) : null}
+        </div>
         <section className="overflow-hidden rounded-xl border bg-card">
           <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-start sm:justify-between">
             <div>

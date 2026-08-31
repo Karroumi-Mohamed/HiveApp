@@ -567,6 +567,52 @@ describe("independent operator subscription surfaces", () => {
     expect(requests).toEqual(["/api/admin/subscriptions/account/account-1/lifecycle-history"]);
   });
 
+  test("loads the financial timeline without inheriting subscription or profile access", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname === "/api/admin/billing/accounts/account-1/timeline") {
+        return jsonResponse(pageResponse([]));
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [
+      adminPermissions.billingReadAccountTimeline,
+    ]);
+
+    expect(await view.findByText("Aucune opération financière")).toBeTruthy();
+    expect(requests).toEqual(["/api/admin/billing/accounts/account-1/timeline"]);
+  });
+
+  test("loads the billing profile without inheriting subscription or timeline access", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname === "/api/admin/billing/accounts/account-1/profile") {
+        return jsonResponse({
+          accountId: "account-1",
+          legalName: "Atlas SARL",
+          billingEmail: "billing@atlas.test",
+          taxId: null,
+          address: null,
+          countryCode: "MA",
+          explicitlyConfigured: true,
+        });
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [
+      adminPermissions.billingReadAccountProfile,
+    ]);
+
+    expect(await view.findByText("Atlas SARL")).toBeTruthy();
+    expect(requests).toEqual(["/api/admin/billing/accounts/account-1/profile"]);
+  });
+
   test("cannot suspend without the exact signed review and a reason", async () => {
     const requests: Array<{ path: string; method: string; body: Record<string, unknown> | null }> = [];
     globalThis.fetch = (async (input, init) => {

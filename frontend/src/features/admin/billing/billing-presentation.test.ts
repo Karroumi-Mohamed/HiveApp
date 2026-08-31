@@ -3,6 +3,7 @@ import {
   billingCycleLabel,
   billingLineTypeLabel,
   billingOperationLabel,
+  billingTimelineStateLabel,
   invoiceStatusPresentation,
   outboxStatusPresentation,
   providerEventStatusPresentation,
@@ -32,5 +33,8 @@ describe("billing presentation", () => {
     expect(billingCycleLabel.YEARLY).toBe("Annuel");
     expect(billingLineTypeLabel.QUOTA_PACKAGE).toBe("Pack de capacité");
     expect(providerPaymentStatusPresentation.SUCCESS.label).toBe("Confirmé");
+    expect(billingTimelineStateLabel("PAYMENT", "PENDING")).toBe("En attente");
+    expect(billingTimelineStateLabel("PAYMENT", "SUCCEEDED")).toBe("Encaissé");
+    expect(billingTimelineStateLabel("REFUND", "SUCCEEDED")).toBe("Remboursé");
   });
 });

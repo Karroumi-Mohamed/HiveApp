@@ -7,6 +7,7 @@ import type {
   BillingProviderEventStatus,
   BillingProviderPaymentStatus,
   BillingRefundStatus,
+  BillingTimelineEntryType,
 } from "@/api/contracts";
 import type { StatusTone } from "@/components/patterns/status-badge";
 
@@ -70,6 +71,27 @@ export const billingCycleLabel = {
   YEARLY: "Annuel",
   FOREVER: "Permanent",
 } as const;
+
+export const billingTimelineTypeLabel: Record<BillingTimelineEntryType, string> = {
+  INVOICE: "Document émis",
+  PAYMENT: "Paiement",
+  CREDIT: "Avoir",
+  REFUND: "Remboursement",
+};
+
+export function billingTimelineStateLabel(type: BillingTimelineEntryType, status: string) {
+  if (type === "CREDIT") return "Émis";
+  const states: Record<string, string> = {
+    OPEN: "À régler",
+    SETTLED: "Réglé",
+    SETTLED_ZERO: "Soldé",
+    CANCELLED: "Annulé",
+    PENDING: "En attente",
+    SUCCEEDED: type === "REFUND" ? "Remboursé" : "Encaissé",
+    FAILED: "Échoué",
+  };
+  return states[status] ?? status;
+}
 
 export function billingErrorMessage(error: unknown, fallback = "L’opération de facturation a échoué.") {
   return error instanceof Error && error.message ? error.message : fallback;

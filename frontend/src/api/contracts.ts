@@ -211,6 +211,7 @@ export type BillingOutboxOperation = "CHARGE" | "REFUND";
 export type BillingOutboxStatus = "PENDING" | "PROCESSING" | "PROCESSED" | "FAILED" | "CANCELLED";
 export type BillingProviderEventStatus = "RECEIVED" | "APPLIED" | "UNMATCHED" | "MISMATCHED";
 export type BillingProviderPaymentStatus = "SUCCESS" | "FAILED" | "PENDING";
+export type BillingTimelineEntryType = "INVOICE" | "PAYMENT" | "CREDIT" | "REFUND";
 
 export type BillingAccountIdentity = { id: UUID; name: string };
 
@@ -305,6 +306,54 @@ export type ClientBillingInvoiceDetail = {
   payments: BillingSafePayment[];
   creditedAmount: ExactDecimal;
   refundedAmount: ExactDecimal;
+};
+
+export type BillingFinancialTimelineEntry = {
+  recordId: UUID;
+  type: BillingTimelineEntryType;
+  status: string;
+  amount: ExactDecimal;
+  currencyCode: string;
+  invoiceId: UUID;
+  invoiceNumber: string;
+  occurredAt: Instant;
+};
+
+export type AccountBillingProfile = {
+  accountId: UUID;
+  legalName: string;
+  billingEmail: string | null;
+  taxId: string | null;
+  address: string | null;
+  countryCode: string | null;
+  explicitlyConfigured: boolean;
+};
+
+export type AccountBillingProfileInput = {
+  legalName: string;
+  billingEmail?: string | null;
+  taxId?: string | null;
+  address?: string | null;
+  countryCode?: string | null;
+};
+
+export type BillingDocumentParty = {
+  name: string;
+  billingEmail: string | null;
+  address: string | null;
+  countryCode: string | null;
+  taxId: string | null;
+};
+
+export type BillingInvoiceDocument = {
+  invoice: BillingInvoiceRow;
+  seller: BillingDocumentParty;
+  customer: BillingDocumentParty;
+  lines: BillingInvoiceLine[];
+  creditedAmount: ExactDecimal;
+  refundedAmount: ExactDecimal;
+  fiscalReady: boolean;
+  missingFiscalFields: string[];
 };
 
 export type BillingRefundPreview = {
