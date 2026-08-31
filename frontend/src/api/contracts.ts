@@ -2039,6 +2039,102 @@ export type SubscriptionChangeInput = {
   planPriceSelection: ProductPriceSelection;
 };
 
+export type SubscriptionChangeJobStatus =
+  | "PREVIEWED"
+  | "QUEUED"
+  | "SCHEDULED"
+  | "RUNNING"
+  | "COMPLETED"
+  | "COMPLETED_WITH_ERRORS"
+  | "CANCELLED";
+
+export type SubscriptionChangeJobItemStatus =
+  | "READY"
+  | "APPLIED"
+  | "PENDING_RENEWAL"
+  | "AWAITING_PAYMENT"
+  | "CONFLICT"
+  | "FAILED"
+  | "CANCELLED";
+
+export type SubscriptionChangeJobResult = {
+  id: UUID;
+  status: SubscriptionChangeJobItemStatus;
+  assessment: {
+    subscriptionId: UUID | null;
+    expectedSubscriptionVersion: number;
+    currentPlanCode: string | null;
+    targetPlanCode: string;
+    currentPrice: ExactDecimal | null;
+    targetPrice: ExactDecimal | null;
+    currencyCode: string | null;
+    timing: "IMMEDIATE" | "AT_RENEWAL";
+    effectiveAt: Instant | null;
+    conflicts: SubscriptionChangePreview["conflicts"];
+  };
+  subscriptionOperationId: UUID | null;
+  outcomeCode: string | null;
+  attempts: number;
+  lastAttemptAt: Instant | null;
+  completedAt: Instant | null;
+};
+
+export type SubscriptionChangeJobSummary = {
+  id: UUID;
+  status: SubscriptionChangeJobStatus;
+  targetCount: number;
+  readyCount: number;
+  appliedCount: number;
+  pendingCount: number;
+  awaitingPaymentCount: number;
+  conflictCount: number;
+  failedCount: number;
+  cancelledCount: number;
+  executeAt: Instant | null;
+  startedAt: Instant | null;
+  completedAt: Instant | null;
+  requestedByUserId: UUID;
+  reason: string;
+  retryCount: number;
+  lastRetriedByUserId: UUID | null;
+  lastRetriedAt: Instant | null;
+  lastRetryReason: string | null;
+  version: number;
+  createdAt: Instant;
+};
+
+export type SubscriptionChangeJobDetail = {
+  summary: SubscriptionChangeJobSummary;
+  selection: SubscriptionChangeInput;
+};
+
+export type SubscriptionChangeJobPreview = {
+  jobId: UUID;
+  expectedVersion: number;
+  status: SubscriptionChangeJobStatus;
+  targetCount: number;
+  readyCount: number;
+  conflictCount: number;
+  executeAt: Instant | null;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
+  previewToken: string;
+  sample: SubscriptionChangeJobResult[];
+};
+
+export type SubscriptionChangeJobIdentity = {
+  itemId: UUID;
+  accountId: UUID;
+  accountName: string;
+};
+
+export type SubscriptionChangeJobPreviewInput = {
+  accountIds: UUID[];
+  selection: SubscriptionChangeInput;
+  reason: string;
+  executeAt: Instant | null;
+};
+
 export type SubscriptionChangeApplyInput = {
   selection: SubscriptionChangeInput;
   previewToken: string;

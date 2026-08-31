@@ -11,6 +11,7 @@ import {
   adminPermissions,
   adminPriceBookDetailSurfacePermissions,
   adminSubscriptionDetailSurfacePermissions,
+  adminSubscriptionJobDetailSurfacePermissions,
   clientOfferSurfacePermissions,
   clientPermissions,
   clientSubscriptionSurfacePermissions,
@@ -66,6 +67,9 @@ import { AdminProductPricesPage } from "@/features/admin/price-books/admin-produ
 import { AdminFeaturesPage } from "@/features/admin/registry/admin-features-page";
 import { AdminRoleDetailPage } from "@/features/admin/roles/admin-role-detail-page";
 import { AdminRolesPage } from "@/features/admin/roles/admin-roles-page";
+import { AdminSubscriptionChangeJobCreatePage } from "@/features/admin/subscription-jobs/admin-subscription-change-job-create-page";
+import { AdminSubscriptionChangeJobDetailPage } from "@/features/admin/subscription-jobs/admin-subscription-change-job-detail-page";
+import { AdminSubscriptionChangeJobsPage } from "@/features/admin/subscription-jobs/admin-subscription-change-jobs-page";
 import { AdminSubscriptionsPage } from "@/features/admin/subscriptions/admin-subscriptions-page";
 import {
   AdminActivationPage,
@@ -187,6 +191,30 @@ const router = createBrowserRouter([
         element: (
           <AdminReadPermissionGate anyOf={adminSubscriptionDetailSurfacePermissions}>
             <AdminSubscriptionsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "subscription-jobs",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.subscriptionsListChangeJobs]}>
+            <AdminSubscriptionChangeJobsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "subscription-jobs/new",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.subscriptionsPreviewChangeJob]}>
+            <AdminSubscriptionChangeJobCreatePage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "subscription-jobs/:jobId",
+        element: (
+          <AdminReadPermissionGate anyOf={adminSubscriptionJobDetailSurfacePermissions}>
+            <AdminSubscriptionChangeJobDetailPage />
           </AdminReadPermissionGate>
         ),
       },

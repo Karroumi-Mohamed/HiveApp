@@ -10,6 +10,7 @@ import {
   adminPriceBookDetailSurfacePermissions,
   adminProfileCan,
   adminSubscriptionDetailSurfacePermissions,
+  adminSubscriptionJobDetailSurfacePermissions,
   clientOfferSurfacePermissions,
   clientPermissions,
   clientProfileCan,
@@ -52,6 +53,13 @@ describe("session permission bypasses", () => {
       adminPermissions.subscriptionsRead,
       adminPermissions.subscriptionsChooseChangeOptions,
       adminPermissions.subscriptionsReadChanges,
+    ]);
+  });
+
+  test("job results remain reachable without inheriting job-definition access", () => {
+    expect(adminSubscriptionJobDetailSurfacePermissions).toEqual([
+      adminPermissions.subscriptionsReadChangeJob,
+      adminPermissions.subscriptionsReadChangeJobResults,
     ]);
   });
 

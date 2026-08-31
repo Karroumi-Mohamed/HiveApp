@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ArrowRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, ArrowRightIcon, ArrowsClockwiseIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SortingState } from "@tanstack/react-table";
 import { type FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
@@ -630,9 +630,19 @@ export function AdminSubscriptionsPage() {
     <div className="space-y-7">
       <PageHeader
         actions={
-          session.can(adminPermissions.subscriptionsLookupAccountOwnerEmail) ? (
-            <SubscriptionOwnerEmailLookup />
-          ) : undefined
+          <>
+            {session.can(adminPermissions.subscriptionsListChangeJobs) ? (
+              <Button asChild variant="outline">
+                <Link to="/admin/subscription-jobs">
+                  <ArrowsClockwiseIcon />
+                  Changements en lot
+                </Link>
+              </Button>
+            ) : null}
+            {session.can(adminPermissions.subscriptionsLookupAccountOwnerEmail) ? (
+              <SubscriptionOwnerEmailLookup />
+            ) : null}
+          </>
         }
         title="Abonnements"
       />

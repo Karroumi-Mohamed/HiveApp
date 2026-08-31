@@ -127,6 +127,14 @@ import type {
   SubscriptionAccountOwnerLookup,
   SubscriptionChangeApplyResponse,
   SubscriptionChangeInput,
+  SubscriptionChangeJobDetail,
+  SubscriptionChangeJobIdentity,
+  SubscriptionChangeJobItemStatus,
+  SubscriptionChangeJobPreview,
+  SubscriptionChangeJobPreviewInput,
+  SubscriptionChangeJobResult,
+  SubscriptionChangeJobStatus,
+  SubscriptionChangeJobSummary,
   SubscriptionChangePreview,
   SubscriptionCheckout,
   SubscriptionStatus,
@@ -820,6 +828,49 @@ export const adminApi = {
     }),
   cancelSubscriptionChange: (accountId: UUID, operationId: UUID, reason: string) =>
     admin<AdminSubscriptionChangeResult>(`/subscriptions/account/${accountId}/changes/${operationId}/cancel`, {
+      method: "POST",
+      body: jsonBody({ reason }),
+    }),
+  previewSubscriptionChangeJob: (input: SubscriptionChangeJobPreviewInput) =>
+    admin<SubscriptionChangeJobPreview>("/subscription-change-jobs/preview", {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  confirmSubscriptionChangeJob: (jobId: UUID, previewToken: string) =>
+    admin<SubscriptionChangeJobDetail>(`/subscription-change-jobs/${jobId}/confirm`, {
+      method: "POST",
+      body: jsonBody({ previewToken }),
+    }),
+  subscriptionChangeJobs: (query: {
+    status?: SubscriptionChangeJobStatus;
+    page?: number;
+    size?: number;
+    sort?: "createdAt" | "executeAt" | "status" | "completedAt";
+    direction?: "asc" | "desc";
+  }) => admin<PageResponse<SubscriptionChangeJobSummary>>("/subscription-change-jobs", { query }),
+  subscriptionChangeJob: (jobId: UUID) => admin<SubscriptionChangeJobDetail>(`/subscription-change-jobs/${jobId}`),
+  subscriptionChangeJobResults: (
+    jobId: UUID,
+    query: {
+      status?: SubscriptionChangeJobItemStatus;
+      page?: number;
+      size?: number;
+      sort?: "createdAt" | "status" | "lastAttemptAt" | "completedAt";
+      direction?: "asc" | "desc";
+    },
+  ) => admin<PageResponse<SubscriptionChangeJobResult>>(`/subscription-change-jobs/${jobId}/results`, { query }),
+  resolveSubscriptionChangeJobIdentities: (jobId: UUID, resultIds: UUID[]) =>
+    admin<SubscriptionChangeJobIdentity[]>(`/subscription-change-jobs/${jobId}/results/identities`, {
+      method: "POST",
+      body: jsonBody({ resultIds }),
+    }),
+  cancelSubscriptionChangeJob: (jobId: UUID, reason: string) =>
+    admin<SubscriptionChangeJobDetail>(`/subscription-change-jobs/${jobId}/cancel`, {
+      method: "POST",
+      body: jsonBody({ reason }),
+    }),
+  retrySubscriptionChangeJob: (jobId: UUID, reason: string) =>
+    admin<SubscriptionChangeJobDetail>(`/subscription-change-jobs/${jobId}/retry`, {
       method: "POST",
       body: jsonBody({ reason }),
     }),

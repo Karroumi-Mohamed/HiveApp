@@ -253,9 +253,26 @@ function PreviewDialog({
 export function AdminSubscriptionChangeWorkbench({
   accountId,
   catalog,
+  onReviewSelection,
+  onSelectionChange,
+  reviewPending = false,
+  reviewPermission = adminPermissions.subscriptionsPreviewChange,
+  reviewLabel = "Prévisualiser",
+  populationMode = false,
+  reviewDisabled = false,
+  reviewDisabledReason,
 }: {
   accountId: string;
   catalog: ClientPlanCatalog;
+  /** Reuses the commercial selector without applying a change to the reference Account. */
+  onReviewSelection?: (selection: SubscriptionChangeInput) => void;
+  onSelectionChange?: (selection: SubscriptionChangeInput | null) => void;
+  reviewPending?: boolean;
+  reviewPermission?: string;
+  reviewLabel?: string;
+  populationMode?: boolean;
+  reviewDisabled?: boolean;
+  reviewDisabledReason?: string;
 }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
@@ -385,8 +402,12 @@ export function AdminSubscriptionChangeWorkbench({
     [addOnCodes, plan, quantities, selectedPlanPrice, timing],
   );
   const selectionIsNoOp =
+    !populationMode &&
     subscriptionChangeSelectionMatchesCurrent(selection, current) &&
     !hasAvailableCommercialPolicyTerms(catalog.commercialPolicyDecisions);
+  const canReview = session.can(reviewPermission);
+
+  useEffect(() => onSelectionChange?.(selection), [onSelectionChange, selection]);
 
   useEffect(() => {
     if (!preview) return;
@@ -479,7 +500,9 @@ export function AdminSubscriptionChangeWorkbench({
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
       <div className="border-b p-4">
-        <h2 className="text-sm font-semibold">Préparer un changement</h2>
+        <h2 className="text-sm font-semibold">
+          {populationMode ? "Changement commun à la sélection" : "Préparer un changement"}
+        </h2>
       </div>
       <div className="grid gap-4 border-b p-4 lg:grid-cols-3">
         <div className="space-y-2">
@@ -741,60 +764,65 @@ export function AdminSubscriptionChangeWorkbench({
           disabled={
             !selection ||
             selectionIsNoOp ||
-            previewMutation.isPending ||
-            !session.can(adminPermissions.subscriptionsPreviewChange)
+            reviewDisabled ||
+            (onReviewSelection ? reviewPending : previewMutation.isPending) ||
+            !canReview
           }
-          onClick={refreshPreview}
+          onClick={() => (onReviewSelection && selection ? onReviewSelection(selection) : refreshPreview())}
           title={
-            session.can(adminPermissions.subscriptionsPreviewChange)
-              ? undefined
-              : "Votre rôle n’autorise pas la prévisualisation."
+            !canReview
+              ? "Votre rôle n’autorise pas la prévisualisation."
+              : reviewDisabled
+                ? reviewDisabledReason
+                : undefined
           }
         >
-          {previewMutation.isPending ? (
+          {(onReviewSelection ? reviewPending : previewMutation.isPending) ? (
             "Calcul…"
           ) : (
             <>
-              Prévisualiser
+              {reviewLabel}
               <ArrowRightIcon className="rtl:rotate-180" />
             </>
           )}
         </Button>
       </div>
 
-      <PreviewDialog
-        applying={applyMutation.isPending}
-        canApply={session.can(adminPermissions.subscriptionsApplyChange)}
-        currentPlanName={
-          catalog.plans.find((item) => item.code === current?.planCode)?.name ?? current?.planCode ?? "Forfait actuel"
-        }
-        featureNames={featureNames}
-        onApply={() => {
-          setReasonTouched(true);
-          if (!operatorReasonError(reason)) applyMutation.mutate();
-        }}
-        onOpenChange={(open) => {
-          setPreviewOpen(open);
-          if (!open) {
-            setPreview(null);
-            setPreviewSelectionKey(null);
-            setReason("");
-            setReasonTouched(false);
+      {!onReviewSelection ? (
+        <PreviewDialog
+          applying={applyMutation.isPending}
+          canApply={session.can(adminPermissions.subscriptionsApplyChange)}
+          currentPlanName={
+            catalog.plans.find((item) => item.code === current?.planCode)?.name ?? current?.planCode ?? "Forfait actuel"
           }
-        }}
-        onReasonChange={setReason}
-        onReasonTouched={() => setReasonTouched(true)}
-        onRefresh={refreshPreview}
-        open={previewOpen}
-        preview={preview}
-        previewClock={previewClock}
-        previewing={previewMutation.isPending}
-        previewSelectionKey={previewSelectionKey}
-        reason={reason}
-        reasonTouched={reasonTouched}
-        selection={selection}
-        targetPlanName={plan?.name ?? planCode}
-      />
+          featureNames={featureNames}
+          onApply={() => {
+            setReasonTouched(true);
+            if (!operatorReasonError(reason)) applyMutation.mutate();
+          }}
+          onOpenChange={(open) => {
+            setPreviewOpen(open);
+            if (!open) {
+              setPreview(null);
+              setPreviewSelectionKey(null);
+              setReason("");
+              setReasonTouched(false);
+            }
+          }}
+          onReasonChange={setReason}
+          onReasonTouched={() => setReasonTouched(true)}
+          onRefresh={refreshPreview}
+          open={previewOpen}
+          preview={preview}
+          previewClock={previewClock}
+          previewing={previewMutation.isPending}
+          previewSelectionKey={previewSelectionKey}
+          reason={reason}
+          reasonTouched={reasonTouched}
+          selection={selection}
+          targetPlanName={plan?.name ?? planCode}
+        />
+      ) : null}
     </section>
   );
 }

@@ -112,6 +112,14 @@ export const adminPermissions = {
   subscriptionsApplyChange: permission("subscriptions", "apply_change"),
   subscriptionsCancelChange: permission("subscriptions", "cancel_change"),
   subscriptionsConfirmCheckout: permission("subscriptions", "confirm_checkout"),
+  subscriptionsPreviewChangeJob: permission("subscriptions", "preview_change_job"),
+  subscriptionsConfirmChangeJob: permission("subscriptions", "confirm_change_job"),
+  subscriptionsListChangeJobs: permission("subscriptions", "list_change_jobs"),
+  subscriptionsReadChangeJob: permission("subscriptions", "read_change_job"),
+  subscriptionsReadChangeJobResults: permission("subscriptions", "read_change_job_results"),
+  subscriptionsReadChangeJobResultIdentities: permission("subscriptions", "read_change_job_result_identities"),
+  subscriptionsCancelChangeJob: permission("subscriptions", "cancel_change_job"),
+  subscriptionsRetryChangeJob: permission("subscriptions", "retry_change_job"),
   registryRead: permission("registry", "read"),
   registryFeatureCatalog: permission("registry", "feature_catalog"),
   registryPermissionCatalog: permission("registry", "permission_catalog"),
@@ -349,6 +357,11 @@ export const adminSubscriptionDetailSurfacePermissions = [
   adminPermissions.subscriptionsRead,
   adminPermissions.subscriptionsChooseChangeOptions,
   adminPermissions.subscriptionsReadChanges,
+] as const;
+
+export const adminSubscriptionJobDetailSurfacePermissions = [
+  adminPermissions.subscriptionsReadChangeJob,
+  adminPermissions.subscriptionsReadChangeJobResults,
 ] as const;
 
 export const adminPriceBookDetailSurfacePermissions = [

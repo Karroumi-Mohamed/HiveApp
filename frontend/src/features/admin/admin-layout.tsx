@@ -1,4 +1,5 @@
 import {
+  ArrowsClockwiseIcon,
   BuildingsIcon,
   ChartLineUpIcon,
   CreditCardIcon,
@@ -86,6 +87,12 @@ export function AdminLayout() {
           to: "/admin/subscriptions",
           icon: CreditCardIcon,
           visible: session.can(adminPermissions.subscriptionsSearch),
+        },
+        {
+          label: "Changements en lot",
+          to: "/admin/subscription-jobs",
+          icon: ArrowsClockwiseIcon,
+          visible: session.can(adminPermissions.subscriptionsListChangeJobs),
         },
         {
           label: "Collaborations",
