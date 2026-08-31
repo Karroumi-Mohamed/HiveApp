@@ -58,6 +58,7 @@ import {
   subscriptionAccountStateFromSorting,
   writeSubscriptionAccountListState,
 } from "./subscription-account-list-state";
+import { SubscriptionLifecyclePanel } from "./subscription-lifecycle-panel";
 import {
   normalizedOperatorReason,
   operatorReasonError,
@@ -393,7 +394,9 @@ export function SubscriptionDetail({ accountId }: { accountId: string }) {
                     </h2>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {data.status === "SUSPENDED"
-                        ? `Suspendu depuis le ${dateTime(data.suspendedAt)}. Les données sont conservées sans accès opérationnel.`
+                        ? data.suspensionCause === "COLLECTION"
+                          ? `Le délai de paiement a expiré le ${dateTime(data.graceEndsAt)}. Les données restent conservées.`
+                          : `Suspendu par un opérateur le ${dateTime(data.suspendedAt)}${data.suspensionReason ? ` · ${data.suspensionReason}` : "."}`
                         : `Échu le ${dateTime(data.pastDueAt)} · accès maintenu jusqu’au ${dateTime(data.graceEndsAt)}.`}
                     </p>
                   </div>
@@ -448,6 +451,7 @@ export function SubscriptionDetail({ accountId }: { accountId: string }) {
           </div>
         ) : null
       ) : null}
+      <SubscriptionLifecyclePanel accountId={accountId} />
       {canChooseChange ? (
         changeCatalog.isLoading ? (
           <section className="rounded-xl border bg-card p-5">

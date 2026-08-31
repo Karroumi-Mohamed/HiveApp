@@ -26,7 +26,10 @@ export class ApiError extends Error {
   }
 }
 
-const apiOrigin = typeof window !== "undefined" && window.location.port === "3000" ? "http://localhost:8080" : "";
+const configuredApiOrigin = process.env.BUN_PUBLIC_API_URL?.trim().replace(/\/$/, "");
+const apiOrigin =
+  configuredApiOrigin ??
+  (typeof window !== "undefined" && window.location.port === "3000" ? "http://localhost:8080" : "");
 
 export async function apiRequest<T>(
   path: string,

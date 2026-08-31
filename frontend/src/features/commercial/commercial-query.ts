@@ -174,6 +174,9 @@ export const adminCommercialKeys = {
     changeCatalog: (accountId: string) => [...subscriptionsRoot, "detail", accountId, "change-catalog"] as const,
     changes: (accountId: string, filters: Readonly<Record<string, unknown>> = {}) =>
       [...subscriptionsRoot, "detail", accountId, "changes", filters] as const,
+    lifecycleActions: (accountId: string) => [...subscriptionsRoot, "detail", accountId, "lifecycle-actions"] as const,
+    lifecycleHistory: (accountId: string, page: number) =>
+      [...subscriptionsRoot, "detail", accountId, "lifecycle-history", page] as const,
     jobs: (filters: Readonly<Record<string, unknown>> = {}) => [...subscriptionsRoot, "jobs", filters] as const,
     job: (jobId: string) => [...subscriptionsRoot, "jobs", jobId] as const,
     jobResults: (jobId: string, filters: Readonly<Record<string, unknown>> = {}) =>

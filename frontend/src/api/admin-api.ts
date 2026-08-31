@@ -150,6 +150,11 @@ import type {
   SubscriptionChangeJobSummary,
   SubscriptionChangePreview,
   SubscriptionCheckout,
+  SubscriptionLifecycleAction,
+  SubscriptionLifecycleActions,
+  SubscriptionLifecycleEvent,
+  SubscriptionLifecycleMutation,
+  SubscriptionLifecyclePreview,
   SubscriptionStatus,
   UpdatePlanInput,
   UUID,
@@ -829,6 +834,35 @@ export const adminApi = {
       direction?: "asc" | "desc";
     } = {},
   ) => admin<PageResponse<AdminSubscriptionChangeOperation>>(`/subscriptions/account/${accountId}/changes`, { query }),
+  subscriptionLifecycleActions: (accountId: UUID) =>
+    admin<SubscriptionLifecycleActions>(`/subscriptions/account/${accountId}/lifecycle/actions`),
+  previewSubscriptionLifecycle: (
+    accountId: UUID,
+    input: { action: SubscriptionLifecycleAction; graceEndsAt?: string | null },
+  ) =>
+    admin<SubscriptionLifecyclePreview>(`/subscriptions/account/${accountId}/lifecycle/preview`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  applySubscriptionLifecycle: (
+    accountId: UUID,
+    action: SubscriptionLifecycleAction,
+    input: { previewToken: string; reason: string; graceEndsAt?: string | null },
+  ) =>
+    admin<SubscriptionLifecycleMutation>(`/subscriptions/account/${accountId}/lifecycle/${action}`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  subscriptionLifecycleHistory: (
+    accountId: UUID,
+    query: {
+      page?: number;
+      size?: number;
+      sort?: "createdAt" | "effectiveAt" | "action";
+      direction?: "asc" | "desc";
+    } = {},
+  ) =>
+    admin<PageResponse<SubscriptionLifecycleEvent>>(`/subscriptions/account/${accountId}/lifecycle-history`, { query }),
   billingInvoices: (
     query: {
       search?: string;

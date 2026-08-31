@@ -1192,6 +1192,22 @@ export type CommercialAvailabilityBlocker = "ARCHIVED_PRODUCT" | "NO_CHANGE";
 export type CommercialAvailabilityAction = "APPLY_PLAN_AVAILABILITY" | "APPLY_SALES_VISIBILITY";
 export type RetainedEntitlementState = "SELECTABLE" | "RETAINED_ONLY" | "HISTORICAL_ONLY";
 export type SubscriptionStatus = "TRIALING" | "ACTIVE" | "PAST_DUE" | "SUSPENDED" | "CANCELLED" | "EXPIRED";
+export type SubscriptionSuspensionCause = "COLLECTION" | "OPERATOR";
+export type SubscriptionLifecycleAction =
+  | "CANCEL_AT_PERIOD_END"
+  | "KEEP_RENEWING"
+  | "CANCEL_IMMEDIATELY"
+  | "SUSPEND"
+  | "RESTORE"
+  | "EXTEND_GRACE";
+
+export type SubscriptionLifecycleActions = {
+  subscriptionId: UUID;
+  subscriptionVersion: number;
+  status: SubscriptionStatus;
+  suspensionCause: SubscriptionSuspensionCause | null;
+  availableActions: SubscriptionLifecycleAction[];
+};
 export type PlanFeatureMode = "INCLUDED" | "OPTIONAL_ADD_ON" | "BLOCKED_FOR_PLAN";
 export type QuotaLimitMode = "FINITE" | "UNLIMITED";
 
@@ -2309,6 +2325,7 @@ export type Subscription = {
   pastDueAt: Instant | null;
   graceEndsAt: Instant | null;
   suspendedAt: Instant | null;
+  suspensionCause: SubscriptionSuspensionCause | null;
 };
 
 export type SubscriptionEntitlementSnapshot = {
@@ -2364,12 +2381,56 @@ export type AdminSubscription = {
   pastDueAt: Instant | null;
   graceEndsAt: Instant | null;
   suspendedAt: Instant | null;
+  suspensionCause: SubscriptionSuspensionCause | null;
+  suspensionReason: string | null;
+  availableLifecycleActions: SubscriptionLifecycleAction[];
   customOverrides: {
     schemaVersion: number;
     addOnCodes: string[];
     quotaPackages: Array<{ packageCode: string; quantity: number }>;
   };
   entitlementSnapshot: SubscriptionEntitlementSnapshot | null;
+};
+
+export type SubscriptionLifecyclePreview = {
+  subscriptionId: UUID;
+  expectedVersion: number;
+  action: SubscriptionLifecycleAction;
+  beforeStatus: SubscriptionStatus;
+  afterStatus: SubscriptionStatus;
+  effectiveAt: Instant;
+  previousGraceEndsAt: Instant | null;
+  nextGraceEndsAt: Instant | null;
+  blockers: string[];
+  evaluatedAt: Instant;
+  expiresAt: Instant;
+  previewToken: string;
+};
+
+export type SubscriptionLifecycleMutation = {
+  eventId: UUID;
+  subscriptionId: UUID;
+  subscriptionVersion: number;
+  action: SubscriptionLifecycleAction;
+  status: SubscriptionStatus;
+  cancelAtPeriodEnd: boolean;
+  graceEndsAt: Instant | null;
+  suspendedAt: Instant | null;
+};
+
+export type SubscriptionLifecycleEvent = {
+  id: UUID;
+  subscriptionId: UUID;
+  action: SubscriptionLifecycleAction;
+  beforeStatus: SubscriptionStatus;
+  afterStatus: SubscriptionStatus;
+  effectiveAt: Instant;
+  previousGraceEndsAt: Instant | null;
+  nextGraceEndsAt: Instant | null;
+  actorUserId: UUID;
+  actorEmail: string;
+  reason: string;
+  createdAt: Instant;
 };
 
 export type AccountDirectoryEntry = { id: UUID; name: string; slug: string; active: boolean };

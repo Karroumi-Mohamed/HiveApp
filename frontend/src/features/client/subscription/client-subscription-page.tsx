@@ -946,7 +946,9 @@ export function ClientSubscriptionPage() {
                   </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {subscription.data.status === "SUSPENDED"
-                      ? `Suspendu depuis le ${date(subscription.data.suspendedAt)}. Un paiement confirmé réactive l’abonnement.`
+                      ? subscription.data.suspensionCause === "COLLECTION"
+                        ? `Le délai de paiement a expiré le ${date(subscription.data.graceEndsAt)}. Un paiement confirmé réactive l’abonnement.`
+                        : `L’accès a été suspendu par un opérateur de la plateforme le ${date(subscription.data.suspendedAt)}.`
                       : `Accès maintenu jusqu’au ${date(subscription.data.graceEndsAt)} pendant le recouvrement.`}
                   </p>
                 </div>

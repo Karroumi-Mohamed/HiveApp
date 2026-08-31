@@ -71,6 +71,8 @@ describe("session permission bypasses", () => {
       adminPermissions.subscriptionsRead,
       adminPermissions.subscriptionsChooseChangeOptions,
       adminPermissions.subscriptionsReadChanges,
+      adminPermissions.subscriptionsReadLifecycleActions,
+      adminPermissions.subscriptionsReadLifecycleHistory,
     ]);
   });
 

@@ -128,6 +128,9 @@ const subscription: AdminSubscription = {
   pastDueAt: null,
   graceEndsAt: null,
   suspendedAt: null,
+  suspensionCause: null,
+  suspensionReason: null,
+  availableLifecycleActions: ["CANCEL_AT_PERIOD_END", "CANCEL_IMMEDIATELY", "SUSPEND"],
   customOverrides: { schemaVersion: 1, addOnCodes: [], quotaPackages: [] },
   entitlementSnapshot: null,
 };
@@ -525,6 +528,114 @@ describe("independent operator subscription surfaces", () => {
     expect(await view.findByRole("heading", { name: "Opérations de changement" })).toBeTruthy();
     expect(await view.findByText("Aucune opération")).toBeTruthy();
     expect(requests).toEqual(["/api/admin/subscriptions/account/account-1/changes"]);
+  });
+
+  test("loads lifecycle history without inheriting current-subscription access", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname.endsWith("/lifecycle-history")) {
+        return jsonResponse(
+          pageResponse([
+            {
+              id: "event-1",
+              subscriptionId: "subscription-1",
+              action: "SUSPEND",
+              beforeStatus: "ACTIVE",
+              afterStatus: "SUSPENDED",
+              effectiveAt: "2026-08-31T12:00:00Z",
+              previousGraceEndsAt: null,
+              nextGraceEndsAt: null,
+              actorUserId: "user-1",
+              actorEmail: "operator@hiveapp.local",
+              reason: "Contrôle de sécurité",
+              createdAt: "2026-08-31T12:00:00Z",
+            },
+          ]),
+        );
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [
+      adminPermissions.subscriptionsReadLifecycleHistory,
+    ]);
+
+    expect(await view.findByText("Contrôle de sécurité")).toBeTruthy();
+    expect(view.getByText(/operator@hiveapp\.local/)).toBeTruthy();
+    expect(requests).toEqual(["/api/admin/subscriptions/account/account-1/lifecycle-history"]);
+  });
+
+  test("cannot suspend without the exact signed review and a reason", async () => {
+    const requests: Array<{ path: string; method: string; body: Record<string, unknown> | null }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? "GET";
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
+      requests.push({ path: url.pathname, method, body });
+      if (url.pathname.endsWith("/lifecycle/actions") && method === "GET") {
+        return jsonResponse({
+          subscriptionId: subscription.id,
+          subscriptionVersion: 4,
+          status: "ACTIVE",
+          suspensionCause: null,
+          availableActions: ["SUSPEND"],
+        });
+      }
+      if (url.pathname.endsWith("/lifecycle/preview")) {
+        return jsonResponse({
+          subscriptionId: subscription.id,
+          expectedVersion: 4,
+          action: "SUSPEND",
+          beforeStatus: "ACTIVE",
+          afterStatus: "SUSPENDED",
+          effectiveAt: "2026-08-31T12:00:00Z",
+          previousGraceEndsAt: null,
+          nextGraceEndsAt: null,
+          blockers: [],
+          evaluatedAt: "2026-08-31T12:00:00Z",
+          expiresAt: "2099-08-31T12:05:00Z",
+          previewToken: "signed.lifecycle.review",
+        });
+      }
+      if (url.pathname.endsWith("/lifecycle/SUSPEND")) {
+        return jsonResponse({
+          eventId: "event-1",
+          subscriptionId: subscription.id,
+          subscriptionVersion: 5,
+          action: "SUSPEND",
+          status: "SUSPENDED",
+          cancelAtPeriodEnd: false,
+          graceEndsAt: null,
+          suspendedAt: "2026-08-31T12:00:00Z",
+        });
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderAdmin(<SubscriptionDetail accountId="account-1" />, [
+      adminPermissions.subscriptionsReadLifecycleActions,
+      adminPermissions.subscriptionsPreviewLifecycle,
+      adminPermissions.subscriptionsSuspend,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(await view.findByRole("button", { name: "Suspendre l’accès" }));
+    expect(await view.findByRole("heading", { name: "Suspendre l’accès au compte" })).toBeTruthy();
+    await waitFor(() => expect(requests.some(({ path }) => path.endsWith("/lifecycle/preview"))).toBeTrue());
+    const confirm = view.getAllByRole("button", { name: "Suspendre l’accès" }).at(-1);
+    if (!confirm) throw new Error("Expected the reviewed suspension button");
+    expect(confirm.hasAttribute("disabled")).toBeTrue();
+    await user.type(view.getByLabelText("Justification"), "  Intervention de sécurité  ");
+    await waitFor(() => expect(confirm.hasAttribute("disabled")).toBeFalse());
+    await user.click(confirm);
+
+    await waitFor(() => expect(requests.some(({ path }) => path.endsWith("/lifecycle/SUSPEND"))).toBeTrue());
+    expect(requests.find(({ path }) => path.endsWith("/lifecycle/SUSPEND"))?.body).toEqual({
+      previewToken: "signed.lifecycle.review",
+      reason: "Intervention de sécurité",
+      graceEndsAt: null,
+    });
   });
 
   test("keeps complete accepted policy provenance available in operator history", async () => {
