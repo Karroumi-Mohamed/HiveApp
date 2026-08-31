@@ -459,6 +459,72 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void analyticsSurfacesAreIndependentlyGuardedAndAggregateResponsesHideIdentity()
+            throws Exception {
+        String clientToken = registerClientAndGetToken();
+        LimitedAdmin unrelated = createLimitedAdmin("platform.plans.list");
+        LimitedAdmin summary = createLimitedAdmin("platform.analytics.read_summary");
+        LimitedAdmin financial = createLimitedAdmin("platform.analytics.read_financial_series");
+        LimitedAdmin subscriptions = createLimitedAdmin("platform.analytics.read_subscription_series");
+        LimitedAdmin offers = createLimitedAdmin("platform.analytics.read_offer_series");
+        LimitedAdmin operations = createLimitedAdmin("platform.analytics.read_operations");
+
+        mockMvc.perform(get("/api/admin/analytics/overview")
+                        .header("Authorization", bearer(clientToken)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/analytics/overview")
+                        .header("Authorization", bearer(unrelated.token())))
+                .andExpect(status().isForbidden());
+
+        String overview = mockMvc.perform(get("/api/admin/analytics/overview")
+                        .param("timezone", "Africa/Casablanca")
+                        .param("interval", "DAY")
+                        .header("Authorization", bearer(summary.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metadata.timezone").value("Africa/Casablanca"))
+                .andExpect(jsonPath("$.availability.financialSeries").value(false))
+                .andExpect(jsonPath("$.availability.subscriptionSeries").value(false))
+                .andExpect(jsonPath("$.availability.offerSeries").value(false))
+                .andExpect(jsonPath("$.availability.operations").value(false))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(overview).doesNotContain("accountName").doesNotContain("accountId");
+
+        mockMvc.perform(get("/api/admin/analytics/financial-series")
+                        .param("currencyCode", "USD")
+                        .param("billingCycle", "MONTHLY")
+                        .header("Authorization", bearer(financial.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.metadata.completeThrough").isString())
+                .andExpect(jsonPath("$.dimensions").isArray());
+        mockMvc.perform(get("/api/admin/analytics/subscription-series")
+                        .header("Authorization", bearer(subscriptions.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.points").isArray());
+        mockMvc.perform(get("/api/admin/analytics/product-holdings")
+                        .header("Authorization", bearer(subscriptions.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+        mockMvc.perform(get("/api/admin/analytics/offer-series")
+                        .header("Authorization", bearer(offers.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.points").isArray());
+        mockMvc.perform(get("/api/admin/analytics/attention")
+                        .header("Authorization", bearer(operations.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray());
+
+        mockMvc.perform(get("/api/admin/analytics/attention")
+                        .header("Authorization", bearer(summary.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/analytics/overview")
+                        .param("from", "2025-01-01T00:00:00Z")
+                        .param("until", "2027-01-02T00:00:00Z")
+                        .header("Authorization", bearer(summary.token())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
     void priceBookPermissionsAreFineGrainedAndRejectClientIdentities() throws Exception {
         String clientToken = registerClientAndGetToken();
         LimitedAdmin reader = createLimitedAdmin("platform.price_books.list");

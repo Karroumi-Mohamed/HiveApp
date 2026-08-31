@@ -1,0 +1,7 @@
+package com.hiveapp.platform.client.plan.domain.constant;
+
+public enum CommercialAnalyticsInterval {
+    DAY,
+    WEEK,
+    MONTH
+}

@@ -3149,7 +3149,7 @@ Keyboard and assistive-technology users cannot navigate or understand the tab/pa
 
 ### ANALYTICS-001 — Commercial dashboards have no durable fact model or operational drill-down
 
-**Status:** `CONFIRMED — DESIGN DECIDED 2026-08-26`
+**Status:** `IN PROGRESS — BACKEND IMPLEMENTED 2026-08-31; UI/AUDIT PENDING`
 
 **Evidence**
 
@@ -3168,6 +3168,14 @@ Decorative totals may be mislabeled as revenue, mixed currency/cycle values can 
 - Make every summary/chart link to a filtered operational table. Expose missing/incomplete data honestly and keep sensitive settlement evidence under separate permissions.
 - Add event idempotency, historical stability, time-bound validation, mixed-currency, permission/privacy, query-count, and realistic drill-down tests.
 - Follow the frozen `docs/COMMERCIAL_ANALYTICS_V1.md` contract. Keep current product holdings separate from historical adoption/churn, and defer historical near-quota pressure until a cadence-based append-only usage snapshot exists instead of issuing per-Account live business-table reads from the dashboard.
+
+**Implemented backend evidence (2026-08-31)**
+
+- `platform.analytics` now declares independent summary, financial-series, subscription-series, Offer-series, and operations permissions.
+- Bounded admin endpoints aggregate immutable financial evidence, durable lifecycle/Offer events, accepted-operation snapshots, and the normalized current-holdings projection without persisting a competing analytics truth.
+- Money remains split by currency and billing cycle, exact decimal strings cross the API boundary, provisional buckets and read watermarks are explicit, and aggregate responses omit Account identity.
+- The operational attention queue is stably paginated and remains readable when legacy lifecycle rows lack their newer transition timestamps.
+- The placeholder admin page, frontend permission-degradation tests, accessible charts/tables, and browser/RTL/dark/narrow-screen validation remain open in this row.
 
 ---
 
