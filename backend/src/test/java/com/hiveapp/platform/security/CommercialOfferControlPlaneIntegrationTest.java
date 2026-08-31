@@ -22,6 +22,7 @@ import com.hiveapp.platform.client.plan.domain.constant.*;
 import com.hiveapp.platform.client.plan.domain.entity.*;
 import com.hiveapp.platform.client.plan.domain.repository.*;
 import com.hiveapp.platform.client.plan.dto.*;
+import com.hiveapp.platform.client.plan.service.CommercialCatalogResolver;
 import com.hiveapp.platform.client.role.dto.CreateRoleRequest;
 import com.hiveapp.platform.client.role.dto.RoleImpactConfirmationRequest;
 import com.hiveapp.platform.registry.service.RegistryCatalogVersionService;
@@ -52,7 +53,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegrationTestSupport {
 
   @Autowired private AdminUserRepository adminUsers;
-  @Autowired private PlanFeatureRepository planFeatures;
   @Autowired private ProductPriceRepository prices;
   @Autowired private CommercialCampaignRepository campaigns;
   @Autowired private CommercialCampaignAudienceSnapshotRepository audiences;
@@ -67,6 +67,7 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
   @Autowired private RegistryCatalogVersionService registryCatalogVersions;
   @Autowired private AuditLogRepository auditLogs;
   @Autowired private com.hiveapp.platform.client.plan.service.CommercialOfferCodeHasher codeHasher;
+  @Autowired private CommercialCatalogResolver catalogResolver;
 
   @Test
   void operationStateAdvertisesTheIndependentRedemptionDetailAction() throws Exception {
@@ -1418,19 +1419,21 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
   }
 
   private ProductPrice eligiblePlanPrice() {
-    Instant now = Instant.now();
-    return prices.findAllApplicable(now).stream()
-            .filter(price -> price.getOwnerType() == ProductPriceOwnerType.PLAN)
-            .filter(price -> price.getPlan().getStatus() == PlanStatus.ACTIVE)
-            .filter(price -> !"FREE".equals(price.getPlan().getCode()))
-            .filter(
-                price ->
-                    planFeatures.findAllByPlanId(price.getPlan().getId()).stream()
-                        .filter(feature -> feature.getMode() == PlanFeatureMode.INCLUDED)
-                        .flatMap(feature -> feature.getQuotaConfigs().stream())
-                        .anyMatch(limit -> limit.mode() == QuotaLimitMode.FINITE))
-            .findFirst()
-            .orElseThrow();
+    return catalogResolver
+        .resolveCatalog(CommercialCatalogResolver.Audience.CLIENT_CATALOG)
+        .plans()
+        .stream()
+        .filter(CommercialCatalogResolver.PlanResolution::clientVisible)
+        .filter(plan -> !"FREE".equals(plan.plan().getCode()))
+        .filter(
+            plan ->
+                plan.planFeatures().stream()
+                    .filter(feature -> feature.getMode() == PlanFeatureMode.INCLUDED)
+                    .flatMap(feature -> feature.getQuotaConfigs().stream())
+                    .anyMatch(limit -> limit.mode() == QuotaLimitMode.FINITE))
+        .flatMap(plan -> plan.prices().stream())
+        .findFirst()
+        .orElseThrow();
   }
 
   private OfferFixture offerFixture(
