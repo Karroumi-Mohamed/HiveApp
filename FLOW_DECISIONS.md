@@ -1234,7 +1234,7 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 
 ## MARKETING-FLOW-002 — Campaigns, offers, and redemption
 
-**Status:** `PARTIAL — CAMPAIGN BACKEND AND ADMIN UI IMPLEMENTED AND INDEPENDENTLY AUDITED 2026-08-28; OFFERS AND REDEMPTION PENDING`
+**Status:** `IMPLEMENTED — CAMPAIGNS AUDITED 2026-08-28; OFFER BACKEND AND ADMIN/CLIENT UI VERIFIED 2026-08-31; AUTHENTICATED BROWSER QA PENDING`
 
 - Campaign lifecycle is `DRAFT`, `SCHEDULED`, `ACTIVE`, `PAUSED`, `ENDED`, and terminal `ARCHIVED`.
 - Delivered Campaign operations include bounded list/search/filter/sort, guided draft terms and audience configuration, duplication/revision/compare/history, separately authorized ownership and Account identity lookup, signed schedule review, pause/resume/end/archive, safe draft deletion, and isolated scheduled start/end processing. The admin UI exposes these as permission-independent surfaces, uses narrow operation/edit/evidence contracts rather than broad detail reads, and preserves stale-review, loading, error, mobile, and RTL behavior.
@@ -1255,6 +1255,7 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - Initial redemption supports current `ACTIVE` or `TRIALING` subscriptions only. Past-due, suspended, cancelled, and win-back lifecycle recovery belongs to Phase 12.
 - The Offer eligibility window controls new acceptance. A temporary discount that later reverts requires an explicit scheduled Phase 12 subscription operation rather than silent expiry mutation.
 - Published Offer revisions are immutable. Retirement is a reversible stop for new redemption; archive is terminal.
+- Delivered Offer operations include bounded list/search/filter/sort, narrow definition and operation reads, guided exact-product authoring, backend definition/publication previews, immutable revisions and comparison, owner transfer, results, privacy-separated redemption identities, client catalogue/body-only private-code resolution, signed preview, idempotent acceptance, and one-Account operator application. The client projection contains readable product terms and omits internal Campaign, lineage, product, and Price identities.
 
 ## BILLING-FLOW-001 — Invoice, settlement, credit, and refund ledgers
 

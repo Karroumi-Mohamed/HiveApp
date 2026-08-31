@@ -1,6 +1,6 @@
 # HiveApp Commercial Offers V1
 
-**Status:** implementation contract approved and independently design-audited 2026-08-28
+**Status:** backend and admin/client UI implemented and automated/security verified 2026-08-31; authenticated browser QA pending
 
 This document fixes the Phase 11 Offer boundary before implementation. It extends
 `COMMERCIAL_CONTROL_PLANE_V1.md` and `MARKETING-FLOW-002`; it does not replace either ledger.
