@@ -1287,6 +1287,16 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - Backend and admin dashboard implementation completed on 2026-08-31. The five read permissions remain independent through route mounting, requests, and visible tabs; Account identity is confined to the operations queue, while aggregate views use exact strings and honest error/empty/provisional states.
 - Historical near/over-quota reporting is deferred until a cadence-based append-only usage-snapshot contract exists. V1 may report current capacity-package holdings, but it must not scan every Account's live business tables and present that unstable result as historical quota pressure.
 
+## OPERATIONS-FLOW-001 — Activities, communications, and logs are different products
+
+**Status:** `DECIDED — 2026-08-31`
+
+- Activities expose the existing append-only mutation/security evidence under separate metadata, actor-identity, Account-identity, and payload permissions. They do not begin recording reads; `AUDIT-002` remains open.
+- Communications expose durable credential-email delivery status. Raw tokens, links, and bodies are never stored, so the page cannot preview or replay an old message. A new credential message must originate from its authorized operator/member workflow.
+- Observability exposes safe health and aggregate backlog evidence plus an external-log-provider boundary. HiveApp does not copy raw production logs, stack traces, secrets, or environment data into the business database.
+- Every request receives a bounded correlation id returned in errors/responses and attached to new audit evidence so operators can cross-reference an activity with external logs.
+- The complete permission, API, privacy, performance, UI, and deferral contract is frozen in `docs/PLATFORM_OPERATIONS_V1.md`.
+
 # Account subscription administration
 
 ## SUBSCRIPTION-FLOW-001 — Finding the correct account

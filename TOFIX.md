@@ -3183,6 +3183,29 @@ Decorative totals may be mislabeled as revenue, mixed currency/cycle values can 
 
 ---
 
+### OPERATIONS-001 — Audit, delivery, and health evidence have no safe operational surface
+
+**Status:** `IMPLEMENTATION CONTRACT FROZEN — 2026-08-31`
+
+**Evidence**
+
+- `AuditLog` already records append-only mutation evidence, but `/admin/activities` is a placeholder and no bounded authorized general query API exists.
+- `EmailDelivery` records safe delivery status without tokens or bodies, but `/admin/communications` promises content preview and resend that the security model deliberately cannot provide.
+- `/admin/observability` is a placeholder. Normalized errors and audit evidence have no common request correlation id, and no safe health/backlog or external-log availability contract exists.
+
+**Risk**
+
+Operators cannot investigate real platform behavior from the UI. Implementing the placeholders literally would either expose sensitive generic repositories/logs or falsely claim that unstored credential messages can be previewed and replayed.
+
+**Required fix direction**
+
+- Implement the separated Activities, Communications, and Observability surfaces exactly as frozen in `docs/PLATFORM_OPERATIONS_V1.md`.
+- Keep identities, audit payloads, delivery failure evidence, health, backlogs, and log access independently authorized.
+- Add bounded correlation ids across HTTP response/error, MDC, and new audit records.
+- Keep `AUDIT-002`, export, generic resend/content preview, and internal raw-log storage explicitly deferred.
+
+---
+
 ### EMAIL-001 — Missing SMTP silently becomes token logging and apparent delivery success
 
 **Status:** `IMPLEMENTED — 2026-08-10`

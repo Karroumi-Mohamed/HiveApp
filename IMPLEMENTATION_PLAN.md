@@ -1856,6 +1856,19 @@ creation remain open.
 - **Frozen Contract (2026-08-31)**: `docs/COMMERCIAL_ANALYTICS_V1.md` defines authoritative sources, exact metric names, bounded timezone-aware queries, independent permissions, API surfaces, operational drill-down, truthful incompleteness, and the near-quota usage-snapshot deferral. V1 must not introduce a second mutable analytics truth where an authoritative durable record already exists.
 - **Execution Status (2026-08-31)**: The backend and admin dashboard are implemented with the independent `platform.analytics` permission family, overview, financial, subscription, Offer, current-holding, and paginated attention surfaces. Historical money is derived only from Invoice/Payment/Credit/Refund evidence; lifecycle and product movement use durable events and accepted-operation snapshots; current holdings and configured recurring value stay explicitly separate. Queries are range-bounded and dimensioned, buckets are timezone/DST aware, sensitive Account identity exists only on `read_operations`, and legacy incomplete lifecycle timestamps degrade to a durable creation-time fallback instead of breaking the operations queue. The French-first UI uses URL-backed range/timezone/interval and applicable money filters, exact-decimal aggregation, accessible charts backed by adjacent tables, permission-scoped tab mounting, explicit error/empty/provisional states, current holdings separated from historical movement, and responsive light/dark/RTL layouts. Automated frontend checks and authenticated browser QA are green; direct cross-surface drill-down consistency and the final accessibility/security audit remain Phase 15 work.
 
+### Batch 14.2: Platform operations and observability
+
+#### [IMPLEMENT] OPERATIONS-001 — Operational evidence exists without a safe operator surface
+- **Prerequisites**: `AUDIT-001`, `EMAIL-001`, Phase 13.
+- **Unlocks**: Phase 15.
+- **Order Rationale**: Activities, communication delivery, and diagnostics must use their authoritative evidence and privacy boundaries before the final UI/security audit.
+- **Affected Backend Areas**: Shared audit read model, credential-email delivery read model, request correlation, safe readiness/backlog projections, external-log adapter boundary, platform permissions and APIs.
+- **Database Migration**: Add correlation id to the generated audit schema only under the pre-production policy.
+- **Acceptance Criteria**: Range-bounded/paginated Activities and Communications APIs, independently protected identity/payload/failure fields, immutable evidence, request correlation in errors/audit/logging, safe health/backlog APIs, explicit external-log availability, and no secret/content/stack-trace exposure.
+- **Tests**: Least privilege, privacy, range/page bounds, stable ordering, query count, correlation propagation/cleanup, backlog aggregation, absent external provider, and realistic frontend investigation states.
+- **Future UI Flow**: Replace the three placeholders with permission-scoped Activities, Communications, and Health & logs workbenches.
+- **Frozen Contract (2026-08-31)**: `docs/PLATFORM_OPERATIONS_V1.md` separates business/security mutation history, credential-email delivery evidence, and infrastructure observability. It deliberately keeps `AUDIT-002` open, prohibits generic credential resend/content preview, and keeps raw production logs outside the business database.
+
 # Phase 15: Cross-surface consistency and adversarial audit
 
 - **Prerequisites**: Phases 9–14.
@@ -1873,6 +1886,7 @@ creation remain open.
 - All advanced target-aware management rules (deferred per `MANAGEMENT-FLOW-001` and `AUTHZ-006` agreements).
 - Emergency runtime catalog shutdowns and new-sale suspensions (`REGISTRY-FLOW-002` / `REGISTRY-004` aspects).
 - Read-access and denied-read security auditing (`AUDIT-002`) pending an explicit product/security-forensics scope, retention, privacy, and volume decision.
+- Audit export, generic email replay/content preview, and a built-in raw-log store remain deferred by `docs/PLATFORM_OPERATIONS_V1.md`; these must not be implied by placeholder UI copy.
 - Automatic tax, foreign exchange, metered usage billing, automatic proration, customer-selectable unlimited quota pricing, perpetual/`FOREVER` licenses, and automatic refunds. Their extension points may exist, but no API/UI may claim the capability is complete.
 
 ---
@@ -1939,6 +1953,7 @@ creation remain open.
 | **MARKETING-001** | Segments, campaigns and offers | IMPLEMENTED — OFFER BACKEND/UI AUTOMATED AND SECURITY VERIFIED; AUTHENTICATED BROWSER QA PENDING | VERIFY | Phase 11 | Batch 11.1/11.2 | COMMERCIAL-001 | Authenticated French/Arabic Offer authoring, application, discovery, acceptance, and history browser evidence |
 | **UI-001** | Shared section tabs lack complete keyboard and panel semantics | CONFIRMED — PHASE 15 | IMPLEMENT | Phase 15 | Consistency audit | None | Roving Arrow/Home/End focus, associated tab-panel IDs, RTL and keyboard tests |
 | **ANALYTICS-001** | Durable commercial analytics | IMPLEMENTED — FINAL AUDIT PENDING | IMPLEMENT | Phase 14 | Batch 14.1 | MARKETING-001, BILLING-003 | Time/currency-aware facts, truthful dimensions, stable history and operational drill-down tests |
+| **OPERATIONS-001** | Platform operations and observability | CONTRACT FROZEN — IMPLEMENTING | IMPLEMENT | Phase 14 | Batch 14.2 | AUDIT-001, EMAIL-001, BILLING-003 | Permission-separated Activities, Communications, correlation, health, backlog and external-log boundary |
 | **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
 | **SUBSCRIPTION-003**| Periods scheduler | PARTIAL — RENEWAL/GRACE AND ONE-ACCOUNT LIFECYCLE IMPLEMENTED | IMPLEMENT | Phase 4/12/13 | Batch 4.5/12.1/13.1 | SUBSCRIPTION-002 | UTC history, paid/free renewal, collection recovery, signed lifecycle commands, session revocation; reviewed trial/population jobs open |
 | **SUBSCRIPTION-004**| Trial visibility | IMPLEMENTED; REVIEWED CREATION PHASE 12 | IMPLEMENT | Phase 4/12 | Batch 4.5/12.1 | SUBSCRIPTION-003 | Trialing Account visibility is complete; retired direct admin creation returns only as a reviewed operation |
