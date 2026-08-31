@@ -43,6 +43,10 @@ import type {
   BillingTimelineEntryType,
   BulkOperationResult,
   ClientPlanCatalog,
+  CommercialAnalyticsOverview,
+  CommercialAnalyticsQuery,
+  CommercialAttentionRow,
+  CommercialAttentionType,
   CommercialAvailabilityHistoryEntry,
   CommercialCampaignAudienceMode,
   CommercialCampaignComparison,
@@ -63,7 +67,9 @@ import type {
   CommercialCampaignStatus,
   CommercialCampaignSummary,
   CommercialCampaignWriteInput,
+  CommercialFinancialSeries,
   CommercialLifecycleInput,
+  CommercialOfferSeries,
   CommercialOverview,
   CommercialPolicyActivation,
   CommercialPolicyActivationAudience,
@@ -80,6 +86,7 @@ import type {
   CommercialPolicySummary,
   CommercialPolicyTargetKind,
   CommercialPolicyWriteInput,
+  CommercialProductHolding,
   CommercialProductType,
   CommercialSegmentActivation,
   CommercialSegmentActivationAudience,
@@ -97,6 +104,7 @@ import type {
   CommercialSegmentStatus,
   CommercialSegmentSummary,
   CommercialSegmentWriteInput,
+  CommercialSubscriptionSeries,
   CreatePlanInput,
   ExtensionCompatibility,
   FeatureCatalogAudience,
@@ -174,6 +182,17 @@ export const adminApi = {
   sendMyEmailVerification: () => admin<OperatorAccess>("/me/email-verification", { method: "POST" }),
   accessOverview: () => admin<AdminAccessOverview>("/users/overview"),
   commercialOverview: () => admin<CommercialOverview>("/plans/overview"),
+  commercialAnalyticsOverview: (query: CommercialAnalyticsQuery) =>
+    admin<CommercialAnalyticsOverview>("/analytics/overview", { query }),
+  commercialFinancialSeries: (query: CommercialAnalyticsQuery) =>
+    admin<CommercialFinancialSeries>("/analytics/financial-series", { query }),
+  commercialSubscriptionSeries: (query: CommercialAnalyticsQuery) =>
+    admin<CommercialSubscriptionSeries>("/analytics/subscription-series", { query }),
+  commercialOfferSeries: (query: CommercialAnalyticsQuery) =>
+    admin<CommercialOfferSeries>("/analytics/offer-series", { query }),
+  commercialProductHoldings: () => admin<CommercialProductHolding[]>("/analytics/product-holdings"),
+  commercialAttention: (query: { type?: CommercialAttentionType; page?: number; size?: number }) =>
+    admin<PageResponse<CommercialAttentionRow>>("/analytics/attention", { query }),
   users: (query: {
     search?: string;
     active?: boolean;

@@ -1,6 +1,5 @@
 import {
   BuildingsIcon,
-  ChartLineUpIcon,
   EnvelopeSimpleIcon,
   HandshakeIcon,
   HeartbeatIcon,
@@ -110,21 +109,6 @@ export function AdminObservabilityPlaceholderPage() {
         "Intégration avec l’outillage d’observabilité externe",
       ]}
       title="Santé & journaux"
-    />
-  );
-}
-
-export function AdminAnalyticsPlaceholderPage() {
-  return (
-    <PlannedAdminPage
-      description="Les tendances de la plateforme, au-delà des compteurs du jour."
-      icon={ChartLineUpIcon}
-      planned={[
-        "Croissance des comptes et des membres dans le temps",
-        "Adoption des fonctionnalités et pression sur les quotas",
-        "Mouvements de forfaits, conversion des essais et revenu configuré",
-      ]}
-      title="Statistiques"
     />
   );
 }

@@ -148,6 +148,11 @@ export const adminPermissions = {
   billingReconcileProviderEvent: permission("billing", "reconcile_provider_event"),
   billingPreviewChargeRetry: permission("billing", "preview_charge_retry"),
   billingRetryCharge: permission("billing", "retry_charge"),
+  analyticsReadSummary: permission("analytics", "read_summary"),
+  analyticsReadFinancialSeries: permission("analytics", "read_financial_series"),
+  analyticsReadSubscriptionSeries: permission("analytics", "read_subscription_series"),
+  analyticsReadOfferSeries: permission("analytics", "read_offer_series"),
+  analyticsReadOperations: permission("analytics", "read_operations"),
   registryRead: permission("registry", "read"),
   registryFeatureCatalog: permission("registry", "feature_catalog"),
   registryPermissionCatalog: permission("registry", "permission_catalog"),
@@ -389,6 +394,14 @@ export const adminBillingSurfacePermissions = [
   adminPermissions.billingListInvoices,
   adminPermissions.billingListReconciliation,
   adminPermissions.billingListProviderEvents,
+] as const;
+
+export const adminAnalyticsSurfacePermissions = [
+  adminPermissions.analyticsReadSummary,
+  adminPermissions.analyticsReadFinancialSeries,
+  adminPermissions.analyticsReadSubscriptionSeries,
+  adminPermissions.analyticsReadOfferSeries,
+  adminPermissions.analyticsReadOperations,
 ] as const;
 
 export const adminInvoiceDetailSurfacePermissions = [

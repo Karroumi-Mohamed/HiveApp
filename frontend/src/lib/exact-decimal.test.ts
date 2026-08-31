@@ -5,6 +5,7 @@ import {
   formatExactMoney,
   isCommercialAmount,
   subtractExactDecimals,
+  sumExactDecimals,
 } from "./exact-decimal";
 
 describe("exact commercial decimals", () => {
@@ -24,6 +25,10 @@ describe("exact commercial decimals", () => {
   test("subtracts exact values without IEEE-754 coercion", () => {
     expect(subtractExactDecimals("123456789012345.6789", "0.6789", "5.0000")).toBe("123456789012340.0000");
     expect(() => subtractExactDecimals("1.0000", "1.0001")).toThrow();
+  });
+
+  test("sums exact values without IEEE-754 coercion", () => {
+    expect(sumExactDecimals(["0.1000", "0.2000", "100000000000000.9999"])).toBe("100000000000001.2999");
   });
 
   test("formats all four decimals instead of truncating through Number", () => {

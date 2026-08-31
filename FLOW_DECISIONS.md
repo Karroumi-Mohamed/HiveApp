@@ -55,8 +55,8 @@ This table will be updated as the relevant source folders are reviewed.
 | Admin users | Create platform operators and control their access | Reviewed | Deactivation effects, SuperAdmin protection, recovery from total operator lockout |
 | Admin roles | Group platform-control permissions | Reviewed | Safe grant/revoke ceiling, deletion, inactive-role effects, audit |
 | Platform features | Inspect and operationally control code-defined capabilities | Not fully reviewed | Which states are editable, activation effects, subscribed-user effects |
-| Plans | Define sellable templates, included features, prices, and quotas | Reviewed and independently audited through Phase 9 | Later bulk/scheduled subscriber operations and financial/analytics effects |
-| Subscriptions | Manage purchased entitlement and reviewed population changes | Phase 12.1 selected-Account change jobs implemented and self-audited | Filtered/Plan populations, trial/lifecycle commands, settlement and analytics |
+| Plans | Define sellable templates, included features, prices, and quotas | Operational catalogue, pricing, billing and analytics implemented through Phase 14 | Final cross-surface drill-down and consistency audit |
+| Subscriptions | Manage purchased entitlement and reviewed population changes | One-Account changes, lifecycle/recovery, selected-Account jobs, billing and analytics implemented through Phase 14 | Filtered/Plan populations and final cross-surface audit |
 
 ---
 
@@ -1284,6 +1284,7 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - Summary cards/charts link to the filtered operational table that explains the number. Missing/incomplete data is shown honestly rather than as zero.
 - Analytics read permissions do not imply access to sensitive payment references, owner email, or client business records.
 - The implementation contract is recorded in `docs/COMMERCIAL_ANALYTICS_V1.md`: V1 reads the authoritative ledger/lifecycle/operation/redemption records directly, exposes independently protected summary, financial, subscription, Offer, and operational surfaces, and uses explicit read watermarks rather than claiming provider finality.
+- Backend and admin dashboard implementation completed on 2026-08-31. The five read permissions remain independent through route mounting, requests, and visible tabs; Account identity is confined to the operations queue, while aggregate views use exact strings and honest error/empty/provisional states.
 - Historical near/over-quota reporting is deferred until a cadence-based append-only usage-snapshot contract exists. V1 may report current capacity-package holdings, but it must not scan every Account's live business tables and present that unstable result as historical quota pressure.
 
 # Account subscription administration

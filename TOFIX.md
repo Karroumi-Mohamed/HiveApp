@@ -3149,9 +3149,9 @@ Keyboard and assistive-technology users cannot navigate or understand the tab/pa
 
 ### ANALYTICS-001 — Commercial dashboards have no durable fact model or operational drill-down
 
-**Status:** `IN PROGRESS — BACKEND IMPLEMENTED 2026-08-31; UI/AUDIT PENDING`
+**Status:** `IMPLEMENTED — 2026-08-31; FINAL PHASE 15 AUDIT PENDING`
 
-**Evidence**
+**Original evidence**
 
 - `/admin/analytics` is a placeholder page.
 - Existing summary amounts come from configured current subscription prices rather than invoice/payment/credit/refund evidence.
@@ -3175,7 +3175,11 @@ Decorative totals may be mislabeled as revenue, mixed currency/cycle values can 
 - Bounded admin endpoints aggregate immutable financial evidence, durable lifecycle/Offer events, accepted-operation snapshots, and the normalized current-holdings projection without persisting a competing analytics truth.
 - Money remains split by currency and billing cycle, exact decimal strings cross the API boundary, provisional buckets and read watermarks are explicit, and aggregate responses omit Account identity.
 - The operational attention queue is stably paginated and remains readable when legacy lifecycle rows lack their newer transition timestamps.
-- The placeholder admin page, frontend permission-degradation tests, accessible charts/tables, and browser/RTL/dark/narrow-screen validation remain open in this row.
+- `/admin/analytics` now mounts only the independently authorized summary, financial, subscription, Offer, and operations tabs; a summary-only operator never requests identity-bearing or detailed series.
+- The range bar is URL-backed and exposes money dimensions only where the endpoint accepts them. Exact decimal totals remain strings through frontend summation and formatting.
+- Accessible SVG series and adjacent tables share the same data; failed queries remain retryable instead of becoming zero, provisional buckets are explicit, and no-activity ranges collapse meaningless all-zero tables into honest empty states.
+- Authenticated browser QA covered light and dark desktop layouts, narrow-screen overflow, and RTL direction. The reusable tab scrollbar is hidden without disabling horizontal touch/keyboard scrolling.
+- Exact cross-surface drill-down consistency and the final shared tab keyboard/panel semantics remain part of Phase 15 rather than being claimed complete here.
 
 ---
 

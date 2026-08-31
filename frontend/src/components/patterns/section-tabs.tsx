@@ -11,7 +11,11 @@ export function SectionTabs(
 ) {
   if ("items" in props) {
     return (
-      <div aria-label={props.ariaLabel ?? "Sections"} className="overflow-x-auto border-b" role="tablist">
+      <div
+        aria-label={props.ariaLabel ?? "Sections"}
+        className="scrollbar-hidden overflow-x-auto border-b"
+        role="tablist"
+      >
         <div className="flex min-w-max gap-6">
           {props.items.map((item) => (
             <button
@@ -37,7 +41,7 @@ export function SectionTabs(
   }
   const { tabs, ariaLabel } = props;
   return (
-    <nav aria-label={ariaLabel} className="overflow-x-auto border-b">
+    <nav aria-label={ariaLabel} className="scrollbar-hidden overflow-x-auto border-b">
       <div className="flex min-w-max gap-6">
         {tabs.map((tab) => (
           <NavLink

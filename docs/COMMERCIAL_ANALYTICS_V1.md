@@ -1,7 +1,7 @@
 # Commercial Analytics V1
 
 **Decision date:** 2026-08-31  
-**Status:** backend implemented; admin UI and final cross-surface audit in progress
+**Status:** backend and admin UI implemented; final cross-surface audit in progress
 
 ## 1. Purpose
 

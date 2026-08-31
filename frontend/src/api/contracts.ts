@@ -22,6 +22,143 @@ export type PageResponse<T> = {
   last: boolean;
 };
 
+export type CommercialAnalyticsInterval = "DAY" | "WEEK" | "MONTH";
+export type CommercialAttentionType = "PAST_DUE" | "SUSPENDED" | "OPEN_INVOICE" | "CHANGE_NEEDS_ATTENTION";
+export type CommercialAnalyticsProductType = "PLAN" | "ADD_ON" | "QUOTA_PACKAGE";
+
+export type CommercialAnalyticsMetadata = {
+  generatedAt: Instant;
+  completeThrough: Instant;
+  from: Instant;
+  until: Instant;
+  timezone: string;
+  interval: CommercialAnalyticsInterval;
+  currentBucketProvisional: boolean;
+};
+
+export type CommercialAnalyticsAvailability = {
+  financialSeries: boolean;
+  subscriptionSeries: boolean;
+  offerSeries: boolean;
+  operations: boolean;
+};
+
+export type CommercialMoneyDimension = {
+  currencyCode: string;
+  billingCycle: BillingCycle;
+};
+
+export type CommercialFinancialTotals = {
+  dimension: CommercialMoneyDimension;
+  invoiced: ExactDecimal;
+  collected: ExactDecimal;
+  credited: ExactDecimal;
+  refunded: ExactDecimal;
+};
+
+export type CommercialConfiguredRecurringValue = {
+  dimension: CommercialMoneyDimension;
+  amount: ExactDecimal;
+  subscriptions: number;
+};
+
+export type CommercialAnalyticsOverview = {
+  metadata: CommercialAnalyticsMetadata;
+  availability: CommercialAnalyticsAvailability;
+  financialTotals: CommercialFinancialTotals[];
+  configuredRecurringValues: CommercialConfiguredRecurringValue[];
+  currentSubscriptions: Partial<Record<SubscriptionStatus, number>>;
+  operationsNeedingAttention: number;
+  graceDeadlinesWithinSevenDays: number;
+  offerOutcomes: Record<string, number>;
+  finality: {
+    pendingPayments: number;
+    pendingRefunds: number;
+    pendingProviderCommands: number;
+  };
+};
+
+export type CommercialFinancialPoint = {
+  bucketStart: Instant;
+  bucketEnd: Instant;
+  provisional: boolean;
+  invoiced: ExactDecimal;
+  collected: ExactDecimal;
+  credited: ExactDecimal;
+  refunded: ExactDecimal;
+};
+
+export type CommercialFinancialSeries = {
+  metadata: CommercialAnalyticsMetadata;
+  dimensions: { dimension: CommercialMoneyDimension; points: CommercialFinancialPoint[] }[];
+};
+
+export type CommercialSubscriptionPoint = {
+  bucketStart: Instant;
+  bucketEnd: Instant;
+  provisional: boolean;
+  lifecycleActions: Record<string, number>;
+  productsAdded: number;
+  productsRemoved: number;
+};
+
+export type CommercialProductMovement = {
+  productType: CommercialAnalyticsProductType;
+  productCode: string;
+  additions: number;
+  removals: number;
+};
+
+export type CommercialSubscriptionSeries = {
+  metadata: CommercialAnalyticsMetadata;
+  points: CommercialSubscriptionPoint[];
+  productMovements: CommercialProductMovement[];
+};
+
+export type CommercialOfferPoint = {
+  bucketStart: Instant;
+  bucketEnd: Instant;
+  provisional: boolean;
+  reserved: number;
+  applied: number;
+  cancelled: number;
+  failed: number;
+};
+
+export type CommercialOfferSeries = {
+  metadata: CommercialAnalyticsMetadata;
+  points: CommercialOfferPoint[];
+};
+
+export type CommercialProductHolding = {
+  productType: CommercialAnalyticsProductType;
+  productCode: string;
+  subscriptions: number;
+};
+
+export type CommercialAttentionRow = {
+  type: CommercialAttentionType;
+  recordId: UUID;
+  accountId: UUID;
+  accountName: string;
+  status: string;
+  occurredAt: Instant;
+  dueAt: Instant | null;
+  amount: ExactDecimal | null;
+  currencyCode: string | null;
+  reason: string | null;
+  destination: string;
+};
+
+export type CommercialAnalyticsQuery = {
+  from?: Instant;
+  until?: Instant;
+  timezone?: string;
+  interval?: CommercialAnalyticsInterval;
+  currencyCode?: string;
+  billingCycle?: BillingCycle;
+};
+
 export type AuthResponse = {
   accessToken: string;
   refreshToken: string | null;

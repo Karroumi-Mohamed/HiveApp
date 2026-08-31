@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { AppProviders } from "@/app/providers";
 import {
+  adminAnalyticsSurfacePermissions,
   adminBillingSurfacePermissions,
   adminCommercialCampaignDetailSurfacePermissions,
   adminCommercialCampaignEditPermissions,
@@ -23,12 +24,12 @@ import { AdminLayout } from "@/features/admin/admin-layout";
 import {
   AdminAccountsPlaceholderPage,
   AdminActivitiesPlaceholderPage,
-  AdminAnalyticsPlaceholderPage,
   AdminCollaborationsPlaceholderPage,
   AdminCommunicationsPlaceholderPage,
   AdminObservabilityPlaceholderPage,
   AdminRoleTemplatesPlaceholderPage,
 } from "@/features/admin/admin-placeholder-pages";
+import { AdminAnalyticsPage } from "@/features/admin/analytics/admin-analytics-page";
 import { AdminBillingDocumentPage } from "@/features/admin/billing/admin-billing-document-page";
 import { AdminBillingPage } from "@/features/admin/billing/admin-billing-page";
 import { AdminInvoiceDetailPage } from "@/features/admin/billing/admin-invoice-detail-page";
@@ -465,7 +466,14 @@ const router = createBrowserRouter([
       { path: "activities", element: <AdminActivitiesPlaceholderPage /> },
       { path: "communications", element: <AdminCommunicationsPlaceholderPage /> },
       { path: "observability", element: <AdminObservabilityPlaceholderPage /> },
-      { path: "analytics", element: <AdminAnalyticsPlaceholderPage /> },
+      {
+        path: "analytics",
+        element: (
+          <AdminReadPermissionGate anyOf={adminAnalyticsSurfacePermissions}>
+            <AdminAnalyticsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
       { path: "me", element: <AdminMePage /> },
     ],
   },

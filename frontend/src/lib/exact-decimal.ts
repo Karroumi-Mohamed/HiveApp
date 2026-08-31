@@ -36,6 +36,17 @@ export function subtractExactDecimals(left: ExactDecimal, ...subtractors: ExactD
   return `${integer}.${fraction}`;
 }
 
+/** Sum non-negative exact decimals at the backend's four-decimal commercial scale. */
+export function sumExactDecimals(values: ExactDecimal[]): ExactDecimal {
+  const total = values.reduce((sum, value) => {
+    const [integer = "0", fraction = ""] = value.split(".");
+    return sum + BigInt(integer) * 10_000n + BigInt(fraction.padEnd(4, "0"));
+  }, 0n);
+  const integer = total / 10_000n;
+  const fraction = (total % 10_000n).toString().padStart(4, "0");
+  return `${integer}.${fraction}`;
+}
+
 /** Intl accepts decimal strings exactly even though TypeScript's older declaration omits them. */
 export function formatExactMoney(amount: ExactDecimal, currency: string): string {
   const formatter = new Intl.NumberFormat("fr-MA", {
