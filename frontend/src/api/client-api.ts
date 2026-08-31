@@ -1,6 +1,8 @@
 import type {
   Account,
   AuthResponse,
+  BillingInvoiceRow,
+  ClientBillingInvoiceDetail,
   ClientPlanCatalog,
   ClientSubscriptionChangeApplyResponse,
   ClientSubscriptionChangePreview,
@@ -217,6 +219,15 @@ export const clientApi = {
   ) => client<PageResponse<SubscriptionChangeOperation>>("/api/v1/subscriptions/changes", { query }),
   cancelSubscriptionChange: (id: UUID) =>
     client<SubscriptionChangeOperation>(`/api/v1/subscriptions/changes/${id}`, { method: "DELETE" }),
+  subscriptionInvoices: (
+    query: {
+      page?: number;
+      size?: number;
+      sort?: "issuedAt" | "invoiceNumber" | "status" | "amount";
+      direction?: "asc" | "desc";
+    } = {},
+  ) => client<PageResponse<BillingInvoiceRow>>("/api/v1/subscriptions/invoices", { query }),
+  subscriptionInvoice: (id: UUID) => client<ClientBillingInvoiceDetail>(`/api/v1/subscriptions/invoices/${id}`),
 };
 
 export const authApi = {

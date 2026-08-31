@@ -201,6 +201,163 @@ export type CommercialOverview = {
 };
 
 export type BillingCycle = "MONTHLY" | "YEARLY" | "FOREVER";
+export type BillingInvoiceStatus = "OPEN" | "SETTLED" | "SETTLED_ZERO" | "CANCELLED";
+export type BillingLineType = "PLAN" | "ADD_ON" | "QUOTA_PACKAGE" | "COMMERCIAL_ADJUSTMENT";
+export type BillingPaymentKind = "PROVIDER" | "MANUAL";
+export type BillingPaymentStatus = "PENDING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+export type BillingRefundKind = "PROVIDER" | "MANUAL";
+export type BillingRefundStatus = "PENDING" | "SUCCEEDED" | "FAILED";
+export type BillingOutboxOperation = "CHARGE" | "REFUND";
+export type BillingOutboxStatus = "PENDING" | "PROCESSING" | "PROCESSED" | "FAILED" | "CANCELLED";
+export type BillingProviderEventStatus = "RECEIVED" | "APPLIED" | "UNMATCHED" | "MISMATCHED";
+export type BillingProviderPaymentStatus = "SUCCESS" | "FAILED" | "PENDING";
+
+export type BillingAccountIdentity = { id: UUID; name: string };
+
+export type BillingInvoiceRow = {
+  id: UUID;
+  invoiceNumber: string;
+  status: BillingInvoiceStatus;
+  totalAmount: ExactDecimal;
+  currencyCode: string;
+  billingCycle: BillingCycle;
+  periodStart: Instant;
+  periodEnd: Instant;
+  issuedAt: Instant;
+  settledAt: Instant | null;
+  changeOperationId: UUID;
+  /** Present only when the caller may read Account identity. */
+  account: BillingAccountIdentity | null;
+};
+
+export type BillingInvoiceLine = {
+  id: UUID;
+  position: number;
+  type: BillingLineType;
+  sourceCode: string;
+  sourceName: string;
+  sourceVersion: number;
+  priceEntryId: UUID;
+  quantity: number;
+  unitAmount: ExactDecimal;
+  lineAmount: ExactDecimal;
+  currencyCode: string;
+};
+
+export type BillingPayment = {
+  id: UUID;
+  kind: BillingPaymentKind;
+  status: BillingPaymentStatus;
+  amount: ExactDecimal;
+  currencyCode: string;
+  trustedForSettlement: boolean;
+  externalReference: string | null;
+  failureReason: string | null;
+  operatorUserId: UUID | null;
+  operatorReason: string | null;
+  retryOfPaymentId: UUID | null;
+  recoveryReference: string | null;
+  completedAt: Instant | null;
+  createdAt: Instant;
+};
+
+export type BillingSafePayment = Pick<BillingPayment, "kind" | "status" | "amount" | "currencyCode" | "completedAt">;
+
+export type BillingCredit = {
+  id: UUID;
+  amount: ExactDecimal;
+  currencyCode: string;
+  reason: string;
+  source: string;
+  operatorUserId: UUID;
+  externalReference: string | null;
+  issuedAt: Instant;
+};
+
+export type BillingRefund = {
+  id: UUID;
+  paymentId: UUID;
+  kind: BillingRefundKind;
+  status: BillingRefundStatus;
+  amount: ExactDecimal;
+  currencyCode: string;
+  reason: string;
+  operatorUserId: UUID;
+  providerReference: string | null;
+  failureReason: string | null;
+  completedAt: Instant | null;
+  createdAt: Instant;
+};
+
+export type BillingInvoiceDetail = {
+  invoice: BillingInvoiceRow;
+  lines: BillingInvoiceLine[];
+  payments: BillingPayment[];
+  credits: BillingCredit[];
+  refunds: BillingRefund[];
+  creditedAmount: ExactDecimal;
+  refundedAmount: ExactDecimal;
+};
+
+export type ClientBillingInvoiceDetail = {
+  invoice: BillingInvoiceRow;
+  lines: BillingInvoiceLine[];
+  payments: BillingSafePayment[];
+  creditedAmount: ExactDecimal;
+  refundedAmount: ExactDecimal;
+};
+
+export type BillingRefundPreview = {
+  paymentId: UUID;
+  paymentAmount: ExactDecimal;
+  reservedRefundAmount: ExactDecimal;
+  remainingRefundableAmount: ExactDecimal;
+  currencyCode: string;
+  providerRefundAllowed: boolean;
+  manualRefundAllowed: boolean;
+  providerBlocker: string | null;
+  manualBlocker: string | null;
+};
+
+export type BillingOutboxRow = {
+  id: UUID;
+  operation: BillingOutboxOperation;
+  aggregateId: UUID;
+  status: BillingOutboxStatus;
+  attemptCount: number;
+  nextAttemptAt: Instant | null;
+  claimedAt: Instant | null;
+  processedAt: Instant | null;
+  lastError: string | null;
+  createdAt: Instant;
+};
+
+export type BillingProviderEventRow = {
+  id: UUID;
+  provider: string;
+  eventId: string;
+  operation: BillingOutboxOperation;
+  providerStatus: BillingProviderPaymentStatus;
+  amount: ExactDecimal;
+  currencyCode: string;
+  processingStatus: BillingProviderEventStatus;
+  aggregateId: UUID;
+  outboxCommandId: UUID | null;
+  providerReference: string | null;
+  attentionReason: string | null;
+  occurredAt: Instant;
+  processedAt: Instant | null;
+  createdAt: Instant;
+};
+
+export type BillingChargeRetryPreview = {
+  previousPaymentId: UUID;
+  previousPaymentStatus: BillingPaymentStatus;
+  previousCommandStatus: BillingOutboxStatus;
+  retryAllowed: boolean;
+  providerConfirmationRequired: boolean;
+  blocker: string | null;
+};
 export type ProductPriceBillingCycle = Exclude<BillingCycle, "FOREVER">;
 export type ProductPriceOwnerType = "PLAN" | "ADD_ON" | "QUOTA_PACKAGE";
 export type ProductPriceStatus = "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";

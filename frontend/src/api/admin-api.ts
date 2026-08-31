@@ -22,7 +22,20 @@ import type {
   AssignAddOnFeatureInput,
   AssignPlanFeatureInput,
   AuthResponse,
+  BillingChargeRetryPreview,
+  BillingCredit,
   BillingCycle,
+  BillingInvoiceDetail,
+  BillingInvoiceRow,
+  BillingInvoiceStatus,
+  BillingOutboxOperation,
+  BillingOutboxRow,
+  BillingOutboxStatus,
+  BillingPayment,
+  BillingProviderEventRow,
+  BillingProviderEventStatus,
+  BillingRefund,
+  BillingRefundPreview,
   BulkOperationResult,
   ClientPlanCatalog,
   CommercialAvailabilityHistoryEntry,
@@ -816,6 +829,98 @@ export const adminApi = {
       direction?: "asc" | "desc";
     } = {},
   ) => admin<PageResponse<AdminSubscriptionChangeOperation>>(`/subscriptions/account/${accountId}/changes`, { query }),
+  billingInvoices: (
+    query: {
+      search?: string;
+      accountId?: UUID;
+      status?: BillingInvoiceStatus;
+      currencyCode?: string;
+      billingCycle?: BillingCycle;
+      issuedFrom?: string;
+      issuedUntil?: string;
+      page?: number;
+      size?: number;
+      sort?: "issuedAt" | "invoiceNumber" | "status" | "amount" | "currency" | "cycle";
+      direction?: "asc" | "desc";
+    } = {},
+  ) => admin<PageResponse<BillingInvoiceRow>>("/billing/invoices", { query }),
+  billingInvoice: (id: UUID) => admin<BillingInvoiceDetail>(`/billing/invoices/${id}`),
+  billingInvoiceAccountIdentity: (id: UUID) =>
+    admin<{ id: UUID; name: string }>(`/billing/invoices/${id}/account-identity`),
+  billingInvoicePayments: (id: UUID) => admin<BillingPayment[]>(`/billing/invoices/${id}/payments`),
+  billingPaymentReference: (id: UUID) => admin<BillingPayment>(`/billing/payments/${id}/reference`),
+  settleBillingInvoiceManually: (id: UUID, input: { reference: string; reason: string }) =>
+    admin<BillingInvoiceDetail>(`/billing/invoices/${id}/manual-settlement`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  issueBillingCredit: (
+    id: UUID,
+    input: {
+      amount: string;
+      currencyCode: string;
+      reason: string;
+      source: string;
+      externalReference?: string;
+    },
+  ) => admin<BillingCredit>(`/billing/invoices/${id}/credits`, { method: "POST", body: jsonBody(input) }),
+  previewBillingRefund: (paymentId: UUID) =>
+    admin<BillingRefundPreview>(`/billing/payments/${paymentId}/refund-preview`),
+  requestBillingRefund: (
+    paymentId: UUID,
+    idempotencyKey: string,
+    input: { amount: string; currencyCode: string; reason: string },
+  ) =>
+    admin<BillingRefund>(`/billing/payments/${paymentId}/refunds`, {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: jsonBody(input),
+    }),
+  recordManualBillingRefund: (
+    paymentId: UUID,
+    idempotencyKey: string,
+    input: { amount: string; currencyCode: string; reason: string; externalReference: string },
+  ) =>
+    admin<BillingRefund>(`/billing/payments/${paymentId}/manual-refunds`, {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: jsonBody(input),
+    }),
+  billingReconciliation: (
+    query: {
+      status?: BillingOutboxStatus;
+      operation?: BillingOutboxOperation;
+      page?: number;
+      size?: number;
+      sort?: "createdAt" | "nextAttemptAt" | "status" | "operation" | "attemptCount";
+      direction?: "asc" | "desc";
+    } = {},
+  ) => admin<PageResponse<BillingOutboxRow>>("/billing/reconciliation", { query }),
+  billingProviderEvents: (
+    query: {
+      status?: BillingProviderEventStatus;
+      operation?: BillingOutboxOperation;
+      provider?: string;
+      page?: number;
+      size?: number;
+      sort?: "receivedAt" | "occurredAt" | "status" | "operation" | "provider";
+      direction?: "asc" | "desc";
+    } = {},
+  ) => admin<PageResponse<BillingProviderEventRow>>("/billing/provider-events", { query }),
+  reprocessBillingProviderEvent: (id: UUID) =>
+    admin<BillingProviderEventRow>(`/billing/provider-events/${id}/reprocess`, { method: "POST" }),
+  previewBillingChargeRetry: (invoiceId: UUID) =>
+    admin<BillingChargeRetryPreview>(`/billing/invoices/${invoiceId}/charge-retry-preview`),
+  retryBillingCharge: (
+    invoiceId: UUID,
+    idempotencyKey: string,
+    input: { reason: string; recoveryReference: string; providerConfirmedNotCaptured: boolean },
+  ) =>
+    admin<BillingPayment>(`/billing/invoices/${invoiceId}/charge-retries`, {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: jsonBody(input),
+    }),
   previewSubscriptionChange: (accountId: UUID, input: SubscriptionChangeInput) =>
     admin<SubscriptionChangePreview>(`/subscriptions/account/${accountId}/changes/preview`, {
       method: "POST",

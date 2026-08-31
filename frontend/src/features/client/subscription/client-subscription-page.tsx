@@ -66,6 +66,7 @@ import {
   SubscriptionQuantityControl,
 } from "@/features/commercial/subscription-quantity-control";
 import { formatExactMoney } from "@/lib/exact-decimal";
+import { ClientInvoiceHistory } from "./client-invoice-history";
 import {
   subscriptionChangeConflictText,
   subscriptionChangeFailureMessage,
@@ -878,14 +879,16 @@ export function ClientSubscriptionPage() {
   const canReadSubscription = session.can(clientPermissions.subscriptionRead);
   const canReadCatalog = session.can(clientPermissions.subscriptionCatalog);
   const canReadChanges = session.can(clientPermissions.subscriptionReadChanges);
+  const canReadInvoices = session.can(clientPermissions.subscriptionListInvoices);
   const availableTabs = [
     ...(canReadSubscription ? [{ label: "Abonnement actuel", value: "current" as const }] : []),
     ...(canReadCatalog ? [{ label: "Changer de forfait", value: "catalog" as const }] : []),
     ...(canReadChanges ? [{ label: "Changements", value: "changes" as const }] : []),
+    ...(canReadInvoices ? [{ label: "Factures", value: "invoices" as const }] : []),
   ];
-  const requestedTab = params.get("tab") as "current" | "catalog" | "changes" | null;
+  const requestedTab = params.get("tab") as "current" | "catalog" | "changes" | "invoices" | null;
   const tab = availableTabs.some((item) => item.value === requestedTab)
-    ? (requestedTab as "current" | "catalog" | "changes")
+    ? (requestedTab as "current" | "catalog" | "changes" | "invoices")
     : (availableTabs[0]?.value ?? "current");
   const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
   const [subscription, catalog] = useQueries({
@@ -925,6 +928,8 @@ export function ClientSubscriptionPage() {
         <Configurator catalog={catalog.data} />
       ) : tab === "changes" && canReadChanges ? (
         <ChangeHistory />
+      ) : tab === "invoices" && canReadInvoices ? (
+        <ClientInvoiceHistory />
       ) : tab === "current" && canReadSubscription && subscription.data ? (
         <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
           <section className="rounded-xl border bg-card p-5">

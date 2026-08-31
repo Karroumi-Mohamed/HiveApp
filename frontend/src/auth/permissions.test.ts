@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  adminBillingSurfacePermissions,
   adminCommercialCampaignDetailSurfacePermissions,
   adminCommercialCampaignEditPermissions,
   adminCommercialPolicyDetailSurfacePermissions,
+  adminInvoiceDetailSurfacePermissions,
   adminOfferDetailSurfacePermissions,
   adminOfferEditPermissions,
   adminOverviewSurfacePermissions,
@@ -45,6 +47,22 @@ describe("session permission bypasses", () => {
       clientPermissions.subscriptionRead,
       clientPermissions.subscriptionCatalog,
       clientPermissions.subscriptionReadChanges,
+      clientPermissions.subscriptionListInvoices,
+    ]);
+  });
+
+  test("billing routes preserve independently readable operational surfaces", () => {
+    expect(adminBillingSurfacePermissions).toEqual([
+      adminPermissions.billingListInvoices,
+      adminPermissions.billingListReconciliation,
+      adminPermissions.billingListProviderEvents,
+    ]);
+    expect(adminInvoiceDetailSurfacePermissions).toEqual([
+      adminPermissions.billingReadInvoice,
+      adminPermissions.billingReadAccountIdentity,
+      adminPermissions.billingReadPayments,
+      adminPermissions.billingManualSettlement,
+      adminPermissions.billingPreviewChargeRetry,
     ]);
   });
 

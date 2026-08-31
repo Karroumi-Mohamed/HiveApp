@@ -1,10 +1,12 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { AppProviders } from "@/app/providers";
 import {
+  adminBillingSurfacePermissions,
   adminCommercialCampaignDetailSurfacePermissions,
   adminCommercialCampaignEditPermissions,
   adminCommercialPolicyDetailSurfacePermissions,
   adminCommercialSegmentDetailSurfacePermissions,
+  adminInvoiceDetailSurfacePermissions,
   adminOfferDetailSurfacePermissions,
   adminOfferEditPermissions,
   adminOverviewSurfacePermissions,
@@ -22,12 +24,13 @@ import {
   AdminAccountsPlaceholderPage,
   AdminActivitiesPlaceholderPage,
   AdminAnalyticsPlaceholderPage,
-  AdminBillingPlaceholderPage,
   AdminCollaborationsPlaceholderPage,
   AdminCommunicationsPlaceholderPage,
   AdminObservabilityPlaceholderPage,
   AdminRoleTemplatesPlaceholderPage,
 } from "@/features/admin/admin-placeholder-pages";
+import { AdminBillingPage } from "@/features/admin/billing/admin-billing-page";
+import { AdminInvoiceDetailPage } from "@/features/admin/billing/admin-invoice-detail-page";
 import {
   AdminOperationalAddOnsPage,
   AdminOperationalPlansPage,
@@ -433,7 +436,22 @@ const router = createBrowserRouter([
       { path: "role-templates", element: <AdminRoleTemplatesPlaceholderPage /> },
       { path: "accounts", element: <AdminAccountsPlaceholderPage /> },
       { path: "collaborations", element: <AdminCollaborationsPlaceholderPage /> },
-      { path: "billing", element: <AdminBillingPlaceholderPage /> },
+      {
+        path: "billing",
+        element: (
+          <AdminReadPermissionGate anyOf={adminBillingSurfacePermissions}>
+            <AdminBillingPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "billing/invoices/:invoiceId",
+        element: (
+          <AdminReadPermissionGate anyOf={adminInvoiceDetailSurfacePermissions}>
+            <AdminInvoiceDetailPage />
+          </AdminReadPermissionGate>
+        ),
+      },
       { path: "activities", element: <AdminActivitiesPlaceholderPage /> },
       { path: "communications", element: <AdminCommunicationsPlaceholderPage /> },
       { path: "observability", element: <AdminObservabilityPlaceholderPage /> },

@@ -120,6 +120,21 @@ export const adminPermissions = {
   subscriptionsReadChangeJobResultIdentities: permission("subscriptions", "read_change_job_result_identities"),
   subscriptionsCancelChangeJob: permission("subscriptions", "cancel_change_job"),
   subscriptionsRetryChangeJob: permission("subscriptions", "retry_change_job"),
+  billingListInvoices: permission("billing", "list_invoices"),
+  billingReadInvoice: permission("billing", "read_invoice"),
+  billingReadAccountIdentity: permission("billing", "read_account_identity"),
+  billingReadPayments: permission("billing", "read_payments"),
+  billingReadPaymentReferences: permission("billing", "read_payment_references"),
+  billingManualSettlement: permission("billing", "manual_settlement"),
+  billingIssueCredit: permission("billing", "issue_credit"),
+  billingPreviewRefund: permission("billing", "preview_refund"),
+  billingCreateRefund: permission("billing", "create_refund"),
+  billingRecordManualRefund: permission("billing", "record_manual_refund"),
+  billingListReconciliation: permission("billing", "list_reconciliation"),
+  billingListProviderEvents: permission("billing", "list_provider_events"),
+  billingReconcileProviderEvent: permission("billing", "reconcile_provider_event"),
+  billingPreviewChargeRetry: permission("billing", "preview_charge_retry"),
+  billingRetryCharge: permission("billing", "retry_charge"),
   registryRead: permission("registry", "read"),
   registryFeatureCatalog: permission("registry", "feature_catalog"),
   registryPermissionCatalog: permission("registry", "permission_catalog"),
@@ -328,6 +343,8 @@ export const clientPermissions = {
   subscriptionApply: permission("subscription", "apply"),
   subscriptionReadChanges: permission("subscription", "read_changes"),
   subscriptionCancel: permission("subscription", "cancel_change"),
+  subscriptionListInvoices: permission("subscription", "list_invoices"),
+  subscriptionReadInvoice: permission("subscription", "read_invoice"),
   subscriptionOfferCatalog: permission("subscription", "offer_catalog"),
   subscriptionOfferDetail: permission("subscription", "offer_detail"),
   subscriptionOfferCode: permission("subscription", "offer_code"),
@@ -346,6 +363,21 @@ export const clientSubscriptionSurfacePermissions = [
   clientPermissions.subscriptionRead,
   clientPermissions.subscriptionCatalog,
   clientPermissions.subscriptionReadChanges,
+  clientPermissions.subscriptionListInvoices,
+] as const;
+
+export const adminBillingSurfacePermissions = [
+  adminPermissions.billingListInvoices,
+  adminPermissions.billingListReconciliation,
+  adminPermissions.billingListProviderEvents,
+] as const;
+
+export const adminInvoiceDetailSurfacePermissions = [
+  adminPermissions.billingReadInvoice,
+  adminPermissions.billingReadAccountIdentity,
+  adminPermissions.billingReadPayments,
+  adminPermissions.billingManualSettlement,
+  adminPermissions.billingPreviewChargeRetry,
 ] as const;
 
 /**

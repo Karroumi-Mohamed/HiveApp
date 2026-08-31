@@ -23,7 +23,7 @@ import {
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
-import { adminOverviewSurfacePermissions, adminPermissions } from "@/auth/permissions";
+import { adminBillingSurfacePermissions, adminOverviewSurfacePermissions, adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { type ProductNavigationGroup, ProductShell } from "@/components/patterns/product-shell";
 import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
@@ -148,7 +148,12 @@ export function AdminLayout() {
           icon: FadersHorizontalIcon,
           visible: session.can(adminPermissions.commercialPoliciesList),
         },
-        { label: "Facturation", to: "/admin/billing", icon: ReceiptIcon, visible: plannedSectionsVisible },
+        {
+          label: "Facturation",
+          to: "/admin/billing",
+          icon: ReceiptIcon,
+          visible: adminBillingSurfacePermissions.some(session.can),
+        },
       ],
     },
     {

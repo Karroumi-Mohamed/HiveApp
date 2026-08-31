@@ -2903,9 +2903,9 @@ Restrict the fake gateway to an explicit local/test profile. Production startup 
 
 ---
 
-### BILLING-003 — HiveApp has a financial ledger and provider reconciliation but no renewal recovery UI
+### BILLING-003 — HiveApp has a financial ledger and operating UI but no renewal/grace production
 
-**Status:** `PARTIAL — LEDGER, OPERATIONAL APIS AND PROVIDER RECOVERY IMPLEMENTED; RENEWAL AND UI OPEN`
+**Status:** `PARTIAL — LEDGER, OPERATIONAL APIS, PROVIDER RECOVERY AND BILLING UI IMPLEMENTED; RENEWAL OPEN`
 
 **Evidence**
 
@@ -2914,11 +2914,13 @@ Restrict the fake gateway to an explicit local/test profile. Production startup 
 - Positive reviewed subscription changes now persist immutable numbered Invoice/InvoiceLine evidence, provider/manual Payment attempts, Credits, Refund intents, and durable idempotent outbox commands.
 - Price preview, amount due, provider attempt, trusted/manual settlement, entitlement activation, Credit, and Refund are distinct facts. Pre-dispatch cancellation and manual settlement cannot leave an automatic charge runnable.
 - Fine-grained admin Invoice/search/detail/payment/manual-settlement/Credit/Refund/reconciliation reads and Account-isolated client Invoice history/detail are mounted. Account identity, Payment evidence, and sensitive references remain separately authorized.
-- Verified provider event ingestion/deduplication, mismatch retention/reprocessing, and evidence-gated failed-charge retry are implemented. A concrete signed provider adapter, recurring renewal/grace production, and admin/client Billing UI are still absent.
+- Verified provider event ingestion/deduplication, mismatch retention/reprocessing, and evidence-gated failed-charge retry are implemented.
+- The admin Billing workbench exposes bounded Invoice filters/detail, independently authorized Account and Payment evidence, manual settlement, Credit, provider/manual Refund review, failed-charge retry, outbox reconciliation, and provider-event reprocessing. The client subscription hub exposes bounded own-Account Invoice history and safe detail.
+- A concrete signed provider adapter, recurring renewal/grace production, Account financial timeline, and fiscal documents are still absent.
 
 **Risk**
 
-Without the remaining Billing workbenches and renewal/grace production, support/accounting cannot yet operate the implemented financial controls through a complete product surface, and failed renewals do not yet drive access recovery. The durable records, transport boundary, and verified-event recovery now prevent calculated prices or unverified callback claims from masquerading as collected value.
+Without renewal/grace production, failed renewals do not yet drive access recovery. Support can operate the current Invoice/payment/refund/reconciliation controls, but it does not yet have an Account-wide financial timeline or fiscal-document output. The durable records, transport boundary, and verified-event recovery prevent calculated prices or unverified callback claims from masquerading as collected value.
 
 **Required fix direction**
 
@@ -2940,11 +2942,12 @@ Without the remaining Billing workbenches and renewal/grace production, support/
 - On 2026-08-31, Phase 13 added immutable itemized Invoices, provider/manual Payment evidence, Credits, concurrency-capped Refund intents, replay-safe provider commands outside database transactions, and atomic pre-dispatch cancellation. The full backend suite passed with 774 tests.
 - The next Phase 13 slice mounted bounded/filterable admin Billing APIs and own-Account client Invoice history/detail; added permission-before-existence, nested privacy, cross-surface, cross-Account, and provider-versus-manual Refund tests; and fixed nested Spring access denials to return the stable `PERMISSION_DENIED` 403 contract rather than 500.
 - Verified provider events are now stored before processing with `(provider,eventId)` deduplication and digest-conflict detection, matched through financial idempotency plus operation/money/reference/state checks, retained for operator attention on mismatch, and explicitly reprocessable. Failed-charge recovery creates a new Payment/outbox attempt and requires operator/provider evidence for ambiguous transport failures.
+- The frontend now replaces the Billing placeholder with permission-separated admin Invoice, payment/adjustment, reconciliation-command, and provider-event workflows plus client Invoice history/detail. Route/query tests prove Invoice-list, reconciliation-only, Payment-only, and Account-identity boundaries independently, and exact monetary values remain strings through the UI.
 - No Flyway history was added because the application is unpublished and currently uses a disposable generated H2 schema, per the agreed pre-production database policy.
 
 **Remaining scope**
 
-A concrete signed provider adapter, Billing workbenches/history, zero-amount renewal evidence, and grace/past-due recovery remain in Phase 13. Provider-event deduplication/recovery, fine-grained admin and Account-isolated client APIs, immutable Price books, and the core Invoice/Payment/Credit/Refund/outbox persistence boundary are implemented and are no longer part of this finding's remaining scope.
+A concrete signed provider adapter, Account financial timeline, fiscal-document output, zero-amount renewal evidence, and grace/past-due recovery remain in Phase 13. Billing workbenches/history, provider-event deduplication/recovery, fine-grained admin and Account-isolated client APIs, immutable Price books, and the core Invoice/Payment/Credit/Refund/outbox persistence boundary are implemented and are no longer part of this finding's remaining scope.
 
 ---
 

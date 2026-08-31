@@ -5,7 +5,6 @@ import {
   HandshakeIcon,
   HeartbeatIcon,
   PulseIcon,
-  ReceiptIcon,
   StackIcon,
 } from "@phosphor-icons/react";
 import type { ComponentProps } from "react";
@@ -66,21 +65,6 @@ export function AdminCollaborationsPlaceholderPage() {
         "Intervention support sur une collaboration bloquée",
       ]}
       title="Collaborations"
-    />
-  );
-}
-
-export function AdminBillingPlaceholderPage() {
-  return (
-    <PlannedAdminPage
-      description="Factures, paiements et remboursements des abonnements."
-      icon={ReceiptIcon}
-      planned={[
-        "Factures émises et leur statut de règlement",
-        "Paiements échoués et relances",
-        "Remboursements et avoirs, avec justification",
-      ]}
-      title="Facturation"
     />
   );
 }
