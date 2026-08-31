@@ -153,6 +153,16 @@ export const adminPermissions = {
   analyticsReadSubscriptionSeries: permission("analytics", "read_subscription_series"),
   analyticsReadOfferSeries: permission("analytics", "read_offer_series"),
   analyticsReadOperations: permission("analytics", "read_operations"),
+  activitiesRead: permission("activities", "read"),
+  activitiesReadPayload: permission("activities", "read_payload"),
+  activitiesReadActorIdentity: permission("activities", "read_actor_identity"),
+  activitiesReadAccountIdentity: permission("activities", "read_account_identity"),
+  communicationsRead: permission("communications", "read"),
+  communicationsReadRecipientIdentity: permission("communications", "read_recipient_identity"),
+  communicationsReadFailureEvidence: permission("communications", "read_failure_evidence"),
+  observabilityReadHealth: permission("observability", "read_health"),
+  observabilityReadBacklogs: permission("observability", "read_backlogs"),
+  observabilityReadLogAccess: permission("observability", "read_log_access"),
   registryRead: permission("registry", "read"),
   registryFeatureCatalog: permission("registry", "feature_catalog"),
   registryPermissionCatalog: permission("registry", "permission_catalog"),
@@ -402,6 +412,25 @@ export const adminAnalyticsSurfacePermissions = [
   adminPermissions.analyticsReadSubscriptionSeries,
   adminPermissions.analyticsReadOfferSeries,
   adminPermissions.analyticsReadOperations,
+] as const;
+
+export const adminActivitiesSurfacePermissions = [
+  adminPermissions.activitiesRead,
+  adminPermissions.activitiesReadPayload,
+  adminPermissions.activitiesReadActorIdentity,
+  adminPermissions.activitiesReadAccountIdentity,
+] as const;
+
+export const adminCommunicationsSurfacePermissions = [
+  adminPermissions.communicationsRead,
+  adminPermissions.communicationsReadRecipientIdentity,
+  adminPermissions.communicationsReadFailureEvidence,
+] as const;
+
+export const adminObservabilitySurfacePermissions = [
+  adminPermissions.observabilityReadHealth,
+  adminPermissions.observabilityReadBacklogs,
+  adminPermissions.observabilityReadLogAccess,
 ] as const;
 
 export const adminInvoiceDetailSurfacePermissions = [

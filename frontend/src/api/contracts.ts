@@ -9,7 +9,126 @@ export type ApiErrorBody = {
   error: string;
   message: string;
   timestamp: string;
-  details?: Record<string, unknown> | null;
+  details?: unknown;
+  requestId?: string | null;
+};
+
+export type AuditActorSurface = "PLATFORM_ADMIN" | "CLIENT_WORKSPACE" | "SYSTEM";
+export type AuditOutcome = "SUCCEEDED" | "FAILED";
+
+export type PlatformActivityActorIdentity = {
+  displayName: string;
+  email: string;
+  active: boolean;
+};
+
+export type PlatformActivityAccountIdentity = {
+  name: string;
+  slug: string;
+  active: boolean;
+};
+
+export type PlatformActivity = {
+  id: UUID;
+  occurredAt: Instant;
+  actorSurface: AuditActorSurface;
+  actorUserId: UUID | null;
+  actorIdentity: PlatformActivityActorIdentity | null;
+  clientAccountId: UUID | null;
+  targetAccountId: UUID | null;
+  accountIdentity: PlatformActivityAccountIdentity | null;
+  targetCompanyId: UUID | null;
+  collaborationId: UUID | null;
+  action: string;
+  resourceType: string;
+  resourceId: string | null;
+  outcome: AuditOutcome;
+  requestMethod: string | null;
+  requestPath: string | null;
+  requestId: string | null;
+  payloadAvailable: boolean;
+};
+
+export type PlatformActivityPayload = {
+  id: UUID;
+  requestData: string | null;
+  resultData: string | null;
+  failureType: string | null;
+};
+
+export type PlatformActivityActorResolution = {
+  activityId: UUID;
+  actorUserId: UUID;
+  identity: PlatformActivityActorIdentity | null;
+};
+
+export type PlatformActivityAccountResolution = {
+  activityId: UUID;
+  accountId: UUID;
+  identity: PlatformActivityAccountIdentity | null;
+};
+
+export type CredentialTokenPurpose = "ACTIVATION" | "PASSWORD_RESET" | "EMAIL_VERIFICATION";
+export type PlatformEmailDeliveryStatus = "PENDING" | "SENT" | "FAILED" | "SUPPRESSED";
+
+export type PlatformCommunicationSummary = {
+  total: number;
+  byStatus: Partial<Record<PlatformEmailDeliveryStatus, number>>;
+  byPurpose: Partial<Record<CredentialTokenPurpose, number>>;
+};
+
+export type PlatformCommunication = {
+  id: UUID;
+  accountId: UUID | null;
+  recipientUserId: UUID | null;
+  recipientEmail: string | null;
+  purpose: CredentialTokenPurpose;
+  status: PlatformEmailDeliveryStatus;
+  createdAt: Instant;
+  attemptedAt: Instant | null;
+  deliveredAt: Instant | null;
+  failureCode: string | null;
+  recipientIdentityVisible: boolean;
+  failureEvidenceVisible: boolean;
+};
+
+export type PlatformCommunicationRecipient = {
+  deliveryId: UUID;
+  userId: UUID;
+  email: string;
+};
+
+export type PlatformCommunicationFailureEvidence = {
+  deliveryId: UUID;
+  attemptedAt: Instant | null;
+  deliveredAt: Instant | null;
+  failureCode: string | null;
+};
+
+export type PlatformComponentState = "UP" | "CONFIGURED" | "SUPPRESSED" | "DISABLED" | "DEGRADED" | "UNAVAILABLE";
+
+export type PlatformHealth = {
+  generatedAt: Instant;
+  components: Array<{ key: string; label: string; state: PlatformComponentState; guidance: string | null }>;
+};
+
+export type PlatformBacklogs = {
+  generatedAt: Instant;
+  components: Array<{
+    key: string;
+    label: string;
+    counts: Record<string, number>;
+    oldestAttentionAt: Instant | null;
+    attentionRequired: boolean;
+    destination: string | null;
+  }>;
+};
+
+export type PlatformLogAccess = {
+  configured: boolean;
+  provider: string | null;
+  destination: string | null;
+  guidance: string | null;
 };
 
 export type PageResponse<T> = {

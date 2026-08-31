@@ -26,7 +26,8 @@ export class ApiError extends Error {
   }
 }
 
-const configuredApiOrigin = process.env.BUN_PUBLIC_API_URL?.trim().replace(/\/$/, "");
+const configuredApiOrigin =
+  typeof process !== "undefined" ? process.env.BUN_PUBLIC_API_URL?.trim().replace(/\/$/, "") : undefined;
 const apiOrigin =
   configuredApiOrigin ??
   (typeof window !== "undefined" && window.location.port === "3000" ? "http://localhost:8080" : "");

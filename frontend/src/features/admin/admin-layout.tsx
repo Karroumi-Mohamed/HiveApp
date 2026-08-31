@@ -24,8 +24,11 @@ import {
 } from "@phosphor-icons/react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import {
+  adminActivitiesSurfacePermissions,
   adminAnalyticsSurfacePermissions,
   adminBillingSurfacePermissions,
+  adminCommunicationsSurfacePermissions,
+  adminObservabilitySurfacePermissions,
   adminOverviewSurfacePermissions,
   adminPermissions,
 } from "@/auth/permissions";
@@ -170,12 +173,17 @@ export function AdminLayout() {
           icon: HexagonIcon,
           visible: session.can(adminPermissions.registryRead),
         },
-        { label: "Activités", to: "/admin/activities", icon: PulseIcon, visible: plannedSectionsVisible },
+        {
+          label: "Activités",
+          to: "/admin/activities",
+          icon: PulseIcon,
+          visible: adminActivitiesSurfacePermissions.some(session.can),
+        },
         {
           label: "Communications",
           to: "/admin/communications",
           icon: EnvelopeSimpleIcon,
-          visible: plannedSectionsVisible,
+          visible: adminCommunicationsSurfacePermissions.some(session.can),
         },
       ],
     },
@@ -186,7 +194,7 @@ export function AdminLayout() {
           label: "Santé & journaux",
           to: "/admin/observability",
           icon: HeartbeatIcon,
-          visible: plannedSectionsVisible,
+          visible: adminObservabilitySurfacePermissions.some(session.can),
         },
       ],
     },

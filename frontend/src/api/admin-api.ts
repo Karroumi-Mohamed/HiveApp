@@ -125,6 +125,18 @@ import type {
   PlanOperationalItem,
   PlanSubscriber,
   PlanSubscriberOwnerLookup,
+  PlatformActivity,
+  PlatformActivityAccountResolution,
+  PlatformActivityActorResolution,
+  PlatformActivityPayload,
+  PlatformBacklogs,
+  PlatformCommunication,
+  PlatformCommunicationFailureEvidence,
+  PlatformCommunicationRecipient,
+  PlatformCommunicationSummary,
+  PlatformEmailDeliveryStatus,
+  PlatformHealth,
+  PlatformLogAccess,
   ProductPrice,
   ProductPriceActivationPreview,
   ProductPriceActivationRequest,
@@ -193,6 +205,49 @@ export const adminApi = {
   commercialProductHoldings: () => admin<CommercialProductHolding[]>("/analytics/product-holdings"),
   commercialAttention: (query: { type?: CommercialAttentionType; page?: number; size?: number }) =>
     admin<PageResponse<CommercialAttentionRow>>("/analytics/attention", { query }),
+  activities: (query: {
+    from?: string;
+    until?: string;
+    outcome?: "SUCCEEDED" | "FAILED";
+    actorSurface?: "PLATFORM_ADMIN" | "CLIENT_WORKSPACE" | "SYSTEM";
+    actionPrefix?: string;
+    resourceType?: string;
+    resourceId?: string;
+    actorUserId?: UUID;
+    targetAccountId?: UUID;
+    page?: number;
+    size?: number;
+  }) => admin<PageResponse<PlatformActivity>>("/activities", { query }),
+  activity: (id: UUID) => admin<PlatformActivity>(`/activities/${id}`),
+  activityPayload: (id: UUID) => admin<PlatformActivityPayload>(`/activities/${id}/payload`),
+  activityActorIdentities: (activityIds: UUID[]) =>
+    admin<PlatformActivityActorResolution[]>("/activities/actor-identities", {
+      method: "POST",
+      body: jsonBody({ activityIds }),
+    }),
+  activityAccountIdentities: (activityIds: UUID[]) =>
+    admin<PlatformActivityAccountResolution[]>("/activities/account-identities", {
+      method: "POST",
+      body: jsonBody({ activityIds }),
+    }),
+  communicationSummary: () => admin<PlatformCommunicationSummary>("/communications/summary"),
+  communications: (query: {
+    from?: string;
+    until?: string;
+    status?: PlatformEmailDeliveryStatus;
+    purpose?: "ACTIVATION" | "PASSWORD_RESET" | "EMAIL_VERIFICATION";
+    accountId?: UUID;
+    recipientUserId?: UUID;
+    page?: number;
+    size?: number;
+  }) => admin<PageResponse<PlatformCommunication>>("/communications", { query }),
+  communication: (id: UUID) => admin<PlatformCommunication>(`/communications/${id}`),
+  communicationRecipient: (id: UUID) => admin<PlatformCommunicationRecipient>(`/communications/${id}/recipient`),
+  communicationFailureEvidence: (id: UUID) =>
+    admin<PlatformCommunicationFailureEvidence>(`/communications/${id}/failure-evidence`),
+  observabilityHealth: () => admin<PlatformHealth>("/observability/health"),
+  observabilityBacklogs: () => admin<PlatformBacklogs>("/observability/backlogs"),
+  observabilityLogAccess: () => admin<PlatformLogAccess>("/observability/log-access"),
   users: (query: {
     search?: string;
     active?: boolean;

@@ -1,13 +1,16 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
 import { AppProviders } from "@/app/providers";
 import {
+  adminActivitiesSurfacePermissions,
   adminAnalyticsSurfacePermissions,
   adminBillingSurfacePermissions,
   adminCommercialCampaignDetailSurfacePermissions,
   adminCommercialCampaignEditPermissions,
   adminCommercialPolicyDetailSurfacePermissions,
   adminCommercialSegmentDetailSurfacePermissions,
+  adminCommunicationsSurfacePermissions,
   adminInvoiceDetailSurfacePermissions,
+  adminObservabilitySurfacePermissions,
   adminOfferDetailSurfacePermissions,
   adminOfferEditPermissions,
   adminOverviewSurfacePermissions,
@@ -23,10 +26,7 @@ import { AdminReadPermissionGate, ClientReadPermissionGate } from "@/components/
 import { AdminLayout } from "@/features/admin/admin-layout";
 import {
   AdminAccountsPlaceholderPage,
-  AdminActivitiesPlaceholderPage,
   AdminCollaborationsPlaceholderPage,
-  AdminCommunicationsPlaceholderPage,
-  AdminObservabilityPlaceholderPage,
   AdminRoleTemplatesPlaceholderPage,
 } from "@/features/admin/admin-placeholder-pages";
 import { AdminAnalyticsPage } from "@/features/admin/analytics/admin-analytics-page";
@@ -61,6 +61,9 @@ import {
   AdminCommercialSegmentEditPage,
 } from "@/features/admin/commercial-segments/commercial-segment-editor";
 import { AdminMePage } from "@/features/admin/me/admin-me-page";
+import { AdminActivitiesPage } from "@/features/admin/operations/admin-activities-page";
+import { AdminCommunicationsPage } from "@/features/admin/operations/admin-communications-page";
+import { AdminObservabilityPage } from "@/features/admin/operations/admin-observability-page";
 import { AdminOperatorDetailPage } from "@/features/admin/operators/admin-operator-detail-page";
 import { AdminOperatorsPage } from "@/features/admin/operators/admin-operators-page";
 import { AdminOverviewPage } from "@/features/admin/overview/admin-overview-page";
@@ -463,9 +466,30 @@ const router = createBrowserRouter([
           </AdminReadPermissionGate>
         ),
       },
-      { path: "activities", element: <AdminActivitiesPlaceholderPage /> },
-      { path: "communications", element: <AdminCommunicationsPlaceholderPage /> },
-      { path: "observability", element: <AdminObservabilityPlaceholderPage /> },
+      {
+        path: "activities",
+        element: (
+          <AdminReadPermissionGate anyOf={adminActivitiesSurfacePermissions}>
+            <AdminActivitiesPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "communications",
+        element: (
+          <AdminReadPermissionGate anyOf={adminCommunicationsSurfacePermissions}>
+            <AdminCommunicationsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "observability",
+        element: (
+          <AdminReadPermissionGate anyOf={adminObservabilitySurfacePermissions}>
+            <AdminObservabilityPage />
+          </AdminReadPermissionGate>
+        ),
+      },
       {
         path: "analytics",
         element: (

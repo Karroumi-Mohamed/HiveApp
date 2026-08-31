@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
+  adminActivitiesSurfacePermissions,
   adminBillingSurfacePermissions,
   adminCommercialCampaignDetailSurfacePermissions,
   adminCommercialCampaignEditPermissions,
   adminCommercialPolicyDetailSurfacePermissions,
+  adminCommunicationsSurfacePermissions,
   adminInvoiceDetailSurfacePermissions,
+  adminObservabilitySurfacePermissions,
   adminOfferDetailSurfacePermissions,
   adminOfferEditPermissions,
   adminOverviewSurfacePermissions,
@@ -66,6 +69,25 @@ describe("session permission bypasses", () => {
       adminPermissions.billingReadPayments,
       adminPermissions.billingManualSettlement,
       adminPermissions.billingPreviewChargeRetry,
+    ]);
+  });
+
+  test("operations routes preserve every independently readable evidence surface", () => {
+    expect(adminActivitiesSurfacePermissions).toEqual([
+      adminPermissions.activitiesRead,
+      adminPermissions.activitiesReadPayload,
+      adminPermissions.activitiesReadActorIdentity,
+      adminPermissions.activitiesReadAccountIdentity,
+    ]);
+    expect(adminCommunicationsSurfacePermissions).toEqual([
+      adminPermissions.communicationsRead,
+      adminPermissions.communicationsReadRecipientIdentity,
+      adminPermissions.communicationsReadFailureEvidence,
+    ]);
+    expect(adminObservabilitySurfacePermissions).toEqual([
+      adminPermissions.observabilityReadHealth,
+      adminPermissions.observabilityReadBacklogs,
+      adminPermissions.observabilityReadLogAccess,
     ]);
   });
 
