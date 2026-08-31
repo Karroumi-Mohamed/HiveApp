@@ -1,6 +1,11 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanCreationReason;
+import com.hiveapp.platform.client.plan.domain.constant.PlanExtensionPolicy;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
+import com.hiveapp.platform.client.plan.domain.constant.ProductSalesVisibility;
+import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -11,15 +16,43 @@ public record PlanDetailDto(
         String code,
         String name,
         String description,
-        BigDecimal price,
+        @ExactDecimal BigDecimal price,
+        String currencyCode,
         BillingCycle billingCycle,
-        boolean isActive,
+        PlanStatus status,
+        UUID lineageId,
+        int revisionNumber,
+        UUID sourcePlanId,
+        PlanCreationReason creationReason,
         int featureCount,
         int quotaConfiguredFeatureCount,
         long activeSubscriberCount,
         long trialingSubscriberCount,
         long currentSubscriberCount,
+        long affectedSubscriptionCount,
         long historicalSubscriberCount,
-        BigDecimal currentRecurringPrice,
-        List<String> warnings
-) {}
+        @ExactDecimal BigDecimal configuredRecurringPriceTotal,
+        String configuredRecurringPriceCurrencyCode,
+        List<String> warnings,
+        PlanExtensionPolicy extensionPolicy,
+        ProductSalesVisibility salesVisibility,
+        long version
+) {
+    public PlanDetailDto(
+            UUID id, String code, String name, String description, BigDecimal price,
+            String currencyCode, BillingCycle billingCycle, PlanStatus status,
+            UUID lineageId, int revisionNumber, UUID sourcePlanId, PlanCreationReason creationReason,
+            int featureCount, int quotaConfiguredFeatureCount, long activeSubscriberCount,
+            long trialingSubscriberCount, long currentSubscriberCount, long historicalSubscriberCount,
+            BigDecimal configuredRecurringPriceTotal, String configuredRecurringPriceCurrencyCode,
+            List<String> warnings
+    ) {
+        this(id, code, name, description, price, currencyCode, billingCycle, status,
+                lineageId, revisionNumber, sourcePlanId, creationReason, featureCount,
+                quotaConfiguredFeatureCount, activeSubscriberCount, trialingSubscriberCount,
+                currentSubscriberCount, currentSubscriberCount, historicalSubscriberCount,
+                configuredRecurringPriceTotal,
+                configuredRecurringPriceCurrencyCode, warnings,
+                PlanExtensionPolicy.OPEN_COMPATIBLE, ProductSalesVisibility.PUBLIC, 0L);
+    }
+}

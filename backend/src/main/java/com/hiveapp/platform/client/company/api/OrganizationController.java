@@ -40,7 +40,7 @@ public class OrganizationController {
     @PostMapping("/groups/{groupId}/move")
     public OrganizationGroupDto moveGroup(
             @PathVariable UUID groupId,
-            @RequestBody MoveOrganizationGroupRequest request) {
+            @Valid @RequestBody MoveOrganizationGroupRequest request) {
         return organizationService.moveGroup(groupId, request.parentId());
     }
 

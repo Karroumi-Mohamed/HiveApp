@@ -1,0 +1,12 @@
+package com.hiveapp.platform.client.plan.domain.constant;
+
+public enum QuotaPackageActivationBlocker {
+    WRONG_LIFECYCLE_STATE,
+    ARCHIVED_TERMINAL,
+    NOT_LATEST_REVISION,
+    NO_REVIEWABLE_PRICE,
+    NO_APPLICABLE_PRICE,
+    EXPIRED_PRICE_WINDOW,
+    OVERLAPPING_PRICE_DRAFTS,
+    TARGET_COMPATIBILITY_INVALID
+}

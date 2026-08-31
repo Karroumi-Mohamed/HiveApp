@@ -4,6 +4,7 @@ import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.identity.domain.EmailIdentity;
 import com.hiveapp.identity.domain.constant.CredentialState;
 import com.hiveapp.identity.domain.constant.CredentialTokenPurpose;
+import com.hiveapp.identity.domain.constant.IdentityKind;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -52,6 +53,15 @@ public class User extends BaseEntity {
     @Column(nullable = false)
     @Builder.Default
     private boolean isActive = true;
+
+    /**
+     * Defaults to CLIENT so any creation path that predates this column keeps client semantics;
+     * only platform administration may write PLATFORM.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20, updatable = false)
+    @Builder.Default
+    private IdentityKind kind = IdentityKind.CLIENT;
 
     @Column(name = "email_verified", nullable = false)
     @Builder.Default

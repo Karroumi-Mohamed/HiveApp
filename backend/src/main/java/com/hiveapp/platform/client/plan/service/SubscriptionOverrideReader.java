@@ -18,6 +18,9 @@ public class SubscriptionOverrideReader {
         if (isEmpty(rawOverrides)) {
             return SubscriptionOverrides.empty();
         }
+        if (rawOverrides instanceof SubscriptionOverrides overrides) {
+            return overrides;
+        }
         if (rawOverrides instanceof String value) {
             try {
                 return objectMapper.readValue(value, SubscriptionOverrides.class);
@@ -32,12 +35,8 @@ public class SubscriptionOverrideReader {
         }
     }
 
-    public String write(SubscriptionOverrides overrides) {
-        try {
-            return objectMapper.writeValueAsString(overrides != null ? overrides : SubscriptionOverrides.empty());
-        } catch (IOException e) {
-            throw new InvalidRequestException("Invalid subscription overrides.", e);
-        }
+    public SubscriptionOverrides write(SubscriptionOverrides overrides) {
+        return overrides != null ? overrides : SubscriptionOverrides.empty();
     }
 
     private static boolean isEmpty(Object rawOverrides) {

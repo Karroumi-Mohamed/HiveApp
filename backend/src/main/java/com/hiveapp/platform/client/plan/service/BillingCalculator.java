@@ -1,115 +1,66 @@
 package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
-import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
-import com.hiveapp.platform.client.plan.dto.SubscriptionFeatureSnapshot;
-import com.hiveapp.shared.quota.QuotaOverride;
-import com.hiveapp.shared.quota.QuotaLimitEntry;
+import com.hiveapp.shared.money.Money;
+import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
-
 /**
- * Calculates the monthly price for a subscription.
+ * Calculates the recurring price for a subscription.
  *
- * Formula:
- *   currentPrice = subscriptionSnapshot.basePrice
- *                + sum(snapshotFeature.addOnPrice for each feature in overrides.addedFeatures)
- *                + sum((override.limit - snapshotLimit.limit) × snapshotLimit.pricePerUnit
- *                      for each quota override where bump > 0)
+ * <p>Formula: currentPrice = subscriptionSnapshot.basePrice + sum(snapshot AddOn prices) +
+ * sum(snapshot quota package unit price × selected quantity)
  *
- * Call calculate() whenever overrides change and store the result in Subscription.currentPrice.
+ * <p>Call calculate() whenever overrides change and store the result in Subscription.currentPrice.
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class BillingCalculator {
 
-    private final PlanFeatureRepository planFeatureRepository;
-    private final SubscriptionOverrideReader subscriptionOverrideReader;
-    private final SubscriptionSnapshotReader subscriptionSnapshotReader;
+  private final SubscriptionSnapshotReader subscriptionSnapshotReader;
 
-    public BigDecimal calculate(Subscription sub) {
-        var snapshot = subscriptionSnapshotReader.read(sub.getEntitlementSnapshot()).orElse(null);
-        BigDecimal total = basePrice(sub, snapshot);
-
-        if (sub.getCustomOverrides() == null) return total;
-
-        try {
-            var overrides = subscriptionOverrideReader.read(sub.getCustomOverrides());
-
-            // --- Feature add-on pricing ---
-            if (overrides.addedFeatures() != null) {
-                for (String featureCode : overrides.addedFeatures()) {
-                    var price = snapshotFeature(snapshot, featureCode)
-                            .map(SubscriptionFeatureSnapshot::addOnPrice)
-                            .or(() -> planFeatureRepository.findByPlanIdAndFeature_Code(
-                                            sub.getPlan().getId(), featureCode)
-                                    .map(planFeature -> planFeature.getAddOnPrice()))
-                            .orElse(null);
-                    if (price != null) {
-                        total = total.add(price);
-                    }
-                }
-            }
-
-            // --- Quota bump pricing ---
-            if (overrides.quotaOverrides() != null) {
-                for (QuotaOverride override : overrides.quotaOverrides()) {
-                    var planEntry = snapshotQuota(snapshot, override)
-                            .or(() -> planFeatureRepository.findByPlanIdAndFeature_Code(
-                                            sub.getPlan().getId(), override.featureCode())
-                                    .flatMap(planFeature -> planFeature.getQuotaConfigs().stream()
-                                            .filter(e -> e.resource().equals(override.resource()))
-                                            .findFirst()));
-
-                    if (planEntry.isEmpty()
-                            || planEntry.get().pricePerUnit() == null
-                            || planEntry.get().limit() == null
-                            || override.limit() == null) continue;
-
-                    long bump = override.limit() - planEntry.get().limit();
-                    if (bump > 0) {
-                        total = total.add(
-                                planEntry.get().pricePerUnit().multiply(BigDecimal.valueOf(bump)));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Could not deserialize overrides for subscription {}: {}", sub.getId(), e.getMessage());
-            return total;
-        }
-
-        return total;
+  public Money calculateMoney(Subscription sub) {
+    var snapshot =
+        subscriptionSnapshotReader
+            .read(sub.getEntitlementSnapshot())
+            .orElseThrow(
+                () -> new IllegalStateException("Subscription entitlement snapshot is required"));
+    if (snapshot.offerEvaluation() != null && snapshot.offerEvaluation().finalPrice() != null) {
+      return Money.of(
+          snapshot.offerEvaluation().finalPrice(), snapshot.offerEvaluation().currencyCode());
     }
-
-    private BigDecimal basePrice(Subscription sub, SubscriptionEntitlementSnapshot snapshot) {
-        if (snapshot != null && snapshot.basePrice() != null) {
-            return snapshot.basePrice();
-        }
-        return sub.getPlan().getPrice() != null ? sub.getPlan().getPrice() : BigDecimal.ZERO;
+    if (snapshot.commercialPolicyEvaluation() != null
+        && snapshot.commercialPolicyEvaluation().finalRecurringPrice() != null) {
+      return Money.of(
+          snapshot.commercialPolicyEvaluation().finalRecurringPrice(),
+          snapshot.commercialPolicyEvaluation().currencyCode());
     }
+    return catalogueMoney(snapshot);
+  }
 
-    private java.util.Optional<SubscriptionFeatureSnapshot> snapshotFeature(
-            SubscriptionEntitlementSnapshot snapshot, String featureCode) {
-        if (snapshot == null || snapshot.features() == null) {
-            return java.util.Optional.empty();
-        }
-        return snapshot.features().stream()
-                .filter(feature -> featureCode.equals(feature.featureCode()))
-                .findFirst();
-    }
+  /** Exact recurring catalogue price before commercial-policy price adjustments. */
+  public Money catalogueMoney(SubscriptionEntitlementSnapshot snapshot) {
+    Money total = Money.of(snapshot.basePrice(), snapshot.currencyCode());
 
-    private java.util.Optional<QuotaLimitEntry> snapshotQuota(
-            SubscriptionEntitlementSnapshot snapshot, QuotaOverride override) {
-        return snapshotFeature(snapshot, override.featureCode())
-                .flatMap(feature -> feature.quotaConfigs() == null
-                        ? java.util.Optional.empty()
-                        : feature.quotaConfigs().stream()
-                                .filter(quota -> override.resource().equals(quota.resource()))
-                                .findFirst());
+    for (var addOn : snapshot.addOns()) {
+      total = total.add(Money.of(addOn.price(), addOn.currencyCode()));
     }
+    for (var quotaPackage : snapshot.quotaPackages()) {
+      total =
+          total.add(
+              Money.of(quotaPackage.unitPrice(), quotaPackage.currencyCode())
+                  .multiply(quotaPackage.quantity()));
+    }
+    return total;
+  }
+
+  /**
+   * Compatibility accessor for callers that only display an amount. New persistence uses
+   * calculateMoney().
+   */
+  public BigDecimal calculate(Subscription sub) {
+    return calculateMoney(sub).amount();
+  }
 }

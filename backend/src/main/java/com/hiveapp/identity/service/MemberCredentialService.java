@@ -2,14 +2,17 @@ package com.hiveapp.identity.service;
 
 import com.hiveapp.identity.domain.constant.CredentialState;
 import com.hiveapp.identity.domain.constant.CredentialTokenPurpose;
+import com.hiveapp.identity.domain.constant.IdentityKind;
 import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.identity.domain.entity.User;
+import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.event.CredentialEmailRequestedEvent;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.shared.config.ActivationProperties;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.security.TokenAudience;
 import com.hiveapp.shared.security.TokenSessionService;
+import com.hiveapp.shared.email.delivery.EmailDeliveryTracker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -17,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -27,10 +31,101 @@ public class MemberCredentialService {
     private final ActivationProperties activationProperties;
     private final ApplicationEventPublisher eventPublisher;
     private final TokenSessionService tokenSessionService;
+    private final EmailDeliveryTracker emailDeliveryTracker;
+    private final UserRepository userRepository;
+
+    /** Shown to an operator where a client account name would appear for a member. */
+    private static final String PLATFORM_ORGANISATION_NAME = "HiveApp";
 
     public CredentialAccessMaterial initialize(User user, Account account) {
-        return hasEmail(user) ? emailAccess(user, account, CredentialTokenPurpose.ACTIVATION, true)
-                : temporaryAccess(user);
+        return persisted(user, hasEmail(user)
+                ? emailAccess(user, requirePersistedAccount(account), account.getName(),
+                        CredentialTokenPurpose.ACTIVATION, true)
+                : temporaryAccess(user));
+    }
+
+    /**
+     * Initial access for a platform operator, who belongs to no client account.
+     *
+     * <p>The activation email is the credential. It is completed through the admin-side
+     * activation endpoint, which issues no tokens — an email link must never mint an admin
+     * session directly.
+     *
+     * <p>Deliberately shares {@link #emailAccess} with the member path: the token, its expiry,
+     * and the credential state transitions are the same mechanism. A second copy of that logic
+     * would be the copy that misses the next fix.
+     */
+    public CredentialAccessMaterial initializeForOperator(User user) {
+        requireOperatorEmail(user);
+        return persisted(user, emailAccess(
+                user, null, PLATFORM_ORGANISATION_NAME, CredentialTokenPurpose.ACTIVATION, true));
+    }
+
+    /**
+     * Re-sends operator activation. Issues a fresh token, so any previously emailed link stops
+     * working — the old one cannot be left live alongside the new one.
+     */
+    public CredentialAccessMaterial resendOperatorActivation(User user) {
+        requireOperatorEmail(user);
+        if (user.getCredentialState() == CredentialState.ACTIVE) {
+            throw new InvalidStateException("This operator has already activated their access");
+        }
+        tokenSessionService.revokeAll(List.of(user.getId()), TokenAudience.ADMIN);
+        return persisted(user, emailAccess(
+                user, null, PLATFORM_ORGANISATION_NAME, CredentialTokenPurpose.ACTIVATION, true));
+    }
+
+    /**
+     * Explicit fallback for when email delivery genuinely fails. Deliberately not issued
+     * alongside the activation link: two live credentials for one account, one of which has to
+     * travel out of band, is the pair that leaks.
+     */
+    public CredentialAccessMaterial generateOperatorTemporaryAccess(User user) {
+        tokenSessionService.revokeAll(List.of(user.getId()), TokenAudience.ADMIN);
+        return persisted(user, temporaryAccess(user));
+    }
+
+    /**
+     * Operator-initiated recovery. Requires a verified email — that is, one the operator has
+     * already proven they can receive mail at by following an activation link. An operator who
+     * was set up with a placeholder address and a handed-over temporary password never verified
+     * anything, so recovery for them stays with an authorized colleague instead.
+     *
+     * <p>Does not block the existing password: requesting a reset must not lock someone out.
+     */
+    public CredentialAccessMaterial requestOperatorSelfServiceReset(User user) {
+        if (!hasEmail(user) || !user.isEmailVerified()) {
+            throw new InvalidStateException("Verified email is required for self-service password recovery");
+        }
+        return emailAccess(
+                user, null, PLATFORM_ORGANISATION_NAME, CredentialTokenPurpose.PASSWORD_RESET, false);
+    }
+
+    /**
+     * Proves that an active operator can receive mail at their current address without changing
+     * their password or granting a session. This deliberately uses its own token purpose: an
+     * activation link changes credentials, while verification must do neither.
+     */
+    public CredentialAccessMaterial requestOperatorEmailVerification(User user) {
+        requireOperatorEmail(user);
+        if (user.getKind() != IdentityKind.PLATFORM) {
+            throw new InvalidStateException("Only a platform operator can use this verification flow");
+        }
+        if (user.isEmailVerified()) {
+            throw new InvalidStateException("This operator email is already verified");
+        }
+        if (user.getCredentialState() == CredentialState.EMAIL_ACTIVATION_PENDING) {
+            throw new InvalidStateException("Resend activation for an operator who has not activated access");
+        }
+        return persisted(user, emailAccess(
+                user, null, PLATFORM_ORGANISATION_NAME,
+                CredentialTokenPurpose.EMAIL_VERIFICATION, false));
+    }
+
+    private void requireOperatorEmail(User user) {
+        if (!hasEmail(user)) {
+            throw new InvalidStateException("A platform operator requires an email address");
+        }
     }
 
     public CredentialAccessMaterial regenerate(User user, Account account) {
@@ -41,8 +136,9 @@ public class MemberCredentialService {
         CredentialTokenPurpose purpose = user.isEmailVerified()
                 ? CredentialTokenPurpose.PASSWORD_RESET
                 : CredentialTokenPurpose.ACTIVATION;
-        return hasEmail(user) ? emailAccess(user, account, purpose, true)
-                : temporaryAccess(user);
+        return persisted(user, hasEmail(user)
+                ? emailAccess(user, requirePersistedAccount(account), account.getName(), purpose, true)
+                : temporaryAccess(user));
     }
 
     public CredentialAccessMaterial reset(User user, Account account) {
@@ -50,15 +146,18 @@ public class MemberCredentialService {
             throw new InvalidStateException("Unactivated access must be regenerated, not reset");
         }
         tokenSessionService.revokeAll(List.of(user.getId()), TokenAudience.CLIENT);
-        return hasEmail(user) ? emailAccess(user, account, CredentialTokenPurpose.PASSWORD_RESET, true)
-                : temporaryAccess(user);
+        return persisted(user, hasEmail(user)
+                ? emailAccess(user, requirePersistedAccount(account), account.getName(),
+                        CredentialTokenPurpose.PASSWORD_RESET, true)
+                : temporaryAccess(user));
     }
 
     public CredentialAccessMaterial requestSelfServiceReset(User user, Account account) {
         if (!hasEmail(user) || !user.isEmailVerified()) {
             throw new InvalidStateException("Verified email is required for self-service password recovery");
         }
-        return emailAccess(user, account, CredentialTokenPurpose.PASSWORD_RESET, false);
+        return emailAccess(user, requirePersistedAccount(account), account.getName(),
+                CredentialTokenPurpose.PASSWORD_RESET, false);
     }
 
     public void invalidatePendingAccess(User user) {
@@ -70,6 +169,7 @@ public class MemberCredentialService {
             user.setInitialAccessFailedAttempts(0);
         }
         tokenSessionService.revokeAll(List.of(user.getId()), TokenAudience.CLIENT);
+        userRepository.saveAndFlush(user);
     }
 
     public void unlock(User user) {
@@ -78,6 +178,7 @@ public class MemberCredentialService {
         }
         user.setInitialAccessLocked(false);
         user.setInitialAccessFailedAttempts(0);
+        userRepository.saveAndFlush(user);
     }
 
     private CredentialAccessMaterial temporaryAccess(User user) {
@@ -92,12 +193,18 @@ public class MemberCredentialService {
                 InitialAccessMethod.TEMPORARY_PASSWORD,
                 user.getCredentialState(),
                 temporaryPassword,
+                null,
                 null);
     }
 
+    /**
+     * @param accountId owning client account, or null for a platform-scope delivery
+     * @param organisationName name shown to the recipient — the client account, or the platform
+     */
     private CredentialAccessMaterial emailAccess(
             User user,
-            Account account,
+            UUID accountId,
+            String organisationName,
             CredentialTokenPurpose purpose,
             boolean blockExistingAccess
     ) {
@@ -109,18 +216,31 @@ public class MemberCredentialService {
         user.setInitialAccessLocked(false);
         user.setInitialAccessFailedAttempts(0);
         if (blockExistingAccess) {
-            user.setCredentialState(purpose == CredentialTokenPurpose.ACTIVATION
-                    ? CredentialState.EMAIL_ACTIVATION_PENDING
-                    : CredentialState.EMAIL_RESET_PENDING);
+            user.setCredentialState(switch (purpose) {
+                case ACTIVATION -> CredentialState.EMAIL_ACTIVATION_PENDING;
+                case PASSWORD_RESET -> CredentialState.EMAIL_RESET_PENDING;
+                case EMAIL_VERIFICATION -> throw new IllegalArgumentException(
+                        "Email verification cannot block existing access");
+            });
             user.setPasswordChangeRequired(true);
         }
+        if (user.getId() == null) {
+            throw new IllegalStateException("Credential email delivery requires persisted identities");
+        }
+        var deliveryId = emailDeliveryTracker.queue(
+                accountId, user.getId(), user.getEmail(), purpose);
         eventPublisher.publishEvent(new CredentialEmailRequestedEvent(
-                user.getEmail(), user.getFullName(), account.getName(), rawToken, purpose, expiresAt));
+                deliveryId, user.getEmail(), user.getFullName(), organisationName, rawToken,
+                purpose, expiresAt,
+                user.getKind() == IdentityKind.PLATFORM
+                        ? CredentialEmailRequestedEvent.CredentialAudience.PLATFORM_OPERATOR
+                        : CredentialEmailRequestedEvent.CredentialAudience.CLIENT));
         return new CredentialAccessMaterial(
                 InitialAccessMethod.EMAIL_LINK,
                 user.getCredentialState(),
                 null,
-                expiresAt);
+                expiresAt,
+                deliveryId);
     }
 
     public void clearToken(User user) {
@@ -131,5 +251,22 @@ public class MemberCredentialService {
 
     private boolean hasEmail(User user) {
         return user.getEmail() != null && !user.getEmail().isBlank();
+    }
+
+    /** The member paths still require a persisted account; only operators may pass none. */
+    private static UUID requirePersistedAccount(Account account) {
+        if (account == null || account.getId() == null) {
+            throw new IllegalStateException("Credential email delivery requires persisted identities");
+        }
+        return account.getId();
+    }
+
+    /**
+     * Identity persists its own credential-state changes. Callers in other domains must not
+     * write to the user row themselves.
+     */
+    private CredentialAccessMaterial persisted(User user, CredentialAccessMaterial material) {
+        userRepository.saveAndFlush(user);
+        return material;
     }
 }

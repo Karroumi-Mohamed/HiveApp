@@ -116,19 +116,40 @@ class PermissionSeederTest {
     }
 
     @Test
-    void rejectsPersistedPermissionLinkedToDifferentFeature() {
+    void repairsPersistedPermissionMetadataAndFeatureRelationship() {
         PermissionSeeder seeder = new PermissionSeeder(permissionRepository, featureRepository);
         Feature declaredFeature = feature("platform.registry", "platform");
         Permission existing = new Permission();
         existing.setCode("platform.registry.read");
+        existing.setName("stale");
+        existing.setDescription("stale");
+        existing.setAction("stale");
+        existing.setResource("stale");
         existing.setFeature(feature("platform.company", "platform"));
         when(featureRepository.findByCode("platform.registry")).thenReturn(Optional.of(declaredFeature));
         when(permissionRepository.findByCode("platform.registry.read")).thenReturn(Optional.of(existing));
 
-        assertThatThrownBy(() -> seeder.seedPermissions(List.of(
-                permission("read", "Read", "platform.registry"))))
-                .isInstanceOf(FeatureDefinitionException.class)
-                .hasMessageContaining("is not linked to Feature");
+        seeder.seedPermissions(List.of(permission("read", "Read", "platform.registry")));
+
+        assertThat(existing.getFeature()).isSameAs(declaredFeature);
+        assertThat(existing.getName()).isEqualTo("platform.registry.read");
+        assertThat(existing.getDescription()).isEqualTo("Read");
+        assertThat(existing.getAction()).isEqualTo("read");
+        assertThat(existing.getResource()).isEqualTo("platform.registry");
+        verify(permissionRepository).save(existing);
+    }
+
+    @Test
+    void reportsPersistedPermissionRowsAbsentFromCurrentActionSnapshot() {
+        Permission stale = new Permission();
+        stale.setCode("platform.registry.removed_action");
+        when(permissionRepository.findAll()).thenReturn(List.of(stale));
+
+        var result = new PermissionSeeder(permissionRepository, featureRepository)
+                .seedPermissions(List.of());
+
+        assertThat(result.orphanedPermissionCodes())
+                .containsExactly("platform.registry.removed_action");
     }
 
     private CollectedPermission permission(String key, String description, String parentPath) {

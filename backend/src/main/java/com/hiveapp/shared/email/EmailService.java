@@ -6,7 +6,7 @@ import java.time.Instant;
 
 public interface EmailService {
 
-    void sendCredentialLink(
+    EmailDispatchOutcome sendCredentialLink(
             String to,
             String memberName,
             String workspaceName,

@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.account.service.impl;
 
-import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.dto.WorkspaceProvisioningResult;
@@ -8,16 +8,21 @@ import com.hiveapp.platform.client.account.service.WorkspaceProvisioningService;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.PlanCodes;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
+import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
+import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleManager;
+import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
+import com.hiveapp.shared.money.Money;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -32,7 +37,7 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningService {
 
-    private final UserRepository userRepository;
+    private final IdentityService identityService;
     private final AccountRepository accountRepository;
     private final MemberRepository memberRepository;
     private final PlanRepository planRepository;
@@ -40,12 +45,14 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
     private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotFactory subscriptionSnapshotFactory;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
+    private final SubscriptionLifecycleManager subscriptionLifecycleManager;
+    private final SubscriptionPeriodCalculator subscriptionPeriodCalculator;
 
     @Override
     @Transactional
     public WorkspaceProvisioningResult provision(UUID userId, String email) {
-        var user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+        // Entity door: the managed row is needed to own the Account and Member relationships.
+        var user = identityService.requireManagedUser(userId);
 
         var existingAccount = accountRepository.findByOwner_Id(userId);
         if (existingAccount.isPresent()) {
@@ -92,7 +99,7 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
     }
 
     private Plan requireUsableFreePlan() {
-        Plan freePlan = planRepository.findByCode("FREE")
+        Plan freePlan = planRepository.findByCode(PlanCodes.DEFAULT)
                 .orElseThrow(() -> new InvalidStateException(
                         "Workspace registration is unavailable because the required FREE plan is not configured."));
         if (!freePlan.isActive()) {
@@ -103,14 +110,17 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
     }
 
     private void provisionFreeSubscription(Account account, Plan freePlan) {
+        SubscriptionEntitlementSnapshot snapshot = subscriptionSnapshotFactory.fromPlan(freePlan);
         Subscription sub = new Subscription();
         sub.setAccount(account);
         sub.setPlan(freePlan);
-        sub.setStatus(SubscriptionStatus.ACTIVE);
         sub.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
-        sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(subscriptionSnapshotFactory.fromPlan(freePlan)));
-        sub.setCurrentPrice(freePlan.getPrice());
-        subscriptionRepository.saveAndFlush(sub);
+        sub.setEntitlementSnapshot(subscriptionSnapshotReader.write(snapshot));
+        sub.setCurrentMoney(Money.of(snapshot.basePrice(), snapshot.currencyCode()));
+        subscriptionLifecycleManager.initialize(
+                sub, SubscriptionStatus.ACTIVE, subscriptionPeriodCalculator.recurring(snapshot.billingCycle()));
+        Subscription saved = subscriptionRepository.saveAndFlush(sub);
+        subscriptionLifecycleManager.recordOpenPeriod(saved);
         log.info("FREE subscription provisioned for account={}", account.getId());
     }
 
@@ -124,8 +134,7 @@ public class WorkspaceProvisioningServiceImpl implements WorkspaceProvisioningSe
         List<Subscription> usableSubscriptions = subscriptionRepository.findAllByAccountIdAndStatusIn(
                 account.getId(), List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
         if (usableSubscriptions.size() != 1
-                || usableSubscriptions.getFirst().getEntitlementSnapshot() == null
-                || usableSubscriptions.getFirst().getEntitlementSnapshot().isBlank()) {
+                || usableSubscriptions.getFirst().getEntitlementSnapshot() == null) {
             throw incompleteProvisioning(account);
         }
 

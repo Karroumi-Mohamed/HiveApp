@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.collaboration.domain.entity.Collaboration;
 import com.hiveapp.platform.client.company.domain.entity.GroupMembership;
 import com.hiveapp.platform.client.company.domain.entity.GroupStructureTemplate;
@@ -14,6 +14,8 @@ import com.hiveapp.platform.client.company.domain.entity.GroupTemplateNode;
 import com.hiveapp.platform.client.company.domain.entity.OrganizationGroup;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
 import com.hiveapp.platform.client.role.domain.entity.Role;
 import jakarta.persistence.JoinColumn;
@@ -81,7 +83,7 @@ class TenantEntityInvariantTest {
     void roleCompanyMustBelongToRoleAccount() {
         Role role = role(account(user()), company(account(user())));
 
-        assertInvalid(role, "Role company must belong to the role account");
+        assertInvalid(role, "Role boundary company must belong to the role account");
     }
 
     @Test
@@ -94,12 +96,49 @@ class TenantEntityInvariantTest {
     }
 
     @Test
+    void companyRoleTemplateRequiresItsBoundaryCompany() {
+        Role role = role(account(user()), null);
+        role.setTemplateBoundary(com.hiveapp.platform.client.role.domain.constant.RoleTemplateBoundary.COMPANY);
+
+        assertInvalid(role, "Company role templates require a boundary company");
+    }
+
+    @Test
+    void companyAssignmentRequiresItsScopeCompany() {
+        Account account = account(user());
+        MemberRole assignment = new MemberRole();
+        assignment.setMember(member(account, user()));
+        assignment.setRole(role(account, null));
+        assignment.setEffectScope(com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope.COMPANY);
+
+        assertInvalid(assignment, "Company role assignments require a scope company");
+    }
+
+    @Test
+    void companyBoundTemplateCannotBeAssignedInAnotherCompany() {
+        Account account = account(user());
+        Company boundary = company(account);
+        MemberRole assignment = new MemberRole();
+        assignment.setMember(member(account, user()));
+        assignment.setRole(role(account, boundary));
+        assignment.setEffectScope(com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope.COMPANY);
+        assignment.setScopeCompany(company(account));
+
+        assertInvalid(assignment, "A Company-bound role template must be assigned inside its boundary company");
+    }
+
+    @Test
     void permissionOverrideCompanyMustBelongToMemberAccount() {
         MemberPermissionOverride override = new MemberPermissionOverride();
-        override.setMember(member(account(user()), user()));
-        override.setCompany(company(account(user())));
+        Account memberAccount = account(user());
+        override.setMember(member(memberAccount, user()));
+        override.setCreatedBy(member(memberAccount, user()));
+        override.setScope(PermissionOverrideScope.COMPANY);
+        override.setScopeCompany(company(account(user())));
+        override.setDecision(PermissionOverrideDecision.DENY);
+        override.setReason("Security exception");
 
-        assertInvalid(override, "Member permission override company must belong to the member account");
+        assertInvalid(override, "Member permission exception company must belong to the member account");
     }
 
     @Test
@@ -145,7 +184,8 @@ class TenantEntityInvariantTest {
         MemberRole assignment = new MemberRole();
         assignment.setMember(member);
         assignment.setRole(role);
-        assignment.setCompany(company);
+        assignment.setEffectScope(com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope.COMPANY);
+        assignment.setScopeCompany(company);
         Collaboration collaboration = new Collaboration();
         collaboration.setClientAccount(account(user()));
         collaboration.setProviderAccount(account);
@@ -203,7 +243,8 @@ class TenantEntityInvariantTest {
         Role role = new Role();
         ReflectionTestUtils.setField(role, "id", UUID.randomUUID());
         role.setAccount(account);
-        role.setCompany(company);
+        role.setTemplateBoundary(com.hiveapp.platform.client.role.domain.constant.RoleTemplateBoundary.COMPANY);
+        role.setBoundaryCompany(company);
         return role;
     }
 }

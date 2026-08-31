@@ -112,6 +112,8 @@ public @interface PermissionNode {
      * {@link Guard#ON} enables auto-checking for this node and all
      * children that don't override with {@link Guard#OFF}.
      * {@link Guard#OFF} disables auto-checking for this node.
+     * A method explicitly marked {@code OFF} is an internal enforcement opt-out and is not
+     * emitted into generated permission trees or catalogues.
      * {@link Guard#INHERIT} (default) inherits from the nearest ancestor
      * that specifies ON or OFF.
      * </p>

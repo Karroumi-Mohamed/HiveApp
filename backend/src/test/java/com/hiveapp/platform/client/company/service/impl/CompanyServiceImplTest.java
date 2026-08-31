@@ -1,14 +1,17 @@
 package com.hiveapp.platform.client.company.service.impl;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.dto.CompanyDto;
+import com.hiveapp.platform.client.company.mapper.CompanyMapper;
+import com.hiveapp.platform.client.company.mapper.CompanyMapperImpl;
 import com.hiveapp.platform.client.company.service.CompanyCountryChangeGuard;
 import com.hiveapp.platform.client.company.service.CompanyReactivationValidator;
 import com.hiveapp.platform.client.company.service.OrganizationInitializer;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
-import com.hiveapp.platform.registry.definition.WorkspaceFeature;
+import com.hiveapp.platform.registry.definition.CompanyFeature;
 import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.quota.QuotaEnforcer;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
@@ -19,6 +22,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -43,6 +47,9 @@ class CompanyServiceImplTest {
     @Mock private CompanyCountryChangeGuard countryChangeGuard;
     @Mock private CompanyReactivationValidator reactivationValidator;
     @Mock private OrganizationInitializer organizationInitializer;
+    // The generated MapStruct implementation is used directly so these assertions also
+    // cover the entity-to-read-model projection the service now owns.
+    @Spy private CompanyMapper companyMapper = new CompanyMapperImpl();
 
     @InjectMocks
     private CompanyServiceImpl companyService;
@@ -64,17 +71,17 @@ class CompanyServiceImplTest {
         var result = companyService.createCompany(
                 accountId, "  Acme  ", " Acme LLC ", " tx-1 ", " Software ", "us", " Main St ", " logo ");
 
-        assertThat(result.company().getAccount()).isSameAs(account);
-        assertThat(result.company().getName()).isEqualTo("Acme");
-        assertThat(result.company().getTaxId()).isEqualTo("TX-1");
-        assertThat(result.company().getCountry()).isEqualTo("US");
-        assertThat(result.company().getLogoUrl()).isEqualTo("logo");
+        assertThat(result.accountId()).isEqualTo(accountId);
+        assertThat(result.name()).isEqualTo("Acme");
+        assertThat(result.taxId()).isEqualTo("TX-1");
+        assertThat(result.country()).isEqualTo("US");
+        assertThat(result.logoUrl()).isEqualTo("logo");
         assertThat(result.warnings()).isEmpty();
-        verify(organizationInitializer).initialize(result.company());
+        verify(organizationInitializer).initialize(any(Company.class));
         ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
         verify(quotaEnforcer).check(
                 any(FeatureDefinition.class),
-                eq(WorkspaceFeature.COMPANIES),
+                eq(CompanyFeature.COMPANIES),
                 eq(accountId),
                 usageCaptor.capture());
         assertThat(usageCaptor.getValue().getAsLong()).isEqualTo(1L);
@@ -129,11 +136,11 @@ class CompanyServiceImplTest {
                 "ca", " Address ", " https://logo.example/image.png ");
 
         verify(countryChangeGuard).requireChangeAllowed(company, "CA");
-        assertThat(result.company().getName()).isEqualTo("New Name");
-        assertThat(result.company().getTaxId()).isEqualTo("TAX-2");
-        assertThat(result.company().getCountry()).isEqualTo("CA");
-        assertThat(result.company().getAddress()).isEqualTo("Address");
-        assertThat(result.company().getLogoUrl()).isEqualTo("https://logo.example/image.png");
+        assertThat(result.name()).isEqualTo("New Name");
+        assertThat(result.taxId()).isEqualTo("TAX-2");
+        assertThat(result.country()).isEqualTo("CA");
+        assertThat(result.address()).isEqualTo("Address");
+        assertThat(result.logoUrl()).isEqualTo("https://logo.example/image.png");
     }
 
     @Test
@@ -149,13 +156,13 @@ class CompanyServiceImplTest {
         when(companyRepository.countByAccountIdAndIsActiveTrue(accountId)).thenReturn(1L);
         when(companyRepository.save(company)).thenReturn(company);
 
-        Company result = companyService.reactivateCompany(accountId, companyId);
+        CompanyDto result = companyService.reactivateCompany(accountId, companyId);
 
         assertThat(result.isActive()).isTrue();
         ArgumentCaptor<LongSupplier> usageCaptor = ArgumentCaptor.forClass(LongSupplier.class);
         verify(quotaEnforcer).check(
                 any(FeatureDefinition.class),
-                eq(WorkspaceFeature.COMPANIES),
+                eq(CompanyFeature.COMPANIES),
                 eq(accountId),
                 usageCaptor.capture());
         assertThat(usageCaptor.getValue().getAsLong()).isEqualTo(1L);

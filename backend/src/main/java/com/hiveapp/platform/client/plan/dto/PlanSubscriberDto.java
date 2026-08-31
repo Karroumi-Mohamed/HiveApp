@@ -1,9 +1,10 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 public record PlanSubscriberDto(
@@ -12,6 +13,7 @@ public record PlanSubscriberDto(
         String accountName,
         String planCode,
         SubscriptionStatus status,
-        BigDecimal currentPrice,
-        LocalDateTime currentPeriodEnd
+        @ExactDecimal BigDecimal configuredRecurringPrice,
+        String configuredRecurringPriceCurrencyCode,
+        Instant currentPeriodEnd
 ) {}

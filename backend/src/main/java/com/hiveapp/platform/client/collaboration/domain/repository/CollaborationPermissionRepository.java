@@ -9,11 +9,13 @@ import com.hiveapp.platform.client.collaboration.domain.constant.CollaborationSt
 
 public interface CollaborationPermissionRepository extends JpaRepository<CollaborationPermission, UUID> {
     List<CollaborationPermission> findAllByCollaborationId(UUID collaborationId);
-    List<CollaborationPermission> findAllByCollaborationCompanyIdAndCollaborationStatus(
+    List<CollaborationPermission> findAllByCollaborationCompanyIdAndCollaborationStatusAndIsActiveTrue(
             UUID companyId, CollaborationStatus status);
 
-    @Query("SELECT COUNT(cp) > 0 FROM CollaborationPermission cp WHERE cp.collaboration.id = :collaborationId AND cp.permission.code = :permissionCode")
-    boolean existsByCollaborationIdAndPermissionCode(UUID collaborationId, String permissionCode);
+    @Query("SELECT COUNT(cp) > 0 FROM CollaborationPermission cp "
+            + "WHERE cp.collaboration.id = :collaborationId "
+            + "AND cp.permission.code = :permissionCode AND cp.isActive = true")
+    boolean existsActiveByCollaborationIdAndPermissionCode(UUID collaborationId, String permissionCode);
     
     boolean existsByCollaborationIdAndPermissionId(UUID collaborationId, UUID permissionId);
     java.util.Optional<CollaborationPermission> findByCollaborationIdAndPermissionId(UUID collaborationId, UUID permissionId);

@@ -1,8 +1,11 @@
 package com.hiveapp.platform.client.collaboration.dto;
 
-import java.util.UUID;
-import jakarta.validation.constraints.NotNull;
+import java.util.Set;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 public record InitiateCollaborationRequest(
-    @NotNull UUID companyId
+        @NotBlank String shareCode,
+        @NotBlank @Size(max = 1000) String purpose,
+        Set<@NotBlank String> requestedPermissionCodes
 ) {}

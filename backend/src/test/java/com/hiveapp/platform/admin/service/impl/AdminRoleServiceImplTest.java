@@ -4,6 +4,8 @@ import com.hiveapp.platform.admin.domain.entity.AdminRole;
 import com.hiveapp.platform.admin.domain.entity.AdminRolePermission;
 import com.hiveapp.platform.admin.domain.repository.AdminRolePermissionRepository;
 import com.hiveapp.platform.admin.domain.repository.AdminRoleRepository;
+import com.hiveapp.platform.admin.domain.repository.AdminUserRoleRepository;
+import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.admin.service.AdminMutationAuthorizer;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
@@ -15,10 +17,15 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -32,6 +39,8 @@ class AdminRoleServiceImplTest {
     @Mock private AdminRolePermissionRepository adminRolePermissionRepository;
     @Mock private PermissionGrantValidator permissionGrantValidator;
     @Mock private AdminMutationAuthorizer adminMutationAuthorizer;
+    @Mock private AdminUserRoleRepository adminUserRoleRepository;
+    @Mock private AdminUserRepository adminUserRepository;
 
     @InjectMocks
     private AdminRoleServiceImpl adminRoleService;
@@ -55,6 +64,41 @@ class AdminRoleServiceImplTest {
 
         verify(adminRolePermissionRepository, never())
                 .save(org.mockito.ArgumentMatchers.any(AdminRolePermission.class));
+    }
+
+    @Test
+    void paginatedRoleReadLoadsAllPermissionGrantsInOneBulkQuery() {
+        UUID firstId = UUID.randomUUID();
+        UUID secondId = UUID.randomUUID();
+        AdminRole first = adminRole(firstId);
+        AdminRole second = adminRole(secondId);
+        second.setName("Operations");
+        Permission permission = permission(UUID.randomUUID(), "platform.admin-users.read");
+        AdminRolePermission grant = new AdminRolePermission();
+        grant.setAdminRole(first);
+        grant.setPermission(permission);
+        PageRequest page = PageRequest.of(0, 20);
+        when(adminRoleRepository.search(null, null, page))
+                .thenReturn(new PageImpl<>(List.of(first, second), page, 2));
+        when(adminRolePermissionRepository.findAllWithPermissionByAdminRoleIdIn(
+                org.mockito.ArgumentMatchers.anyCollection()))
+                .thenReturn(List.of(grant));
+        when(adminUserRoleRepository.countByAdminRoleIdIn(org.mockito.ArgumentMatchers.anyCollection()))
+                .thenReturn(List.of());
+        when(adminMutationAuthorizer.currentActorGrantCeiling())
+                .thenReturn(new AdminMutationAuthorizer.GrantCeiling(true, Set.of()));
+
+        var result = adminRoleService.getAdminRoles(page);
+
+        assertThat(result.getTotalElements()).isEqualTo(2);
+        assertThat(result.getContent()).extracting(dto -> dto.permissions().size())
+                .containsExactly(1, 0);
+        verify(adminRolePermissionRepository)
+                .findAllWithPermissionByAdminRoleIdIn(org.mockito.ArgumentMatchers.anyCollection());
+        verify(adminRolePermissionRepository, never()).findAllByAdminRoleId(firstId);
+        verify(adminRolePermissionRepository, never()).findAllByAdminRoleId(secondId);
+        // Assignment counts are batched for the whole page too — one query, not one per role.
+        verify(adminUserRoleRepository).countByAdminRoleIdIn(org.mockito.ArgumentMatchers.anyCollection());
     }
 
     private static AdminRole adminRole(UUID id) {

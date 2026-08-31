@@ -1,15 +1,16 @@
 package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.registry.definition.CompanyFeature;
+import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
 import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.definition.PlansFeature;
+import com.hiveapp.platform.registry.definition.StaffFeature;
 import com.hiveapp.platform.registry.definition.WorkspaceFeature;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.quota.QuotaLimitEntry;
-import com.hiveapp.shared.quota.QuotaOverride;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -35,74 +36,64 @@ class BillingConfigurationValidatorTest {
     @BeforeEach
     void setUp() {
         validator = new BillingConfigurationValidator(featureRepository, provider(new FeatureDefinitionCollector(List.of(
-                () -> List.of(WorkspaceFeature.definition(), CompanyFeature.definition(), PlansFeature.definition())
+                () -> List.of(
+                        WorkspaceFeature.definition(), StaffFeature.definition(),
+                        CompanyFeature.definition(), PlansFeature.definition())
         ))));
     }
 
     @Test
     void rejectsPlatformControlFeatureForPlanAssignment() {
-        assertThatThrownBy(() -> validator.validatePlanFeature("platform.plans", null, List.of()))
+        assertThatThrownBy(() -> validator.validatePlanFeature(
+                "platform.plans", PlanFeatureMode.INCLUDED, List.of(), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("cannot be assigned");
     }
 
     @Test
     void rejectsUnknownQuotaResourceForPlanAssignment() {
-        when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
+        when(featureRepository.findByCode(StaffFeature.CODE)).thenReturn(Optional.of(feature(StaffFeature.CODE)));
 
         assertThatThrownBy(() -> validator.validatePlanFeature(
-                WorkspaceFeature.CODE, null, List.of(new QuotaLimitEntry("projects", 5L))))
+                StaffFeature.CODE, PlanFeatureMode.INCLUDED,
+                List.of(new QuotaLimitEntry("projects", 5L)), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
     }
 
     @Test
     void rejectsQuotaConfigurationForFeatureWithoutQuotaSlots() {
-        when(featureRepository.findByCode(CompanyFeature.CODE)).thenReturn(Optional.of(feature(CompanyFeature.CODE)));
+        when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
 
         assertThatThrownBy(() -> validator.validatePlanFeature(
-                CompanyFeature.CODE, null, List.of(new QuotaLimitEntry("companies", 1L))))
+                WorkspaceFeature.CODE, PlanFeatureMode.INCLUDED,
+                List.of(new QuotaLimitEntry("companies", 1L)), "USD"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
     }
 
     @Test
-    void rejectsPlatformControlFeatureInSubscriptionAddOns() {
-        assertThatThrownBy(() -> validator.validateSubscriptionOverrides(Set.of("platform.plans"), List.of()))
-                .isInstanceOf(InvalidRequestException.class)
-                .hasMessageContaining("cannot be assigned");
-    }
+    void rejectsUnknownQuotaResourceForPackageDefinition() {
+        when(featureRepository.findByCode(StaffFeature.CODE)).thenReturn(Optional.of(feature(StaffFeature.CODE)));
 
-    @Test
-    void rejectsUnknownSubscriptionFeature() {
-        assertThatThrownBy(() -> validator.validateSubscriptionOverrides(Set.of("platform.unknown"), List.of()))
-                .isInstanceOf(InvalidRequestException.class)
-                .hasMessageContaining("cannot be assigned");
-    }
-
-    @Test
-    void rejectsUnknownSubscriptionQuotaSlot() {
-        when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
-
-        assertThatThrownBy(() -> validator.validateSubscriptionOverrides(
-                Set.of(), List.of(new QuotaOverride(WorkspaceFeature.CODE, "projects", 10L))))
+        assertThatThrownBy(() -> validator.validateQuotaPackageDefinition(
+                StaffFeature.CODE, "projects"))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("not declared");
     }
 
     @Test
-    void acceptsDeclaredWorkspaceQuotaOverride() {
-        when(featureRepository.findByCode(WorkspaceFeature.CODE)).thenReturn(Optional.of(feature(WorkspaceFeature.CODE)));
+    void acceptsDeclaredQuotaPackageDefinition() {
+        when(featureRepository.findByCode(StaffFeature.CODE)).thenReturn(Optional.of(feature(StaffFeature.CODE)));
 
-        validator.validateSubscriptionOverrides(
-                Set.of(), List.of(new QuotaOverride(WorkspaceFeature.CODE, WorkspaceFeature.MEMBERS, 10L)));
+        validator.validateQuotaPackageDefinition(StaffFeature.CODE, StaffFeature.MEMBERS);
     }
 
     private static Feature feature(String code) {
         Feature feature = new Feature();
         feature.setCode(code);
         feature.setStatus(FeatureStatus.PUBLIC);
-        feature.setActive(true);
+        feature.setNewSalesEnabled(true);
         return feature;
     }
 

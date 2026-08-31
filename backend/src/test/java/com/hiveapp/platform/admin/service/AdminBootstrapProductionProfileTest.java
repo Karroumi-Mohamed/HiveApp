@@ -17,6 +17,7 @@ import com.hiveapp.shared.email.EmailService;
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "hiveapp.jwt.secret=production-profile-test-secret-never-deploy",
+        "hiveapp.offers.codes.pepper=production-profile-test-offer-pepper-never-deploy",
         "hiveapp.activation.base-url=https://example.test",
         "spring.mail.host=localhost",
         "hiveapp.admin.bootstrap.enabled=false"

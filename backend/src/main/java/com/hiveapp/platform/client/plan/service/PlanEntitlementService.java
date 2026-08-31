@@ -2,7 +2,6 @@ package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
-import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
@@ -10,8 +9,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.Clock;
 import java.util.Optional;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 @Service
@@ -19,19 +22,14 @@ import java.util.UUID;
 public class PlanEntitlementService {
 
     private final SubscriptionRepository subscriptionRepository;
-    private final PlanFeatureRepository planFeatureRepository;
     private final PermissionRepository permissionRepository;
-    private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
+    private final Clock clock;
 
     @Transactional(readOnly = true)
     public boolean isPermissionEntitled(UUID accountId, String permissionCode) {
-        Optional<Subscription> subscription = subscriptionRepository.findActiveByAccountId(accountId);
+        Optional<Subscription> subscription = currentSubscription(accountId);
         if (subscription.isEmpty()) {
-            subscription = subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.TRIALING);
-        }
-
-        if (subscription.isEmpty() || isExpired(subscription.get().getCurrentPeriodEnd())) {
             return false;
         }
 
@@ -42,29 +40,39 @@ public class PlanEntitlementService {
         }
 
         String featureCode = permission.getFeature().getCode();
-        if (snapshotEntitles(sub, featureCode)) {
-            return true;
-        }
+        return snapshotEntitles(sub, featureCode);
+    }
 
-        if (sub.getCustomOverrides() == null) {
-            return false;
+    /** Resolves the account entitlement once for catalog and picker construction. */
+    @Transactional(readOnly = true)
+    public Set<String> entitledFeatureCodes(UUID accountId) {
+        Optional<Subscription> subscription = currentSubscription(accountId);
+        if (subscription.isEmpty()) {
+            return Set.of();
         }
+        Subscription current = subscription.get();
+        Set<String> features = subscriptionSnapshotReader.read(current.getEntitlementSnapshot())
+                .map(snapshot -> snapshot.features().stream()
+                        .map(feature -> feature.featureCode())
+                        .collect(Collectors.toCollection(HashSet::new)))
+                .orElseGet(HashSet::new);
+        return Set.copyOf(features);
+    }
 
-        try {
-            var overrides = subscriptionOverrideReader.read(sub.getCustomOverrides());
-            return overrides.addedFeatures() != null
-                    && overrides.addedFeatures().contains(featureCode);
-        } catch (RuntimeException e) {
-            return false;
-        }
+    private Optional<Subscription> currentSubscription(UUID accountId) {
+        Instant now = clock.instant();
+        return subscriptionRepository.findEntitledAt(
+                accountId,
+                java.util.List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING),
+                SubscriptionStatus.PAST_DUE,
+                now).filter(subscription -> subscription.getStatus() == SubscriptionStatus.PAST_DUE
+                        || !isExpired(subscription.getCurrentPeriodEnd(), now));
     }
 
     private boolean snapshotEntitles(Subscription subscription, String featureCode) {
         return subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot())
                 .map(snapshot -> hasFeature(snapshot, featureCode))
-                .orElseGet(() -> planFeatureRepository
-                        .findByPlanIdAndFeature_Code(subscription.getPlan().getId(), featureCode)
-                        .isPresent());
+                .orElse(false);
     }
 
     private boolean hasFeature(SubscriptionEntitlementSnapshot snapshot, String featureCode) {
@@ -72,7 +80,7 @@ public class PlanEntitlementService {
                 && snapshot.features().stream().anyMatch(feature -> featureCode.equals(feature.featureCode()));
     }
 
-    private boolean isExpired(LocalDateTime currentPeriodEnd) {
-        return currentPeriodEnd != null && !currentPeriodEnd.isAfter(LocalDateTime.now());
+    private boolean isExpired(Instant currentPeriodEnd, Instant now) {
+        return currentPeriodEnd != null && !currentPeriodEnd.isAfter(now);
     }
 }

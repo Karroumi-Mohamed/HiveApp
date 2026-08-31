@@ -6,6 +6,9 @@ import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.identity.service.ClientCredentialAuthenticationService;
 import com.hiveapp.identity.service.CredentialLifecycleService;
 import com.hiveapp.platform.client.account.service.WorkspaceProvisioningService;
+import com.hiveapp.platform.client.account.dto.WorkspaceProvisioningResult;
+import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
+import com.hiveapp.shared.audit.AuditTrail;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.security.IssuedTokens;
 import com.hiveapp.shared.security.TokenAudience;
@@ -17,6 +20,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,6 +40,8 @@ class AuthServiceImplTest {
     @Mock CredentialLifecycleService credentialLifecycleService;
     @Mock TokenSessionService tokenSessionService;
     @Mock WorkspaceProvisioningService workspaceProvisioningService;
+    @Mock MemberRepository memberRepository;
+    @Mock AuditTrail auditTrail;
 
     @Test
     void registrationCanonicalizesEmailBeforeCheckingAndSaving() {
@@ -43,6 +50,8 @@ class AuthServiceImplTest {
         when(userRepository.saveAndFlush(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(tokenSessionService.issue(any(), eq(TokenAudience.CLIENT)))
                 .thenReturn(new IssuedTokens("access", "refresh", 900));
+        when(workspaceProvisioningService.provision(any(), any()))
+                .thenReturn(new WorkspaceProvisioningResult(UUID.randomUUID(), "workspace", true));
 
         service.register(request(" Mixed@Example.COM "));
 
@@ -73,7 +82,9 @@ class AuthServiceImplTest {
                 clientCredentialAuthenticationService,
                 credentialLifecycleService,
                 tokenSessionService,
-                workspaceProvisioningService);
+                workspaceProvisioningService,
+                memberRepository,
+                auditTrail);
     }
 
     private RegisterRequest request(String email) {

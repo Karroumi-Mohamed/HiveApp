@@ -8,6 +8,7 @@ import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.account.service.WorkspaceProvisioningService;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
@@ -44,7 +45,8 @@ class AccountProvisioningIntegrationTest extends PlatformShellIntegrationTestSup
         var usable = subscriptionRepository.findAllByAccountIdAndStatusIn(
                 account.getId(), List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));
         assertThat(usable).hasSize(1);
-        assertThat(usable.getFirst().getEntitlementSnapshot()).isNotBlank().contains("FREE");
+        assertThat(usable.getFirst().getEntitlementSnapshot()).isNotNull();
+        assertThat(usable.getFirst().getEntitlementSnapshot().planCode()).isEqualTo("FREE");
 
         mockMvc.perform(get("/api/v1/accounts/me")
                         .header("Authorization", bearer(registration.get("accessToken").asText())))
@@ -57,7 +59,7 @@ class AccountProvisioningIntegrationTest extends PlatformShellIntegrationTestSup
     void unavailableFreePlanRollsBackTheRegistration() throws Exception {
         String email = "no-free-" + UUID.randomUUID() + "@example.com";
         var freePlan = planRepository.findByCode("FREE").orElseThrow();
-        freePlan.setActive(false);
+        freePlan.setStatus(PlanStatus.INACTIVE);
         planRepository.saveAndFlush(freePlan);
 
         try {
@@ -71,8 +73,9 @@ class AccountProvisioningIntegrationTest extends PlatformShellIntegrationTestSup
 
             assertThat(userRepository.findByEmail(email)).isEmpty();
         } finally {
-            freePlan.setActive(true);
-            planRepository.saveAndFlush(freePlan);
+            var currentFreePlan = planRepository.findByCode("FREE").orElseThrow();
+            currentFreePlan.setStatus(PlanStatus.ACTIVE);
+            planRepository.saveAndFlush(currentFreePlan);
         }
     }
 
@@ -121,8 +124,7 @@ class AccountProvisioningIntegrationTest extends PlatformShellIntegrationTestSup
 
         mockMvc.perform(get("/api/v1/accounts/me")
                         .header("Authorization", bearer(accessToken)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.message").value("Access Denied: Workspace account is suspended"));
+                .andExpect(status().isUnauthorized());
 
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)

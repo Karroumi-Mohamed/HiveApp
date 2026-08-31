@@ -2,14 +2,11 @@ package com.hiveapp.shared.quota;
 
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
-import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
-import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
@@ -18,21 +15,14 @@ import java.util.function.LongSupplier;
 /**
  * Enforces quota limits at the Feature/slot level.
  *
- * Check order:
- *   1. Subscription-level quota override (client paid to bump this slot)
- *   2. Subscription entitlement snapshot quota config
- *   3. Legacy plan-level quota config when no snapshot exists
- *
+ * Resolves the included snapshot quota plus snapshotted quota-package capacity.
  * The LongSupplier is only called when a real limit exists (lazy evaluation).
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class QuotaEnforcer {
 
-    private final PlanFeatureRepository planFeatureRepository;
     private final SubscriptionRepository subscriptionRepository;
-    private final SubscriptionOverrideReader subscriptionOverrideReader;
     private final SubscriptionSnapshotReader subscriptionSnapshotReader;
 
     public void check(FeatureDefinition feature, String slot, UUID accountId, LongSupplier currentUsage) {
@@ -41,24 +31,19 @@ public class QuotaEnforcer {
                 .or(() -> subscriptionRepository.findByAccountIdAndStatus(accountId, SubscriptionStatus.TRIALING))
                 .orElseThrow(() -> new ResourceNotFoundException("Subscription", "accountId", accountId));
 
-        // 1. Check subscription-level quota override first
-        var overrideResult = resolveSubscriptionOverride(subscription, feature.code(), slot);
+        var snapshot = subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Subscription entitlement snapshot is required for quota enforcement"));
+        var limitEntry = resolveSnapshotLimit(snapshot, feature.code(), slot);
 
-        Long effectiveLimit;
-        if (overrideResult.isPresent()) {
-            long v = overrideResult.get();
-            if (v == OVERRIDE_UNLIMITED) return; // explicitly unlimited — skip check
-            effectiveLimit = v;
-        } else {
-            // 2. Fall back to subscription snapshot limit, with legacy plan fallback.
-            var limitEntry = resolveSnapshotLimit(subscription, feature.code(), slot)
-                    .or(() -> resolvePlanLimit(subscription, feature.code(), slot));
+        if (limitEntry.isEmpty()) return;
+        if (limitEntry.get().mode() == QuotaLimitMode.UNLIMITED) return;
 
-            if (limitEntry.isEmpty()) return;             // no quota defined for this slot
-            if (limitEntry.get().limit() == null) return; // plan-level unlimited
-
-            effectiveLimit = limitEntry.get().limit();
-        }
+        long purchasedCapacity = snapshot.quotaPackages() == null ? 0L : snapshot.quotaPackages().stream()
+                        .filter(item -> feature.code().equals(item.featureCode()) && slot.equals(item.resource()))
+                        .mapToLong(item -> item.purchasedCapacity())
+                        .reduce(0L, Math::addExact);
+        long effectiveLimit = Math.addExact(limitEntry.get().limit(), purchasedCapacity);
 
         long current = currentUsage.getAsLong();
         String unit = feature.quotaSlots().stream()
@@ -72,63 +57,19 @@ public class QuotaEnforcer {
         }
     }
 
-    /** Sentinel: override exists and is explicitly unlimited. */
-    private static final long OVERRIDE_UNLIMITED = -1L;
-
-    /**
-     * Three-state result:
-     *   Optional.empty()          → no override, caller falls back to plan default
-     *   Optional.of(OVERRIDE_UNLIMITED) → override exists, explicitly unlimited
-     *   Optional.of(n)            → override exists with limit n
-     */
-    private java.util.Optional<Long> resolveSubscriptionOverride(
-            Subscription sub, String featureCode, String slot) {
-
-        if (sub.getCustomOverrides() == null) return java.util.Optional.empty();
-        try {
-            var overrides = subscriptionOverrideReader.read(sub.getCustomOverrides());
-            if (overrides.quotaOverrides() == null) return java.util.Optional.empty();
-
-            var match = overrides.quotaOverrides().stream()
-                    .filter(o -> featureCode.equals(o.featureCode()) && slot.equals(o.resource()))
-                    .findFirst();
-
-            if (match.isEmpty()) return java.util.Optional.empty();
-
-            Long limit = match.get().limit();
-            return java.util.Optional.of(limit != null ? limit : OVERRIDE_UNLIMITED);
-
-        } catch (Exception e) {
-            log.warn("Could not read quota overrides for subscription {}: {}", sub.getId(), e.getMessage());
-            return java.util.Optional.empty();
-        }
-    }
-
     private java.util.Optional<QuotaLimitEntry> resolveSnapshotLimit(
-            Subscription subscription, String featureCode, String slot) {
-        return subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot())
-                .flatMap(snapshot -> snapshot.features() == null
-                        ? java.util.Optional.empty()
-                        : snapshot.features().stream()
-                                .filter(feature -> featureCode.equals(feature.featureCode()))
-                                .flatMap(feature -> feature.quotaConfigs() != null
-                                        ? feature.quotaConfigs().stream()
-                                        : java.util.stream.Stream.empty())
-                                .filter(quota -> slot.equals(quota.resource()))
-                                .findFirst());
-    }
-
-    private java.util.Optional<QuotaLimitEntry> resolvePlanLimit(
-            Subscription subscription, String featureCode, String slot) {
-        var planFeature = planFeatureRepository
-                .findByPlanIdAndFeature_Code(subscription.getPlan().getId(), featureCode);
-
-        if (planFeature.isEmpty()) {
-            return java.util.Optional.empty();
-        }
-
-        return planFeature.get().getQuotaConfigs().stream()
-                .filter(e -> e.resource().equals(slot))
-                .findFirst();
+            com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot snapshot,
+            String featureCode,
+            String slot
+    ) {
+        return snapshot.features() == null
+                ? java.util.Optional.empty()
+                : snapshot.features().stream()
+                        .filter(feature -> featureCode.equals(feature.featureCode()))
+                        .flatMap(feature -> feature.quotaConfigs() != null
+                                ? feature.quotaConfigs().stream()
+                                : java.util.stream.Stream.empty())
+                        .filter(quota -> slot.equals(quota.resource()))
+                        .findFirst();
     }
 }

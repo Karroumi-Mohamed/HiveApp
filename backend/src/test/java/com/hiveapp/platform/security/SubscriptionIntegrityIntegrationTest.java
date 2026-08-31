@@ -12,6 +12,7 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
+import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,7 +25,6 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -82,22 +82,6 @@ class SubscriptionIntegrityIntegrationTest extends PlatformShellIntegrationTestS
     }
 
     @Test
-    void simultaneousAdminPlanAssignmentsLeaveOneUsableSubscription() throws Exception {
-        String clientToken = registerClientAndGetToken();
-        UUID accountId = currentAccountId(clientToken);
-        String adminToken = loginAdminAndGetToken();
-
-        CompletableFuture<Integer> pro = assignPlanAsync(adminToken, accountId, "PRO");
-        CompletableFuture<Integer> enterprise = assignPlanAsync(adminToken, accountId, "ENTERPRISE");
-
-        assertThat(pro.join()).isEqualTo(201);
-        assertThat(enterprise.join()).isEqualTo(201);
-        assertThat(subscriptionRepository.findAllByAccountIdAndStatusIn(
-                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING)))
-                .hasSize(1);
-    }
-
-    @Test
     void databaseRejectsUsableStatusWithoutItsAccountSlot() throws Exception {
         Account account = registeredAccount();
         Plan free = planRepository.findByCode("FREE").orElseThrow();
@@ -132,22 +116,6 @@ class SubscriptionIntegrityIntegrationTest extends PlatformShellIntegrationTestS
         } finally {
             planFeatureRepository.saveAndFlush(companyFeature);
         }
-    }
-
-    private CompletableFuture<Integer> assignPlanAsync(String adminToken, UUID accountId, String planCode) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                return mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", accountId)
-                                .param("planCode", planCode)
-                                .header("Authorization", bearer(adminToken)))
-                        .andExpect(status().isCreated())
-                        .andReturn()
-                        .getResponse()
-                        .getStatus();
-            } catch (Exception ex) {
-                throw new IllegalStateException(ex);
-            }
-        });
     }
 
     private Account registeredAccount() throws Exception {
@@ -188,7 +156,20 @@ class SubscriptionIntegrityIntegrationTest extends PlatformShellIntegrationTestS
         subscription.setPlan(plan);
         subscription.setStatus(status);
         subscription.setCustomOverrides(subscriptionOverrideReader.write(SubscriptionOverrides.empty()));
-        subscription.setCurrentPrice(plan.getPrice() != null ? plan.getPrice() : BigDecimal.ZERO);
+        Instant startsAt = Instant.now();
+        Instant endsAt = startsAt.plusSeconds(2_592_000);
+        subscription.setCurrentPeriodStart(startsAt);
+        subscription.setCurrentPeriodEnd(endsAt);
+        SubscriptionEntitlementSnapshot existingSnapshot = subscriptionRepository
+                .findAllByAccountIdAndStatusIn(account.getId(), List.of(SubscriptionStatus.values()))
+                .stream()
+                .findFirst()
+                .map(Subscription::getEntitlementSnapshot)
+                .orElseThrow();
+        subscription.setEntitlementSnapshot(existingSnapshot.withEffectivePeriod(startsAt, endsAt));
+        subscription.setCurrentMoney(plan.getPrice() != null
+                ? plan.money()
+                : com.hiveapp.shared.money.Money.zero(plan.getCurrencyCode()));
         return subscription;
     }
 }

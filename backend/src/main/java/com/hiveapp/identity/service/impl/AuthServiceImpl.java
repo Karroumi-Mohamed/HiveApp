@@ -11,6 +11,10 @@ import com.hiveapp.identity.service.AuthService;
 import com.hiveapp.identity.service.ClientCredentialAuthenticationService;
 import com.hiveapp.identity.service.CredentialLifecycleService;
 import com.hiveapp.platform.client.account.service.WorkspaceProvisioningService;
+import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
+import com.hiveapp.shared.audit.AuditTrail;
+import com.hiveapp.shared.audit.AuditedMutation;
+import com.hiveapp.shared.audit.domain.AuditActorSurface;
 import com.hiveapp.shared.exception.DuplicateResourceException;
 import com.hiveapp.shared.exception.UnauthorizedException;
 import com.hiveapp.shared.security.IssuedTokens;
@@ -23,6 +27,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -34,9 +40,15 @@ public class AuthServiceImpl implements AuthService {
     private final CredentialLifecycleService credentialLifecycleService;
     private final TokenSessionService tokenSessionService;
     private final WorkspaceProvisioningService workspaceProvisioningService;
+    private final MemberRepository memberRepository;
+    private final AuditTrail auditTrail;
 
     @Override
     @Transactional
+    @AuditedMutation(
+            action = "identity.registration.create",
+            resourceType = "USER",
+            recordSuccess = false)
     public AuthResponse register(RegisterRequest request) {
         String email = EmailIdentity.canonicalize(request.email());
         if (userRepository.existsByEmail(email)) {
@@ -61,23 +73,45 @@ public class AuthServiceImpl implements AuthService {
         log.info("Registered new user: {}", user.getEmail());
 
         // Provision workspace synchronously — no events needed
-        workspaceProvisioningService.provision(user.getId(), user.getEmail());
+        var workspace = workspaceProvisioningService.provision(user.getId(), user.getEmail());
+
+        auditTrail.recordSuccess(
+                "identity.registration.create",
+                "USER",
+                user.getId(),
+                AuditActorSurface.CLIENT_WORKSPACE,
+                user.getId(),
+                workspace.accountId(),
+                Map.of(),
+                Map.of(
+                        "credentialState", user.getCredentialState(),
+                        "accountId", workspace.accountId(),
+                        "workspaceCreated", workspace.created()));
 
         return issueTokens(user);
     }
 
     @Override
     @Transactional
+    @AuditedMutation(
+            action = "identity.authentication.login",
+            resourceType = "USER",
+            recordSuccess = false)
     public AuthResponse login(LoginRequest request) {
         var authentication = clientCredentialAuthenticationService.authenticate(request);
         User user = authentication.user();
 
         log.info("Client identity authenticated: {}", user.getId());
+        var accountId = memberRepository.findByUserIdAndIsActiveTrue(user.getId())
+                .map(member -> member.getAccount().getId())
+                .orElse(null);
         if (authentication.passwordChangeRequired()) {
             tokenSessionService.revokeAll(java.util.List.of(user.getId()), TokenAudience.CLIENT);
-            var initial = tokenSessionService.issueInitialAccess(user.getId());
+            var initial = tokenSessionService.issueInitialAccess(user.getId(), TokenAudience.CLIENT);
+            auditLogin(user, accountId, true);
             return AuthResponse.initialAccess(initial.accessToken(), initial.expiresIn());
         }
+        auditLogin(user, accountId, false);
         return issueTokens(user);
     }
 
@@ -135,5 +169,19 @@ public class AuthServiceImpl implements AuthService {
     private AuthResponse issueTokens(User user) {
         IssuedTokens tokens = tokenSessionService.issue(user.getId(), TokenAudience.CLIENT);
         return AuthResponse.of(tokens.accessToken(), tokens.refreshToken(), tokens.expiresIn());
+    }
+
+    private void auditLogin(User user, java.util.UUID accountId, boolean initialAccessIssued) {
+        auditTrail.recordSuccess(
+                "identity.authentication.login",
+                "USER",
+                user.getId(),
+                AuditActorSurface.CLIENT_WORKSPACE,
+                user.getId(),
+                accountId,
+                Map.of(),
+                Map.of(
+                        "credentialState", user.getCredentialState(),
+                        "initialAccessIssued", initialAccessIssued));
     }
 }

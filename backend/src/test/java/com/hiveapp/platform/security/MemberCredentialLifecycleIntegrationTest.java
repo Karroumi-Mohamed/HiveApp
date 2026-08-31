@@ -11,8 +11,12 @@ import com.hiveapp.identity.dto.PasswordResetRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.shared.email.EmailService;
+import com.hiveapp.shared.email.EmailDispatchOutcome;
+import com.hiveapp.shared.email.EmailDeliveryException;
+import com.hiveapp.shared.email.delivery.EmailDeliveryFailureCode;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -28,6 +32,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -45,6 +51,15 @@ class MemberCredentialLifecycleIntegrationTest extends PlatformShellIntegrationT
 
     @MockBean
     private EmailService emailService;
+
+    @BeforeEach
+    void successfulEmailTransportByDefault() {
+        org.mockito.Mockito.lenient().doReturn(EmailDispatchOutcome.SENT)
+                .when(emailService).sendCredentialLink(
+                        anyString(), anyString(), anyString(), anyString(),
+                        org.mockito.ArgumentMatchers.any(CredentialTokenPurpose.class),
+                        org.mockito.ArgumentMatchers.any(Instant.class));
+    }
 
     @Test
     void temporaryPasswordIsShownOnceAndForcesARestrictedOneUsePasswordChange() throws Exception {
@@ -115,7 +130,7 @@ class MemberCredentialLifecycleIntegrationTest extends PlatformShellIntegrationT
 
         mockMvc.perform(get("/api/v1/members")
                         .header("Authorization", bearer(oldAccessToken)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new RefreshTokenRequest(oldRefreshToken))))
@@ -155,6 +170,8 @@ class MemberCredentialLifecycleIntegrationTest extends PlatformShellIntegrationT
         assertThat(created.get("temporaryPassword").isNull()).isTrue();
         assertThat(created.get("credentialState").asText()).isEqualTo("EMAIL_ACTIVATION_PENDING");
         assertThat(created.get("activationLinkExpiresAt").asText()).isNotBlank();
+        assertThat(created.at("/emailDelivery/status").asText()).isEqualTo("SENT");
+        assertThat(created.at("/emailDelivery/totalAttempts").asLong()).isEqualTo(1);
         login(new LoginRequest(email, MEMBER_PASSWORD), status().isUnauthorized());
 
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
@@ -213,6 +230,62 @@ class MemberCredentialLifecycleIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isUnauthorized());
         login(new LoginRequest(email, MEMBER_PASSWORD), status().isUnauthorized());
         login(new LoginRequest(email, resetPassword), status().isOk());
+    }
+
+    @Test
+    void failedDeliveryIsReturnedPersistedAndRecoveredByTokenRotatingRegeneration() throws Exception {
+        String ownerToken = registerClientAndGetToken();
+        String username = unique("delivery");
+        String email = username + "@example.com";
+        doThrow(new EmailDeliveryException(
+                EmailDeliveryFailureCode.TRANSPORT_FAILED,
+                new IllegalStateException("private provider detail")))
+                .when(emailService).sendCredentialLink(
+                        anyString(), anyString(), anyString(), anyString(),
+                        org.mockito.ArgumentMatchers.any(CredentialTokenPurpose.class),
+                        org.mockito.ArgumentMatchers.any(Instant.class));
+
+        JsonNode created = createMember(ownerToken, username, email, null);
+        UUID memberId = UUID.fromString(created.at("/member/id").asText());
+
+        assertThat(created.at("/emailDelivery/status").asText()).isEqualTo("FAILED");
+        assertThat(created.at("/emailDelivery/failureCode").asText())
+                .isEqualTo("TRANSPORT_FAILED");
+        assertThat(created.at("/emailDelivery/failedAttempts").asLong()).isEqualTo(1);
+        assertThat(created.at("/emailDelivery/retryable").asBoolean()).isTrue();
+        assertThat(created.toString()).doesNotContain("private provider detail");
+        ArgumentCaptor<String> failedUrl = ArgumentCaptor.forClass(String.class);
+        verify(emailService).sendCredentialLink(
+                eq(email), eq("Email Member"), anyString(), failedUrl.capture(),
+                eq(CredentialTokenPurpose.ACTIVATION),
+                org.mockito.ArgumentMatchers.any(Instant.class));
+
+        JsonNode statusBefore = responseJson(mockMvc.perform(get(
+                                "/api/v1/members/{id}/access", memberId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk()));
+        assertThat(statusBefore.at("/latestEmailDelivery/status").asText()).isEqualTo("FAILED");
+
+        clearInvocations(emailService);
+        doReturn(EmailDispatchOutcome.SENT).when(emailService).sendCredentialLink(
+                anyString(), anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.any(CredentialTokenPurpose.class),
+                org.mockito.ArgumentMatchers.any(Instant.class));
+        JsonNode retried = responseJson(mockMvc.perform(post(
+                                "/api/v1/members/{id}/access/regenerate", memberId)
+                        .header("Authorization", bearer(ownerToken)))
+                .andExpect(status().isOk()));
+
+        assertThat(retried.at("/emailDelivery/status").asText()).isEqualTo("SENT");
+        assertThat(retried.at("/emailDelivery/totalAttempts").asLong()).isEqualTo(2);
+        assertThat(retried.at("/emailDelivery/failedAttempts").asLong()).isEqualTo(1);
+        assertThat(retried.at("/emailDelivery/retryable").asBoolean()).isFalse();
+        ArgumentCaptor<String> retryUrl = ArgumentCaptor.forClass(String.class);
+        verify(emailService).sendCredentialLink(
+                eq(email), eq("Email Member"), anyString(), retryUrl.capture(),
+                eq(CredentialTokenPurpose.ACTIVATION),
+                org.mockito.ArgumentMatchers.any(Instant.class));
+        assertThat(retryUrl.getValue()).isNotEqualTo(failedUrl.getValue());
     }
 
     private JsonNode createMember(

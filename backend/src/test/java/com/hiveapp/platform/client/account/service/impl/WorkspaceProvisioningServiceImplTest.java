@@ -1,12 +1,14 @@
 package com.hiveapp.platform.client.account.service.impl;
 
 import com.hiveapp.identity.domain.entity.User;
-import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.service.IdentityService;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.PlanStatus;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
@@ -15,6 +17,9 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
+import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleManager;
+import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
+import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
 import com.hiveapp.shared.exception.InvalidStateException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import com.hiveapp.shared.money.Money;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,11 +40,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
 
 @ExtendWith(MockitoExtension.class)
 class WorkspaceProvisioningServiceImplTest {
 
-    @Mock UserRepository userRepository;
+    @Mock IdentityService identityService;
     @Mock AccountRepository accountRepository;
     @Mock MemberRepository memberRepository;
     @Mock PlanRepository planRepository;
@@ -46,11 +53,13 @@ class WorkspaceProvisioningServiceImplTest {
     @Mock SubscriptionOverrideReader subscriptionOverrideReader;
     @Mock SubscriptionSnapshotFactory subscriptionSnapshotFactory;
     @Mock SubscriptionSnapshotReader subscriptionSnapshotReader;
+    @Mock SubscriptionLifecycleManager subscriptionLifecycleManager;
+    @Mock SubscriptionPeriodCalculator subscriptionPeriodCalculator;
 
     @Test
     void missingFreePlanFailsBeforeWorkspaceCreation() {
         UUID userId = UUID.randomUUID();
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user(userId)));
+        when(identityService.requireManagedUser(userId)).thenReturn(user(userId));
         when(accountRepository.findByOwner_Id(userId)).thenReturn(Optional.empty());
         when(planRepository.findByCode("FREE")).thenReturn(Optional.empty());
 
@@ -71,9 +80,10 @@ class WorkspaceProvisioningServiceImplTest {
         Member owner = new Member();
         owner.setOwner(true);
         Subscription subscription = new Subscription();
-        subscription.setEntitlementSnapshot("{\"planCode\":\"FREE\"}");
+        subscription.setEntitlementSnapshot(SubscriptionEntitlementSnapshot.empty(
+                "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY));
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(account.getOwner()));
+        when(identityService.requireManagedUser(userId)).thenReturn(account.getOwner());
         when(accountRepository.findByOwner_Id(userId)).thenReturn(Optional.of(account));
         when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(owner));
         when(subscriptionRepository.findAllByAccountIdAndStatusIn(
@@ -96,9 +106,10 @@ class WorkspaceProvisioningServiceImplTest {
         UUID accountId = UUID.randomUUID();
         User user = user(userId);
         Plan freePlan = freePlan();
-        SubscriptionEntitlementSnapshot snapshot = SubscriptionEntitlementSnapshot.empty("FREE", BigDecimal.ZERO);
+        SubscriptionEntitlementSnapshot snapshot = SubscriptionEntitlementSnapshot.empty(
+                "FREE", BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(identityService.requireManagedUser(userId)).thenReturn(user);
         when(accountRepository.findByOwner_Id(userId)).thenReturn(Optional.empty());
         when(planRepository.findByCode("FREE")).thenReturn(Optional.of(freePlan));
         when(accountRepository.save(any(Account.class))).thenAnswer(invocation -> {
@@ -107,9 +118,24 @@ class WorkspaceProvisioningServiceImplTest {
             return account;
         });
         when(memberRepository.save(any(Member.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(subscriptionOverrideReader.write(any())).thenReturn("{}");
+        when(subscriptionOverrideReader.write(any())).thenReturn(SubscriptionOverrides.empty());
         when(subscriptionSnapshotFactory.fromPlan(freePlan)).thenReturn(snapshot);
-        when(subscriptionSnapshotReader.write(snapshot)).thenReturn("{\"planCode\":\"FREE\"}");
+        when(subscriptionSnapshotReader.write(snapshot)).thenReturn(snapshot);
+        var period = new SubscriptionPeriodCalculator.Period(
+                java.time.Instant.parse("2026-08-10T00:00:00Z"),
+                java.time.Instant.parse("2026-09-10T00:00:00Z"));
+        when(subscriptionPeriodCalculator.recurring(BillingCycle.MONTHLY)).thenReturn(period);
+        doAnswer(invocation -> {
+            Subscription value = invocation.getArgument(0);
+            value.setStatus(SubscriptionStatus.ACTIVE);
+            value.setCurrentPeriodStart(period.startsAt());
+            value.setCurrentPeriodEnd(period.endsAt());
+            value.setEntitlementSnapshot(value.getEntitlementSnapshot()
+                    .withEffectivePeriod(period.startsAt(), period.endsAt()));
+            return null;
+        }).when(subscriptionLifecycleManager).initialize(
+                any(Subscription.class), any(SubscriptionStatus.class),
+                any(SubscriptionPeriodCalculator.Period.class));
         when(subscriptionRepository.saveAndFlush(any(Subscription.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -121,19 +147,21 @@ class WorkspaceProvisioningServiceImplTest {
         ArgumentCaptor<Subscription> subscriptionCaptor = ArgumentCaptor.forClass(Subscription.class);
         verify(subscriptionRepository).saveAndFlush(subscriptionCaptor.capture());
         assertThat(subscriptionCaptor.getValue().getStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
-        assertThat(subscriptionCaptor.getValue().getEntitlementSnapshot()).contains("FREE");
+        assertThat(subscriptionCaptor.getValue().getEntitlementSnapshot().planCode()).isEqualTo("FREE");
     }
 
     private WorkspaceProvisioningServiceImpl service() {
         return new WorkspaceProvisioningServiceImpl(
-                userRepository,
+                identityService,
                 accountRepository,
                 memberRepository,
                 planRepository,
                 subscriptionRepository,
                 subscriptionOverrideReader,
                 subscriptionSnapshotFactory,
-                subscriptionSnapshotReader);
+                subscriptionSnapshotReader,
+                subscriptionLifecycleManager,
+                subscriptionPeriodCalculator);
     }
 
     private User user(UUID id) {
@@ -159,8 +187,9 @@ class WorkspaceProvisioningServiceImplTest {
         Plan plan = new Plan();
         ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
         plan.setCode("FREE");
-        plan.setPrice(BigDecimal.ZERO);
-        plan.setActive(true);
+        plan.setMoney(Money.zero("USD"));
+        plan.setBillingCycle(BillingCycle.MONTHLY);
+        plan.setStatus(PlanStatus.ACTIVE);
         return plan;
     }
 }

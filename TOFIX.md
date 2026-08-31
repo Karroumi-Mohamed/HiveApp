@@ -105,7 +105,7 @@ The current unpublished application uses disposable in-memory H2 schemas generat
 
 ### RBAC-001 — Company scope is represented twice for role assignment
 
-**Status:** `CONFIRMED — DESIGN DECIDED`
+**Status:** `IMPLEMENTED FOR CURRENT PLATFORM SHELL — 2026-07-17`
 
 **Evidence**
 
@@ -130,6 +130,16 @@ A company-scoped role can be assigned with a null or different `MemberRole.compa
 
 The current duplicate nullable Company fields must be replaced or renamed into explicit concepts: template boundary versus assignment effect scope. An Account template may be assigned Account-wide or to a Company; a Company template may be assigned only to its owning Company. Enforce containment in service validation and database constraints where possible.
 
+**Implementation evidence — 2026-07-17**
+
+- `Role.templateBoundary` and `Role.boundaryCompany` now express Account/Company template availability independently from assignment effect.
+- `MemberRole.effectScope` and `MemberRole.scopeCompany` now express the exact Account/Company authorization effect, with a stable exact-scope uniqueness key.
+- Account templates can be reused at Account or Company effect scope. Company templates are rejected outside their boundary Company.
+- Effective-permission resolution includes Account assignments plus only the requested Company assignments and overrides; it no longer unions unrelated Companies.
+- Non-owner mutation from a Company context is limited to a template bounded to that Company. B2B role operations retain the collaboration-Company boundary.
+- Published Platform starter templates remain a future platform-admin source/adoption model; the current tenant shell intentionally implements only assignable Account and Company templates.
+- Because the application is unpublished and its H2 database is disposable, the generated entity/schema mappings were updated directly without introducing versioned migration history.
+
 ---
 
 ### RBAC-002 — Inactive client roles still grant permissions
@@ -152,7 +162,7 @@ Filter inactive roles in the runtime authorization query and add request-level t
 
 ### RBAC-003 — Client role assignment and direct grants have no actor permission ceiling
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -183,11 +193,20 @@ Implement the decided owner/delegation model:
 
 Enforce these rules in Permissionizer/runtime authorization, role assignment, direct GRANT overrides, and B2B delegation, with boundary and abuse tests.
 
+**Implementation evidence — 2026-07-17**
+
+- A central `DelegationCeilingService` evaluates the authenticated actor's effective permissions at the requested Account/Company effect scope.
+- Normal role assignment and member-creation initial assignments require the actor to hold the scoped management action and every permission contained in the role.
+- Direct GRANT/DENY override mutation requires the matching scoped management action and delegated permission. Owners remain unaffected by overrides, and ordinary role/override APIs reject the owner as a target.
+- Role permission addition, activation, and duplication enforce the ceiling at every currently affected assignment scope, or at the template's default boundary when it has no assignments.
+- B2B permission grants require the provider actor to personally hold the delegated permission in the collaboration Company.
+- Owner-only action classification/picker exclusion remains owned by the later registry action-metadata work (`REGISTRY-008`/`REGISTRY-010`); atomic ownership transfer remains a separate future flow.
+
 ---
 
 ### RBAC-004 — Removing a member role ignores company scope
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -202,6 +221,12 @@ Removing a role intended for Company A can also remove the same role assignment 
 **Required resolution**
 
 Make removal scope explicit, or deliberately define the operation as "remove this role from all scopes" and name/confirm it accordingly. Prefer precise assignment IDs or member+role+scope keys.
+
+**Implementation evidence — 2026-07-17**
+
+- Role removal now requires an explicit `ACCOUNT` or `COMPANY` effect scope and requires `companyId` exactly for Company removal.
+- Repository deletion targets only the exact member/role/scope key and returns not found when that assignment does not exist; sibling Company and Account assignments are retained.
+- Focused unit and request-level integration tests cover exact-scope removal and the updated API contract.
 
 ---
 
@@ -291,7 +316,7 @@ Centralize same-account/same-company invariant checks, query related records thr
 
 ### ORG-001 — Department entity cannot support the decided generic Group model
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — MONEY/CURRENCY FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -367,7 +392,7 @@ Generic Groups mirror customer organization folders. Names, positions, nesting, 
 
 ### AUTHZ-006 — Shell authorization cannot target one managed entity or subgroup
 
-**Status:** `CONFIRMED`
+**Status:** `DESIGN DEFERRED BY PRODUCT DECISION`
 
 **Evidence**
 
@@ -391,11 +416,19 @@ A generic management permission authorizes the action without defining which mem
 - Add direct-target, unrelated-member, subgroup, moved-member, Company-admin, owner-target, crafted-ID, list/export, and delegation-ceiling tests.
 - Keep the Permissionizer core generic unless implementation demonstrates a concrete need for method-argument-aware context integration.
 
+**Batch 5.3 design boundary — 2026-08-10**
+
+- Do not add caller-supplied target IDs to `HiveAppPermissionContext` or authorization headers; the service must load the tenant-owned entity before a target check.
+- Keep Permissionizer annotations as coarse action gates and use a HiveApp target authorizer for the loaded target when this capability is introduced.
+- The same resolved target restriction must become a repository predicate for list/search/count/export/bulk operations; UI filtering is never the security boundary.
+- Any management assignment is a separate, explicit security object. Organization Group names, hierarchy, membership, and positions never become authority automatically.
+- Per the existing product decision to defer the manager-target building block, choose the concrete single-member/reusable-set persistence model with the first real module workflow rather than inventing an unused shell abstraction now.
+
 ---
 
 ### RBAC-006 — Direct member overrides cannot support the decided exception lifecycle
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -414,11 +447,21 @@ A generic management permission authorizes the action without defining which mem
 - Build a source-aware effective-access read model showing role sources, grants, denies, scope, reason, creator, expiry/effect status, and history.
 - Audit create/edit/revoke/expire/failed attempts and add cross-scope, expired-grant, deny-precedence, self-escalation, owner-target, and entitlement tests.
 
+**Implementation evidence — 2026-07-17**
+
+- The persisted boolean is replaced by explicit `GRANT`/`DENY`, with Account/Company scope and exact-scope uniqueness.
+- Both decisions require a reason and creator. Grants require a future expiry; denies may be permanent or expire. Runtime resolution ignores expired exceptions and exceptions inside inactive Companies.
+- Creation and removal reject owner targets and self-mutation, validate tenant/scope containment and code grantability, and enforce the actor's management action plus scoped delegation ceiling. Stale exception cleanup remains possible when a permission leaves entitlement.
+- Exception reads expose decision, scope, Company, reason, creator, expiry, timestamps, and current effect for the future admin UI.
+- Applicable active denies remove authority from both roles and direct grants. Owners remain protected from ordinary exceptions.
+- Central actor-event history and failed-attempt audit remain part of the shared `AUDIT-001` work rather than a private exception log.
+- Entity, service, Permissionizer-policy, effective-permission, lifecycle, abuse, and request-level scope coverage passes in the complete backend suite: 311 tests, 0 failures, 0 errors, 0 skipped.
+
 ---
 
 ### SUBSCRIPTION-001 — Subscription lifecycle terminology is inconsistent
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -433,11 +476,17 @@ Policies, UI filters, API contracts, tests, and documentation may handle termina
 
 Inspect plan policies, subscription services, migrations, tests, and frontend status handling. Either introduce a precisely defined expiration state or remove the stale terminology everywhere.
 
+**Implementation evidence — 2026-08-10**
+
+- `SubscriptionStatus` now has the canonical `TRIALING`, `ACTIVE`, `PAST_DUE`, `SUSPENDED`, `CANCELLED`, and `EXPIRED` vocabulary.
+- `EXPIRED` is used for a trial that reaches its deadline; `CANCELLED` remains an explicit/replacement end, and paid expiry enters `PAST_DUE` until later recurring collection/recovery supplies a trusted payment outcome.
+- Usable-subscription queries consistently mean `ACTIVE` or `TRIALING`; terminal/non-entitling states cannot occupy the Account's usable-subscription slot.
+
 ---
 
 ### SUBSCRIPTION-002 — Entitlement and override JSON is stored as untyped strings
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -459,11 +508,18 @@ String-based JSON weakens compile-time guarantees, makes schema evolution and va
 
 Use one versioned typed snapshot model and one shared parser/validator. Consider normalized tables only if querying, auditing, or migrations make JSON unsuitable.
 
+**Implementation evidence — 2026-08-10**
+
+- `Subscription.customOverrides` and `Subscription.entitlementSnapshot` are typed Hibernate JSON attributes rather than application-level strings.
+- Both records carry an explicit schema version, normalize missing version `0` to the current version for the unpublished schema, and reject unsupported versions.
+- Billing, entitlement, quota, catalog, B2B, and provisioning consumers now share the typed boundary. Reader tests cover null, structured, malformed, round-trip, and unsupported-version inputs.
+- No Flyway migration or legacy backfill was added because HiveApp is unpublished and uses a disposable in-memory database; the generated schema is updated directly as agreed.
+
 ---
 
 ### PLAN-001 — Plan persistence constraints are weak at the entity level
 
-**Status:** `VERIFY`
+**Status:** `VERIFIED AND RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -480,11 +536,17 @@ Invalid plan rows can break price calculation, catalog display, subscription sna
 
 Review migrations, request validation, plan services, seeders, and database tests before changing the schema.
 
+**Implementation evidence — 2026-08-10**
+
+- Verification confirmed that `plans(code)` already has a database unique constraint; an integration test now proves a duplicate insert fails even when the service pre-check is bypassed.
+- Price and currency were made non-null with explicit precision in Batch 4.1. `billing_cycle`, lifecycle `status`, and optimistic-lock `version` are non-null in the generated schema, with direct SQL rejection tests.
+- No Flyway migration was added under the agreed unpublished/disposable-H2 policy.
+
 ---
 
 ### PLAN-006 — Boolean plan state cannot implement the decided lifecycle
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — LIFECYCLE FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -505,11 +567,19 @@ Admins can expose unfinished plans, edit something intended as immutable history
 - Protect the configured default provisioning plan from deactivation, archive, or deletion until a valid active replacement is installed atomically.
 - Add transition, invalid activation, default replacement, existing-snapshot continuity, archived mutation, authorization, concurrent selection/transition, and audit tests.
 
+**Implementation evidence — 2026-08-10**
+
+- `Plan.status` now uses explicit `DRAFT`, `ACTIVE`, `INACTIVE`, and terminal `ARCHIVED` states; creation starts in DRAFT and bootstrap templates start ACTIVE.
+- Status changes use a validated command. Draft activation requires at least one valid included feature, draft-to-inactive and return-to-draft are rejected, archived plans are read-only/terminal, and only ACTIVE plans can receive new subscriptions.
+- FREE remains the protected provisioning default and now uses a zero-priced MONTHLY recurring cycle so compatible paid monthly AddOns can be offered. Perpetual licensing remains deliberately deferred.
+- Optimistic locking protects concurrent Plan edits. Focused lifecycle and full integration tests cover invalid transitions, activation composition, default protection, provisioning continuity, and persisted constraints.
+- Atomic configurable replacement of the provisioning default, audit records, and the active-template revision workflow remain under PLAN-007/later lifecycle work.
+
 ---
 
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — IMMUTABLE REVISION FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -534,11 +604,18 @@ Admins can change what Plan X means for future customers without a durable revis
 - Use clear product terminology such as `change subscribers to another plan`; reserve `migration` for technical database/schema work.
 - Add active-mutation rejection, revision-copy boundaries, future-only publish, selected/renewal/bulk targeting, usage conflict, stale preview, concurrent renewal, notification, retry, and audit tests.
 
+**Implementation evidence — 2026-08-10**
+
+- Published (`ACTIVE`, `INACTIVE`, or `ARCHIVED`) Plan commercial configuration is immutable. Basics and feature composition can change only while the Plan is a `DRAFT`; published changes require an explicit draft revision.
+- Every Plan has a durable lineage UUID, unique revision number, optional source Plan, and creation reason. `revise` continues the source lineage; `duplicate` starts an independent lineage; both copy only Plan-owned feature modes and quota configuration into a new draft.
+- Generic creation is now explicitly empty rather than silently inheriting FREE. Subscription snapshots store the Plan revision number as their definition version, so accepted terms identify the exact published revision.
+- Selected/filtered bulk subscriber changes, scheduled execution jobs, renewal policy, reusable communications, and audit remain later operational work. Current subscribers continue changing only through the existing one-Account previewed operation.
+
 ---
 
 ### BILLING-001 — Client self-service activates paid plans without payment or approval
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR CLIENT ACTIVATION — 2026-08-10`
 
 **Evidence**
 
@@ -559,11 +636,19 @@ Until real billing exists, paid client changes must remain pending until a real 
 - Store the request, confirmation source, actor, before/after snapshot, and effective time. Revalidate authorization, commercial confirmation, eligibility, and impact under the Account lock immediately before activation.
 - Offer both **now** and **at renewal** for upgrades and downgrades. Run the same effective feature/quota/workflow/usage impact preview for either direction; a more expensive plan can still remove a capability. Immediate execution rechecks under the Account lock, while renewal creates a cancellable pending operation and rechecks at cutoff. No plan change may silently delete customer data.
 
+**Implementation evidence — 2026-08-10**
+
+- A positive-price client request now creates a durable `AWAITING_CONFIRMATION` change operation and one checkout containing the Account, requester, exact Money amount/currency, before/target snapshots, timing, and gateway-attempt evidence. The current entitlement remains unchanged.
+- Only an explicitly zero-priced change can activate without checkout. Immediate activation and renewal execution share the same Account lock, current-subscription, Plan/AddOn/package-version, and feature-owned impact rechecks.
+- The guarded admin subscription surface can list Account change operations and manually confirm external settlement/contract evidence. Confirmation stores its operator, source, unique reference, reason, and time; retrying the same reference is idempotent.
+- Confirmed immediate changes activate only after the final recheck. Confirmed future-renewal changes remain pending until their effective time and are rechecked again by the renewal processor. Unconfirmed renewal checkouts can be cancelled without changing entitlement.
+- This closes unpaid client activation; it does not claim collected revenue or implement a provider/webhook, invoice/tax ledger, refund/credit workflow, or recurring payment recovery. Those remain separate billing work.
+
 ---
 
 ### QUOTA-002 — Client quota overrides can request unlimited capacity for free
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR SELF-SERVICE — 2026-08-10`
 
 **Evidence**
 
@@ -582,11 +667,18 @@ A client can turn a fixed, non-bumpable quota—including FREE-plan member/compa
 
 Client self-service may select only versioned predefined quota packages explicitly offered by the effective Plan/AddOn, within repeatability and maximum-purchase rules. Unlimited/custom-negotiated exceptions are operator-only and explicit, never inferred from null. Validate entitlement, quota ownership, package version, effective limit, usage impact, pricing/currency/cycle, and payment/approval before activation.
 
+**Implementation evidence — 2026-08-10**
+
+- Removed arbitrary `QuotaOverride` values from client and admin subscription-selection contracts. Requests now contain only quota package code plus a positive quantity.
+- Selection requires an ACTIVE package explicitly attached to the effective Plan or selected AddOn, a finite included owner for the exact feature/resource pair, matching currency/cycle, and quantity within repeatability/maximum rules.
+- Unlimited capacity is an explicit included-limit mode and cannot be requested through package selection. Custom/negotiated Account exceptions remain a separate operator-only future capability.
+- Package price is included in the immutable subscription snapshot and recurring calculation. Payment/approval before commercial activation remains tracked by BILLING-001 rather than being misrepresented as solved here.
+
 ---
 
 ### SUBSCRIPTION-003 — Subscription periods and lifecycle transitions are not implemented
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — RENEWAL/GRACE AND ONE-ACCOUNT LIFECYCLE IMPLEMENTED 2026-08-31`
 
 **Evidence**
 
@@ -604,11 +696,40 @@ The current model looks commercially complete but behaves as permanent manual en
 
 Define the lifecycle state machine and actor/event for every transition. Store unambiguous period instants, preserve history, and test runtime authorization at renewal, expiry, past-due, cancellation, and restoration boundaries.
 
+**Implementation evidence — 2026-08-10**
+
+- Every new subscription now receives UTC `Instant` period bounds derived from its billing cycle, and every period stores its immutable entitlement snapshot separately from the mutable current pointer.
+- A scheduled lifecycle worker expires due trials, completes and renews zero-priced periods, places paid periods in `PAST_DUE` without pretending payment succeeded, and closes replacement/cancel-at-period-end history.
+- Immediate and at-renewal plan changes are explicit operations. Renewal changes stay pending and cancellable, revalidate commercial availability and usage at execution, and enter `NEEDS_ATTENTION` instead of silently applying when conditions changed.
+- Tests cover trial expiry, free renewal/history, paid payment-due behavior, immediate replacement, pending renewal creation, and cancellation. Suspension/restoration, payment recovery, customer cancellation commands, grace policy, and communications remain later operator/billing flows rather than being claimed here.
+
+**Implementation evidence — 2026-08-31**
+
+- A paid period boundary creates one system-owned same-terms renewal operation, immutable Invoice,
+  Payment attempt, and durable provider command through the ordinary billing ledger; an explicit
+  pending at-renewal change remains authoritative and suppresses the default renewal.
+- Failed or pending collection moves the current subscription to `PAST_DUE` with persisted
+  `pastDueAt` and `graceEndsAt`. Entitlement remains valid only before that exact deadline, after
+  which scheduled processing moves it to non-entitled `SUSPENDED` without deleting customer data.
+- Trusted provider evidence or separately authorized manual settlement activates the already
+  invoiced next period from its original renewal boundary. Manual settlement can recover a failed
+  Checkout/operation while retaining the failed automatic Payment evidence.
+- Current admin/client read models include recovery timestamps.
+- One-Account cancel-at-period-end, keep-renewing, immediate cancellation, operator suspension,
+  restoration, and collection-grace extension use independent permissions, actor/action/version-
+  bound signed reviews, required reasons, locked mutation, and append-only bounded history.
+- Collection suspension cannot be restored through an operator status flip. Operator suspension
+  retains its prior entitled state only for bounded restoration before term end.
+- Suspension and immediate cancellation revoke every current Account member access and refresh
+  session; restoration does not reactivate old tokens. Terminal subscriptions remain readable.
+- Reviewed trial/new-entitlement creation, population lifecycle jobs, communications, and
+  filtered/Plan populations remain open.
+
 ---
 
 ### SUBSCRIPTION-004 — Trial subscriptions are authorized but invisible to client subscription flows
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -622,11 +743,17 @@ A trial account can use entitled APIs yet receive "subscription not found" when 
 
 Create one authoritative "usable subscription" query/state rule and apply it consistently across authorization, quota, admin, and client flows. Define what trial users may change and how conversion works.
 
+**Implementation evidence — 2026-08-10**
+
+- Repository and service reads use the shared `ACTIVE`-then-`TRIALING` usable-subscription rule.
+- Client subscription/catalog DTOs expose the trial status and UTC start/end bounds; integration coverage proves a trialing Account can read and use the same subscription surface consistently.
+- The direct admin trial-creation route was retired in Phase 10 together with other subscriber-affecting shortcuts. A reviewed, first-class trial operation remains under `PLAN-011` for Phase 12 rather than reopening the unsafe route.
+
 ---
 
 ### SUBSCRIPTION-005 — Admin overrides can grant out-of-plan features with no defined price
 
-**Status:** `DECISION`
+**Status:** `RESOLVED BY CONTRACT CHANGE — 2026-08-10`
 
 **Evidence**
 
@@ -640,11 +767,18 @@ An administrator can grant arbitrary sellable features for free with no reason, 
 
 Either restrict overrides to add-ons configured on the subscription's plan, or model negotiated exceptions explicitly with price, currency, reason, approver, effective dates, and audit history. Never infer zero price from missing configuration.
 
+**Implementation evidence — 2026-08-10**
+
+- Verification found the old arbitrary-feature override path had already been removed by the AddOn/quota-package work.
+- Both client and admin selection contracts now accept only configured AddOn identities and quota-package identities/quantities; they cannot name a raw feature or arbitrary quota.
+- Selected items must be active, Plan-compatible, currency/cycle-compatible, and priced. Their exact item prices are captured in the target snapshot and recurring calculation.
+- Negotiated operator exceptions are intentionally not inferred from this selection model and require a separate future contract if the product chooses to support them.
+
 ---
 
 ### SUBSCRIPTION-006 — Legacy subscriptions without snapshots receive optional add-ons automatically
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — FAIL-CLOSED SNAPSHOTS 2026-08-10`
 
 **Evidence**
 
@@ -658,11 +792,17 @@ Any legacy/malformed subscription without a snapshot is entitled to every option
 
 Migrate every usable subscription to a validated versioned snapshot. Until migration is complete, legacy fallback must distinguish included features from purchased add-ons and fail closed on ambiguous state.
 
+**Implementation evidence — 2026-08-10**
+
+- Entitlement, quota enforcement, and billing no longer reconstruct access or price from the current mutable Plan/AddOn definitions when a snapshot is missing.
+- Snapshot and period persistence are mandatory for newly provisioned, trial, immediate-replacement, and renewal-replacement subscriptions; malformed/missing state fails closed.
+- No production-row repair or compatibility fallback was retained because there is no deployed database to migrate. The disposable H2 schema is rebuilt with the mandatory columns.
+
 ---
 
 ### SUBSCRIPTION-007 — Downgrade safety is centralized, incomplete, and fails open for new modules
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR PLAN-CHANGE SAFETY — 2026-08-10`
 
 **Evidence**
 
@@ -682,11 +822,18 @@ Introduce feature-owned usage/impact contributors collected centrally. Each sell
 
 Apply this impact engine to every plan change, not only one labeled a downgrade: both upgrade and downgrade allow immediate or renewal-time execution, and either can remove a capability. Immediate conflicts require an explicit grace/exception/restriction/remediation choice; renewal-time changes remain pending/cancellable and revalidate at execution. Preserve data unless a separate authorized purge flow is chosen.
 
+**Implementation evidence — 2026-08-10**
+
+- The centralized feature-code switch was removed. Workspace, Company, staff, roles, organization groups, B2B collaboration, and subscription-management folders now own their impact contributors.
+- Contributors count active domain data and measure owned quota slots. Removing a feature with no contributor produces `IMPACT_UNKNOWN`; reducing a quota without a measurement produces `QUOTA_USAGE_UNKNOWN`. Both block instead of assuming zero.
+- The same analyzer runs for every immediate or renewal change, regardless of upgrade/downgrade label. Immediate conflicts reject mutation; renewal operations are cancellable and repeat validation at cutoff, moving to `NEEDS_ATTENTION` on conflicts or stale commercial items.
+- Customer data is never deleted by a plan change. Grace/restriction/exception choices and their UI remain later operational flows.
+
 ---
 
 ### QUOTA-004 — Current arbitrary overrides cannot represent the decided quota-package model
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — VERSIONED PACKAGE FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -710,11 +857,20 @@ Customers can request capacity the operator never offered, unlimited access can 
 - Store itemized quota sources and package versions in the immutable subscription snapshot. Return included, purchased, exception, usage, remaining/excess, and pending state separately.
 - Enforce allocation transactionally/concurrently and add finite/zero/null/unlimited, package quantity/max, ownership collision, unknown usage, over-limit data preservation, exception precedence, snapshot/version, stale request, and final-slot race tests.
 
+**Implementation evidence — 2026-08-10**
+
+- Added a versioned `QuotaPackage` aggregate with code/name, feature-qualified resource, capacity per unit, Money price, billing cycle, repeatability, maximum quantity, Plan/AddOn ownership, lifecycle, optimistic locking, and database-unique code.
+- Added Permissionizer-guarded administration at `/api/admin/quota-packages`; drafts are editable/deletable, ACTIVE packages are immutable, and archive is terminal.
+- Activation proves each declared Plan/AddOn owner is active, currency/cycle compatible, and supplies the exact finite included quota. Selection revalidates ownership and limits against the effective Plan/AddOns.
+- Subscription overrides now store package identity and quantity. Immutable snapshots retain package definition version, exact feature/resource, capacity, quantity, and itemized price; catalogs expose compatible packages and effective quota previews expose included, purchased, and final capacity.
+- Enforcement adds only snapshotted package capacity to the matching feature/resource quota. Arbitrary values, null-as-unlimited overrides, per-unit price inference, duplicate selections, and excess quantities are rejected or no longer representable.
+- Feature-owned usage contributors, operator Account exceptions, renewal scheduling/payment, and final-slot distributed concurrency remain in their dedicated later work.
+
 ---
 
 ### QUOTA-003 — Quota conflict matching loses the owning feature
 
-**Status:** `OBSERVED`
+**Status:** `VERIFIED AND RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -728,11 +884,17 @@ When two modules use the same quota resource name, downgrade preview can check u
 
 Carry `(featureCode, resource)` as the quota identity through snapshots, effective-limit calculations, conflicts, billing, UI keys, and enforcement.
 
+**Implementation evidence — 2026-08-10**
+
+- Effective quota output now carries `featureCode` and `resource` together; downgrade/change conflict checks no longer recover ownership by taking the first matching resource name.
+- Quota package snapshots, catalog quota rows, validation keys, billing items, and runtime enforcement preserve the same compound identity.
+- Tests cover conflict reporting and enforcement using the feature-qualified slot.
+
 ---
 
 ### PLAN-002 — FREE/default plan availability is not protected
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR THE CURRENT DEFAULT — 2026-08-10`
 
 **Evidence**
 
@@ -749,11 +911,18 @@ An ordinary plan-management action or partial database state can break all new w
 
 Make the default provisioning plan an explicit configuration/invariant. Prevent disabling/deleting it while referenced by provisioning, validate it at startup, and make workspace creation fail atomically if entitlement provisioning fails.
 
+**Implementation evidence — 2026-08-10**
+
+- `PlanCodes.DEFAULT` is the single backend identifier used by provisioning, administration, inheritance defaults, and bootstrap seeding.
+- Admin service and API paths reject both deactivation and deletion of FREE, even when it has no subscription history. Startup fails visibly if an existing FREE row is inactive.
+- Missing FREE is created by the bootstrap seeder even when unrelated Plan rows already exist. Registration already fails atomically when a usable FREE entitlement cannot be provisioned.
+- Configurable atomic replacement of FREE remains part of the later Plan lifecycle work; the current invariant deliberately protects the one supported default.
+
 ---
 
 ### PLAN-003 — Seeded plan composition diverges between fresh and existing installations
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — SAFE BOOTSTRAP IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -769,11 +938,18 @@ A newly added HR/payroll/accounting feature is automatically included in every t
 
 Separate development demo data from production catalog migrations. Plan composition must change through explicit, versioned product decisions with previews—not by "all client features" convention or database emptiness.
 
+**Implementation evidence — 2026-08-10**
+
+- Bootstrap composition now names an explicit seven-feature shell baseline; discovering a new client feature can no longer silently add it to every plan.
+- Seeding validates the complete required registry baseline before writing, creates each missing FREE/PRO/ENTERPRISE template with its composition inside one transaction, and does not skip merely because another Plan row exists.
+- Repeated startup preserves existing templates and admin-managed composition instead of overwriting them; unit tests cover fresh, repeated, partial, inactive-default, and missing-feature states.
+- This remains bootstrap-only. Versioned production catalog decisions, previews, and revisions remain scheduled for the later Plan revision workflow.
+
 ---
 
 ### PLAN-004 — Plan-feature uniqueness is enforced only by a race-prone pre-check
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -787,11 +963,17 @@ Concurrent admin requests can create duplicate feature rows, making entitlement,
 
 Add a database unique constraint, translate conflicts cleanly, and retain the application check only for friendly validation.
 
+**Implementation evidence — 2026-08-10**
+
+- Verification confirmed the existing generated-schema unique constraint on `(plan_id, feature_id)` and an integration test proves duplicate persistence fails when the service pre-check is bypassed.
+- The friendly pre-check remains, while `saveAndFlush` now translates a constraint race into `DuplicateResourceException` instead of leaking an ambiguous persistence failure.
+- No Flyway migration was added under the agreed pre-production database policy.
+
 ---
 
 ### PLAN-008 — PlanFeature commercial meaning and subscriber-removal boundaries are implicit
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — EXPLICIT COMMERCIAL MODES IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -816,11 +998,18 @@ Null pricing carries business meaning, new/internal features may enter product t
 - Keep FeatureDefinition price-free. Treat current add-on/quota prices as plan-contextual only and defer the permanent schema until module bundles, feature add-ons, quota packages/overage, negotiated overrides, currency, tax, and billing precedence are decided together.
 - Add mode, missing-row, duplicate-race, surface/sellability, dependency, future-only edit, explicit current-subscriber removal, stale preview, and audit tests.
 
+**Implementation evidence — 2026-08-10**
+
+- `PlanFeature.mode` explicitly distinguishes `INCLUDED`, `OPTIONAL_ADD_ON`, and `BLOCKED_FOR_PLAN`; nullable per-feature AddOn price fields and all null-based entitlement inference were removed.
+- Only INCLUDED rows may define base quota configuration. Subscription snapshots, entitlement fallback, catalogs, and billing now use explicit mode semantics.
+- Database uniqueness and registry/sellability validation remain enforced. AddOn activation and selection require every bundled feature to be OPTIONAL_ADD_ON on the target Plan, and overlapping effective feature ownership is rejected.
+- Existing subscriber snapshots remain unchanged by template edits. The separate target-aware current-subscriber removal/revision/audit workflow remains under PLAN-007 and later batches.
+
 ---
 
 ### PLAN-009 — Plan deletion lacks the decided draft-only impact workflow
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED FOR CURRENT RETAINED REFERENCES — 2026-08-10`
 
 **Evidence**
 
@@ -841,11 +1030,18 @@ An authorized admin can remove a commercially important/default plan merely beca
 - Delete only draft-owned configuration/lineage. Never delete registry features/modules, other plans, Accounts, subscriptions, or customer data.
 - Add default-plan, prior-active, historical-only, pending-change, external-reference, concurrent subscription, cross-record safety, authorization, and audit tests.
 
+**Implementation evidence — 2026-08-10**
+
+- The backend exposes a deletion preview with exact Plan/version token, owned-feature count, and blockers for default status, non-draft lifecycle, subscription history, change operations, AddOn/package availability, and retained lineage references.
+- Execution requires the exact Plan code, expected optimistic version, and matching preview token, then locks and recomputes the complete preview transactionally. A changed preview returns a conflict.
+- Only an unused, unreferenced `DRAFT` is hard-deleted, along with its own PlanFeature rows. Published/used codes remain reserved because their Plan row cannot be hard-deleted; database referential integrity is the final concurrent-reference guard.
+- Invoice/provider/external-reference blockers must be added to the same preview contributor when those retained models are introduced. They do not exist in the current schema.
+
 ---
 
 ### PLAN-010 — Plan duplication has no durable revision identity or code-reservation lifecycle
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -867,20 +1063,24 @@ A copied plan can become sellable before review, admins cannot understand its or
 - Store source plan/revision lineage and creation reason without linking future edits between source and copy.
 - Add code normalization/collision, used-code reservation, unused-draft reuse, default-code protection, draft default, copy-boundary, lineage, and concurrent creation tests.
 
+**Implementation evidence — 2026-08-10**
+
+- Plan codes are normalized and validated once, persisted as immutable unique identities, and translated to a domain conflict on concurrent collision.
+- Explicit create-empty, duplicate, and revise commands always create drafts. Duplicate creates a new lineage; revise continues the existing lineage with the next revision; both retain the source and creation reason without sharing future mutations.
+- Copying is limited to Plan-owned commercial feature modes/quota configuration. It never copies subscriptions, Account selections/exceptions, checkouts, change operations, periods, or customer data.
+- Activated/archived/used Plan rows cannot be deleted, permanently reserving their codes. Only a never-published, unused, unreferenced draft can be deleted and release its code.
+
 ---
 
 ### PLAN-011 — Admin subscriber management is a collection of single-record endpoints, not the decided operational flow
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — SELECTED-ACCOUNT CHANGE JOBS IMPLEMENTED 2026-08-31`
 
-**Evidence**
+**Remaining evidence**
 
-- The plan subscriber endpoint returns one unpaginated list and includes only `ACTIVE` and `TRIALING`; `PAST_DUE`, cancelled history, search, filters, and controlled owner-email lookup are absent.
-- Plan detail exposes counts and sums `currentPrice`, but this is configured recurring price rather than proven collected revenue.
-- Admin subscription lookup and mutation require a raw Account UUID. The API supports only get, create/replace one subscription, and overwrite its override payload.
-- There is no backend preview token/version, selected/filtered bulk population, scheduled or renewal-time execution, per-Account job result, conflict handling, idempotent retry, cancellation cutoff, or correction operation.
-- Account exceptions have no durable reason, actor, effective/expiry dates, approval/contract reference, grant-versus-restrict meaning, or explicit retain/remove/replace decision during a plan change.
-- The status enum contains only `ACTIVE`, `PAST_DUE`, `CANCELLED`, and `TRIALING`; there are no distinct commands/transitions for cancel-at-period-end, immediate cancel, suspend, expire, or restore.
+- One-Account immediate and at-renewal changes and explicit selected-Account jobs now use the reviewed operation engine, but filtered/Plan-subscriber populations and lifecycle command kinds are not implemented.
+- Reviewed trial creation, cancel-at-period-end, immediate cancellation, suspension, expiry, restoration, correction, and communications are not yet first-class operator commands. Progress, partial results, cancellation, and safe retry are implemented for selected-Account `CHANGE_SELECTION` jobs.
+- General negotiated/grace/restricted-state exceptions remain later than the delivered typed commercial-policy effects.
 
 **Risk**
 
@@ -896,11 +1096,23 @@ An admin UI built over these endpoints would force unsafe UUID-driven changes, h
 - Implement distinct, audited cancel-at-period-end, immediate cancel, suspend, expire, and restore transitions. Stop operational/B2B access and invalidate authorization state at the effective time while preserving declared restricted/read-only data; restoration revalidates current eligibility and creates fresh authorization state.
 - Add permission, privacy, pagination, concurrency, stale-preview, mixed-result, retry, history, exception, lifecycle, access-revocation, and restoration tests. Treat export plus pricing/billing/notification content as separately designed capabilities rather than pretending they are complete here.
 
+**Implementation evidence — 2026-08-10**
+
+- Plan subscribers are now a bounded page (maximum 100), searchable by Account name and filterable by every subscription status; the default view includes current and historical states rather than silently hiding non-usable subscriptions.
+- Results expose Account/subscription operational identity and explicitly label price as configured recurring price. They do not expose Company/member/business data or describe configured amounts as collected revenue.
+- Exact Account-owner-email lookup is a separate Permissionizer action and response contract, so ordinary subscriber-list permission does not automatically expose owner email.
+- The audited Account workbench now exposes the current exact purchased snapshot, usage/conflicts, history and pending operation; signed preview, required reason, immediate/at-renewal apply, stale-review recovery, pending cancellation, and checkout confirmation all revalidate under the Account/commercial lock order.
+- Direct admin create/trial/raw-override mutations and their Permissionizer nodes were removed. Internal registration-time FREE provisioning remains the narrow bootstrap exception; reviewed trial creation belongs to Phase 12.
+- Admin responses preserve actor, request/cancellation, checkout and policy provenance. Client responses deliberately expose only safe effective terms, stable attention codes, and checkout state.
+- Exact retained Plan/AddOn/package Price-entry identities and quantities survive later catalogue pause/inactivation/direct-only changes; retained items remain visible/removable but cannot be newly selected or increased.
+- Selected-Account population previews, immutable affected sets, partial-success jobs/retry, and scheduled execution are now durable operational APIs with admin list/create/detail/results UI and independently authorized identity reveal.
+- Filtered/Plan-subscriber populations, lifecycle/correction command kinds, export, client pending-job projection, and communications remain unresolved and must be implemented before claiming a complete subscriber-management workflow.
+
 ---
 
 ### PLAN-012 — Current per-feature add-on fields cannot represent the agreed commercial AddOn model
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — FIRST-CLASS ADDON FOUNDATION IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
@@ -924,49 +1136,86 @@ The backend and replacement UI would force administrators to price technical fea
 - Reuse immediate/renewal change operations, impact preview, locking, pending jobs, data preservation, communication, audit, and per-Account results for AddOn/package changes.
 - Add FREE-plus-add-on, whole-module bundle, custom bundle, dependency/exclusion, duplicate capability, overlapping quota, package stacking, blocked Plan, snapshot/version, immediate/renewal, concurrency, price calculation, and authorization tests.
 
+**Implementation evidence — 2026-08-10**
+
+- Added a versioned `AddOn` aggregate and `AddOnFeature` composition with fixed Money price/currency/cycle, DRAFT/ACTIVE/INACTIVE/ARCHIVED lifecycle, allowed/blocked Plans, dependencies, exclusions, included quota definitions, optimistic locking, and database uniqueness.
+- Added Permissionizer-guarded administration at `/api/admin/add-ons` for catalogue, detail, lifecycle, feature composition, safe draft deletion, and immutable published boundaries. Published AddOns now branch into lineage-aware draft revisions; publishing a revision pauses the older active revision for new sales without changing existing subscription snapshots.
+- Subscription requests and overrides now select AddOn identities rather than technical feature codes. Validation enforces active state, Plan/currency/cycle availability, dependency/exclusion rules, OPTIONAL_ADD_ON modes, and non-overlapping capabilities.
+- Immutable entitlement snapshots retain selected AddOn identity, definition version, price/currency/cycle, effective bundled features and quotas. Billing prices the snapshotted AddOn, and the client catalog exposes compatible AddOn composition and quota details.
+- Versioned quota packages now add Plan/AddOn-owned finite capacity with identity/quantity selection, itemized snapshot pricing, catalog visibility, and runtime enforcement.
+- Tests cover FREE-compatible recurring cycles, lifecycle/activation, identity selection, AddOn/package snapshot pricing, uniqueness, administration-to-client-catalog flow, and existing-subscription snapshot isolation.
+- Payment/approval, renewal scheduling, subscriber-wide impact jobs, operator exceptions, and full audit history remain intentionally assigned to later batches.
+
 ---
 
 ### PLAN-005 — Purchased subscription terms are not a complete historical snapshot
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — VERSIONED TERM HISTORY IMPLEMENTED 2026-08-10`
 
 **Evidence**
 
-The entitlement snapshot stores plan code, base price, selected features, add-on prices, and quota configuration. It does not store billing cycle, currency, tax/price version, effective dates, or source template version. The subscription still points to a mutable `Plan` for other display fields.
+The entitlement snapshot now stores plan code, base price, currency, billing cycle, effective features/quotas, selected AddOn identities/versions/prices, and selected quota-package identities/versions/capacity/quantity/prices. It still does not store a Plan definition version or lineage, effective dates, tax/adjustment terms, or a complete historical change record. The subscription also still points to a mutable `Plan` for other display fields.
 
 **Risk**
 
-After plan edits, the system cannot reliably reconstruct the full terms a customer accepted or compare recurring values across monthly/yearly plans. Admin "recurring price" totals sum raw prices without cycle normalization.
+The current snapshot is materially safer, but it still cannot reconstruct every term a customer accepted or explain the lineage and effective period of later changes. Cross-cycle aggregation and invoice/payment history also remain separate unresolved concerns.
 
 **Required fix direction**
 
 Snapshot the exact Plan/AddOn/quota-package versions, effective features/quotas, itemized Money prices with ISO currency, exact monthly/yearly cycle, effective period dates, adjustments, and source version/lineage. Preserve entitlement history separately from invoices, confirmed payments, refunds/credits, and provider/manual references. Never aggregate mixed currencies/cycles or label configured price as revenue.
 
+**Implementation evidence — 2026-08-10**
+
+- The versioned snapshot now records Plan identity/name/definition version, base Money/currency/cycle, effective period, effective feature/quota definitions, and selected AddOn/package identity, definition version, quantity/capacity, and item price.
+- Each closed/open `SubscriptionPeriod` preserves the exact snapshot effective for that period; each change operation preserves before/target snapshots, requested selection, timing, status, and resulting subscription.
+- Billing and runtime entitlement read the immutable snapshot only, so later template changes do not rewrite accepted access or configured price.
+- Plan revision lineage remains PLAN-007. Taxes/adjustments, invoices, confirmed payments, refunds/credits, and provider references remain separate billing records under Batch 4.6/later work; configured price is not described as collected revenue.
+
 ---
 
 ### TIME-001 — Business timestamps mix `Instant` and `LocalDateTime`
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 **Evidence**
 
-- `BaseEntity` and invitation expiration use `Instant`.
-- Collaboration timestamps and subscription period end use `LocalDateTime`.
-- DTOs expose `LocalDateTime` directly for subscription period end in admin, client catalog, subscriber, and subscription responses, so clients receive no offset or zone information.
+- The original review found `Instant` in shared auditing/credential expiry while collaboration lifecycle and subscription-period fields used `LocalDateTime`.
+- Repository-wide verification now finds no production `LocalDateTime`, `OffsetDateTime`, or `ZonedDateTime` use. Collaboration lifecycle, subscription periods/operations, registry runs, credential expiry, member exceptions, DTOs, API errors, and actor audit events use `Instant`.
 
 **Risk**
 
 Time-zone conversion can make subscription expiration, collaboration activation, and scheduled operations ambiguous across deployments.
 
-**Possible fix direction**
+**Implementation evidence — 2026-08-10**
 
-Use `Instant` for persisted system events and deadlines unless a field explicitly represents a local civil time with a stored zone.
+- `spring.jpa.properties.hibernate.jdbc.time_zone` is explicitly `UTC` in shared configuration, so development, test, and production profiles use the same Hibernate/JDBC conversion rule.
+- The application `Clock` remains `Clock.systemUTC()`. Persisted system events and deadlines use `Instant`; a future civil date/time may use a domain-appropriate local type only when its zone or locale semantics are explicit.
+- `UtcTimestampIntegrationTest` changes the JVM default to a non-UTC zone and proves a microsecond-precision `Instant` survives a real JPA/H2 write/read unchanged. It separately proves JSON uses an explicit `Z` offset and round-trips exactly.
+- Existing generated schemas already derive the corrected `Instant` mappings. Under the current unpublished/disposable-database decision, no Flyway history was added; the future production baseline must preserve these UTC-compatible timestamp mappings.
+- The focused timestamp tests and complete 417-test backend suite pass with zero failures, errors, or skips.
 
 ---
 
 ### MODULES-001 — Cross-domain data exchange inside the monolith has no confirmed contract yet
 
-**Status:** `DECISION`
+**Status:** `RESOLVED — 2026-08-11`
+
+**Decided rule — 2026-08-11**
+
+A domain reaches another domain only through its service:
+
+1. Another domain's **repository** — never.
+2. Another domain's **facts** — through an immutable read view.
+3. Another domain's **entity** — only through explicitly named service methods, and only to create the row or establish a JPA relationship inside a transaction.
+
+Cross-domain JPA relationships stay. `TENANCY-002` already established that a raw UUID reference is a defect because the database cannot guarantee it points at an existing row; reverting to id-only references would reopen it, and would push this monolith toward a distributed shape the architecture decision explicitly rejects.
+
+**Implementation evidence — 2026-08-11**
+
+- `IdentityService` now exposes `findUserView(..)` for facts and `createUser(..)` / `requireManagedUser(..)` as the only entity doors. `UserView` and `NewUserCommand` carry the cross-domain contract.
+- All four bypasses are gone. `AdminSeeder` and `MemberServiceImpl` create identities through identity; `WorkspaceProvisioningServiceImpl` and `AdminUserServiceImpl` take the managed row through the named door; `AdminAuthenticationServiceImpl` stopped consulting identity entirely and resolves the administrator from its own aggregate.
+- `MemberCredentialService` persists its own credential-state changes, so no other domain writes the user row.
+- `CrossDomainAccessRuleTest` fails the build if any platform class imports an identity repository, turning the rule from a review habit into an enforced invariant.
 
 **Evidence**
 
@@ -992,7 +1241,11 @@ Do not finalize the integration design until services, events, and current packa
 
 ### MODULES-002 — Company domain ownership is structurally unclear
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-08-11`
+
+**Decision and evidence — 2026-08-11**
+
+`Company` belongs to the company package. `FLOW_DECISIONS` treats a Company as a business/legal operating scope with its own lifecycle, deletion flow and quota — an aggregate in its own right, not a detail of Account. The entity and its repository moved from `platform.client.account.domain` to `platform.client.company.domain`, joining the services, DTOs and APIs that already lived there. `Company.account` remains a real relationship, so tenant isolation is unchanged. Package and imports only; no schema or logic change.
 
 **Evidence**
 
@@ -1011,7 +1264,7 @@ After reviewing services and repositories, decide whether Company belongs to the
 
 ### AUDIT-001 — Security and billing changes lack a reviewed actor-aware audit model
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 **Evidence**
 
@@ -1022,9 +1275,42 @@ After reviewing services and repositories, decide whether Company belongs to the
 
 The company may be unable to explain who changed customer access, subscription pricing, or delegated permissions. This also makes destructive admin operations difficult to investigate.
 
-**Verify later**
+**Implementation evidence — 2026-08-10**
 
-Search events, audit infrastructure, service logging, and database history before concluding that no audit mechanism exists.
+- Verification confirmed that the existing JPA auditing recorded only timestamps; there was no actor-aware business audit entity, service, event store, or equivalent history mechanism.
+- `AuditLog` is a shared append-only record with event time, actor surface/user, client and target Account, Company, collaboration, Permissionizer action, resource identity, request path/method, redacted request/result summaries, outcome, and safe failure type. Application-level update/delete callbacks reject mutation of persisted entries.
+- Every non-read-only mutation carrying both `@Transactional` and `@PermissionNode` is audited centrally. Transaction advice deliberately wraps audit and Permissionizer advice: a successful audit participates in the business transaction and therefore rolls back with it, while a rejected/failed attempt is persisted in `REQUIRES_NEW` after redacting sensitive input and then rethrows the original failure. The pinned advisor chain is transaction → audit → Permissionizer → method, so Permissionizer policy reads execute inside the caller transaction.
+- Internal scheduled/nested operations that do not have a user-facing Permissionizer action use the explicit `@AuditedMutation` marker. B2B creation remains isolated in its existing `REQUIRES_NEW` store and records the row-creation event in that same transaction; the outer request separately records its 201/200 outcome.
+- Registration, login, activation, initial-password completion, and password-reset lifecycle use explicit actor/subject records after the identity is safely known. Passwords, access/refresh tokens, activation/reset material, share codes, credential hashes, authorization headers, and cookies are always redacted; exception messages are not persisted.
+- Platform subscription commands now establish their transaction at the Permissionizer-protected admin boundary, so manual plan assignment, trial creation, override changes, and manual checkout confirmation receive one actor-aware atomic record even though their underlying services are reused.
+- The generated development/test schema now includes `audit_log` directly. Per the current unpublished in-memory-database decision, no Flyway history was introduced; a versioned baseline remains production-readiness work.
+- `AuditMutationIntegrationTest` proves the advisor order, success atomicity, failed-attempt survival, append-only behavior, redaction, real authenticated Company mutation capture, rejected request capture, and the read-only exclusion. The B2B/billing focused suites and the complete 415-test backend suite pass with zero failures, errors, or skips.
+- The deliberate current boundary is mutation auditing, not general security-access auditing. `@Transactional(readOnly = true)` methods bypass the audit aspect, so successful and denied reads are not recorded. `AUDIT-002` owns the product/security decision about adding that separate, potentially high-volume capability.
+- An authorized audit query/report API and UI are still future compliance-surface work; this issue's mutation-recording and actor-mapping gap is closed without exposing audit rows through an unsafe generic repository endpoint.
+
+---
+
+### AUDIT-002 — Read access and denied reads are outside the mutation audit boundary
+
+**Status:** `OPEN — PRODUCT SECURITY SCOPE DECISION REQUIRED`
+
+**Evidence**
+
+- `AuditMutationAspect` deliberately returns without recording when the matched transaction is read-only.
+- Successful reads and denied read attempts therefore produce no `AuditLog` row. The implemented `AUDIT-001` facility is a mutation audit trail, not a complete security-access trail.
+
+**Risk**
+
+If future security forensics, privacy controls, or compliance obligations require data-access history, the platform cannot currently explain who attempted or completed a sensitive read. Auditing every read indiscriminately would instead create substantial storage, performance, retention, and privacy costs.
+
+**Decision required before implementation**
+
+- Decide whether read-access security forensics is in product scope.
+- Define the sensitive resources and surfaces to cover, and whether to record successful reads, denied reads, or both.
+- Define event detail, privacy/redaction, retention, volume limits or sampling, and access controls for reviewing the trail.
+- Define failure-transaction behavior and abuse/rate-limit handling for repeated denied reads.
+
+Do not turn all read-only methods into audit events by default. If approved, build this as an explicit bounded extension of the shared audit model rather than weakening or overloading the mutation boundary.
 
 ---
 
@@ -1032,7 +1318,7 @@ Search events, audit infrastructure, service logging, and database history befor
 
 ### DTO-001 — Request validation is inconsistent at important write boundaries
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED FOR CURRENT WRITE BOUNDARIES — 2026-08-11`
 
 **Evidence**
 
@@ -1057,11 +1343,18 @@ If services do not repeat every validation rule, invalid pricing, quota, company
 
 Use Bean Validation for structural input rules and service validators for conditional/domain rules. Add `@Valid` for nested structures and keep one shared validator for preview/apply or create/update pairs.
 
+**Implementation evidence — 2026-08-11**
+
+- Plan, AddOn, quota-package, branch, role, Company, and organization-Group requests now enforce structural bounds before service execution, including non-negative four-decimal prices and three-letter currencies.
+- Quota API input is separated from the invariant-enforcing domain value. Nested entries are validated with `@Valid`, then converted once after mode/limit consistency succeeds.
+- Controller coverage proves invalid commercial input returns the shared structured validation response instead of reaching persistence.
+- The obsolete invitation registration fields are intentionally absent; direct member creation and credential completion own their validation contracts.
+
 ---
 
 ### DTO-002 — Several response DTOs cannot represent important entity state
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED FOR CURRENT API SURFACES — 2026-08-11`
 
 **Evidence**
 
@@ -1079,11 +1372,18 @@ The UI may be forced to guess state, make extra requests, display incomplete rec
 
 Trace each DTO through controllers, services, frontend API clients, and screens. Decide whether each endpoint is intentionally a summary or is incomplete for its promised workflow.
 
+**Implementation evidence — 2026-08-11**
+
+- Company responses expose Account identity and the existing tax/address/logo state.
+- Role, collaboration, member credential, and email-delivery read models already expose their relevant scope and lifecycle state from earlier batches.
+- Member access management now has a separate authorization-detail response rather than overloading the member-list summary.
+- Subscription summary and entitlement/catalog detail remain deliberately separate endpoints; the UI need not infer one from the other.
+
 ---
 
 ### AUTHZ-DTO-001 — Effective client permission response has no explicit company context
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -1100,11 +1400,15 @@ If the response is calculated for one company but cached or reused by the UI for
 
 Calculate permissions for an explicit account/company/B2B context and include that context in the response. If the UI needs an overview, return a scope breakdown rather than one flattened authorization set.
 
+**Implementation evidence — 2026-08-11**
+
+`MemberPermissionDto` now identifies the member, Account, and selected Company for the returned permission set. Unit and HTTP integration tests pin the explicit context so a Company-scoped result cannot be mistaken for an Account-wide overview.
+
 ---
 
 ### DTO-003 — Multiple overlapping registry/catalog DTO families need explicit boundaries
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -1124,11 +1428,17 @@ Specialized read models are appropriate, but older overlapping endpoints can dri
 
 Map each model to its controller route, audience, authorization rule, and frontend consumer. Remove or clearly mark legacy models only after current usage is known.
 
+**Implementation evidence — 2026-08-11**
+
+- Registry contracts now live in explicit `admin`, `picker`, and `publicapi` namespaces with package-level audience descriptions.
+- Controllers and services import only the contract family for their surface.
+- The unused legacy `ModuleDto`, `FeatureDto`, and `RegistryMapper` were removed after repository-wide usage verification.
+
 ---
 
 ### DTO-004 — Client plan catalog quota model contains duplicated fields
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -1142,11 +1452,15 @@ The response can contain two conflicting values for the same resource/unit, expa
 
 Expose one canonical quota shape plus current plan limit, price, and usage fields.
 
+**Implementation evidence — 2026-08-11**
+
+`CatalogQuota` now carries resource/type/unit only through its canonical `QuotaSlot`. A JSON contract test proves the duplicated top-level `resource` and `unit` fields are absent.
+
 ---
 
 ### MAPPER-001 — Mappers traverse lazy relationships
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-08-11`
 
 **Evidence**
 
@@ -1163,11 +1477,33 @@ Without deliberate fetch queries and transaction boundaries, mapping can cause `
 
 Inspect repository fetch strategies, service transaction scopes, generated SQL tests, and list endpoint pagination before changing mapper behavior.
 
+**Verification — 2026-08-11**
+
+Two of the four cited mappers no longer exist: `CollaborationMapper` was removed in Batch 5.2 and `RegistryMapper` in Batch 6.1. The remaining traversals were measured with Hibernate statement statistics rather than reasoned about, and the defect reproduced on every list surface:
+
+- `GET /api/v1/roles` issued 13 statements for one role and 16 for four — one extra statement per role for its permission collection.
+- `GET /api/v1/members` issued 10 statements for one member and 12 for three — one extra `User` statement per member.
+- `GET /api/admin/plans/{planId}/features` issued 9 statements for one feature and 12 for four — one extra `Feature` statement per plan feature. This surface postdates the original finding and was not cited in it.
+
+`CompanyMapper` and `AccountMapper` were confirmed safe: they read only `account.id` / `owner.id`, which Hibernate serves from the proxy without initializing it. `AddOnRepository` and `QuotaPackageRepository` already carried entity graphs, so their controller traversals were never unsafe.
+
+**Implementation evidence — 2026-08-11**
+
+- The fix is fetch strategy, not mapper truncation: the DTOs legitimately need permission codes, member identity, and feature codes, so the owning queries now load those relationships up front through `@EntityGraph`.
+- `RoleRepository.findAllByAccountId` and `findAllByBoundaryCompanyId` load `permissions` and `permissions.permission`. Both have exactly one caller, each a list endpoint.
+- `MemberRepository` gains a dedicated `findWithUserByAccountId` for the member list. `findAllByAccountId` is deliberately left ungraphed because `AccountShellServiceImpl` only reads user ids, which cost nothing on a proxy.
+- `PlanFeatureRepository.findAllByPlanId` loads `feature`. Nearly all of its eleven callers project the feature code; the two that only count or delete pay one cheap join on a small collection.
+- `LazyMappingQueryCountIntegrationTest` asserts statement counts stay constant as rows grow, instead of pinning absolute numbers that authentication and authorization would make brittle. Each assertion was confirmed to fail before its corresponding fix.
+- **Correction — 2026-08-11 (found in review by Codex):** the first pass scoped this to *list* read models and left the role **detail** surface untouched. `RoleRepository.findByIdAndAccountId` had no graph and `getRole` is not `@Transactional`, so `GET /api/v1/roles/{id}` walked `permissions` and `permissions.permission` lazily under open-in-view. Measured at 11 statements for a role with one permission and 13 for a role with three — one extra statement per permission. The graph now covers it and `roleDetailStatementCountDoesNotGrowWithThatRolesPermissions` was confirmed to fail without it.
+- **The `SubscriptionMapper` exception is closed — 2026-08-11.** It was recorded as bounded because it never multiplied by row count. That reasoning missed the real failure: the projection ran in the *controller*, after the service transaction closed, so `GET /api/v1/subscriptions/me` returned 500 with open-in-view disabled. Mapping moved into `SubscriptionService.getMySubscription(..)` under a read transaction.
+- **`previewRoleImpact` was the same defect in a third place**, walking `assignment.getMember()` with no read transaction. It is now `@Transactional(readOnly = true)`.
+- **The mask is gone:** `spring.jpa.open-in-view=false` is now set in the shared `application.yaml`, so every profile fails loudly on lazy access outside a transaction instead of absorbing it in a request-scoped session. All three defects above were invisible while it was on. Disabled globally rather than in tests alone because the setting's only externally visible effect is *when* a latent defect surfaces, and the application is unpublished — the cheapest possible moment to expose the rest.
+
 ---
 
 ### MAPPER-002 — Most API mapping appears to be manual and distributed
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-08-11`
 
 **Evidence**
 
@@ -1183,13 +1519,29 @@ Manual mapping is sometimes necessary, but repeated parsing/filtering logic in s
 
 Locate all DTO constructors in services/controllers. Keep business-aware read-model assembly explicit, but centralize repeated parsing and audience-filter rules.
 
+**Verification — 2026-08-11**
+
+- The one *confirmed* instance is closed. `AdminUserController` and `AdminRoleController` no longer construct DTOs or call assignment repositories; Batch 6.1 moved that assembly into the admin services under `ADMIN-DATA-001`. Five MapStruct mappers now remain, not seven, after the `CollaborationMapper` and `RegistryMapper` removals.
+- The manual construction that remains in services is business-aware read-model assembly, exactly what this finding says to keep explicit. `PermissionPickerCatalogService` derives per-audience availability and a source-owned `PermissionUnavailableReason`, which is the behavior `REGISTRY-FLOW-004` decided; `RoleServiceImpl` aggregates assignment counts by scope into an impact model. Neither is field copying, and MapStruct cannot express either without an `@AfterMapping` body containing the same logic plus indirection.
+- Mechanical entity→DTO copying does still exist in `PlanAdminController`, `AddOnAdminController`, and `QuotaPackageAdminController`. It exists **because those services return persistence entities**, which is `SERVICE-002` / `SERVICE-003` — whose Batch 6.3 acceptance criterion is literally "Services return DTOs". Consolidating it inside Batch 6.2 would pre-empt that batch's contract design and be redone once the DTO-returning service interfaces exist.
+
+**Decision:** the lazy-safety half was completed under `MAPPER-001`. The remaining consolidation was a symptom of services returning entities, so it was owned by the boundary findings rather than by this one — `SERVICE-002`, `SERVICE-003` and finally `SERVICE-004` removed every controller-side projection. **Closed 2026-08-11:** no controller maps a persistence entity.
+
+**Correction — 2026-08-11 (found in review):** that sentence was written while `SubscriptionController` still called `subscriptionMapper.toDto(...)` on an entity returned by the service, so the claim was false when made and contradicted this batch's own `MAPPER-001` note recording `SubscriptionMapper` as an exception. The controller now calls `SubscriptionService.getMySubscription(..)`, which maps inside a read transaction. Verified by disabling open-in-view.
+
 ---
 
 ## Service-contract findings
 
 ### SERVICE-001 — Identity service exposes its JPA entity as a cross-domain contract
 
-**Status:** `VERIFY`
+**Status:** `RESOLVED — 2026-08-11`
+
+**Resolution — 2026-08-11**
+
+Resolved under the `MODULES-001` rule. Verification had shown the finding's own fix direction did not fit its only caller: `AdminUserServiceImpl` never read identity fields, it needed the managed row to establish the `AdminUser` `@OneToOne`. The contract now separates the two needs — `findUserView(..)` for facts, `requireManagedUser(..)` for relationship establishment — so the general-purpose `getUserById` accessor is gone without breaking the legitimate case.
+
+Two entity-returning methods exist rather than one, because creation inherently yields a managed row; forcing a re-fetch would add a query without adding safety. Both are explicitly named and documented as the entity door.
 
 **Evidence**
 
@@ -1209,11 +1561,19 @@ Find every `IdentityService` caller and determine whether callers need the compl
 
 Expose a small immutable identity view for cross-domain consumers. Keep entity access internal to the identity package unless a transactional domain operation truly requires it.
 
+**Verification — 2026-08-11**
+
+`AdminUserServiceImpl` is still the only external caller, and it does **not** read identity fields — it calls `adminUser.setUser(user)` to establish the `AdminUser.user` `@OneToOne`. That is precisely the "transactional domain operation truly requires it" exception in this finding's own fix direction, so swapping the return type for a read view does not apply as written; `AdminUser` must reference the `User` type regardless.
+
+The larger leak this finding implies is also already present somewhere it does not mention: `AdminSeeder` imports and uses `UserRepository` directly, bypassing `IdentityService` entirely. Narrowing only this one method would leave that untouched.
+
+**Blocked on decision.** How domains should exchange references at all is `MODULES-001`, which is `DECISION` status and owned by Batch 6.4. Resolving `SERVICE-001` properly means deciding that contract first; doing it inside Batch 6.3 would pre-commit 6.4's answer.
+
 ---
 
 ### SERVICE-002 — Platform admin service contracts expose persistence entities
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED — 2026-08-11`
 
 **Evidence**
 
@@ -1230,11 +1590,17 @@ API behavior depends on lazy entity state and controller-side database access. T
 
 Keep the monolith, but have application services return complete DTO/read models for API use. Entity-returning methods can remain internal where truly useful.
 
+**Implementation evidence — 2026-08-11**
+
+- `AdminUserService` and `AdminRoleService` already returned `AdminUserResponseDto` / `AdminRoleResponseDto` after Batch 6.1's `ADMIN-DATA-001` work; only `AdminSubscriptionService` still returned `Subscription`.
+- Its four entity-returning methods now return `AdminSubscriptionDto` / `SubscriptionDto`, and the `AdminSubscriptionDto` assembly moved out of `SubscriptionAdminController` into the service, where the account and plan relationships resolve inside the service transaction instead of during response rendering.
+- `SubscriptionAdminController` no longer injects `SubscriptionMapper`, `SubscriptionOverrideReader`, or `SubscriptionSnapshotReader`, and holds no reference to a persistence entity.
+
 ---
 
 ### SERVICE-003 — Company and member API services also expose persistence entities
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED — 2026-08-11`
 
 **Evidence**
 
@@ -1247,6 +1613,85 @@ This repeats the API/persistence coupling and lazy-loading dependency found in t
 **Possible fix direction**
 
 When API contracts are stabilized, return purpose-built summary/detail read models from application services while keeping internal entity methods package-focused.
+
+**Implementation evidence — 2026-08-11**
+
+- `CompanyService` now returns `CompanyDto` from every method. `CompanyMutationResult` is deleted, mapping moved into `CompanyServiceImpl`, and `CompanyController` holds no mapper and no entity. Its unit test uses the generated `CompanyMapperImpl` so the assertions also cover the projection the service now owns.
+- `RoleService` now returns `RoleDto` from every method. The tenant-scoped entity lookup became a private `requireRole` helper shared by the guarded read surface and `previewRoleImpact`; that internal call previously went through `getRole`, whose `@PermissionNode` never applied to it anyway because Spring self-invocation bypasses the proxy. `RoleController` holds no mapper and no entity.
+- `MemberService` now returns `MemberDto` from its list and update surfaces, `MemberCreationResult` carries a `MemberDto` instead of a `Member`, and the tenant-scoped lookup became a private helper. `MemberAccessResult` already carried no entity, so the credential-reset surfaces needed no change at all.
+- No entity type appears in `CompanyService`, `MemberService`, or `RoleService`, and none of their controllers imports a persistence entity or a mapper.
+
+**Why the first attempt failed, and why the fix was smaller than it looked**
+
+The first attempt also moved the credential-email delivery-status read into the service, which this finding never required. That broke two credential-lifecycle tests and appeared to demand restructuring transactions and auditing. It did not: the finding asks only that services stop returning *entities*, and post-commit response composition is legitimate caller work. Recording the two constraints anyway, because anything that does later move that read must respect both.
+
+**Ordering constraint — relevant only if delivery-status composition is ever moved**
+
+`MemberController` does not merely map entities: it resolves the credential email delivery summary **after** the service transaction commits. `CredentialEmailListener` is a `@TransactionalEventListener(phase = AFTER_COMMIT)`, so a delivery summary read from inside `createMember` / `regenerateInitialAccess` / `resetAccess` always observes `PENDING` instead of `SENT` or `FAILED`. `MemberCredentialLifecycleIntegrationTest` catches this.
+
+Any future move of that read into the service requires the transactional work to be extracted into a collaborator — the shape `CollaborationInitiationStore` already uses — so the summary resolves after commit. The transaction boundary, not the mapping, is what makes the current arrangement correct.
+
+**Second constraint: the extraction must not silently disable auditing.**
+
+`AuditMutationAspect` matches `@annotation(transactional) && @annotation(permissionNode)` on the *same method*. `createMember`, `regenerateInitialAccess`, and `resetAccess` are audited today only because they carry both. Removing `@Transactional` to allow a post-commit summary read would stop auditing member creation and credential resets, and no current test asserts those particular audit rows, so the loss would be silent.
+
+Required shape when this is finished:
+
+- The extracted collaborator carries `@Transactional` plus `@AuditedMutation` with an action code matching what the aspect records today, so the audit row survives the move.
+- The service method keeps `@PermissionNode` for the authorization gate and becomes non-transactional, then resolves the delivery summary after the collaborator commits.
+- Note that the permission check then runs outside a transaction, so its policy reads no longer join a caller transaction. Confirm that is acceptable against the advisor-order invariant recorded under `AUDIT-001` before relying on it.
+- Add a test asserting an `AuditLog` row is still written for member creation, since that is the failure this note exists to prevent.
+
+---
+
+### SERVICE-004 — Plan administration service exposes persistence entities
+
+**Status:** `RESOLVED — 2026-08-11`
+
+**Evidence**
+
+`PlanAdminService` returns `Plan`, `PlanFeature`, `AddOn`, and `QuotaPackage` from 19 methods. `PlanAdminController`, `AddOnAdminController`, and `QuotaPackageAdminController` therefore hold private `toDto` methods and map entities themselves, including a nested `AddOnDto.FeatureItem` projection.
+
+This is the same defect class as `SERVICE-002` and `SERVICE-003`, for a service that neither finding names — `SERVICE-002` lists only the admin role/user/subscription services, and `SERVICE-003` only the company and member services. It is recorded separately rather than silently widening either.
+
+**Risk**
+
+The commercial administration surface keeps API response shape coupled to persistence, which is the coupling Batch 6.3 exists to remove. It is also the surface the future admin panel depends on most heavily.
+
+**Required resolution**
+
+Return read models from `PlanAdminService` and delete the controller-side `toDto` methods, matching what `SERVICE-002` and `SERVICE-003` did. Verify the plan-feature and add-on projections keep the entity graphs added under `MAPPER-001`, so moving the mapping does not reintroduce per-row statements.
+
+**Implementation evidence — 2026-08-11**
+
+- All 21 entity-returning methods on `PlanAdminService` now return read models, including the two `AddOnFeature` surfaces. No entity type remains in the contract.
+- The five controller-side `toDto` methods moved into `PlanAdminReadModels`, a component in the plan service package. `PlanAdminController`, `AddOnAdminController` and `QuotaPackageAdminController` no longer import a persistence entity or perform any mapping.
+- Method bodies and their `@PermissionNode` / `@Transactional` annotations were left in place; only return expressions were wrapped, so no guarded method changed its identity or moved behind a self-invocation.
+- `LazyMappingQueryCountIntegrationTest` still passes, confirming the `MAPPER-001` entity graphs continue to cover the projections now that they run inside the service.
+
+---
+
+### MODULES-003 — Identity depends on member persistence for authentication facts
+
+**Status:** `CONFIRMED`
+
+**Evidence**
+
+`AuthServiceImpl`, `ClientCredentialAuthenticationService`, and `CredentialLifecycleService` all import `com.hiveapp.platform.client.member.domain.repository.MemberRepository`. Identity therefore reads another domain's schema directly, which is the mirror image of the platform-to-identity coupling closed under `MODULES-001`.
+
+Found by `CrossDomainAccessRuleTest` while implementing that rule; the reverse assertion is deliberately not enabled until this is fixed.
+
+**Risk**
+
+Membership is the tenant boundary. Identity resolving it through the member table means a change to membership semantics — the one-active-membership invariant, deactivation, or scoping — must be re-implemented correctly in the authentication path, with nothing forcing the two to agree.
+
+**Why it is not simply MODULES-001 in reverse**
+
+Authentication runs *before* any permission context exists, so the guarded `MemberService` cannot serve it — calling it would evaluate Permissionizer policies against an unauthenticated actor. The fix needs a small unguarded membership lookup owned by the member domain and consumed by identity, not a call into the existing service.
+
+**Required resolution**
+
+Introduce a membership lookup in the member domain exposing only the facts authentication needs (active membership for a user, its account, its active state), have the three identity classes consume it, then enable the reverse assertion in `CrossDomainAccessRuleTest`.
 
 ---
 
@@ -1278,7 +1723,7 @@ Define one email canonicalization policy and apply it before uniqueness checks, 
 
 ### AUTH-002 — Refresh-token type and revocation behavior are not visible at the service boundary
 
-**Status:** `RESOLVED FOR CURRENT IN-MEMORY STAGE — 2026-07-16`
+**Status:** `RESOLVED FOR CURRENT SINGLE-PROCESS IN-MEMORY STAGE — UPDATED 2026-08-31`
 
 **Evidence**
 
@@ -1296,10 +1741,17 @@ Add explicit audience/token-use claims, require `refresh` use at refresh endpoin
 
 **Implementation evidence — 2026-07-16**
 
-- Every token now has explicit `CLIENT`/`ADMIN` audience and `ACCESS`/`REFRESH` use; refresh tokens also have a unique token ID.
-- `TokenSessionService` registers refresh sessions, consumes each token atomically once, rotates it on refresh, rejects reuse and audience mismatch, and revokes it on logout.
-- Both security filters require an audience-matching access token, so refresh tokens cannot authenticate API requests and access tokens cannot be exchanged at refresh endpoints.
-- Current refresh-session state is intentionally process-local while the application is unpublished and uses disposable in-memory data. Restart invalidates all refresh sessions safely. A shared persistent session store is deployment hardening for future multi-instance production, not a current Flyway task.
+- Every token has explicit `CLIENT`/`ADMIN` audience and `ACCESS`/`REFRESH` use plus a unique pair ID.
+- `TokenSessionService` registers both members of the pair, consumes each refresh token atomically
+  once, rotates it on refresh, rejects reuse/audience mismatch, and revokes both tokens on logout or
+  an access-reset operation.
+- Both security filters require an audience-matching, currently active access session, so a signed
+  token revoked by Account suspension, cancellation, credential reset, or deactivation cannot keep
+  authenticating until JWT expiry.
+- All session state remains intentionally process-local while the application is unpublished and
+  single-process. Restart invalidates every session safely. A shared persistent session store is a
+  mandatory deployment prerequisite before multi-instance production, not an unrecorded promise of
+  the current generated-schema environment.
 
 ---
 
@@ -1713,7 +2165,7 @@ Enforce a null-safe unique assignment key, define inactive-role assignment behav
 
 ### MEMBER-004 — Member DTO cannot support the implemented management flows cleanly
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -1727,11 +2179,17 @@ The client UI cannot render a trustworthy member-access management screen withou
 
 Define separate member summary and member access-detail read models with safe user identity, active/owner status, scoped roles, and overrides.
 
+**Implementation evidence — 2026-08-11**
+
+- `GET /api/v1/members/{id}/authorization`, protected by `platform.staff.read_authorization`, returns the safe member summary plus scoped role assignments and direct overrides.
+- Role status, assignment effect scope, Company identity, override decision/effectiveness, and audit identity are explicit.
+- Account isolation is enforced before loading the detail, and eager bulk repository methods keep mapping inside the transactional read boundary.
+
 ---
 
 ### MEMBER-005 — Member deactivation does not implement the decided offboarding lifecycle
 
-**Status:** `RESOLVED FOR THE CURRENT AVAILABLE LIFECYCLE — 2026-07-16`
+**Status:** `RESOLVED FOR THE CURRENT REVERSIBLE LIFECYCLE — 2026-08-12`
 
 **Evidence**
 
@@ -1755,6 +2213,9 @@ Define separate member summary and member access-detail read models with safe us
 - Active-member quota excludes the suspended record, while owner and self-deactivation protections prevent accidental workspace lockout.
 - Integration coverage proves both an existing access token and an issued refresh token fail after deactivation.
 - Batch 1.5 now invalidates pending email tokens, unused temporary passwords, restricted initial-access sessions, and ordinary refresh sessions during deactivation. Reactivation impact validation, reason/audit capture, hard-delete eligibility, and module-contributed reassignment previews remain in the later lifecycle, audit, and operations batches rather than being approximated here.
+- The 2026-08-12 operational pass adds the client reactivation endpoint and UI, locks the Account row before reactivation, rejects suspended Accounts, rechecks the active-member quota, and persists the restored membership.
+- Deactivation and reactivation now require a non-blank, bounded reason. The mutation audit captures the actor, target arguments including that reason, outcome, and time; the UI explains the reversible effects before confirmation.
+- Permanent hard deletion, ownership transfer, and future business-module reassignment/impact previews remain separate product capabilities because their entities and contracts do not yet exist. They are not silently approximated by the reversible lifecycle.
 
 ---
 
@@ -1902,8 +2363,8 @@ Current role permission add/remove operations mutate the shared role directly. T
 - Shared-role update, permission grant/revoke, deactivate, archive, and activate operations calculate impact under a role write lock. If assignments exist, the mutation is blocked until the caller supplies the exact previewed role version and assignment count; stale confirmation is rejected and must be previewed again.
 - Preview contracts expose assignment/member/scope counts plus current, granted, and lost permissions. Each definition change increments a separate definition revision, while JPA optimistic versioning detects stale role state.
 - Duplicate provides the explicit staged-rollout path and creates an independent inactive custom role with copied permissions and no assignments/history. No hidden role versions are introduced.
-- Permission mutations still validate registry existence, client-role grantability, current plan entitlement, system/custom boundary, archive state, Company activity, and Account/B2B scope. The actor delegation ceiling will be implemented in the ordered next batch under `RBAC-003`, and central mutation auditing remains under `AUDIT-001`.
-- The complete backend suite passes: 290 tests, 0 failures, 0 errors, 0 skipped.
+- Permission mutations validate registry existence, client-role grantability, current plan entitlement, system/custom boundary, archive state, Company activity, Account/B2B scope, and the actor delegation ceiling implemented under `RBAC-003`. Central mutation auditing remains under `AUDIT-001`.
+- The complete backend suite passes: 300 tests, 0 failures, 0 errors, 0 skipped.
 
 ---
 
@@ -2096,7 +2557,7 @@ Require a valid environment-specific public URL. Decide retry/idempotency behavi
 
 ### COLLAB-001 — Duplicate collaborations are allowed
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2110,13 +2571,13 @@ The same two accounts and company can have several pending or active collaborati
 
 **Required resolution**
 
-Permit at most one live (`PENDING` or `ACTIVE`) collaboration for a client/provider/company tuple. Enforce it with a transaction-safe database strategy; retries return the existing relationship or an explicit conflict. A new request after rejection/revocation creates a new historical record rather than mutating the terminal one.
+Permit at most one live (`PENDING`, `ACTIVE`, or `SUSPENDED`) collaboration for a client/provider/company tuple. Enforce it with a transaction-safe database strategy. After normalizing purpose whitespace and treating capabilities as an unordered set, every new record returns 201, an identical live retry returns the existing relationship with 200, changed details conflict, and a request after a terminal state creates a new historical record. A concurrent uniqueness loser must re-read the winner with 200 rather than return 500.
 
 ---
 
 ### COLLAB-002 — B2B delegation lacks an actor permission ceiling
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2134,7 +2595,7 @@ The provider owner may delegate within current provider entitlement and code-dec
 
 ### COLLAB-003 — Collaboration operations do not revalidate active account/company state
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2152,7 +2613,7 @@ Centralize current provider Account, external Account, target Company, active co
 
 ### COLLAB-004 — `SUSPENDED` status has no management flow
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2170,7 +2631,7 @@ Implement the decided lifecycle: either participant may permanently end the rela
 
 ### COLLAB-005 — Concurrent lifecycle actions can overwrite each other
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2188,7 +2649,7 @@ Use optimistic or command-specific locking, database uniqueness for grants/live 
 
 ### COLLAB-006 — UI cannot read the collaboration's currently granted permissions
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2209,7 +2670,7 @@ Expose an authorized collaboration detail/current-grants read model, preferably 
 
 ### COLLAB-007 — Collaboration service exposes persistence entities
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED — 2026-08-10`
 
 **Evidence**
 
@@ -2227,7 +2688,7 @@ Return complete list/detail/current-grant read models from API-facing applicatio
 
 ### COLLAB-008 — B2B discovery and lifecycle APIs cannot implement the decided management flow
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY RESOLVED — 2026-08-10` (`AUDIT IMPLEMENTED; REUSABLE COMMUNICATIONS OPEN`)
 
 **Evidence**
 
@@ -2249,6 +2710,20 @@ The replacement UI would still require users to exchange database UUIDs, cannot 
 - Preserve grants as disabled configuration during suspension and frozen history after revocation. Runtime always revalidates both Accounts, Company, collaboration, entitlement, current code eligibility, exact provider grant, and external-member operator authority.
 - Add detail/list models showing both Account identities, Company, status/reason/effective dates, requested capabilities, current and inactive historical grants, allowed next actions, and source-visible access blockers without exposing unrelated business data.
 - Audit every command and attach reusable in-app/customer communication events. Add privacy, expired/regenerated code, duplicate tuple, transition authorization, stale version, retry/idempotency, deactivation, entitlement loss, feature retirement, actor permission, and notification tests.
+
+**Implementation evidence — 2026-08-10**
+
+- A nullable live-tuple key with a database uniqueness constraint permits only one PENDING, ACTIVE, or SUSPENDED relationship for each client/provider/company tuple. Terminal CANCELLED, REJECTED, and REVOKED records remain as history, and a later request creates a new record.
+- Provider actors use Company-owned, SHA-256-hashed share codes. Raw codes are returned only on generation, have no automatic expiry, remain valid until the provider disables or regenerates them, and resolve only to privacy-minimal Account/Company identity fields. A code identifies a Company but grants no access; provider acceptance remains mandatory. There is no broad Company search.
+- Providers can inspect resolution/request counts and last-use times for the current code; rotation resets this usage metadata. Identical live retries normalize purpose whitespace and compare requested capabilities as an unordered set. Changed details conflict, a post-terminal request creates new history, and a concurrent constraint loser safely re-reads the winning relationship.
+- Requests persist purpose, optional non-binding requested permission codes, requester identity, and time. Separate accept, reject, cancel, suspend, resume, and either-participant revoke commands enforce explicit states, participant boundaries, reasons, and expected versions.
+- Suspension preserves grants while blocking runtime. Providers explicitly choose no schedule, a review time, or automatic resume; a locked monolith scheduler resumes only due relationships whose client Account, provider Account, and Company are still active and whose provider remains entitled to the resume action.
+- Collaboration and grant rows use optimistic versions. Database constraints remain authoritative for live tuples and permission pairs, and duplicate/stale operations return explicit conflicts.
+- Permission revocation marks a grant inactive instead of deleting it. Detail/current-grant DTOs show configured versus currently usable state, lifecycle blockers, permitted state actions, timestamps, and both participant/Company identities. A terminal relationship freezes its grants as non-reusable history.
+- Initiate, accept, suspend/resume, grant/revoke-permission, catalog, and share-code operations recheck applicable active Account/Company state. Runtime context already rejects inactive Accounts/Companies and requires the exact active relationship.
+- Provider grant writes enforce code-declared B2B eligibility, current provider entitlement, and the acting provider member's delegation ceiling. External-member operator scoping remains explicitly assigned to AUTHZ-002 in Batch 5.3.
+- API-facing collaboration services now exchange DTOs only; the MapStruct persistence-entity mapper was removed.
+- Every protected collaboration command now receives the central actor/scope/action/resource/outcome audit record from `AUDIT-001`; row creation is additionally atomic with its isolated insert transaction, and automatic resume is recorded as a system batch action. Reusable in-app/customer communication events remain the only unfinished part of COLLAB-008. The clean full backend suite passes 415 tests with zero failures, errors, or skips.
 
 ---
 
@@ -2386,7 +2861,7 @@ Destructive admin operations obey two explicit boundaries: only a SuperAdmin may
 
 ### ADMIN-DATA-001 — Admin list endpoints perform query-per-row mapping
 
-**Status:** `OBSERVED`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -2402,11 +2877,15 @@ List cost grows linearly with extra queries and may depend on Open Session in Vi
 
 Build dedicated read queries/projections with the required relationships, assemble responses transactionally, and add query-count tests for list endpoints.
 
+**Implementation evidence — 2026-08-11**
+
+Admin user and role lists now fetch one bounded entity page and one bulk relationship set for that page. Mapping occurs transactionally in the service; controllers no longer issue one assignment query per row. Unit tests pin the bulk call and reject the former per-row repository path.
+
 ---
 
 ### ADMIN-DATA-002 — Admin users and roles are returned without pagination
 
-**Status:** `VERIFY`
+**Status:** `IMPLEMENTED — 2026-08-11`
 
 **Evidence**
 
@@ -2420,13 +2899,17 @@ Large installations will load and map every administrator/role and all related a
 
 Introduce pagination/search before these collections can grow significantly, while keeping small bootstrap deployments simple.
 
+**Implementation evidence — 2026-08-11**
+
+`GET /api/admin/users` and `GET /api/admin/roles` accept zero-based `page` and bounded `size` parameters (`1..100`, default `20`). Both return the shared stable `PageResponse` contract rather than exposing Spring Data's internal serialization shape. HTTP integration coverage pins the page metadata and requested bound.
+
 ---
 
 ## Shared infrastructure and API findings
 
 ### BILLING-002 — The only payment gateway bean always reports fake success
 
-**Status:** `CONFIRMED`
+**Status:** `RESOLVED — DEV/TEST SIMULATOR ISOLATED 2026-08-10`
 
 **Evidence**
 
@@ -2440,54 +2923,287 @@ Future AI-generated code may wire the existing `PaymentGateway` and appear to co
 
 Restrict the fake gateway to an explicit local/test profile. Production startup must fail when real collection is enabled without a configured provider. Never let calculated price or the dev gateway create a confirmed payment. Real/manual settlement must support idempotency, asynchronous confirmation, pending/success/failure/partial-refund/refund states, reconciliation, and durable provider/manual references before paid entitlement activation.
 
+**Implementation evidence — 2026-08-10**
+
+- `DevPaymentGateway` loads only in `dev` and `test`; its pending/success/failure outcome is explicit and configurable, with pending as the default.
+- Simulator results are stored only as attempt telemetry. Even simulated `SUCCESS` cannot confirm a checkout or activate paid entitlement.
+- Every payment request carries a stable idempotency key. Production startup fails when collection is enabled without any gateway explicitly marked trusted for settlement.
+- Manual settlement has durable, idempotent confirmation evidence. A real provider adapter, asynchronous webhook/reconciliation, refunds/credits, invoices, and recurring recovery remain later integrations.
+
 ---
 
-### BILLING-003 — HiveApp has price calculations but no decided Money, price-book, invoice, or payment ledger
+### BILLING-003 — HiveApp has a financial ledger and operating UI but no real provider or fiscal implementation
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIAL — LEDGER, OPERATIONAL APIS, RECOVERY, TIMELINE AND COMMERCIAL DOCUMENT IMPLEMENTED; REAL PROVIDER/FISCAL RULES OPEN`
 
 **Evidence**
 
-- Plan, PlanFeature, current subscription price, and quota pricing use bare `BigDecimal` values without currency. No Money value type or same-currency validation exists.
-- `BillingCycle` labels prices, but no period creation/renewal engine uses it; admin totals can sum monthly and yearly values as though comparable.
-- Billing calculation produces one current number from base plan, feature add-ons, and quota overrides rather than an immutable versioned itemized Plan/AddOn/package price book.
-- No reviewed Invoice, InvoiceLine, Payment, Refund/Credit, adjustment, provider event/reference, reconciliation, or idempotency model exists.
-- Price preview, entitlement activation, amount due, settlement, and revenue are not represented as distinct facts.
+- Exact ISO-currency Money, independently entered monthly/yearly Price-book entries, overlap protection, and immutable accepted price identity are implemented and audited under `PRICEBOOK-001`.
+- Subscription preview itemizes configured recurring terms by one currency/cycle and does not describe them as settlement or revenue.
+- Positive reviewed subscription changes now persist immutable numbered Invoice/InvoiceLine evidence, provider/manual Payment attempts, Credits, Refund intents, and durable idempotent outbox commands.
+- Price preview, amount due, provider attempt, trusted/manual settlement, entitlement activation, Credit, and Refund are distinct facts. Pre-dispatch cancellation and manual settlement cannot leave an automatic charge runnable.
+- Fine-grained admin Invoice/search/detail/payment/manual-settlement/Credit/Refund/reconciliation reads and Account-isolated client Invoice history/detail are mounted. Account identity, Payment evidence, and sensitive references remain separately authorized.
+- Verified provider event ingestion/deduplication, mismatch retention/reprocessing, and evidence-gated failed-charge retry are implemented.
+- The admin Billing workbench exposes bounded Invoice filters/detail, independently authorized Account and Payment evidence, manual settlement, Credit, provider/manual Refund review, failed-charge retry, outbox reconciliation, and provider-event reprocessing. The client subscription hub exposes bounded own-Account Invoice history and safe detail.
+- Paid renewal, failure-to-grace recovery, operator lifecycle control, Account financial timeline, editable Account billing profile, immutable Invoice party snapshots, and printable commercial-document output are implemented.
+- A concrete signed provider adapter and jurisdiction-specific tax, numbering, and fiscal-document rules are still absent.
 
 **Risk**
 
-The UI could display mixed-cycle/mixed-meaning totals as revenue, paid access could activate without money, price edits could rewrite accepted terms, retries could eventually duplicate charges, and support/accounting could not explain or reconcile what an Account owed or paid.
+The current commercial document is intentionally not a tax Invoice: it identifies missing issuer/customer/tax/numbering requirements rather than manufacturing compliance. Until a real signed provider adapter exists, production collection cannot be enabled. The durable records, transport boundary, verified-event recovery, immutable document snapshots, and separated financial timeline prevent calculated prices or unverified callback claims from masquerading as collected value.
 
 **Required fix direction**
 
-- Introduce a Money type using ISO currency and safe decimal/minor-unit rules. One subscription uses one currency/cycle; reject incompatible Plan/AddOn/package/adjustment items and never perform implicit FX conversion.
-- Build immutable exact monthly/yearly price-book versions and itemized calculations for Plan, AddOns, packages, adjustments, and later tax. Zero-priced recurring Plans are valid; perpetual commercial licensing is deferred.
-- Separate preview from amount due/invoice, pending transaction, confirmed payment/manual settlement, and refund/credit. Only confirmed settlement counts as collected money/revenue.
-- Add versioned invoices/lines and idempotent payment/refund records with provider/manual references and `PENDING`, `SUCCEEDED`, `FAILED`, `PARTIALLY_REFUNDED`, and `REFUNDED` behavior. Zero-price renewals create no fake payment.
+- Preserve the implemented ISO Money and immutable exact monthly/yearly Price-book contracts; keep one currency/cycle per subscription and never perform implicit FX.
+- Preserve the implemented permission-separated operational APIs and Account-isolated client projections for immutable accepted Invoice lines, Payment evidence, Credits, Refunds, and transport state.
+- Keep preview, amount due/Invoice, pending attempt, trusted/manual settlement, entitlement activation, Credit, Refund, and collected-value analytics distinct. Only trusted/manual succeeded settlement counts as collected money.
+- Preserve the implemented verified-event ingress contract: provider adapters authenticate before ingestion; duplicate, unknown, mismatched, and in-flight evidence remains idempotent and privacy-separated; ambiguous charge retry requires provider non-capture evidence.
 - At renewal, apply the selected new price version for the new period. For immediate mid-period changes, initially support no automatic proration plus explicit audited operator adjustment/credit; defer automatic tax, discounts, metered charging, proration, FX, and automated refunds.
-- Connect payment failure to `PAST_DUE`, configured grace, and eventual restricted/suspended access without data deletion. Reconciliation/webhook handling must be idempotent and authorization-safe.
+- Preserve the implemented payment-failure transition to `PAST_DUE`, configured grace, and eventual restricted/suspended access without data deletion. Reconciliation/webhook handling remains idempotent and authorization-safe.
 - Store exact purchased terms in subscription history independently from financial records. Add currency mismatch, cycle mismatch, annual exact-price, zero-price, immutable version, itemization, pending-versus-paid, duplicate event, failed renewal/grace, manual settlement, adjustment, refund-state, and mixed-total reporting tests.
+
+**Implementation evidence — 2026-08-10**
+
+- Added an immutable ISO-currency `Money` value type with exact minor-unit validation, normalized currency codes, same-currency arithmetic, and explicit rejection of implicit FX.
+- Plan base prices, PlanFeature add-on prices, quota-unit prices, Subscription current prices, entitlement snapshots, previews, catalogs, admin/client DTOs, and `PaymentRequest` now carry explicit currency.
+- Entity lifecycle validation and billing configuration validation reject missing/invalid currencies and mixed Plan/add-on/quota/subscription amounts. Plan currency cannot change after monetary composition or subscription history exists; unpriced composition may safely be reused across currencies.
+- `BillingCalculator` now returns `Money` for persistence and rejects mixed-currency calculations. Seeded prices are explicitly USD, and focused plus integration tests cover arithmetic, precision, persistence/API exposure, mixed-currency rejection, and safe plan-currency changes.
+- Phase 9 completed independently entered immutable monthly/yearly Price-book entries, exact-decimal APIs, overlap-safe activation, current-selection pause, and exact accepted-price snapshot identity for Plans, AddOns, and capacity packages.
+- On 2026-08-31, Phase 13 added immutable itemized Invoices, provider/manual Payment evidence, Credits, concurrency-capped Refund intents, replay-safe provider commands outside database transactions, and atomic pre-dispatch cancellation. The full backend suite passed with 774 tests.
+- The next Phase 13 slice mounted bounded/filterable admin Billing APIs and own-Account client Invoice history/detail; added permission-before-existence, nested privacy, cross-surface, cross-Account, and provider-versus-manual Refund tests; and fixed nested Spring access denials to return the stable `PERMISSION_DENIED` 403 contract rather than 500.
+- Verified provider events are now stored before processing with `(provider,eventId)` deduplication and digest-conflict detection, matched through financial idempotency plus operation/money/reference/state checks, retained for operator attention on mismatch, and explicitly reprocessable. Failed-charge recovery creates a new Payment/outbox attempt and requires operator/provider evidence for ambiguous transport failures.
+- The frontend now replaces the Billing placeholder with permission-separated admin Invoice, payment/adjustment, reconciliation-command, and provider-event workflows plus client Invoice history/detail. Route/query tests prove Invoice-list, reconciliation-only, Payment-only, and Account-identity boundaries independently, and exact monetary values remain strings through the UI.
+- Account financial timeline APIs now project Invoice, Payment, Credit, and Refund facts directly from their authoritative tables with bounded filters and separate admin/client permissions. Account billing profiles are editable, while issued Invoices retain immutable Account and issuer identity snapshots. Admin and client UIs mount the timeline/profile independently and render a printable jurisdiction-neutral commercial document with explicit fiscal-completeness warnings.
+- No Flyway history was added because the application is unpublished and currently uses a disposable generated H2 schema, per the agreed pre-production database policy.
+
+**Remaining scope**
+
+A concrete signed provider adapter and jurisdiction-specific tax calculation, fiscal numbering, validation, and final fiscal-document output remain in Phase 13. Billing workbenches/history, provider-event deduplication/recovery, paid and zero-amount renewal evidence, grace/past-due recovery, Account financial timeline/profile, commercial-document output, fine-grained admin and Account-isolated client APIs, immutable Price books, and the core Invoice/Payment/Credit/Refund/outbox persistence boundary are implemented and are no longer part of this finding's remaining scope.
+
+---
+
+### PRICEBOOK-001 — Commercial products support only one price and billing cycle
+
+**Status:** `IMPLEMENTED — 2026-08-26`
+
+**Evidence**
+
+- `Plan`, `AddOn`, and `QuotaPackage` each persist one amount, one ISO currency, and one `BillingCycle` directly on the product revision.
+- Create/update DTOs require that single tuple, and client/admin catalogue DTOs expose only it.
+- A product therefore cannot honestly offer independent monthly and yearly prices at the same time. Creating a second product row would split product identity, composition, history, and analytics.
+
+**Risk**
+
+Operators cannot model ordinary monthly/yearly choices, scheduled price changes, or a paused price without cloning the whole product. Mutating the tuple risks conflating product definition with price history, while cloned products make adoption and reporting misleading.
+
+**Required fix direction**
+
+- Add immutable versioned Price-book entries owned by an exact Plan/AddOn/quota-package revision, with amount, ISO currency, monthly/yearly cycle, effective window, lifecycle, optimistic version, and audit.
+- Permit independently entered monthly and yearly values; never derive annual price automatically.
+- Enforce non-overlapping active applicability for one owner/currency/cycle and select exact compatible entries during preview/checkout.
+- Snapshot selected price-entry identity and itemized amount. Pausing/new versions affect future selection only; existing snapshots remain unchanged.
+- Replace product CRUD/UI single-price assumptions with price management, availability, history, and activation preview. Keep zero-price recurring entries valid and `FOREVER` deferred.
+
+**Backend implementation evidence — 2026-08-26**
+
+- `ProductPrice` now owns immutable Money/cycle/effective-window terms for one exact Plan, AddOn, or quota-package revision, with lineage, source revision, optimistic version, and `DRAFT`/`ACTIVE`/`INACTIVE`/terminal `ARCHIVED` lifecycle.
+- Activation locks the product owner and rejects overlapping half-open applicability windows; list/detail APIs expose backend-derived blockers and valid next actions without scanning the complete active Price book.
+- Fine-grained admin APIs cover paginated search/filter/sort, create/edit, activation preview, activate/pause/reactivate/revise/archive/delete, and bounded actor-aware history with required lifecycle reasons and stable conflict codes.
+- Client catalogue and subscription-change contracts expose/select exact applicable entries. Snapshot schema V2 stores the Plan/AddOn/package price identities and immutable amounts while schema V1 remains readable.
+- Existing subscription overrides, scheduled activation, and renewal preserve snapshot terms even after a selected price expires or is paused; future selections use the authoritative resolver.
+- Disposable-H2 compatibility backfill preserves the current legacy product columns while seeding one authoritative entry per published tuple. Durable production migration and database-native exclusion constraints remain deferred with the standing persistence decision.
+- An independent adversarial backend audit added exact admin price selection, same-Plan cycle changes, an atomic scheduled-replacement flow, a least-privilege assignable-price catalogue, immutable published product terms, and exact current-price identity. The final integrated JDK 21 baseline passes 529 tests.
+- Commercial API `BigDecimal` components carry an `@ExactDecimal` contract and serialize as non-exponential plain-decimal strings. Contract tests cover maximum 15+4 precision, string requests, numeric-request migration compatibility, and prevent unannotated commercial decimal components.
+- The admin Price-book list, guided create, detail, terms/lifecycle, replacement and history flows are implemented and linked from Plan/Add-on/capacity-package details. Admin subscription operations and client self-service select exact applicable entries rather than inferring a cycle or amount.
+- An independent frontend audit removed all commercial-money `number` coercion, pinned exact comparison/formatting beyond JavaScript's safe integer range, corrected functional table sorting, separated history-only access, permission-gated product links, and made stale client changes recoverable. Biome, TypeScript, the production build and 136 frontend tests pass.
+
+---
+
+### COMMERCIAL-002 — Product administration lists are unbounded and operationally inconsistent
+
+**Status:** `IMPLEMENTED AND INDEPENDENTLY AUDITED — 2026-08-27`
+
+**Evidence**
+
+- The Plan, Add-on, and quota-package list endpoints return unbounded `List` payloads, unlike the stable `PageResponse` contract already used by Price books, subscribers, roles, and operators.
+- These product lists lack a common search/filter/sort contract and are reused as selectors, causing UI code to fetch complete catalogues merely to choose one product.
+- Product lifecycle and history capabilities are inconsistent: Plans and Add-ons have revision flows, while quota packages do not.
+
+**Risk**
+
+Catalogue growth makes list screens and selectors increasingly slow, forces duplicated frontend filtering, and makes page boundaries unstable. Inconsistent operational contracts also encourage broad read permissions where a narrow product chooser is sufficient.
+
+**Required fix direction**
+
+- Replace admin Plan/Add-on/quota-package lists with bounded `PageResponse` APIs supporting validated search, lifecycle/visibility filters, safe sorting, deterministic tie-breakers, and constant-query read models.
+- Add narrow chooser endpoints/read permissions for workflows that need selectable products without granting access to full commercial administration.
+- Return backend-derived `availableActions`, blockers, subscriber/attachment counts, and revision identity needed by operational tables; do not reconstruct lifecycle rules in the UI.
+- Migrate the admin pages to the shared URL-backed table/filter/action patterns and retain explicit mobile alternatives, access-denied, loading, empty, and failure states.
+
+**Implementation evidence — 2026-08-27**
+
+- Plan, AddOn, and capacity-package administration now use bounded `PageResponse` search/filter/sort contracts with validated allowlists, deterministic tie-breakers, backend-derived actions/blockers/counts, and constant-query tests.
+- Separately authorized narrow chooser/selected-item resolution endpoints support editors without granting the broader operational catalogue. Permission-hidden retained references remain identifiable without leaking product data or becoming newly selectable.
+- The admin web surfaces use shared URL-backed responsive tables, source-owned actions/reasons, scoped query keys, explicit loading/empty/error/access-denied states, and mobile alternatives; no operational screen fetches the full catalogue merely to render a selector.
+- Subscription administration now has a bounded Account workbench with minimum Account/latest-subscription facts, narrow chooser resolution, server filters/sorts, and deterministic latest-history selection. Ordinary rows neither expose nor search/sort by owner email; exact owner-email lookup uses a distinct Permissionizer action and response contract.
+- Live browser verification exposed and closed a composed-trigger defect that made a signed Price-book activation control look usable while discarding the dialog event. The permission-aware button now forwards trigger props and a rendered regression test pins the real interaction.
+
+---
+
+### QUOTA-005 — Published capacity packages have no successor-revision workflow
+
+**Status:** `IMPLEMENTED AND INDEPENDENTLY AUDITED — 2026-08-27`
+
+**Evidence**
+
+- Published quota packages are now correctly immutable outside `DRAFT`, but `QuotaPackage` has no lineage/source/revision fields and the admin API has no revise operation.
+- An operator can pause or archive a published package, but cannot create a traceable successor that copies its definition and attachments for a safe change.
+
+**Risk**
+
+Fixing published immutability without a revision path leaves normal commercial maintenance stranded or encourages unrelated duplicate products that lose lineage and comparison history.
+
+**Required fix direction**
+
+- Add immutable quota-package lineage, source revision, revision number, and creation reason using the established Plan/Add-on revision model.
+- Provide a draft-successor command that copies capacity definition, compatibility targeting, sales visibility, and current price-book starting point without changing existing subscription snapshots.
+- Add comparison, activation blockers, history, safe archive/delete rules, optimistic concurrency, and admin UI actions consistent with Plan/Add-on revisions.
+
+**Implementation evidence — 2026-08-27**
+
+- Capacity packages now retain lineage, source revision, revision number, creation reason, and optimistic version; only one open successor may be created concurrently.
+- Revision copies the capacity definition, targeting/visibility, attachments, and editable starting Price-book terms while existing subscription snapshots keep their exact prior package/price identities.
+- Operational APIs and UI cover revise, compare, lifecycle blockers, activation review, history, safe delete/archive, and paginated revision/history traversal rather than silently truncating the first page.
+
+---
+
+### COMMERCIAL-001 — Extension targeting and Account commercial policy are encoded as scattered special cases
+
+**Status:** `IMPLEMENTED AND INDEPENDENTLY AUDITED THROUGH PHASE 10 — 2026-08-27`
+
+**Evidence**
+
+- AddOns and quota packages carry Plan-code allow/block sets, while Plans have no explicit CLOSED/ALLOW_LIST/OPEN_COMPATIBLE extension policy or public/direct-only sales visibility.
+- Subscription overrides represent selected AddOns/packages but cannot model a reasoned time window, targeting source, priority, approval, renewal instruction, price adjustment, free period, or quota bonus.
+- Compatibility logic exists in checkout/snapshot services, but there is no reusable target preview or policy lifecycle for one Account, selected Accounts, a Segment, or Plan subscribers.
+
+**Risk**
+
+Operators must request new code for each commercial exception or encode business strategy as an untraceable override. Marketing can be accidentally coupled to entitlement internals, conflicts have no deterministic precedence, and expiry/history cannot be explained to support or customers.
+
+**Required fix direction**
+
+- **Implemented:** explicit Plan extension policy and product sales visibility with one backend-computed mandatory-compatibility resolver, client/operator audience privacy, locked final revalidation, immutable snapshot identity, reasoned previewed mutations, and typed history. The independent audit removed the legacy unguarded Plan catalogue and a cross-feature Permissionizer-policy bypass. The full backend baseline is 549 tests.
+- **Implemented:** database-bounded operational product catalogues, narrow choosers, shared admin/client extension UI, exact Price-book selection, signed reviewed writes, and capacity-package revision operations. The compatibility resolver still intentionally loads the complete bounded product/active-price set before response paging and fails closed above its safety ceiling; replacing that internal catalogue-wide evaluation remains a scaling refinement, not a hidden paginated query.
+- **Implemented and independently audited 2026-08-27:** the subscription Account workbench provides change catalogue selection, signed preview, mandatory operator reason, explicit apply, stale-evidence recovery, reasoned cancellation, manual checkout confirmation, and bounded deterministic admin/client history. Durable request/cancellation origin, actor, reason, and time are admin-only; the client projection remains privacy-safe. The frontend audit removed a broad `subscriptions.read` route dependency that blocked independently authorized operations, prevents exact no-op previews, distinguishes awaiting payment from applied entitlement, confirms client cancellation, and shares dependency/exclusion rules across both configurators.
+- **Implemented and independently audited 2026-08-27:** immutable typed policy revisions/lifecycle, one-Account/explicit-set/Plan-revision targets, typed price/discount/quota/product effects, deterministic direct-over-broad and restriction-over-grant precedence, fine-grained bounded admin APIs, separate owner identity, signed activation review, immutable audiences, optimistic/concurrent lifecycle, history, and audit. Activation authorizes the reusable definition only and never mutates subscribers or settlement.
+- **Implemented and independently audited 2026-08-27:** active policy evaluation is part of the exact one-Account subscription preview/apply path. Accepted terms persist exact winning policy/effect provenance and expose privacy-separated admin/client explanations. Fixed recurring price, one non-stacking bounded discount, quota bonuses, blocks, and dependency-safe bounded AddOn/package grants are covered by backend and mounted frontend regressions.
+- Retained historical prices/products remain honest after later catalogue changes; signed review evidence is recomputed under locks; unknown internal errors and operator/provider provenance are not leaked to clients.
+- Safe Segment targeting and the complete operational Campaign backend/admin UI are independently audited. Offer and redemption control is implemented with automated/security verification; authenticated browser QA remains the `MARKETING-001` closure gate. Selected/filtered/scheduled subscriber-job execution, free periods, renewal instructions, retry/progress/cancellation cutoff and lifecycle commands remain `PLAN-011` Phase 12 rather than hidden policy-activation side effects.
+
+---
+
+### MARKETING-001 — Close authenticated browser evidence for the implemented Offer control plane
+
+**Status:** `IMPLEMENTED — BACKEND/UI AUTOMATED AND SECURITY VERIFIED 2026-08-31; AUTHENTICATED BROWSER QA PENDING`
+
+**Evidence**
+
+- Safe Segment backend/admin UI now exists with explicit Account or closed typed-criteria audiences, bounded preview/count, immutable signed activation/frozen Accounts, lifecycle/revisions/compare/history/ownership, privacy-separated identity access, and Policy target integration.
+- The Campaign backend now provides revision lineages, PUBLIC/explicit-Account/exact-Segment audiences, signed scheduling, immutable targeted audience/provenance, lifecycle automation, ownership, comparison/history, truthful actions/blockers, bounded APIs, and separately authorized identity resolution. It passed repeated independent backend audits on 2026-08-28, including audit-attribution, query-bound, and permission-before-existence regressions.
+- The Campaign admin UI now provides the table, guided editor, authoritative operation state, audience/evidence, revisions/compare, history, owner management, lifecycle dialogs, and safe least-privilege navigation. An independent frontend audit verified narrow queries, stale retries, responsive/mobile/RTL layout, and permission combinations on 2026-08-28.
+- Production Offer lineages, immutable revisions, permanent codes, signed eligibility/publication evidence, exact selections, Policy/Offer price evaluation, durable Redemptions, lineage limits, client/operator idempotent acceptance, results, and privacy-separated identities now exist behind fine-grained operational APIs.
+- Admin list/builder/detail/operations/results/redemptions/revisions/history/owner/application and client catalogue/code/preview/accept/history/detail surfaces are implemented. Automated verification covers permission-independent routes, exact-price privacy, stable signed evidence, code secrecy, concurrency, capacity and idempotency; authenticated rendered French/Arabic workflows remain to be recorded.
+
+**Risk**
+
+Without the remaining authenticated browser evidence, a mounted interaction or responsive/RTL defect could still block an otherwise correct API workflow. Treating current redemption counters as revenue or durable conversion analytics would also overstate what Phase 11 delivers; settlement and time-series facts remain later phases.
+
+**Required fix direction**
+
+- Run authenticated browser workflows for French desktop/mobile and Arabic RTL: create and preview a draft, publish through signed evidence, inspect operations/results/history, apply to one Account, resolve a private code, accept from the client portal, and read the privacy-safe redemption.
+- Verify browser-visible loading, empty, denied, stale-evidence, paid-checkout-blocked, and retry states without exposing internal identifiers or raw codes.
+- Keep bulk execution and lifecycle recovery in Phase 12 and durable conversion/revenue series in Phase 14 rather than manufacturing them from current Offer totals.
+
+---
+
+### UI-001 — Shared section tabs lack complete keyboard and panel semantics
+
+**Status:** `CONFIRMED — DEFERRED TO PHASE 15 CONSISTENCY PASS`
+
+**Evidence**
+
+- `frontend/src/components/patterns/section-tabs.tsx` renders tab roles but does not provide roving focus with Arrow/Home/End keys or stable `aria-controls`/`tabpanel` associations.
+- The pattern is reused across operational detail pages, so per-page fixes would duplicate behavior and remain inconsistent in RTL.
+
+**Risk**
+
+Keyboard and assistive-technology users cannot navigate or understand the tab/panel relationship consistently, and later pages may copy the incomplete contract.
+
+**Required fix direction**
+
+- Upgrade the shared pattern to one tabbable active tab, Arrow/Home/End navigation with RTL-aware direction, stable tab/panel IDs and `aria-controls`, and an associated `tabpanel` contract.
+- Migrate every consumer through the reusable API and add focused keyboard, RTL, and accessibility tests during the Phase 15 consistency pass.
+
+---
+
+### ANALYTICS-001 — Commercial dashboards have no durable fact model or operational drill-down
+
+**Status:** `IN PROGRESS — BACKEND IMPLEMENTED 2026-08-31; UI/AUDIT PENDING`
+
+**Evidence**
+
+- `/admin/analytics` is a placeholder page.
+- Existing summary amounts come from configured current subscription prices rather than invoice/payment/credit/refund evidence.
+- No append-only commercial event/fact contract records Offer eligibility/redemption, policy execution, product adoption/churn, renewal outcomes, or near/over-quota states for bounded time-series queries.
+
+**Risk**
+
+Decorative totals may be mislabeled as revenue, mixed currency/cycle values can be combined, historical graphs can change when mutable records change, and operators cannot drill into the Accounts/events behind a number.
+
+**Required fix direction**
+
+- Build durable commercial facts from subscription periods/operations and the invoice/payment/credit/refund ledgers, plus append-only events where no authoritative state transition already exists.
+- Add bounded timezone/interval/filter-aware summary and time-series APIs with explicit currency/cycle dimensions, completeness time, pagination, and no mixed-money total.
+- Make every summary/chart link to a filtered operational table. Expose missing/incomplete data honestly and keep sensitive settlement evidence under separate permissions.
+- Add event idempotency, historical stability, time-bound validation, mixed-currency, permission/privacy, query-count, and realistic drill-down tests.
+- Follow the frozen `docs/COMMERCIAL_ANALYTICS_V1.md` contract. Keep current product holdings separate from historical adoption/churn, and defer historical near-quota pressure until a cadence-based append-only usage snapshot exists instead of issuing per-Account live business-table reads from the dashboard.
+
+**Implemented backend evidence (2026-08-31)**
+
+- `platform.analytics` now declares independent summary, financial-series, subscription-series, Offer-series, and operations permissions.
+- Bounded admin endpoints aggregate immutable financial evidence, durable lifecycle/Offer events, accepted-operation snapshots, and the normalized current-holdings projection without persisting a competing analytics truth.
+- Money remains split by currency and billing cycle, exact decimal strings cross the API boundary, provisional buckets and read watermarks are explicit, and aggregate responses omit Account identity.
+- The operational attention queue is stably paginated and remains readable when legacy lifecycle rows lack their newer transition timestamps.
+- The placeholder admin page, frontend permission-degradation tests, accessible charts/tables, and browser/RTL/dark/narrow-screen validation remain open in this row.
 
 ---
 
 ### EMAIL-001 — Missing SMTP silently becomes token logging and apparent delivery success
 
-**Status:** `PARTIALLY RESOLVED — 2026-07-16`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 **Evidence**
 
 - The former invitation sender and secret-bearing fallback logging have been removed.
 - `LoggingEmailServiceImpl` is now restricted to non-production profiles and records only destination/purpose/workspace/expiry, never the action URL or token.
-- Production has no logging fallback; SMTP activation is selected explicitly by `spring.mail.host`, so a missing transport leaves the required `EmailService` dependency unsatisfied at startup.
-- Credential emails are requested transactionally and sent after commit. A delivery failure leaves the member in a pending state that an authorized Account actor can regenerate, but persistent delivery status and automatic retry do not exist yet.
+- Production has no logging fallback. An explicit startup validator rejects a missing or blank `spring.mail.host` with a configuration-specific failure before credential-email components are wired.
+- Credential emails are requested transactionally and sent after commit. Before this batch, a failure left the member pending but existed only in logs; callers and managers had no durable status or failure metric.
 
 **Risk**
 
-A delivery failure can still require a manager to regenerate access manually because persistent delivery status, retry scheduling, and UI feedback are not implemented.
+Before this batch, a delivery failure could leave access pending with no durable explanation or UI feedback. Any future automatic retry would also risk replaying a secret-bearing link or rotating credentials without an explicit request unless a stronger outbox policy is designed.
 
-**Required fix direction**
+**Implementation evidence — 2026-08-10**
 
-Complete `EMAIL-001` later with persistent delivery attempt/status, safe retry/resend, and Account-member UI feedback. Keep it independent from the already-correct post-commit identity transaction.
+- Each credential email now creates an `EmailDelivery` row in the identity transaction with Account, recipient User/address, purpose, and `PENDING` status. Raw tokens, action URLs, message bodies, provider exception messages, and reusable credentials are never stored.
+- The synchronous `AFTER_COMMIT` listener records `SENT`, `FAILED`, or non-production `SUPPRESSED` in an isolated transaction. SMTP exceptions become bounded failure codes (`MESSAGE_CONSTRUCTION_FAILED`, `AUTHENTICATION_FAILED`, `TRANSPORT_FAILED`, or `UNEXPECTED_FAILURE`) rather than provider details. The original exception and stack trace are emitted once to operational ERROR logs for diagnosis, but never persisted in `EmailDelivery` or `AuditLog`.
+- `EmailService` returns an explicit transport outcome. The development logging transport reports `SUPPRESSED`, never delivered; production still has no logging fallback, and `EmailStartupValidator` fails startup clearly when `spring.mail.host` is missing or blank.
+- Member creation, regeneration, and reset responses expose the current delivery result plus total/failed attempt counts. `GET /api/v1/members/{id}/access`, protected by `platform.staff.read_access` and Account-scoped lookup, exposes the latest credential and delivery state for later UI visits.
+- Safe retry uses the existing Permissionizer-protected regenerate/reset actions. It creates a new delivery history row and rotates the credential token; the failed link is never reused. Self-service reset remains non-disclosing, while an authorized Account actor can inspect the member status.
+- Automatic background retry is deliberately absent: safely retrying would require either persisting reusable secret-bearing content or rotating access without an operator/user request. A future provider-backed encrypted outbox may add that only with an explicit delivery policy.
+- SMTP success/failure/suppression, diagnostic exception logging without credential-link leakage, explicit production startup validation, unknown-outcome safety, immediate durable failure feedback, aggregate metrics, token-rotating recovery, and cross-Account status isolation are covered. The complete 427-test backend suite passes with zero failures, errors, or skips.
+- The generated disposable schema includes `email_deliveries` directly. No Flyway history was added under the current unpublished-database policy.
 
 ---
 
@@ -2515,7 +3231,14 @@ The replacement activation/reset template HTML-escapes member name, workspace na
 
 ### API-ERROR-001 — Error responses lack stable machine-readable business codes
 
-**Status:** `OBSERVED`
+**Status:** `RESOLVED — 2026-08-11`
+
+**Implementation evidence — 2026-08-11**
+
+- `ApiError` carries a stable `ErrorCode`; clients branch on it instead of matching message text, which is now free to be reworded or translated.
+- Every construction site supplies one — all 17 handlers in `GlobalExceptionHandler` plus `ContextDetectionFilter`, `AccessDeniedHandler` and `AuthEntryPoint`. No response can be emitted without a code.
+- Codes were derived from the handlers that already exist, not invented speculatively. The concrete win is that `409` now splits into `RESOURCE_ALREADY_EXISTS`, `DATA_CONFLICT`, `INVALID_STATE` and `OPERATION_BLOCKED`, which `GlobalExceptionHandlerTest` asserts stay distinct.
+- Contract recorded on the enum: once shipped, a constant is never renamed or repurposed.
 
 **Evidence**
 
@@ -2634,14 +3357,14 @@ Remove `skipVerification()` after fixing any underlying verification problem. Ad
 
 ### AUTHZ-002 — Any active member of a B2B client account can use all delegated collaboration permissions
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIALLY IMPLEMENTED — SAFE ACCOUNT-WIDE OPERATOR CEILING`
 
 **Evidence**
 
 - B2B context selects an active member of the client account.
 - `B2bCollaborationPolicy` runs before `PlanPolicy` and `UserRolePolicy`.
-- Once the collaboration row contains the requested permission and the provider account is entitled, the B2B policy returns `GRANTED` immediately.
-- It never checks whether the acting client member's roles/overrides allow that delegated action.
+- Before Batch 5.3, once the collaboration row contained the requested permission and the provider account was entitled, the B2B policy returned `GRANTED` immediately.
+- It did not check whether the acting client member's roles/overrides allowed that delegated action.
 
 **Risk**
 
@@ -2651,11 +3374,44 @@ A low-privilege employee in the client workspace can exercise every permission d
 
 Separate account-level delegation from actor-level use. A safe default requires both: the provider delegated the action to the client account, and the acting client member is authorized by a client-side role/assignment to use that delegated action. Define owner and B2B-operator exceptions explicitly.
 
+**Implementation evidence — 2026-08-10**
+
+- `B2bCollaborationPolicy` now grants only after the exact provider grant, current provider entitlement, current code eligibility, and external-actor authority all pass.
+- External authority is evaluated against the client Account with no provider Company scope. The existing role/exception resolver preserves owner authority, active-role behavior, expiry, and Account-deny precedence.
+- An ordinary external member is denied before assignment and allowed after an Account-scoped role containing the exact delegated action is assigned; request-level coverage exercises the complete flow.
+- No B2B-specific duplicate role entity and no organization-Group-derived authority were introduced.
+
+---
+
+### AUTHZ-007 — B2B operator selection requires widening the member's internal Account authority
+
+**Status:** `CONFIRMED — REFINEMENT DEFERRED`
+
+**Evidence**
+
+- `B2bCollaborationPolicy` evaluates external-actor authority with the client Account as `currentAccountId` and `targetCompanyId=null`.
+- `UserRolePolicy` therefore resolves only Account-scoped roles and exceptions. A Company-scoped assignment cannot nominate an operator for a foreign provider Company.
+- The same permission code is an ordinary internal workspace permission. Granting it at Account scope can authorize the member over all Companies owned by the external Account, subject to that Account's own plan/runtime gates.
+- There is no member/role assignment whose effect scope is one Collaboration.
+
+**Current safety boundary**
+
+The provider grant still bounds the B2B blast radius. An operator receives no access to an undelegated permission, provider Company, or collaboration. If several collaborations separately delegate the same action, however, the Account-scoped operator grant can satisfy the actor ceiling for all of them. The defect is the operator-selection lever: enabling external work necessarily widens the member's internal Account authority.
+
+Example: an audit firm cannot let a junior employee read one client's delegated books without also granting that employee the same action across the audit firm's own Company scope.
+
+**Likely refinement direction**
+
+- Extend the existing MEMBER-FLOW-003 assignment-effect model with `COLLABORATION` alongside `ACCOUNT` and `COMPANY`.
+- Reuse role templates, member-role assignments, lifecycle, duplicate protection, impact preview, actor delegation ceilings, and deny rules rather than introducing a parallel B2B role system.
+- Bind a Collaboration-scoped assignment to an exact active participant relationship and intersect its role permissions with the provider's current grants at runtime.
+- Keep organization Groups outside authorization. Define picker, lifecycle, history, and owner behavior when this refinement is scheduled; do not redesign it inside Batch 5.3.
+
 ---
 
 ### AUTHZ-003 — Existing B2B grants are not revalidated against current code delegation rules
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 **Evidence**
 
@@ -2667,13 +3423,19 @@ Removing B2B eligibility from code does not revoke or block an existing delegate
 
 **Required fix direction**
 
-Runtime must intersect persisted grants with the current code-owned B2B action allowlist. Registry synchronization must report and retire grants invalidated by code changes.
+Runtime must intersect persisted grants with the current code-owned B2B action allowlist and preserve invalidated rows as inactive history. Automated retirement/migration reporting remains part of the separately deferred `REGISTRY-001` lifecycle rather than this runtime authorization fix.
+
+**Implementation evidence — 2026-08-10**
+
+- Runtime already called `PermissionGrantValidator.isB2bRuntimeEligible()` before consulting persisted grants; focused policy coverage now locks that short-circuit.
+- Collaboration grant DTOs and access blockers use the same dynamic check. A formerly valid row becomes `currentlyActive=false` with a code-eligibility blocker while remaining available as historical configuration.
+- This implements immediate fail-closed behavior without contradicting the product rule that security history is preserved rather than silently deleted.
 
 ---
 
 ### AUTHZ-004 — Account-wide member overrides do not apply inside company context
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2689,11 +3451,19 @@ An account-wide DENY can be bypassed by sending a company context, while an acco
 
 Define precedence among account-wide and company-specific decisions. Query both applicable scopes and resolve conflicts deterministically—normally a specific deny/decision rule documented and tested across all combinations.
 
+**Implementation evidence — 2026-07-17**
+
+- Applicable-exception queries return Account scope plus only the exact selected Company scope.
+- Account grants and denies cascade into Company evaluation; Company exceptions never affect Account or sibling-Company evaluation.
+- Any applicable active deny wins over Account/Company grants and roles in both Permissionizer runtime policy and effective-permission reads.
+- Expired exceptions and exceptions belonging to inactive Companies have no authorization effect.
+- End-to-end tests verify Account cascade, exact Company isolation, deny precedence, lifecycle rules, and source-aware exception responses.
+
 ---
 
 ### AUTHZ-005 — Tenant and B2B context headers are absent from CORS configuration
 
-**Status:** `OBSERVED`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 **Evidence**
 
@@ -2706,6 +3476,11 @@ A browser frontend hosted on an allowed different origin cannot pass preflight f
 **Required fix direction**
 
 Add the exact context headers to environment-specific CORS configuration and test real browser preflight. Prefer an explicit selected-workspace/company contract rather than proliferating ad hoc headers.
+
+**Implementation evidence — 2026-08-10**
+
+- `SecurityConfig` explicitly allows the two headers actually consumed by context detection: `X-Company-ID` and `X-Is-B2B`.
+- A browser-style preflight integration test requests both headers from an allowed frontend origin and verifies both appear in `Access-Control-Allow-Headers`.
 
 ---
 
@@ -2736,7 +3511,7 @@ Current priority decision: do not build alias/replacement flags or advanced rena
 
 ### REGISTRY-002 — Stale permission actions still pass role-grant validation
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2756,11 +3531,18 @@ Any old database permission under a currently grantable feature remains selectab
 
 Build an authoritative current action set from a strict Permissionizer collection result and require membership in that set for all grant targets. Catalogs must exclude retired/orphaned actions, and startup must report every stale grant before retirement.
 
+**Implementation evidence — 2026-07-17**
+
+- `CurrentRegistrySnapshot` holds only the action codes from the last fully validated and successfully synchronized source snapshot.
+- `PermissionGrantValidator` rejects any client-role, platform-admin-role, or B2B grant code absent from that snapshot before applying audience rules.
+- Registry catalogs and client/B2B permission pickers filter database rows through the same action set, so an orphaned row is neither visible nor grantable.
+- Advanced rename/removal migration remains explicitly deferred under `REGISTRY-001`; action codes remain stable developer contracts.
+
 ---
 
 ### REGISTRY-003 — A partial or empty Permissionizer collection is accepted as successful seeding
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2774,11 +3556,18 @@ Broken discovery can produce a deceptively successful startup with missing new p
 
 Make collection diagnostics explicit and startup-fatal in production when indexes/classes cannot be read, codes are ambiguous, guarded features unexpectedly lack actions, or the complete registry graph is invalid. Validate the whole discovered snapshot before writing. Add guarded-service/action-set integration tests and persist a structured synchronization report rather than relying only on logs.
 
+**Implementation evidence — 2026-07-17**
+
+- `RegistrySnapshotFactory` validates the complete definition/action graph before database writes and computes a deterministic canonical SHA-256 hash.
+- Guarded actions are independently reflected from Spring target classes and compared exactly with Permissionizer collection output. A missing single action fails even when its feature still has other actions.
+- Empty definitions/actions, duplicate actions, malformed paths, missing definitions, module mismatches, and guarded features without actions are startup-fatal.
+- Failed discovery is recorded safely in a separate transaction and is never installed as the current runtime grant snapshot.
+
 ---
 
 ### REGISTRY-004 — Current feature activation cannot represent the four decided operational controls
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2799,11 +3588,20 @@ An admin UI that displays activation controls promises a capability that does no
 - Until these states and runtime consumers exist, render registry activation as read-only and do not turn on the existing overloaded flag for production features.
 - Add independence tests proving each control changes only its declared surface, plus emergency cutoff, stale token/cache, restoration, authorization, audit, and concurrency tests.
 
+**Implementation evidence — 2026-07-17**
+
+- `Feature` now stores independent `publicVisible`, `newSalesEnabled`, `newGrantsEnabled`, and `runtimeEnabled` state. The ambiguous `/active` operation is removed and each replacement endpoint has its own Permissionizer action and code-owned eligibility rule.
+- Catalog/feature mutation acquires the registry synchronization lock and a pessimistic Feature lock. A real change records a durable `FeatureOperationalChange` containing actor, control, before/after values, reason, confirmations, immediate timing, and timestamp, then bumps the catalog revision; typed history is available to an authorized operator.
+- Public visibility affects public listing only; new-sale state affects future plan/subscription selection; new-grant state blocks future client-role/override/B2B grants without revoking existing grants.
+- `FeatureRuntimePolicy` executes before actor-specific policies and rechecks persisted runtime state for every action. Emergency cutoff therefore denies stale-token use immediately, while restoration still requires the current action/classification, entitlement, and actor policy to pass.
+- Emergency changes require explicit impact and communication confirmation. Unit and integration tests cover control independence, ineligible controls, authorization, audit mapping, version invalidation, immediate cutoff, and restoration.
+- No Flyway migration was added because the application is unpublished and uses disposable generated H2 mappings.
+
 ---
 
 ### REGISTRY-005 — The two public catalog implementations disagree and one mutates JPA entities
 
-**Status:** `OBSERVED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2820,11 +3618,18 @@ The response depends on which endpoint a client uses. Mutating entity relationsh
 
 Keep one versioned registry snapshot and explicit DTO read models per audience. Remove raw-entity API responses and query exact read models without mutating entities. Public catalog exposes only public-visible sellable items; other audiences apply their explicit operational, entitlement, and grantability rules. Apply module/feature operational state consistently and test that catalogs cannot disagree.
 
+**Implementation evidence — 2026-07-17**
+
+- The raw JPA public/inventory catalog path and response-time mutation of `Module.features` are removed. Admin inventory, feature catalogs, permission catalogs, and the public catalog return typed DTOs.
+- Catalogs originate from current code definitions/current registry actions and join persisted operational state only for the audience-specific filters; stale database-only actions cannot reappear.
+- Public results consistently require an active module, public/beta lifecycle, public visibility, new-sale availability, and runtime availability. Plan and permission audiences use their own sale/grant/runtime rules rather than sharing one overloaded flag.
+- Public and admin integration tests verify the independent filters and typed contract.
+
 ---
 
 ### REGISTRY-006 — Permission-picker construction scales as permission-by-permission entitlement checks
 
-**Status:** `OBSERVED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2838,11 +3643,17 @@ Depending on the entitlement implementation, opening a role or B2B permission pi
 
 Resolve the account's effective entitled feature/action set once, then join/filter the current permission catalog in memory or in a purpose-built query. Add query-count and large-catalog tests.
 
+**Implementation evidence — 2026-07-17**
+
+- `PlanEntitlementService.entitledFeatureCodes()` resolves the account's active/trial subscription once, using its entitlement snapshot or plan features plus added overrides.
+- `PermissionPickerCatalogService` loads registry permissions/features in bulk, obtains the entitled feature-code set once, and performs audience, state, entitlement, and selection filtering in memory.
+- Interaction tests prove bulk entitlement resolution is called once and the former per-permission entitlement method is never called during picker construction.
+
 ---
 
 ### REGISTRY-007 — Existing feature rows are not fully repaired from their code definition
 
-**Status:** `OBSERVED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2856,11 +3667,18 @@ Corrupt or migrated registry data may remain inconsistent, especially for a feat
 
 Synchronize all code-owned relationships and metadata deterministically, and verify the complete registry graph after seeding.
 
+**Implementation evidence — 2026-07-17**
+
+- Existing Features repair module relationship, lifecycle status, quota schema, and sort order from code definitions.
+- Existing Permissions repair Feature relationship, name, description, resource, and action from collected annotations.
+- Admin-owned activation values are preserved, and synchronization reports count only rows whose code-owned fields actually changed.
+- Integration coverage corrupts both layers and verifies complete repair from the validated snapshot.
+
 ---
 
 ### REGISTRY-008 — Client-role grantability is feature-wide, including destructive and commercial actions
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2877,11 +3695,18 @@ Routine custom-role configuration can delegate account deactivation or subscript
 
 Classify eligibility per action in HiveApp feature/registry definitions without changing the Permissionizer library. Explicitly support owner-only and client-role, platform-admin-role, and B2B eligibility combinations. Every audience catalog and grant validator must use the same current action classification, while services still enforce target/resource invariants and protected owner boundaries.
 
+**Implementation evidence — 2026-07-17**
+
+- `FeatureDefinition` now owns action-level owner-only classification alongside the existing explicit B2B allowlist and derives client-role/platform-admin eligibility per action.
+- `platform.workspace.delete` and `platform.subscription.apply` are owner-only and are excluded from ordinary client-role pickers and grants; B2B delegation remains limited to explicitly listed actions.
+- Registry snapshot validation rejects classifications that name undiscovered actions or conflict between owner-only and B2B categories.
+- Permission grant validation, picker catalogs, effective permissions, `UserRolePolicy`, and `B2bCollaborationPolicy` all recheck the same current action classification and runtime state. This product metadata remains in HiveApp; Permissionizer was not modified.
+
 ---
 
 ### REGISTRY-009 — Startup synchronization is split, non-atomic across registry layers, and not inspectable
 
-**Status:** `CONFIRMED`
+**Status:** `PARTIAL — ATOMIC SINGLE-WRITER SYNC IMPLEMENTED 2026-07-17; ROLLING-DEPLOYMENT GENERATION GUARD OPEN`
 
 **Evidence**
 
@@ -2904,11 +3729,25 @@ HiveApp can start with features committed but permissions incomplete, different 
 - Reuse the same validator for CI/pre-deployment dry runs. Add partial-collector, mid-write rollback, existing-row repair, admin-state preservation, concurrent-node, retry, report-authorization, and snapshot-version tests.
 - Keep advanced code rename/removal migration deferred under the current stable-code decision; this synchronization work must not introduce Permissionizer alias/replacement flags.
 
+**Implementation evidence — 2026-07-17**
+
+- The separate feature/permission startup listeners are replaced by one ordered coordinator. Discovery and graph validation complete before the transactional writers run.
+- A committed singleton lock row plus pessimistic database locking serializes concurrent nodes; simultaneous first-start inserts converge through the unique lock key. Retry is idempotent.
+- Feature and permission writes plus the success report share one transaction. A simulated permission-layer failure proves Feature/module writes and the success report roll back together.
+- Each success/failure stores build version, deterministic snapshot hash when available, timestamps, status, discovered/created/updated counts, and bounded safe details.
+- `GET /api/admin/registry/synchronization/latest` is protected by the dedicated `platform.registry.sync_status` Permissionizer action and returns an admin-safe DTO.
+- No Flyway history is introduced while the project uses disposable generated H2 mappings. The complete backend suite passes: 328 tests, 0 failures, 0 errors, 0 skipped.
+
+**Remaining deployment-order gap — 2026-08-27**
+
+- The database lock serializes writers but does not prove that the writer represents the newest deployed build. During a rolling deployment, an older node can acquire the lock after a newer node and overwrite the authoritative registry snapshot/hash with older code metadata.
+- Before multi-version production rollout, synchronization must reject a desired deployment/build generation older than the committed authoritative generation (or require an equivalent explicit rollout authority). Add newer-then-older node ordering, retry, and rollback tests. This does not require permission aliases or a Permissionizer grammar change.
+
 ---
 
 ### REGISTRY-010 — Catalog and permission-picker contracts are neither uniformly audience-specific nor versioned
 
-**Status:** `CONFIRMED`
+**Status:** `IMPLEMENTED — 2026-07-17`
 
 **Evidence**
 
@@ -2928,6 +3767,14 @@ Different screens can show different truths, high-risk actions may appear in ord
 - Add action-level owner-only/client-role/platform-admin-role/B2B classification to HiveApp definitions and use it consistently in catalogs, validators, and service invariants. Do not add this product classification to Permissionizer itself.
 - Include registry version/hash in picker responses and mutation requests. Reject stale writes with a refresh-required conflict; publish a new version and invalidate relevant caches after synchronization or operational-control changes.
 - Remove raw JPA catalog responses and duplicate public contracts. Add cross-audience leakage, destructive-action eligibility, unavailable-current-grant, stale write, entitlement change, emergency shutdown, B2B actor ceiling, cache invalidation, and query-count tests.
+
+**Implementation evidence — 2026-07-17**
+
+- Client-role and B2B picker endpoints return `PermissionPickerCatalogDto` with `registryVersion`, audience, `availableChoices`, and `currentSelections` rather than a bare generic catalog.
+- Current selections remain visible when unavailable, with stable reasons for missing current registry actions, lost entitlement, audience ineligibility, paused new grants, or emergency runtime shutdown. They are not offered as new choices.
+- Registry versions use deterministic snapshot hash plus a persisted monotonic catalog revision. Successful synchronization changes and operator-control changes publish a new version.
+- Role-permission and B2B grant writes submit the picker version and fail with a refresh-required conflict when stale; removals remain available for safe cleanup.
+- Tests cover stale role writes without mutation, B2B versioned grants, unavailable selections, bulk entitlement resolution, action leakage, emergency runtime changes, and catalog revision changes. The complete backend suite passes: 338 tests, 0 failures, 0 errors, 0 skipped.
 
 ---
 

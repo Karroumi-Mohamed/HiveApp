@@ -18,6 +18,8 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.time.Instant;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
 
 @Service
 @RequiredArgsConstructor
@@ -32,17 +34,22 @@ public class EffectivePermissionService {
 
     @Transactional(readOnly = true)
     public MemberPermissionDto getEffectivePermissions(UUID userId, UUID accountId) {
+        return getEffectivePermissions(userId, accountId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public MemberPermissionDto getEffectivePermissions(UUID userId, UUID accountId, UUID targetCompanyId) {
         var member = memberRepository.findByAccountIdAndUserId(accountId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member", "userId", userId));
 
         if (member.isOwner()) {
             var all = permissionRepository.findAll()
                     .stream()
-                    .filter(permissionGrantValidator::isClientRoleGrantable)
+                    .filter(permissionGrantValidator::isOwnerUsable)
                     .filter(p -> planEntitlementService.isPermissionEntitled(accountId, p.getCode()))
                     .map(p -> p.getCode())
                     .collect(Collectors.toSet());
-            return new MemberPermissionDto(member.getId(), true, all);
+            return new MemberPermissionDto(member.getId(), accountId, targetCompanyId, true, all);
         }
 
         Set<String> permissions = new HashSet<>();
@@ -50,7 +57,9 @@ public class EffectivePermissionService {
             if (!mr.getRole().isActive()) {
                 continue;
             }
-            if (mr.getCompany() != null && !mr.getCompany().isActive()) {
+            if (mr.getScopeCompany() != null
+                    && (!mr.getScopeCompany().isActive()
+                    || !mr.getScopeCompany().getId().equals(targetCompanyId))) {
                 continue;
             }
             for (RolePermission rp : mr.getRole().getPermissions()) {
@@ -58,18 +67,26 @@ public class EffectivePermissionService {
             }
         }
 
-        for (var override : memberOverrideRepository.findAllByMemberId(member.getId())) {
-            if (!override.getCompany().isActive()) {
+        Set<String> denied = new HashSet<>();
+        Instant now = Instant.now();
+        for (var override : memberOverrideRepository.findApplicable(member.getId(), targetCompanyId)) {
+            if (!override.isEffectiveAt(now)) {
                 continue;
             }
-            if (override.isDecision()) {
+            if (override.getScopeCompany() != null && !override.getScopeCompany().isActive()) {
+                continue;
+            }
+            if (override.getDecision() == PermissionOverrideDecision.GRANT) {
                 permissions.add(override.getPermission().getCode());
             } else {
-                permissions.remove(override.getPermission().getCode());
+                denied.add(override.getPermission().getCode());
             }
         }
+        permissions.removeAll(denied);
 
         permissions.removeIf(permissionCode -> !planEntitlementService.isPermissionEntitled(accountId, permissionCode));
-        return new MemberPermissionDto(member.getId(), false, permissions);
+        permissions.removeIf(permissionCode -> !permissionGrantValidator
+                .isClientRoleRuntimeEligible(permissionCode));
+        return new MemberPermissionDto(member.getId(), accountId, targetCompanyId, false, permissions);
     }
 }

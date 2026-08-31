@@ -33,6 +33,7 @@ import com.hiveapp.shared.security.policy.AdminPermissionPolicy;
 import com.hiveapp.shared.security.policy.B2bCollaborationPolicy;
 import com.hiveapp.shared.security.policy.PlanPolicy;
 import com.hiveapp.shared.security.policy.UserRolePolicy;
+import com.hiveapp.shared.security.policy.FeatureRuntimePolicy;
 import com.hiveapp.shared.security.context.ContextDetectionFilter;
 import com.hiveapp.shared.security.context.HiveAppPermissionContext;
 
@@ -45,12 +46,14 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class SecurityConfig {
     private final JwtTokenProvider jwtTokenProvider;
+    private final TokenSessionService tokenSessionService;
     private final com.hiveapp.identity.infrastructure.security.UserDetailsServiceImpl userDetailsService;
     private final com.hiveapp.platform.admin.infrastructure.security.AdminUserDetailsServiceImpl adminUserDetailsService;
     private final AuthEntryPoint authEntryPoint;
     private final AccessDeniedHandler accessDeniedHandler;
     
     private final AdminPermissionPolicy adminPermissionPolicy;
+    private final FeatureRuntimePolicy featureRuntimePolicy;
     private final B2bCollaborationPolicy b2bPolicy;
     private final PlanPolicy planPolicy;
     private final UserRolePolicy userRolePolicy;
@@ -61,12 +64,14 @@ public class SecurityConfig {
 
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        return new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService, accessDeniedHandler);
+        return new JwtAuthenticationFilter(
+                jwtTokenProvider, tokenSessionService, userDetailsService, accessDeniedHandler);
     }
 
     @Bean
     public AdminJwtAuthenticationFilter adminJwtAuthenticationFilter() {
-        return new AdminJwtAuthenticationFilter(jwtTokenProvider, adminUserDetailsService, accessDeniedHandler);
+        return new AdminJwtAuthenticationFilter(
+                jwtTokenProvider, tokenSessionService, adminUserDetailsService, accessDeniedHandler);
     }
 
     @Bean
@@ -131,7 +136,16 @@ public class SecurityConfig {
             "http://localhost:3000"
         ));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"));
+        configuration.setAllowedHeaders(List.of(
+                "Authorization",
+                "Content-Type",
+                "X-Requested-With",
+                "Accept",
+                "Origin",
+                "Access-Control-Request-Method",
+                "Access-Control-Request-Headers",
+                "X-Company-ID",
+                "X-Is-B2B"));
         configuration.setExposedHeaders(List.of("Access-Control-Allow-Origin", "Access-Control-Allow-Credentials"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -164,6 +178,7 @@ public class SecurityConfig {
     public void permissionsLoader() {
         PermissionGuard.resetConfiguration();
         PermissionGuard.builder()
+            .addPolicy(featureRuntimePolicy)   // MANDATORY — emergency runtime cutoff for every actor
             .addPolicy(adminPermissionPolicy)   // FIRST — short-circuits for admin actors
             .addPolicy(b2bPolicy)
             .addPolicy(planPolicy)

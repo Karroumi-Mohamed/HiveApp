@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.company.service;
 
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.company.domain.constant.GroupStatus;
 import com.hiveapp.platform.client.company.domain.entity.OrganizationGroup;
 import com.hiveapp.platform.client.company.domain.repository.OrganizationGroupRepository;

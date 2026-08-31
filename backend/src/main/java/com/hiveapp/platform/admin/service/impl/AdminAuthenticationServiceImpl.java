@@ -1,13 +1,17 @@
 package com.hiveapp.platform.admin.service.impl;
 
 import com.hiveapp.identity.domain.entity.User;
-import com.hiveapp.identity.domain.repository.UserRepository;
 import com.hiveapp.identity.dto.AuthResponse;
 import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
 import com.hiveapp.identity.service.CredentialAuthenticationService;
+import com.hiveapp.identity.service.MemberCredentialService;
 import com.hiveapp.platform.admin.domain.entity.AdminUser;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
+import com.hiveapp.platform.admin.dto.AdminMeDto;
+import com.hiveapp.platform.admin.service.AdminPermissionResolver;
+import com.hiveapp.shared.exception.ResourceNotFoundException;
+import java.util.UUID;
 import com.hiveapp.platform.admin.service.AdminAuthenticationService;
 import com.hiveapp.shared.exception.UnauthorizedException;
 import com.hiveapp.shared.security.IssuedTokens;
@@ -25,11 +29,40 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
 
     private final CredentialAuthenticationService credentialAuthenticationService;
     private final AdminUserRepository adminUserRepository;
-    private final UserRepository userRepository;
     private final TokenSessionService tokenSessionService;
+    private final AdminPermissionResolver adminPermissionResolver;
+    private final MemberCredentialService memberCredentialService;
 
     @Override
     @Transactional(readOnly = true)
+    public AdminMeDto getAdminDetails(UUID userId) {
+        var admin = adminUserRepository.findByUserId(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("AdminUser", "userId", userId));
+        return new AdminMeDto(
+                admin.getId(),
+                admin.getUser().getEmail(),
+                admin.getUser().isEmailVerified(),
+                admin.isSuperAdmin(),
+                admin.isActive(),
+                adminPermissionResolver.resolve(admin));
+    }
+
+    /** Self-service mailbox verification belongs to the session owner, not operator management. */
+    @Override
+    @Transactional
+    public com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse requestOwnEmailVerification(
+            UUID userId) {
+        AdminUser admin = requireActiveAdminByUserId(userId);
+        return com.hiveapp.platform.admin.dto.AdminOperatorAccessResponse.of(
+                memberCredentialService.requestOperatorEmailVerification(admin.getUser()));
+    }
+
+    /**
+     * Writable: a temporary password is consumed on first use, and a read-only transaction would
+     * silently discard that write, leaving the handed-over password replayable forever.
+     */
+    @Override
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         User user = credentialAuthenticationService.authenticate(
                 request.identifier(),
@@ -37,6 +70,18 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
                 "Invalid admin email or password",
                 "Admin account is inactive");
         AdminUser admin = requireActiveAdmin(user);
+
+        // A temporary password is consumed here: it works once, and until the operator chooses
+        // their own the session is restricted to the change itself. Issuing a full ADMIN session
+        // would let a handed-over password operate the platform indefinitely.
+        if (credentialAuthenticationService.consumeTemporaryPasswordIfPresent(
+                user.getId(), request.password())) {
+            tokenSessionService.revokeAll(java.util.List.of(user.getId()), TokenAudience.ADMIN);
+            var initial = tokenSessionService.issueInitialAccess(user.getId(), TokenAudience.ADMIN);
+            log.info("Admin must change their initial password: {}", admin.getUser().getEmail());
+            return AuthResponse.initialAccess(initial.accessToken(), initial.expiresIn());
+        }
+
         log.info("Admin logged in: {}", admin.getUser().getEmail());
         return issueTokens(admin.getUser());
     }
@@ -45,9 +90,8 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
     @Transactional(readOnly = true)
     public AuthResponse refresh(RefreshTokenRequest request) {
         var identity = tokenSessionService.consume(request.refreshToken(), TokenAudience.ADMIN);
-        User user = userRepository.findById(identity.userId())
-                .orElseThrow(() -> new UnauthorizedException("Admin account not found"));
-        AdminUser admin = requireActiveAdmin(user);
+        // The admin domain owns this lookup; identity is not consulted at all.
+        AdminUser admin = requireActiveAdminByUserId(identity.userId());
         log.info("Admin token refreshed: {}", admin.getUser().getEmail());
         return issueTokens(admin.getUser());
     }
@@ -58,9 +102,17 @@ public class AdminAuthenticationServiceImpl implements AdminAuthenticationServic
     }
 
     private AdminUser requireActiveAdmin(User user) {
-        AdminUser admin = adminUserRepository.findByUserId(user.getId())
+        return requireActiveAdminByUserId(user.getId());
+    }
+
+    /**
+     * Resolves the administrator from its own aggregate. The user's active flag is read through
+     * the AdminUser relationship rather than by querying identity.
+     */
+    private AdminUser requireActiveAdminByUserId(java.util.UUID userId) {
+        AdminUser admin = adminUserRepository.findByUserId(userId)
                 .orElseThrow(() -> new UnauthorizedException("Invalid admin email or password"));
-        if (!admin.isActive() || !user.isActive()) {
+        if (!admin.isActive() || !admin.getUser().isActive()) {
             throw new UnauthorizedException("Admin account is inactive");
         }
         return admin;

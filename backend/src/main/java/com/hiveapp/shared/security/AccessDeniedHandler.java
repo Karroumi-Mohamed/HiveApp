@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.hiveapp.shared.exception.ApiError;
+import com.hiveapp.shared.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +32,6 @@ public class AccessDeniedHandler implements org.springframework.security.web.acc
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(
                 response.getOutputStream(),
-                ApiError.of(403, "Forbidden", "You do not have permission to access this resource"));
+                ApiError.of(403, ErrorCode.PERMISSION_DENIED, "Forbidden", "You do not have permission to access this resource"));
     }
 }

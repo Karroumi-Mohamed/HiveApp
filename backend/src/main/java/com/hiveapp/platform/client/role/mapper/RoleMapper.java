@@ -17,7 +17,7 @@ public interface RoleMapper {
     @Mapping(source = "permissions", target = "permissionCodes", qualifiedByName = "mapPermissionsToCodes")
     @Mapping(source = "systemRole", target = "isSystemRole")
     @Mapping(source = "account.id", target = "accountId")
-    @Mapping(source = "company.id", target = "companyId")
+    @Mapping(source = "boundaryCompany.id", target = "boundaryCompanyId")
     RoleDto toDto(Role role);
 
     @Named("mapPermissionsToCodes")

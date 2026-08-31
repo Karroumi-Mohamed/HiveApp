@@ -41,6 +41,8 @@ PublicFeatureCatalogIntegrationTest
 QuotaEnforcementIntegrationTest
 SubscriptionIntegrityIntegrationTest
 ClientSubscriptionSelfServiceIntegrationTest
+AuditMutationIntegrationTest
+UtcTimestampIntegrationTest
 ```
 
 Those tests prove the new direction is working, but they are not enough to close the platform shell. They cover unit-level invariants, critical service/policy boundaries, request-level token/surface separation, the first client resource isolation cases, member override/lifecycle boundaries, and the first complete B2B lifecycle abuse path. The remaining work is broader request-level and abuse-case coverage.
@@ -303,11 +305,16 @@ Required service and policy tests:
 
 ```text
 client cannot initiate collaboration with its own account. Covered at request level.
-client can request collaboration only for a provider-owned company
+client can request collaboration only through a valid provider-owned Company share code. Covered for hash-only, non-expiring storage, privacy-minimal resolution, provider-readable usage metadata, rotation, disable, and self-collaboration denial.
 provider only can accept incoming collaboration. Covered at request level.
-provider only can grant or revoke collaboration permissions. Grant and non-participant revoke are covered at request level.
-either participant can revoke collaboration if that remains the accepted rule
-non-participant cannot read collaboration permissions
+provider only can grant or revoke collaboration permissions. Covered at request level.
+provider only can suspend/resume; requester/provider cancellation/rejection boundaries are explicit. Covered at request level.
+either participant can revoke an accepted collaboration. Covered at request level.
+non-participant cannot read collaboration permissions. Participant detail/current-grant reads are covered.
+one PENDING/ACTIVE/SUSPENDED tuple and one grant pair are database-unique; new records return 201, normalized identical retries return the existing relationship with 200, changed details conflict, concurrent insert losers re-read the winner, and terminal history allows a new request. Covered against generated H2 constraints.
+stale lifecycle versions conflict instead of overwriting state. Covered at request level.
+suspension preserves grants, distinguishes review from explicit automatic resume, and automatic resume skips inactive or no-longer-entitled provider scopes. Covered at request and unit levels.
+permission revocation preserves an inactive grant row, regrant reactivates it, and terminal relationships freeze grants. Covered at request level.
 B2bCollaborationPolicy denies when collaborationId is null
 B2bCollaborationPolicy checks permission against exact collaborationId
 permission delegated to collaboration A does not authorize collaboration B with same provider/company
@@ -315,6 +322,9 @@ revoked collaboration denies immediately. Covered at request level.
 pending collaboration denies delegated access and permission grants. Covered at request level.
 provider's plan entitlement is checked for delegated feature. Covered at unit and request level for the B2B permission picker, grant write path, and runtime delegated resource access.
 client's plan entitlement is checked for B2B management endpoints, but not passive delegated resource access. Covered at request level for initiate denial and provider-granted resource access.
+provider delegation alone does not authorize every external member; a non-owner is denied until an Account-scoped role grants the exact action. Covered through member activation, role creation/activation/assignment, and delegated resource access at request level. This locks the current safe ceiling, not the deferred AUTHZ-007 Collaboration-scoped assignment refinement.
+current code eligibility is rechecked for both runtime use and current-grant read models; invalidated grants remain configured history but become inactive. Covered at policy and collaboration-service levels.
+B2B browser preflight accepts the exact `X-Company-ID` and `X-Is-B2B` context headers from configured frontend origins. Covered at request level.
 B2B delegation rejects platform-control permissions. Covered at request level.
 B2B delegation rejects client-workspace features not marked b2bDelegatable
 B2B action set is explicit; broad platform.company.* delegation is rejected. Covered for company create/read_all/update/delete at request level.
@@ -413,3 +423,57 @@ subscription state controls entitlement consistently
 feature and quota registry state is code-owned and startup-validated
 Permissionizer receives context through the Spring context supplier path and enforces guarded platform actions
 ```
+
+## 17. Transactional Audit
+
+`AuditMutationIntegrationTest` proves the shared audit boundary rather than only checking that a row can be inserted:
+
+```text
+successful audit records commit and roll back atomically with the protected mutation
+failed mutation attempts survive the rejected business transaction
+the actual Spring advisor chain is transaction, audit, Permissionizer, then method
+active actor, Account, Company, collaboration, action, resource, and request context are captured
+password/secret input is redacted and failure messages are excluded
+persisted audit rows reject application update/delete operations
+real authenticated Company creation records the resolved client actor and created resource
+real rejected Company mutation records the attempted target and failure type
+read-only failures are deliberately outside the mutation-audit boundary
+```
+
+Focused B2B and subscription suites verify that nested and `REQUIRES_NEW` transaction paths still behave correctly with auditing enabled.
+
+## 18. UTC Timestamp Contract
+
+`UtcTimestampIntegrationTest` pins the deployment-independent time boundary:
+
+```text
+Hibernate/JDBC uses UTC explicitly
+an Instant persisted while the JVM default zone is non-UTC reloads unchanged
+microsecond precision survives the database round-trip
+API JSON emits an explicit Z offset and deserializes to the exact Instant
+```
+
+Production source verification finds no `LocalDateTime`, `OffsetDateTime`, or `ZonedDateTime` usage. System events and deadlines use `Instant`; future fields that represent a civil date/time must model those local semantics explicitly rather than reuse a zone-free value for a global event.
+
+The UTC contract remains covered in the complete backend suite.
+
+## 19. Credential Email Delivery
+
+Credential-delivery tests pin the transport and management contract:
+
+```text
+SMTP success reports SENT and transport failure exposes only a bounded safe code
+the original SMTP exception is available in operational ERROR logs without logging the credential URL
+production rejects a missing or blank spring.mail.host with an explicit startup error
+the non-production logging transport reports SUPPRESSED rather than delivered
+delivery history is queued with the credential transaction and completed after commit
+failed delivery status and aggregate counts are returned to the creating caller
+later Account-scoped status reads show the same persisted result
+regeneration rotates the raw token, creates new history, and preserves failure counts
+another Account cannot read a member's credential or delivery status
+raw tokens, action URLs, provider exception messages, and message bodies are not persisted
+```
+
+Automatic retry is not simulated: the current safe recovery operation deliberately generates a new token instead of storing reusable credential-bearing content.
+
+The complete backend suite currently passes 427 tests with zero failures, errors, or skips.

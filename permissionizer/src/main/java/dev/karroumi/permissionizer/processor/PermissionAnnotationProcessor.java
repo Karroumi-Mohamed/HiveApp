@@ -93,8 +93,13 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             validateElement(element);
         }
 
-        // Phase 2: Resolve all parents and build dot-paths
+        // Phase 2: Resolve all grantable nodes and build dot-paths. A method with an explicit
+        // guard=OFF is an internal enforcement opt-out, not a permission identity. Emitting it
+        // into generated trees would advertise an action that is deliberately never checked.
         for (Element element : annotatedElements) {
+            if (isGuardOffMethod(element)) {
+                continue;
+            }
             activeResolutions.clear();
             resolveNode(element);
         }
@@ -139,6 +144,14 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             return OutputStyle.FLAT;
         }
         return OutputStyle.NESTED;
+    }
+
+    private boolean isGuardOffMethod(Element element) {
+        if (element.getKind() != ElementKind.METHOD) {
+            return false;
+        }
+        PermissionNode annotation = element.getAnnotation(PermissionNode.class);
+        return annotation != null && annotation.guard() == PermissionNode.Guard.OFF;
     }
 
     // ──────────────────────────────────────────────

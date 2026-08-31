@@ -125,9 +125,18 @@ flowchart TD
         COLLAB-007 --> COLLAB-008
         COLLAB-008 --> AUTHZ-002
         AUTHZ-002 --> AUTHZ-003
+        AUTHZ-002 --> AUTHZ-007
         AUTHZ-003 --> AUTHZ-005
         AUTHZ-003 --> AUTHZ-006
         EMAIL-001
+    end
+
+    subgraph Phase 9-14: Commercial Control Plane
+        BILLING-003 & PLAN-012 & QUOTA-004 --> PRICEBOOK-001
+        PRICEBOOK-001 --> COMMERCIAL-001
+        COMMERCIAL-001 --> MARKETING-001
+        PRICEBOOK-001 --> BILLING-003_LEDGER["BILLING-003 ledger completion"]
+        MARKETING-001 & BILLING-003_LEDGER --> ANALYTICS-001
     end
 ```
 
@@ -517,7 +526,7 @@ flowchart TD
 - **Acceptance Criteria**: Active JWT sessions are immediately invalidated on deactivation.
 - **Tests**: Token revocation checks.
 - **Future UI Flow**: Team manager dashboard.
-- **Execution Status**: Completed for the available lifecycle. Suspension preserves the Member and access configuration, removes it from runtime context/quota, and revokes every current CLIENT refresh session. Activation credential cleanup and reactivation validation follow the direct-creation lifecycle in Batch 1.5 and later operational/audit batches.
+- **Execution Status**: Completed for the current reversible lifecycle. Suspension preserves the Member and access configuration, removes it from runtime context/quota, invalidates pending access and current CLIENT refresh sessions, and requires an audited reason. Reactivation is exposed through the API/UI, locks and validates the Account, rechecks active-member quota, requires an audited reason, and restores the membership. Ownership transfer, permanent purge, and future module reassignment previews remain separate capabilities rather than being approximated here.
 
 #### [IMPLEMENT] QUOTA-001 — Member/company quota checks are inefficient and race-prone
 - **Prerequisites**: MEMBER-002.
@@ -799,12 +808,13 @@ flowchart TD
 #### [IMPLEMENT] RBAC-001 — Company scope is represented twice for role assignment
 - **Prerequisites**: ROLE-003.
 - **Unlocks**: RBAC-002.
-- **Order Rationale**: Cleans duplicate scope columns in database.
-- **Affected Backend Areas**: `MemberRole.java`, `Role.java`.
-- **Database Migration**: Yes (consolidate company scope mappings).
+- **Order Rationale**: Separates template availability from assignment effect scope.
+- **Affected Backend Areas**: `MemberRole.java`, `Role.java`, role/member DTOs and repositories, effective permission evaluation.
+- **Database Migration**: No for the current unpublished disposable H2 schema; update generated mappings directly.
 - **Acceptance Criteria**: Role assignments declare company boundaries uniquely.
 - **Tests**: Database schema mappings check.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented. Account/Company template boundary and Account/Company assignment effect scope are explicit, containment is enforced, exact-scope uniqueness is retained, and effective permissions never union unrelated Companies. Platform-published starter-template adoption remains future platform-admin work.
 
 #### [IMPLEMENT] RBAC-002 — Inactive client roles still grant permissions
 - **Prerequisites**: RBAC-001.
@@ -815,16 +825,18 @@ flowchart TD
 - **Acceptance Criteria**: Deactivated roles are excluded from permission resolution.
 - **Tests**: Active role runtime checks.
 - **Future UI Flow**: Access logs.
+- **Execution Status**: Implemented and retained. Runtime policy and effective-permission reads exclude inactive/archived roles, and inactive roles cannot be newly assigned.
 
 #### [IMPLEMENT] RBAC-003 — Client role assignment and direct grants have no actor permission ceiling
 - **Prerequisites**: RBAC-002.
 - **Unlocks**: RBAC-004, RBAC-006.
 - **Order Rationale**: Backend validation ceiling check.
-- **Affected Backend Areas**: `RoleServiceImpl.java`.
+- **Affected Backend Areas**: `DelegationCeilingService`, `MemberServiceImpl`, `RoleServiceImpl`, `CollaborationServiceImpl`.
 - **Database Migration**: No.
 - **Acceptance Criteria**: User cannot grant permission keys they do not hold.
 - **Tests**: Assignment ceiling tests.
 - **Future UI Flow**: Admin role edit panel.
+- **Execution Status**: Implemented. Scoped actor ceilings cover assignment, initial assignment, direct override mutation, role permission addition/activation/duplication, and B2B delegation. Owner targets are protected from ordinary role/override mutation.
 
 #### [IMPLEMENT] RBAC-004 — Removing a member role ignores company scope
 - **Prerequisites**: RBAC-003.
@@ -835,6 +847,7 @@ flowchart TD
 - **Acceptance Criteria**: Removing role assignment respects target company boundaries.
 - **Tests**: Scoped removal tests.
 - **Future UI Flow**: Role assignment tables.
+- **Execution Status**: Implemented. Removal requires an explicit effect scope and deletes only the exact Account or Company assignment.
 
 ---
 
@@ -844,10 +857,11 @@ flowchart TD
 - **Unlocks**: AUTHZ-004.
 - **Order Rationale**: Exception override details.
 - **Affected Backend Areas**: `MemberPermissionOverride.java`.
-- **Database Migration**: Yes (add reason, expiry columns).
+- **Database Migration**: No for the current unpublished disposable H2 schema; update generated mappings directly.
 - **Acceptance Criteria**: Overrides support description reasons and expiration dates.
 - **Tests**: Overrides expiration tests.
 - **Future UI Flow**: User exceptions settings.
+- **Execution Status**: Implemented. Direct access changes are explicit `GRANT`/`DENY` exceptions with Account/Company scope, mandatory reason, immutable creator, required future expiry for grants, optional future expiry for denies, exact-scope uniqueness, runtime expiry, inactive-Company cutoff, owner/self protection, grantability, entitlement, and scoped delegation ceilings. The exception DTO exposes its source, scope, decision, reason, creator, expiry, and current effect. Central actor-event history remains owned by `AUDIT-001`.
 
 #### [IMPLEMENT] AUTHZ-004 — Account-wide member overrides do not apply inside company context
 - **Prerequisites**: RBAC-006.
@@ -858,6 +872,7 @@ flowchart TD
 - **Acceptance Criteria**: Account-wide overrides cascade to sub-company operations.
 - **Tests**: Scoped cascade validation tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented. Runtime and effective-permission reads load Account plus exact-Company exceptions; Account decisions cascade into Company context, Company decisions never escape their exact Company, and any applicable active `DENY` wins over direct grants and roles. Cross-scope, expiry, inactive-Company, and HTTP-context tests pass.
 
 ---
 
@@ -886,6 +901,7 @@ flowchart TD
 - **Acceptance Criteria**: Mismatched codes reject role updates.
 - **Tests**: Action validation integration tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented. Every grant target now requires membership in the validated current Permissionizer action snapshot before feature/audience rules are evaluated. Stale database actions are rejected and excluded from admin, client-role, and B2B permission catalogs.
 
 #### [IMPLEMENT] REGISTRY-003 — A partial or empty Permissionizer collection is accepted as successful seeding
 - **Prerequisites**: REGISTRY-002.
@@ -896,6 +912,7 @@ flowchart TD
 - **Acceptance Criteria**: Empty scanned keys cause context exit.
 - **Tests**: Verification checks.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented. Startup independently reflects every guarded service action and compares that complete set with Permissionizer collection output before any writes. Empty, partial, duplicate, malformed, unmapped, and module-mismatched snapshots fail startup and are never installed as the runtime grant catalog.
 
 #### [IMPLEMENT] REGISTRY-007 — Existing feature rows are not fully repaired from their code definition
 - **Prerequisites**: REGISTRY-003.
@@ -906,16 +923,18 @@ flowchart TD
 - **Acceptance Criteria**: Database metadata is overwritten by code annotations.
 - **Tests**: Sync repair tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented. Synchronization repairs Feature module/status/quota/order and Permission feature/name/description/resource/action from the validated code snapshot while preserving admin-owned activation state. Only actual changes are counted.
 
 #### [IMPLEMENT] REGISTRY-009 — Startup synchronization is split, non-atomic across registry layers, and not inspectable
 - **Prerequisites**: REGISTRY-007.
 - **Unlocks**: REGISTRY-004.
 - **Order Rationale**: Wraps synchronize routines into single transaction.
 - **Affected Backend Areas**: `FeatureSeeder.java`, `PermissionSeeder.java`.
-- **Database Migration**: No.
+- **Database Migration**: No for the current unpublished disposable H2 schema; generated mappings include synchronization lock/run tables directly.
 - **Acceptance Criteria**: Sync executes transactionally and writes a sync log row.
 - **Tests**: Concurrency synchronization locks checks.
 - **Future UI Flow**: System status logs.
+- **Execution Status**: Partial. One ordered startup listener validates a deterministic SHA-256 snapshot, converges the first lock-row insert, serializes writers with a pessimistic database lock, and applies feature plus permission repairs in one transaction. Mid-write failure rolls back both layers and the success report; failure summaries use a separate transaction. Every run records build/hash/timestamps/status/counts/details, and a dedicated Permissionizer-protected platform-admin endpoint returns the latest safe summary. Before multi-version production rollout, add a monotonic desired deployment/build generation (or equivalent rollout authority) so an older node that acquires the lock later cannot replace a newer authoritative snapshot.
 
 ---
 
@@ -925,10 +944,11 @@ flowchart TD
 - **Unlocks**: REGISTRY-005.
 - **Order Rationale**: State indicators for catalogs.
 - **Affected Backend Areas**: `Feature.java`.
-- **Database Migration**: Yes (add visibility state columns).
-- **Acceptance Criteria**: Features support visibility states.
-- **Tests**: Visibility transition checks.
+- **Database Migration**: No for the current unpublished disposable H2 schema; generated mappings contain the four control columns and durable audit table directly.
+- **Acceptance Criteria**: Features support independent public visibility, new-sale, new-grant, and emergency-runtime controls with separate permissions, eligibility, audit, and version invalidation.
+- **Tests**: Independence, eligibility, confirmation, authorization, durable audit, version bump, runtime cutoff/restoration, and stale-session checks.
 - **Future UI Flow**: Catalog Admin visibility switches.
+- **Execution Status**: Implemented. The overloaded active endpoint is removed. Four separately permissioned operations update only their declared state under a pessimistic catalog/feature lock, record actor/reason/before/after/confirmation audit history, and publish a new catalog revision. Runtime cutoff is the first fail-closed Permissionizer policy and is rechecked against the database for every action, including stale tokens.
 
 #### [IMPLEMENT] REGISTRY-005 — The two public catalog implementations disagree and one mutates JPA entities
 - **Prerequisites**: REGISTRY-004.
@@ -936,19 +956,21 @@ flowchart TD
 - **Order Rationale**: Standardizes catalog fetch routines.
 - **Affected Backend Areas**: Catalog Services.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Disagreeing catalog implementation is removed; uses read DTOs.
-- **Tests**: Catalog queries return consistent models.
+- **Acceptance Criteria**: Disagreeing catalog implementation is removed; all endpoints use typed read DTOs from current code definitions and persisted operational state.
+- **Tests**: Catalog queries return consistent models and apply module, public-visibility, new-sale, new-grant, runtime, and audience filters independently.
 - **Future UI Flow**: Pricing page catalogs.
+- **Execution Status**: Implemented. The raw JPA catalog and entity-relationship mutation are removed. Public, admin inventory, feature, and permission catalogs use typed read models, current definitions, module activity, and the same audience-specific operational rules.
 
 #### [IMPLEMENT] REGISTRY-006 — Permission-picker construction scales as permission-by-permission entitlement checks
 - **Prerequisites**: REGISTRY-005.
 - **Unlocks**: REGISTRY-008.
 - **Order Rationale**: Database optimization for pickers.
-- **Affected Backend Areas**: `PermissionGrantValidator.java`.
+- **Affected Backend Areas**: `PermissionPickerCatalogService.java`, `PlanEntitlementService.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Permissions are queried using bulk joins.
-- **Tests**: Load testing verification.
+- **Acceptance Criteria**: A picker resolves the effective entitled feature set once, loads catalog data in bulk, and filters/group results without per-permission entitlement calls.
+- **Tests**: Bulk entitlement resolution and mock interaction/query-shape verification.
 - **Future UI Flow**: Admin role assignment pickers.
+- **Execution Status**: Implemented. Picker construction loads permissions/features once and resolves the account's active subscription snapshot, plan features, and added overrides once. Tests prove no permission-by-permission entitlement calls occur.
 
 #### [IMPLEMENT] REGISTRY-008 — Client-role grantability is feature-wide, including destructive and commercial actions
 - **Prerequisites**: REGISTRY-006.
@@ -956,9 +978,10 @@ flowchart TD
 - **Order Rationale**: Checks code grant limits before mappings.
 - **Affected Backend Areas**: `PermissionGrantValidator.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Granting non-role-grantable keys throws security exceptions.
-- **Tests**: Validation integration tests.
+- **Acceptance Criteria**: Every action has one current owner/client/admin/B2B eligibility interpretation; owner-only and B2B-only actions never leak into ordinary client-role grants.
+- **Tests**: Definition validation, picker filtering, grant validation, effective-permission, owner-only, and runtime-policy integration checks.
 - **Future UI Flow**: Admin role edit form.
+- **Execution Status**: Implemented. HiveApp definitions now classify actions independently of Permissionizer. Workspace deletion and subscription application are owner-only, B2B remains an explicit allowlist, snapshot validation rejects unknown/conflicting classifications, and grant plus runtime policies recheck the current classification.
 
 #### [IMPLEMENT] REGISTRY-010 — Catalog and permission-picker contracts are neither uniformly audience-specific nor versioned
 - **Prerequisites**: REGISTRY-008.
@@ -966,9 +989,10 @@ flowchart TD
 - **Order Rationale**: Decouples API catalog contracts.
 - **Affected Backend Areas**: Catalog controllers.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Picker API contract uses DTO mappings.
-- **Tests**: API contract tests.
+- **Acceptance Criteria**: Picker APIs return a registry version, audience-specific available choices, and current selections with unavailable reasons; security-sensitive grants reject stale versions.
+- **Tests**: Contract, unavailable-current-selection, stale role write, catalog revision, B2B grant, entitlement, and emergency-state tests.
 - **Future UI Flow**: Role picker list.
+- **Execution Status**: Implemented. Client-role and B2B pickers expose versioned DTOs with current selections separated from available choices and stable unavailable reasons. Role and B2B grant writes require the current `snapshot-hash:revision`; synchronization and operational-control changes invalidate stale picker submissions.
 
 ---
 
@@ -980,10 +1004,11 @@ flowchart TD
 - **Unlocks**: PLAN-001.
 - **Order Rationale**: Installs the core money structures before mapping database tables.
 - **Affected Backend Areas**: Domain entities.
-- **Database Migration**: Yes (add explicit currency column).
+- **Database Migration**: No for the current unpublished, disposable H2 database; JPA mappings generate the updated schema directly. Add versioned migration history only when production persistence begins.
 - **Acceptance Criteria**: Prices are saved with explicit currencies (e.g. `USD`).
-- **Tests**: Money value object tests.
+- **Tests**: Money/payment value tests, currency-safe billing calculation and validation tests, and API/persistence integration assertions.
 - **Future UI Flow**: Billing history lists.
+- **Execution Status**: Implemented on 2026-08-10. Plan, add-on, quota-unit, subscription-current, snapshot, preview, catalogue, and payment-request amounts now carry normalized ISO currency. Arithmetic rejects mixed currencies and unsafe minor-unit precision; no implicit FX is performed. Immutable multi-cycle Price books were completed and audited in Phase 9; only the invoice/payment/credit/refund and reconciliation ledgers remain for Phase 13.
 
 ---
 
@@ -993,10 +1018,11 @@ flowchart TD
 - **Unlocks**: PLAN-002.
 - **Order Rationale**: Database level unique constraint verification. Verification: Check if duplicate plan codes can be saved. Remediation: Add unique database index on `plans(code)`.
 - **Affected Backend Areas**: `Plan.java`.
-- **Database Migration**: Yes (unique code constraint).
+- **Database Migration**: No for the current generated H2 schema; the unique code constraint already existed and was verified. Add versioned production migration history later.
 - **Acceptance Criteria**: Duplicate plan codes raise database errors.
 - **Tests**: JPA integration tests.
 - **Future UI Flow**: Plans builder.
+- **Execution Status**: Verified and completed on 2026-08-10. The existing database unique constraint rejects duplicate Plan codes; billing cycle, lifecycle status, and optimistic-lock version are non-null and covered by direct persistence tests.
 
 #### [IMPLEMENT] PLAN-002 — FREE/default plan availability is not protected
 - **Prerequisites**: PLAN-001.
@@ -1004,9 +1030,10 @@ flowchart TD
 - **Order Rationale**: Blocks default plan deletes.
 - **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Deleting default FREE plan throws `BusinessException`.
+- **Acceptance Criteria**: Deactivating or deleting default FREE throws `BusinessException`; startup rejects an inactive default.
 - **Tests**: Default plan deletion unit tests.
 - **Future UI Flow**: Admin plans console.
+- **Execution Status**: Implemented on 2026-08-10. One shared default code is used across provisioning, inheritance, seeding, and administration; FREE cannot be deactivated/deleted and missing FREE is bootstrapped even in a partially populated Plan table.
 
 #### [IMPLEMENT] PLAN-003 — Seeded plan composition diverges between fresh and existing installations
 - **Prerequisites**: PLAN-002.
@@ -1014,19 +1041,21 @@ flowchart TD
 - **Order Rationale**: Atomic plan seeder setup.
 - **Affected Backend Areas**: `PlanSeeder.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Seed operation leaves database matches identical.
+- **Acceptance Criteria**: Fresh and partial bootstrap states create the same explicit shell baseline; repeat execution is idempotent and preserves admin-managed existing templates.
 - **Tests**: Seeder checks.
 - **Future UI Flow**: None.
+- **Execution Status**: Implemented on 2026-08-10. Bootstrap no longer derives product composition from every `planAssignable` feature. It validates an explicit baseline before writing, creates missing templates transactionally, and never overwrites existing catalog decisions. Versioned production catalog migrations remain later revision work.
 
 #### [IMPLEMENT] PLAN-004 — Plan-feature uniqueness is enforced only by a race-prone pre-check
 - **Prerequisites**: PLAN-003.
 - **Unlocks**: PLAN-006, PLAN-008.
 - **Order Rationale**: Restricts duplications in features map.
 - **Affected Backend Areas**: `PlanFeature.java`.
-- **Database Migration**: Yes (unique index on `plan_features(plan_id, feature_id)`).
+- **Database Migration**: No for the current generated H2 schema; the unique mapping constraint already existed and was verified. Add production migration history later.
 - **Acceptance Criteria**: Duplicate plan feature mappings fail database constraint checks.
 - **Tests**: Concurrency mapping tests.
 - **Future UI Flow**: Catalog assignments setting page.
+- **Execution Status**: Verified and completed on 2026-08-10. Direct duplicate persistence fails at the database boundary, the friendly pre-check remains, and a race at flush is translated to `DuplicateResourceException`.
 
 ---
 
@@ -1036,30 +1065,33 @@ flowchart TD
 - **Unlocks**: SUBSCRIPTION-001, PLAN-007.
 - **Order Rationale**: Adds lifecycles (DRAFT, ACTIVE, ARCHIVED).
 - **Affected Backend Areas**: `Plan.java`.
-- **Database Migration**: Yes (add lifecycle state column).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; update generated schema now and establish versioned production migrations when the database baseline is introduced.
 - **Acceptance Criteria**: State field matches enum machine rules.
 - **Tests**: State transition tests.
 - **Future UI Flow**: Plan status dropdown.
+- **Execution Status**: Lifecycle foundation completed on 2026-08-10. Plans now use DRAFT/ACTIVE/INACTIVE/ARCHIVED with validated transitions, activation composition checks, terminal archive behavior, optimistic locking, and protected ACTIVE FREE provisioning. Configurable default replacement and revision/audit workflows remain later work.
 
 #### [IMPLEMENT] PLAN-008 — PlanFeature commercial meaning and subscriber-removal boundaries are implicit
 - **Prerequisites**: PLAN-004.
 - **Unlocks**: PLAN-012, QUOTA-003.
 - **Order Rationale**: Structured JSON packages mappings.
 - **Affected Backend Areas**: `PlanFeature.java`.
-- **Database Migration**: Yes (schema updates for features).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; update generated schema now and establish versioned production migrations when the database baseline is introduced.
 - **Acceptance Criteria**: Configuration objects support distinct packages.
 - **Tests**: JSON mapping unit tests.
 - **Future UI Flow**: Plan features edit form.
+- **Execution Status**: Commercial-mode foundation completed on 2026-08-10. PlanFeature now uses explicit INCLUDED/OPTIONAL_ADD_ON/BLOCKED_FOR_PLAN semantics; null-inferred per-feature AddOn pricing was removed, and entitlement/catalog/snapshot consumers use the explicit mode. Current-subscriber removal remains a separate later operation.
 
 #### [IMPLEMENT] PLAN-012 — Current per-feature add-on fields cannot represent the agreed commercial AddOn model
 - **Prerequisites**: PLAN-008.
 - **Unlocks**: None.
 - **Order Rationale**: Implements explicit AddOn records instead of null-inferred prices.
 - **Affected Backend Areas**: `AddOn.java` (new entity).
-- **Database Migration**: Yes (create `add_ons` table).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; create it through entity-generated schema now and establish versioned production migrations when the database baseline is introduced.
 - **Acceptance Criteria**: Add-on plans are purchasable separately.
 - **Tests**: Add-on purchase integration tests.
 - **Future UI Flow**: Marketplace add-on catalog.
+- **Execution Status**: First-class AddOn foundation completed on 2026-08-10. Versioned AddOns support multi-feature composition, included quotas, price/currency/cycle, lifecycle, Plan availability, dependencies/exclusions, Permissionizer-guarded admin APIs, identity-based subscription selection, compatible client catalog output, immutable snapshots, and billing. Batch 4.4 added AddOn-owned quota packages; payment/approval, renewal scheduling, bulk subscriber effects, and audit history remain later work.
 
 ---
 
@@ -1073,26 +1105,29 @@ flowchart TD
 - **Acceptance Criteria**: Quota checks resolve conflict mappings using feature code.
 - **Tests**: Enforcement unit tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed on 2026-08-10. Effective quota rows, conflicts, package snapshots, catalog output, billing inputs, and enforcement retain the compound feature/resource identity; the ambiguous first-resource owner lookup was removed.
 
 #### [IMPLEMENT] QUOTA-004 — Current arbitrary overrides cannot represent the decided quota-package model
 - **Prerequisites**: QUOTA-003.
 - **Unlocks**: QUOTA-002.
-- **Order Rationale**: Maps discrete increments.
-- **Affected Backend Areas**: `QuotaOverride.java`.
-- **Database Migration**: No.
-- **Acceptance Criteria**: Overrides map to discrete package increments.
-- **Tests**: Quota math tests.
-- **Future UI Flow**: Subscription custom quotas editor.
+- **Order Rationale**: Replaces arbitrary values with discrete commercial capacity products.
+- **Affected Backend Areas**: `QuotaPackage.java`, subscription selection/snapshot services, billing, catalog, and enforcement.
+- **Database Migration**: No for the current unpublished/disposable H2 schema; create the generated table now and establish versioned production migrations when the database baseline is introduced.
+- **Acceptance Criteria**: Versioned packages map an exact feature/resource quota to finite capacity, price, ownership, and quantity rules.
+- **Tests**: Package lifecycle, ownership, quantity, snapshot, price, uniqueness, catalog, and enforcement tests.
+- **Future UI Flow**: Quota package catalogue and subscription package selector.
+- **Execution Status**: Versioned package foundation completed on 2026-08-10. Permissionizer-guarded quota package administration, lifecycle/versioning, Plan/AddOn ownership, finite capacity, repeatability/max quantity, catalog exposure, identity-based selection, immutable snapshots, pricing, and enforcement are implemented. Feature-owned usage contributors, operator exceptions, renewal/payment, and distributed final-slot controls remain later work.
 
 #### [IMPLEMENT] QUOTA-002 — Client quota overrides can request unlimited capacity for free
 - **Prerequisites**: QUOTA-004.
 - **Unlocks**: None.
-- **Order Rationale**: Recalculates cost prior to changes.
+- **Order Rationale**: Closes the free arbitrary/unlimited self-service path after package products exist.
 - **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Adding overrides recalculates subscription costs.
-- **Tests**: Quota price calculation tests.
-- **Future UI Flow**: Customer billing overrides page.
+- **Acceptance Criteria**: Self-service accepts only offered package identities and quantities and recalculates the snapshotted recurring amount.
+- **Tests**: Unknown, duplicate, quantity, unlimited, price, and enforcement tests.
+- **Future UI Flow**: Customer quota package selection.
+- **Execution Status**: Self-service vulnerability resolved on 2026-08-10. Arbitrary and null/unlimited quota overrides were removed; callers may select only validated ACTIVE predefined packages and quantities. Payment/approval remains under BILLING-001, and negotiated exceptions remain operator-only future work.
 
 ---
 
@@ -1106,26 +1141,29 @@ flowchart TD
 - **Acceptance Criteria**: Status values match canonical terms.
 - **Tests**: Alignment check.
 - **Future UI Flow**: None.
+- **Execution Status**: Verified and completed on 2026-08-10. Canonical states are TRIALING, ACTIVE, PAST_DUE, SUSPENDED, CANCELLED, and EXPIRED; usable access is restricted to ACTIVE/TRIALING, and trial deadline expiry uses EXPIRED.
 
 #### [VERIFY FIRST] SUBSCRIPTION-002 — Entitlement and override JSON is stored as untyped strings
 - **Prerequisites**: SUBSCRIPTION-001.
 - **Unlocks**: SUBSCRIPTION-003.
 - **Order Rationale**: JSON mapping verification. Verification: Check if mapping errors trigger silent crashes on load. Remediation: Write JPA AttributeConverters translating column to typed Java models.
 - **Affected Backend Areas**: `Subscription.java`.
-- **Database Migration**: Yes (JSON columns).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; generated JSON columns now bind typed records directly.
 - **Acceptance Criteria**: JSON columns parse safely to Java attributes.
 - **Tests**: Converter unit tests.
 - **Future UI Flow**: Customer subscriptions view.
+- **Execution Status**: Verified and completed on 2026-08-10. Subscription override and entitlement JSON are typed, versioned records at the entity boundary; unsupported schema versions fail validation, and all runtime consumers share the typed models.
 
 #### [IMPLEMENT] SUBSCRIPTION-003 — Subscription periods and lifecycle transitions are not implemented
 - **Prerequisites**: SUBSCRIPTION-002.
 - **Unlocks**: SUBSCRIPTION-004, BILLING-001, PLAN-007.
 - **Order Rationale**: Core period scheduler.
 - **Affected Backend Areas**: `SubscriptionServiceImpl.java`, background scheduler.
-- **Database Migration**: Yes (periods tables).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; the generated schema includes period and operation tables.
 - **Acceptance Criteria**: Scheduled task updates active subscriptions at period end.
 - **Tests**: Integration scheduler tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Period/change-operation foundation completed on 2026-08-10; paid renewal recovery and one-Account lifecycle control completed on 2026-08-31. UTC periods retain immutable history; explicit renewal changes run first; paid same-terms renewal creates durable Invoice/Payment/outbox evidence, persists a 72-hour default grace, remains entitled only before the exact deadline, suspends after grace, and recovers through trusted provider or authorized manual settlement. Independently permissioned signed commands now cover cancel-at-period-end, keep-renewing, immediate cancellation, operator suspension/restoration, grace extension, session revocation, and bounded history. Reviewed trial/new-entitlement creation, population lifecycle jobs, and communications remain open.
 
 #### [IMPLEMENT] SUBSCRIPTION-004 — Trial subscriptions are authorized but invisible to client subscription flows
 - **Prerequisites**: SUBSCRIPTION-003.
@@ -1136,16 +1174,18 @@ flowchart TD
 - **Acceptance Criteria**: Trialing accounts display trial bounds.
 - **Tests**: Trial access integration tests.
 - **Future UI Flow**: Subscription Billing status dashboard.
+- **Execution Status**: Trial visibility completed on 2026-08-10: shared usable-subscription reads make `TRIALING` visible with explicit UTC bounds in client and admin responses. The direct admin trial shortcut was retired in Phase 10; its safe replacement is a reviewed first-class Phase 12 operation.
 
 #### [IMPLEMENT] SUBSCRIPTION-005 — Admin overrides can grant out-of-plan features with no defined price
 - **Prerequisites**: SUBSCRIPTION-004.
 - **Unlocks**: SUBSCRIPTION-006.
-- **Order Rationale**: Recalculates cost on custom feature grants.
+- **Order Rationale**: Verify that the obsolete raw-feature grant contract is absent and require explicitly priced commercial selections.
 - **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Adding out-of-plan features charges priced defaults.
-- **Tests**: Dynamic pricing integration tests.
+- **Acceptance Criteria**: Admin/client selection cannot grant raw features; configured AddOn/package identities carry explicit snapshotted prices.
+- **Tests**: Identity validation and snapshot pricing tests.
 - **Future UI Flow**: Customer overrides setting form.
+- **Execution Status**: Resolved by contract change on 2026-08-10. The old arbitrary feature/quota override path is absent; admin and client selection accept only validated, priced AddOns and quota packages. Negotiated exceptions remain a separate future operator contract.
 
 #### [IMPLEMENT] SUBSCRIPTION-006 — Legacy subscriptions without snapshots receive optional add-ons automatically
 - **Prerequisites**: SUBSCRIPTION-005.
@@ -1153,19 +1193,21 @@ flowchart TD
 - **Order Rationale**: Snapshots are mandatory before evaluating downgrade steps.
 - **Affected Backend Areas**: `SubscriptionServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Legacy entries receive dynamic repairs.
-- **Tests**: Migration snapshot repair tests.
+- **Acceptance Criteria**: All new/usable subscriptions require a versioned snapshot; missing or invalid snapshots fail closed.
+- **Tests**: Mandatory-snapshot and no-fallback tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed on 2026-08-10. Entitlement, quota, and billing fallbacks to mutable Plan/AddOn definitions were removed, and every provisioning/change path writes a mandatory typed snapshot. No legacy repair was added because no production database exists.
 
 #### [IMPLEMENT] SUBSCRIPTION-007 — Downgrade safety is centralized, incomplete, and fails open for new modules
 - **Prerequisites**: SUBSCRIPTION-006.
 - **Unlocks**: None.
-- **Order Rationale**: Validates limits prior to downgrading.
-- **Affected Backend Areas**: Downgrade validator classes.
+- **Order Rationale**: Feature-owned impact validation for every entitlement change, not only changes labelled downgrade.
+- **Affected Backend Areas**: Feature-domain contributors and subscription impact orchestration.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Downgrading fails if current usage exceeds target limits.
-- **Tests**: Downgrade rejection tests.
+- **Acceptance Criteria**: Feature removal/quota reduction fails closed for unknown or excessive active usage; immediate and renewal changes revalidate without deleting data.
+- **Tests**: Contributor, unknown-impact, quota-reduction, immediate rejection, and renewal revalidation tests.
 - **Future UI Flow**: Plan change checkout wizard.
+- **Execution Status**: Completed for plan-change safety on 2026-08-10. Feature folders own impact contributors; unknown feature/quota usage blocks, active usage is compared with target capacity, immediate conflicts reject, and pending renewal operations recheck at cutoff and enter NEEDS_ATTENTION when unsafe.
 
 #### [IMPLEMENT] PLAN-005 — Purchased subscription terms are not a complete historical snapshot
 - **Prerequisites**: SUBSCRIPTION-006.
@@ -1176,6 +1218,9 @@ flowchart TD
 - **Acceptance Criteria**: Snapshots store exact plan terms at checkout time.
 - **Tests**: Price mutation tests.
 - **Future UI Flow**: Customer invoice histories.
+- **Execution Status**: Versioned term history completed on 2026-08-10. Snapshots retain Plan identity/name/version, Money/cycle, effective bounds, feature/quota composition, and AddOn/package versions/prices/quantities; period and change-operation records retain history. Plan lineage remains PLAN-007, while invoices/payments/tax/adjustments remain separate billing work.
+
+**Batch 4.5 verification:** `mvn test` passes 381 tests with 0 failures, 0 errors, and 0 skipped. No Flyway files were added under the agreed unpublished/disposable-database policy.
 
 ---
 
@@ -1185,10 +1230,11 @@ flowchart TD
 - **Unlocks**: BILLING-002.
 - **Order Rationale**: Installs payment gateway validations.
 - **Affected Backend Areas**: Checkout services.
-- **Database Migration**: Yes (payment ledger schema).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; the generated schema includes the checkout and change-operation constraints. A real payment/invoice ledger remains later work.
 - **Acceptance Criteria**: Changes stay pending until payment confirmation.
 - **Tests**: Payment checkout tests.
 - **Future UI Flow**: Upgrades checkouts page.
+- **Execution Status**: Client activation boundary completed on 2026-08-10. Positive-price changes preserve current entitlement in a durable awaiting-confirmation operation; guarded manual confirmation records idempotent evidence and performs the final activation/revalidation, while explicitly zero-priced changes may activate directly. Real provider/webhook, invoice/tax, refund/credit, and recurring recovery flows remain later billing work.
 
 #### [IMPLEMENT] BILLING-002 — The only payment gateway bean always reports fake success
 - **Prerequisites**: BILLING-001.
@@ -1199,6 +1245,9 @@ flowchart TD
 - **Acceptance Criteria**: Simulated payments return configurable outcomes.
 - **Tests**: Mock gateway unit tests.
 - **Future UI Flow**: Payment test panels.
+- **Execution Status**: Completed on 2026-08-10. The configurable simulator is dev/test-only and never trusted for settlement, simulated success cannot activate entitlement, payment attempts carry idempotency keys, and startup fails when collection is enabled without a trusted provider.
+
+**Batch 4.6 verification:** `mvn test` passes 392 tests with 0 failures, 0 errors, and 0 skipped. Paid-pending/manual-confirmation, same-reference idempotency, renewal waiting/cancellation, concurrent requests, zero-price activation, configurable simulator outcomes, and production startup safety are covered. No Flyway files were added under the agreed unpublished/disposable-database policy.
 
 ---
 
@@ -1210,10 +1259,11 @@ flowchart TD
 - **Unlocks**: PLAN-009.
 - **Order Rationale**: Implements draft-revision edits to active plans.
 - **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
-- **Database Migration**: Yes (lineage linking columns).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; the generated schema includes lineage/source/revision constraints.
 - **Acceptance Criteria**: Edits to active plans branch into drafts.
 - **Tests**: Plan draft revision branching tests.
 - **Future UI Flow**: Plan editing dashboard.
+- **Execution Status**: Immutable revision foundation completed on 2026-08-10. Published commercial configuration rejects direct mutation; create-empty, duplicate, and revise produce explicit drafts with durable lineage/source/revision/reason, and subscription snapshots retain the revision identity. Bulk subscriber effects, communications, and audit remain operational follow-up.
 
 #### [IMPLEMENT] PLAN-009 — Plan deletion lacks the decided draft-only impact workflow
 - **Prerequisites**: PLAN-007.
@@ -1221,19 +1271,21 @@ flowchart TD
 - **Order Rationale**: Checks usage prior to deletes.
 - **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Deleting active templates returns count warnings.
-- **Tests**: Delete custom role integration tests.
+- **Acceptance Criteria**: Deletion preview explains every current blocker and only a confirmed unused draft can be deleted.
+- **Tests**: Plan deletion preview, stale token, default/history/reference, and cross-record safety tests.
 - **Future UI Flow**: Plan deletion validation modal.
+- **Execution Status**: Completed for current retained models on 2026-08-10. Preview returns exact counts/blockers and a state token; execution requires code/version/token, locks and rechecks, deletes only draft-owned feature rows, and relies on the database for the final concurrent-reference guard. Future invoice/provider models must contribute their own blockers.
 
 #### [IMPLEMENT] PLAN-010 — Plan duplication has no durable revision identity or code-reservation lifecycle
 - **Prerequisites**: PLAN-009.
 - **Unlocks**: PLAN-011.
 - **Order Rationale**: Builds lineage tracks.
 - **Affected Backend Areas**: `PlanAdminServiceImpl.java`.
-- **Database Migration**: Yes (parent plan code tracking).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; source/lineage identity is part of the generated schema.
 - **Acceptance Criteria**: Duplicates inherit history chains.
 - **Tests**: Lineage validation tests.
 - **Future UI Flow**: Plan cloning wizard.
+- **Execution Status**: Completed on 2026-08-10. Codes are normalized, immutable, unique, and reserved for every published/used Plan; explicit duplicate and revise commands copy Plan-owned commercial configuration into independent drafts with durable origin and lineage identity.
 
 #### [IMPLEMENT] PLAN-011 — Admin subscriber management is a collection of single-record endpoints, not the decided operational flow
 - **Prerequisites**: PLAN-010.
@@ -1244,6 +1296,9 @@ flowchart TD
 - **Acceptance Criteria**: Subscriber lists are paginated and searchable.
 - **Tests**: Pagination endpoint integration tests.
 - **Future UI Flow**: Admin plan subscribers list.
+- **Execution Status**: Operational read foundation completed on 2026-08-10. Subscriber history is paginated, bounded, Account-name searchable, status-filterable, and labels configured recurring price accurately; owner-email lookup is a separately guarded action. Bulk jobs, exception/lifecycle operations, audit, export, and communications remain open.
+
+**Batch 5.1 verification:** `mvn test` passes 394 tests with 0 failures, 0 errors, and 0 skipped. Focused API/H2 coverage verifies explicit empty creation, duplicate/revision lineage, published immutability, preview-token deletion, stale conflicts, paging/search/status filters, and separate owner-email lookup. No Flyway files were added under the agreed unpublished/disposable-database policy.
 
 ---
 
@@ -1253,10 +1308,11 @@ flowchart TD
 - **Unlocks**: COLLAB-002.
 - **Order Rationale**: Constraints for B2B.
 - **Affected Backend Areas**: `Collaboration.java`.
-- **Database Migration**: Yes (unique index on `collaborations(client_id, provider_id, company_id)`).
-- **Acceptance Criteria**: Duplicate relationships fail DB saves.
+- **Database Migration**: No for the current unpublished/disposable H2 schema; generated schema includes the live-tuple uniqueness constraint.
+- **Acceptance Criteria**: Every newly created relationship returns 201, an identical live request returns the existing relationship with 200, changed details conflict, terminal history permits a new record, and concurrent uniqueness losers re-read instead of returning 500.
 - **Tests**: Concurrency collaboration tests.
 - **Future UI Flow**: Collaboration request card.
+- **Execution Status**: Completed on 2026-08-10. A nullable live-tuple key permits one PENDING, ACTIVE, or SUSPENDED relationship per client/provider/company while terminal records remain reusable only as history. Purpose is whitespace-normalized and capability sets are order-insensitive for retry comparison. Initial and post-terminal creation return 201; identical existing retries, including concurrent insert losers, return the winning relationship with 200.
 
 #### [IMPLEMENT] COLLAB-002 — B2B delegation lacks an actor permission ceiling
 - **Prerequisites**: COLLAB-001.
@@ -1267,6 +1323,7 @@ flowchart TD
 - **Acceptance Criteria**: Delegator cannot assign permissions they do not hold.
 - **Tests**: Ceiling validation checks.
 - **Future UI Flow**: Delegation pickers.
+- **Execution Status**: Completed on 2026-08-10. Provider entitlement and code eligibility are intersected with the provider actor's effective delegation ceiling; owner and non-owner boundaries are covered.
 
 #### [IMPLEMENT] COLLAB-003 — Collaboration operations do not revalidate active account/company state
 - **Prerequisites**: COLLAB-002.
@@ -1277,6 +1334,7 @@ flowchart TD
 - **Acceptance Criteria**: Mapped records verify status flags.
 - **Tests**: Isolation tests.
 - **Future UI Flow**: Connection grids.
+- **Execution Status**: Completed on 2026-08-10. Initiation, acceptance, lifecycle scheduling, permission changes, catalogs, and share-code management recheck the applicable active Accounts and Company; runtime context also blocks inactive scopes.
 
 #### [IMPLEMENT] COLLAB-004 — `SUSPENDED` status has no management flow
 - **Prerequisites**: COLLAB-003.
@@ -1287,16 +1345,18 @@ flowchart TD
 - **Acceptance Criteria**: Suspend endpoint disables active access.
 - **Tests**: State check tests.
 - **Future UI Flow**: Collaboration management toggles.
+- **Execution Status**: Completed on 2026-08-10. CANCELLED, REJECTED, ACTIVE, SUSPENDED, and REVOKED have explicit participant/state transitions. Suspension requires a reason, preserves grants, supports review or explicitly selected automatic resume, and either participant may permanently end an accepted relationship.
 
 #### [IMPLEMENT] COLLAB-005 — Concurrent lifecycle actions can overwrite each other
 - **Prerequisites**: COLLAB-004.
 - **Unlocks**: COLLAB-006.
 - **Order Rationale**: Locking transitions.
 - **Affected Backend Areas**: `Collaboration.java`.
-- **Database Migration**: Yes (add `@Version` column).
-- **Acceptance Criteria**: Mismatched transitions throw `ObjectOptimisticLockingFailureException`.
+- **Database Migration**: No for the current unpublished/disposable H2 schema; generated schema includes lifecycle/grant versions and unique constraints.
+- **Acceptance Criteria**: Stale and duplicate commands return explicit conflicts without overwriting authoritative state.
 - **Tests**: Concurrency locking tests.
 - **Future UI Flow**: Connection buttons.
+- **Execution Status**: Completed on 2026-08-10. Collaboration and grant rows are versioned, command DTOs carry expected collaboration versions, and database uniqueness protects live tuples and permission pairs. The request insert runs in an isolated transaction so a constraint loser can safely re-read and return the concurrent winner instead of poisoning the request transaction.
 
 #### [IMPLEMENT] COLLAB-006 — UI cannot read the collaboration's currently granted permissions
 - **Prerequisites**: COLLAB-005.
@@ -1307,6 +1367,7 @@ flowchart TD
 - **Acceptance Criteria**: Connection detail endpoint lists grants.
 - **Tests**: API contract integration tests.
 - **Future UI Flow**: Collaboration details inspect panel.
+- **Execution Status**: Completed on 2026-08-10. Authorized detail and current-grant endpoints expose configured versus currently usable grants, lifecycle blockers/actions, participant identity, reasons, and effective timestamps.
 
 #### [IMPLEMENT] COLLAB-007 — Collaboration service exposes persistence entities
 - **Prerequisites**: COLLAB-006.
@@ -1317,29 +1378,45 @@ flowchart TD
 - **Acceptance Criteria**: Services exchange B2BDTOs.
 - **Tests**: Compilation checks.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed on 2026-08-10. API-facing service operations return complete DTOs; the entity-returning boundary and MapStruct persistence mapper were removed.
 
 #### [IMPLEMENT] COLLAB-008 — B2B discovery and lifecycle APIs cannot implement the decided management flow
 - **Prerequisites**: COLLAB-007.
 - **Unlocks**: AUTHZ-002.
 - **Order Rationale**: Implements share-code verification instead of raw UUID lookups.
 - **Affected Backend Areas**: Collaboration controllers.
-- **Database Migration**: Yes (add company share codes column).
+- **Database Migration**: No for the current unpublished/disposable H2 schema; generated schema includes Company share-code and collaboration lifecycle columns.
 - **Acceptance Criteria**: Requests require valid share code matching.
 - **Tests**: Share code verification tests.
 - **Future UI Flow**: Collaboration connector form.
+- **Execution Status**: Core discovery/lifecycle completed on 2026-08-10. Provider-controlled codes have no automatic expiry, are stored only as SHA-256 hashes, rotate/disable safely, resolve privacy-minimal identity, and initiate purpose/capability-aware requests without raw Company UUIDs. Providers can read per-current-code resolution/request counts and last-use times; regeneration resets that metadata. Audit and reusable notifications remain in Batch 5.4.
+
+**Batch 5.2 verification:** `mvn test` passes 402 tests with 0 failures, 0 errors, and 0 skipped. Focused API/H2 and unit coverage verifies Permissionizer discovery, hash-only non-expiring code rotation/disable/privacy and usage metadata, normalized idempotent retries, concurrent uniqueness recovery, changed-detail conflicts, terminal-history replacement requests, duplicate grants, participant transition boundaries, stale versions, review/automatic-resume scheduling, active-scope cutoff, preserved inactive grants, provider delegation ceilings, and DTO-only detail/current-grant reads. No Flyway files were added under the agreed unpublished/disposable-database policy.
 
 ---
 
 ### Batch 5.3: B2B Operator Scoping & Context Routing
 #### [IMPLEMENT] AUTHZ-002 — Any active member of a B2B client account can use all delegated collaboration permissions
 - **Prerequisites**: COLLAB-008.
-- **Unlocks**: AUTHZ-003.
+- **Unlocks**: AUTHZ-003, AUTHZ-007.
 - **Order Rationale**: Blocks client members from accessing provider data unless they hold client-side B2B operator roles.
 - **Affected Backend Areas**: `B2bCollaborationPolicy.java`.
 - **Database Migration**: No.
 - **Acceptance Criteria**: Runtime checks verify client worker role status.
 - **Tests**: B2B operator role integration tests.
 - **Future UI Flow**: B2B operator settings panel.
+- **Execution Status**: Safe ceiling completed on 2026-08-10. B2B authorization now requires both the exact provider collaboration grant and an effective Account-scoped permission for the external actor. The existing client role/direct-exception resolver supplies owner handling, active-role checks, expiry, and deny precedence without creating a parallel B2B role model or using organization Groups as authority. Because that operator-selection lever also widens the actor's internal Company authority, the least-privilege Collaboration-scope refinement is tracked separately as AUTHZ-007.
+
+#### [DEFERRED REFINEMENT] AUTHZ-007 — B2B operator selection requires internal Account-wide authority
+- **Prerequisites**: AUTHZ-002.
+- **Unlocks**: None.
+- **Order Rationale**: The safe actor ceiling is active, but external work should not require granting the same permission across the operator's own Account Companies.
+- **Affected Backend Areas**: MEMBER-FLOW-003 role assignment effect scopes, `MemberRole`, `UserRolePolicy`, `B2bCollaborationPolicy`, role/member management APIs.
+- **Database Migration**: Generated schema change when implemented; no Flyway history while the database remains unpublished/disposable.
+- **Acceptance Criteria**: A member can receive one role for one Collaboration without receiving that role over the external Account's own Companies or another Collaboration; provider grants remain the outer ceiling.
+- **Tests**: Exact-Collaboration assignment, internal Company isolation, sibling-collaboration isolation, role lifecycle, duplicate assignment, delegation ceiling, and owner behavior.
+- **Future UI Flow**: Collaboration operator assignments using reusable role templates.
+- **Execution Status**: Not implemented in Batch 5.3. The likely shape is `COLLABORATION` as a third MEMBER-FLOW-003 assignment effect scope alongside `ACCOUNT` and `COMPANY`, reusing the existing role/template/assignment machinery rather than adding a parallel B2B role system.
 
 #### [IMPLEMENT] AUTHZ-003 — Existing B2B grants are not revalidated against current code delegation rules
 - **Prerequisites**: AUTHZ-002.
@@ -1347,9 +1424,10 @@ flowchart TD
 - **Order Rationale**: Re-filters runtime B2B permissions dynamically against active code definition annotations.
 - **Affected Backend Areas**: `B2bCollaborationPolicy.java`.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Removed permissions disappear dynamically from B2B access lists.
+- **Acceptance Criteria**: Permissions removed from current code eligibility stop granting access immediately and remain visible only as inactive historical configuration.
 - **Tests**: Dynamic delegation tests.
 - **Future UI Flow**: None.
+- **Execution Status**: Completed on 2026-08-10. Verification found the runtime policy check already present from Batch 5.2. Batch 5.3 locks that denial with focused tests and applies the same current-code check to collaboration grant read models/blockers, preserving the row for history while reporting it inactive.
 
 #### [IMPLEMENT] AUTHZ-005 — Tenant and B2B context headers are absent from CORS configuration
 - **Prerequisites**: AUTHZ-003.
@@ -1357,19 +1435,23 @@ flowchart TD
 - **Order Rationale**: Adds custom context headers to CORS config.
 - **Affected Backend Areas**: `WebMvcConfigurer` CORS settings.
 - **Database Migration**: No.
-- **Acceptance Criteria**: HTTP headers (e.g. `X-Tenant-Id`) are accepted in options requests.
+- **Acceptance Criteria**: The exact `X-Company-ID` and `X-Is-B2B` headers are accepted in browser OPTIONS requests from configured frontend origins.
 - **Tests**: CORS validation tests.
 - **Future UI Flow**: Cross-workspace frontend requests.
+- **Execution Status**: Completed on 2026-08-10. The exact runtime headers `X-Company-ID` and `X-Is-B2B` are explicitly allowed, and a browser-style OPTIONS preflight test verifies both response headers.
 
-#### [DESIGN FIRST] AUTHZ-006 — Shell authorization cannot target one managed entity or subgroup
+#### [DESIGN DEFERRED] AUTHZ-006 — Shell authorization cannot target one managed entity or subgroup
 - **Prerequisites**: AUTHZ-003.
 - **Unlocks**: None.
 - **Order Rationale**: Target-aware exceptions design decision. Choose the smallest explicit target model during implementation before deploying context parameters.
 - **Affected Backend Areas**: `HiveAppContextHolder`, policy evaluation engines.
 - **Database Migration**: No.
-- **Acceptance Criteria**: Target-management model selected; context parameters resolved in check gates.
-- **Tests**: Target validation tests.
+- **Acceptance Criteria**: Safe service-resolved target boundary recorded without inventing a generic model before its product deferral is lifted.
+- **Tests**: Target validation tests when the deferred capability is resumed; existing Group regressions continue to prove organization structure grants no authority.
 - **Future UI Flow**: Sub-company data lists.
+- **Execution Status**: Design boundary recorded; the generic manager-target building block remains deferred by product decision and does not block B2B operator scoping. Permissionizer annotations remain coarse action gates. Any future target restriction must resolve a tenant-owned target inside the service, apply the same restriction to direct reads and list/search/count/export queries, use an explicit assignment independent from organization Groups, and avoid trusting arbitrary target IDs from request headers or global thread context. The concrete single-target/reusable-set persistence shape will be selected with the first business-module requirement instead of being invented in the shell.
+
+**Batch 5.3 verification:** `mvn test` passes 407 tests with 0 failures, 0 errors, and 0 skipped. Focused and request-level coverage proves provider delegation is insufficient for an ordinary external member, an Account-scoped operator role enables only the exact action, current code eligibility fails closed while retaining inactive grant history, and browser preflight accepts the exact Company/B2B context headers. The current Account-wide operator-selection limitation is recorded as AUTHZ-007; no schema or Flyway changes were made for that deferred refinement.
 
 ---
 
@@ -1384,6 +1466,8 @@ flowchart TD
 - **Tests**: Audit logging integration tests.
 - **Future UI Flow**: Compliance audit reports.
 
+**Execution status — 2026-08-10:** Verification confirmed there was no business audit foundation. The backend now persists append-only actor/scope/action/resource/outcome records for Permissionizer-protected mutations, explicit identity credential transitions, B2B row creation and automatic resume, subscription activation/lifecycle processing, and failed attempts. The tested advisor order is transaction → audit → Permissionizer → method, which keeps policy reads inside the caller transaction; successful records share that transaction, while rejected attempts use an isolated transaction so rollback does not erase them. Sensitive credentials/tokens/share codes/hashes and exception messages are never persisted. This is deliberately a mutation audit: read-only methods, including denied reads, are excluded pending the product/security-forensics decision in `AUDIT-002`. Generated schemas were updated directly with no Flyway history at the current unpublished stage. Focused B2B/billing coverage and the complete 415-test suite pass with zero failures, errors, or skips. An authorized compliance-query API/read model remains future UI delivery, not an unguarded repository endpoint.
+
 ---
 
 ### Batch 5.5: Unified Monolith Time Handling
@@ -1392,10 +1476,12 @@ flowchart TD
 - **Unlocks**: None.
 - **Order Rationale**: Time formats check. Verification: Locate entities declaring LocalDateTime properties. Remediation: Convert all datetime properties to Instant.
 - **Affected Backend Areas**: Domain entities.
-- **Database Migration**: Yes (alter timestamp columns type).
+- **Database Migration**: No additional migration at the current generated-schema stage; preserve the mappings in the future production baseline.
 - **Acceptance Criteria**: Datetime properties represent UTC Instants.
 - **Tests**: Timezone mapping unit tests.
 - **Future UI Flow**: Date labels.
+
+**Execution status — 2026-08-10:** Verification found the earlier conversions were completed incrementally by collaboration and subscription batches: production code now has zero `LocalDateTime`, `OffsetDateTime`, or `ZonedDateTime` usages, and system events/deadlines plus their DTOs use `Instant`. Shared Hibernate/JDBC configuration now explicitly uses UTC. Integration coverage proves an `Instant` round-trips unchanged with a non-UTC JVM default and that JSON emits an explicit `Z` offset. No Flyway history was added under the current unpublished/generated-schema policy. The complete 417-test backend suite passes with zero failures, errors, or skips.
 
 ---
 
@@ -1409,6 +1495,8 @@ flowchart TD
 - **Acceptance Criteria**: Unsent mail returns failure metrics to caller.
 - **Tests**: SMTP exception simulation tests.
 - **Future UI Flow**: Email delivery status dialogs.
+
+**Execution status — 2026-08-10:** Implemented durable, secret-free credential-email delivery history. Delivery rows are queued atomically with credential changes, then marked `SENT`, `FAILED`, or development-only `SUPPRESSED` after commit using isolated status transactions and bounded failure codes. Creation/regenerate/reset responses return immediate delivery metrics, and the new Account-scoped `GET /api/v1/members/{id}/access` read model exposes later status under `platform.staff.read_access`. Safe resend uses existing protected regenerate/reset actions, rotates the token, and preserves attempt history. Automatic background retry is intentionally excluded because reusable raw links are never persisted. Production has an explicit validator for missing/blank `spring.mail.host`; development suppression cannot masquerade as delivery. SMTP causes remain available once in operational ERROR logs for diagnosis but are excluded from `EmailDelivery`, `AuditLog`, and API state. The complete 427-test backend suite passes with zero failures, errors, or skips.
 
 ---
 
@@ -1495,6 +1583,8 @@ flowchart TD
 - **Tests**: Pagination unit tests.
 - **Future UI Flow**: Admin user lists.
 
+**Execution status — 2026-08-11:** Completed Batch 6.1 after verification. Important write DTOs now reject structurally invalid commercial, quota, Company, Group, and role input through the shared validation-error contract. Response models expose explicit Account/Company authorization context, Company ownership, and a dedicated member authorization detail containing scoped roles and direct overrides. Registry contracts are separated into operator-admin, entitlement-aware picker, and anonymous-public namespaces; unused legacy catalog DTOs and mapper were removed. Client catalog quotas use `QuotaSlot` as their only resource/unit source. Admin user and role endpoints return a stable bounded page and assemble each page with one bulk relationship query instead of query-per-row controller mapping. The complete backend suite passes: 440 tests, 0 failures, 0 errors, 0 skipped.
+
 ---
 
 ### Batch 6.2: Lazy-Safe API DTO Mapping
@@ -1517,6 +1607,8 @@ flowchart TD
 - **Acceptance Criteria**: Manual mapping boilerplates are deleted.
 - **Tests**: MapStruct compilation.
 - **Future UI Flow**: None.
+
+**Execution status — 2026-08-11:** Completed after verification. `MAPPER-001` reproduced on every list surface using Hibernate statement statistics rather than inspection: the role list cost one extra statement per role, the member list one per member, and the admin plan-feature list one per plan feature. Two originally cited mappers no longer exist, and `CompanyMapper`/`AccountMapper` were confirmed safe because identifier-only access never initializes a proxy. The remediation is fetch strategy rather than mapper truncation, since the affected DTOs legitimately need the projected values; entity graphs now load those relationships in the owning query. `LazyMappingQueryCountIntegrationTest` asserts statement counts stay constant as row counts grow, and every assertion was confirmed to fail before its fix. `SubscriptionMapper` remains a documented bounded exception because it has no list surface. `MAPPER-002`'s one confirmed instance was already closed by Batch 6.1; the mechanical mapping still present in the plan/add-on/quota-package admin controllers exists because those services return persistence entities, which is `SERVICE-002`/`SERVICE-003`, so its consolidation is deliberately deferred to Batch 6.3 rather than pre-empted here. The complete backend suite passes: 443 tests, 0 failures, 0 errors, 0 skipped.
 
 ---
 
@@ -1589,10 +1681,12 @@ flowchart TD
 
 ---
 
-# Phase 7: Remove and rewrite the admin frontend
+# Phase 7: Admin frontend foundation
 - **Prerequisites**: All Phase 6 API work completed.
 - **Action**: IMPLEMENT.
-- **Description**: Rebuild the Admin Frontend using clean, versioned DTO catalogs and paginated subscriber queries. Delete legacy views.
+- **Description**: Rebuild the Admin Frontend using clean, versioned DTO catalogs, stable pagination, reusable table/action/form patterns, permission-aware routes, and operational detail pages. The shell and current access/catalog surfaces are implemented; the commercial-control-plane screens remain in Phases 9–15.
+
+**Execution status — 2026-08-26:** The existing commercial surfaces now share context-safe query-key factories and invalidation rules, including commercial-overview refresh after mutations and Company/B2B separation for client caches. Route/read gates prevent unauthorized commercial pages and children from mounting or issuing requests; add-on/quota detail uses its dedicated backend endpoint; registry audiences no longer create duplicate inventory caches; client catalogue and change history plus admin subscription history are fetched only under their distinct permissions. Commercial mutation inputs and current checkout responses use exact TypeScript contracts instead of `unknown`. An independent boundary audit then closed registry-route/query leaks, independently authorized subscription-surface over-gating, cached-permission masking, duplicate-without-list fallback, unsafe post-create navigation, cross-audience stale caches, and subscription-to-Plan/registry invalidation gaps. Focused gate/query regressions plus the complete 117-test frontend suite, TypeScript, Biome, and production build pass. Future price-book/policy/marketing/billing DTOs remain owned by their later phases rather than being invented in advance.
 
 ---
 
@@ -1603,6 +1697,174 @@ flowchart TD
 
 ---
 
+# Phase 9: Price books and commercial catalogue policy
+
+### Batch 9.1: Immutable product price books
+
+#### [IMPLEMENT] PRICEBOOK-001 — Commercial products support only one price and billing cycle
+- **Prerequisites**: BILLING-003, PLAN-012, QUOTA-004.
+- **Unlocks**: COMMERCIAL-001, MARKETING-001, BILLING-003 completion.
+- **Order Rationale**: Every later Offer, invoice, renewal, and analytic fact needs an exact immutable product-price identity.
+- **Affected Backend Areas**: Plan/AddOn/quota-package entities and services, Money, catalogue/checkout/snapshot/billing calculation, seeding, admin/client APIs.
+- **Database Migration**: Update the generated disposable H2 schema directly; no Flyway history before production persistence by standing decision.
+- **Acceptance Criteria**: Independently managed monthly/yearly entries, lifecycle, overlap protection, exact selection, snapshot identity, history, and no mutation of existing subscribers.
+- **Tests**: Product-owner isolation, monthly/yearly, annual independence, zero-price, currency/cycle compatibility, overlapping activation race, immutable active entry, pause/new-version snapshot isolation, permissions, pagination, query-count, and client catalogue/checkout contract.
+- **Future UI Flow**: Shared Price-book panel on Plan/AddOn/package detail plus guided product creation/revision.
+
+**Execution status — implemented 2026-08-26:** The authoritative Price-book aggregate, bounded operational API, fine-grained Permissionizer nodes, lifecycle reasons/history, owner-lock overlap protection, exact client/admin selection, V2 immutable snapshot provenance, V1 compatibility, snapshot-safe overrides/renewals, atomic scheduled replacement, non-exponential exact-decimal API serialization, and disposable-H2 compatibility bridge are implemented. Independent backend and frontend audits are complete. The integrated backend baseline passes 529 tests; Biome, TypeScript, the production frontend build, and 136 frontend tests pass.
+
+### Batch 9.2: Extension policy and sales visibility
+
+#### [IMPLEMENT] COMMERCIAL-001 — Extension targeting and Account commercial policy are encoded as scattered special cases
+- **Prerequisites**: PRICEBOOK-001.
+- **Unlocks**: Phase 10 policies and Phase 11 offers.
+- **Order Rationale**: Mandatory compatibility and public/direct-only availability must be authoritative before targeting or marketing can reuse them.
+- **Affected Backend Areas**: Plan/AddOn/package catalogue, compatibility resolver, checkout preview, subscription snapshots, admin/client catalog DTOs.
+- **Database Migration**: Generated H2 schema only under the pre-production policy.
+- **Acceptance Criteria**: CLOSED/ALLOW_LIST/OPEN_COMPATIBLE Plan extension policy, PUBLIC/DIRECT_ONLY product visibility, source-owned availability reasons, and snapshot-safe published changes.
+- **Tests**: Policy matrix, direct-only privacy, dependency/exclusion/duplicate/quota ownership, price compatibility, stale registry, snapshot isolation, Permissionizer coverage, and constant-query catalogue resolution.
+- **Future UI Flow**: Plan extension-policy editor, product sales-visibility actions, explainable compatibility preview.
+
+**Backend execution status — implemented and independently audited 2026-08-26:** Plan revisions now carry explicit `CLOSED` / `ALLOW_LIST` / `OPEN_COMPATIBLE` extension policy and Plans, AddOns, and capacity packages carry `PUBLIC` / `DIRECT_ONLY` sales visibility. One authoritative resolver computes operator and client availability from lifecycle, visibility, Plan targeting, recursively active dependencies, exclusions, duplicate capability and quota ownership, registry eligibility, and exact active Price-book tuples. Checkout and change execution re-resolve under the Account/product locks and pin the exact preview fingerprint before producing immutable snapshots. Direct-only products remain assignable by authorized operators without leaking into public/client discovery, and retained products remain visible to their holder without becoming selectable again. Previewed, reasoned, versioned availability mutations expose typed before/after history. An independent security audit removed the unguarded legacy Plan catalogue, made non-default creation traverse the complete Permissionizer policy chain, and pinned exact-decimal wire values, deterministic bounded history, failure retention, and strict compatibility-output paging. The integrated JDK 21 baseline passes 549 tests. The compatibility resolver still has to inspect the complete product set internally; database-bounded operational catalogue queries and the combined Phase 9 UI are deliberately owned by Batch 9.3 rather than hidden as completed here.
+
+### Batch 9.3: Operational product catalogues and capacity-package revisions
+
+#### [IMPLEMENT] COMMERCIAL-002 — Product administration lists are unbounded and operationally inconsistent
+
+- **Prerequisites**: COMMERCIAL-001.
+- **Unlocks**: Reliable product selectors and the final commercial UI consistency pass.
+- **Order Rationale**: Complete extension-policy fields first, then establish one bounded operational contract instead of refactoring the product tables twice.
+- **Affected Backend Areas**: Plan/AddOn/quota-package repositories, admin services/controllers/read models, Permissionizer catalogue, and shared pagination/error contracts.
+- **Database Migration**: No durable migration while the generated H2 schema remains disposable.
+- **Acceptance Criteria**: Stable paginated search/filter/sort APIs, deterministic ordering, backend-derived actions/blockers/counts, narrow chooser contracts, constant-query behavior, and no complete-catalogue fetch in operational UI paths.
+- **Tests**: Pagination bounds, validated sorting, search/filter combinations, permission separation, query count, concurrent lifecycle changes, stable error codes, and frontend URL-state/invalidation regressions.
+- **Future UI Flow**: Consistent Plan/Add-on/capacity-package tables and reusable product choosers.
+
+**Execution status — implemented and independently audited 2026-08-27:** Plan, AddOn, and capacity-package operations now expose stable bounded search/filter/sort pages, deterministic ordering, backend actions/blockers/counts, fine-grained permissions, narrow chooser and selected-resolution contracts, and constant-query evidence. Shared responsive URL-backed admin tables use source-owned reasons, scoped caches, mobile alternatives, and explicit loading/empty/error/access-denied states. The subscription Account workbench adds bounded minimum-identity search and deterministic latest-subscription facts without broadening access to client business data.
+
+#### [IMPLEMENT] QUOTA-005 — Published capacity packages have no successor-revision workflow
+
+- **Prerequisites**: COMMERCIAL-001, PRICEBOOK-001.
+- **Unlocks**: Safe published capacity-package maintenance.
+- **Order Rationale**: Published definitions are correctly immutable; a lineage-preserving successor is the missing normal edit path.
+- **Affected Backend Areas**: QuotaPackage entity/repository/service/controller/read models, Price-book ownership, availability policy, snapshots, audit, and admin UI.
+- **Database Migration**: Generated H2 schema only under the pre-production policy.
+- **Acceptance Criteria**: Source/lineage/revision identity, draft successor creation, copied policy/visibility/attachments, comparison and blockers, immutable existing snapshots, safe archive/delete, history, and optimistic concurrency.
+- **Tests**: Concurrent revision creation, latest-only revision, copied definition/policy/prices, published immutability, snapshot isolation, permissions, history, and realistic admin revise flow.
+- **Future UI Flow**: Revise action, source/successor comparison, guided draft editing, activation preview, and history.
+
+**Execution status — implemented and independently audited 2026-08-27:** Capacity packages now have immutable lineage/source/revision identity, a concurrency-safe single draft successor, copied definition/targeting/visibility/attachments/editable price starting point, comparison, lifecycle blockers, history, optimistic concurrency, and snapshot-safe archive/delete behavior. The admin UI supports revise/compare/activation/history flows and paginates revision/history records rather than silently truncating them.
+
+**Phase 9 closure — independently audited 2026-08-27:** The operational product catalogues, exact immutable Price books, availability/visibility controls, quota-package revisions, subscription Account directory, client/admin extension surfaces, and reviewed signed mutation evidence are implemented. The Account workbench now covers catalogue selection, signed preview, required operator reason, explicit apply, stale-review recovery, reasoned cancellation, manual checkout confirmation, and paginated provenance-bearing history; the client history is separately paginated and omits operator provenance. Independent backend/frontend audits verified constant-query history, cross-audience evidence rejection, independent permission surfaces, checkout-not-settlement wording, destructive client confirmation, responsive tables, and rendered workflow wiring. Signed evidence binds operation/target/version/actor/catalogue/registry/evaluation claims and is reauthorized and recomputed under the documented lock order. Typed Account policies remain Phase 10; Segments/Offers, jobs/renewals, settlement ledgers, and durable analytics remain their stated later phases.
+
+# Phase 10: Typed commercial policies and targeting
+
+### Batch 10.1: Account policy model and precedence
+
+- **Prerequisites**: Phase 9.
+- **Action**: IMPLEMENT.
+- **Description**: Implement typed versioned policy targets/effects, deterministic precedence, lifecycle, preview, immutable affected-set snapshots, history, client effective-term explanations, and one-Account immediate/at-renewal application through the reviewed subscription engine. V1 discounts are fixed-Money or percentage-with-cap reductions of the subscription subtotal, never surcharges or client-provided values, and do not stack. Policy windows govern new operations and never silently mutate an accepted subscription snapshot. Segment targeting was delivered by Phase 11.1; selected/filtered/scheduled jobs, free periods, renewal instructions, cancel/retry/progress, and execution cutoffs are Phase 12.
+- **Tests**: Target isolation, effect validation, priority/restriction precedence, expiry, revision immutability, stale preview, concurrent subscription change, exact accepted provenance, retained catalogue terms, dependency-safe grants, audit, and client privacy.
+- **Future UI Flow**: Paginated policy table, guided policy builder, target simulator, impact/execution views, Account policy history.
+
+**Execution status — complete and independently audited 2026-08-27:** Typed policy revisions, closed one-Account/explicit-set/Plan-revision/Segment targets, deterministic precedence, bounded operational APIs, immutable activation audiences, separately authorized ownership, signed activation review, concurrency-safe lifecycle, and audit/history are implemented. Activation deliberately performs no subscriber or settlement mutation. Winning fixed-price/discount/quota/product block/grant effects are recomputed inside explicit one-Account subscription preview/apply and persisted with exact provenance. Admin and client surfaces preserve their privacy boundary, exact retained catalogue terms, dependency-safe zero-price grants, signed-evidence replacement, loading/error/conflict states, and fine-grained permissions. Exact active Segment selection and immutable audience provenance were delivered by Phase 11.1; reviewed trial/lifecycle commands, selected/filtered/scheduled jobs, free periods, renewal instructions, retry/progress/cutoff handling stay Phase 12.
+
+# Phase 11: Segments, campaigns, and offers
+
+### Batch 11.1: Safe Account segments
+
+#### [IMPLEMENTED AND AUDITED 2026-08-27] MARKETING-001 — Safe Account Segments
+- **Prerequisites**: Phase 10.
+- **Unlocks**: Batch 11.2.
+- **Order Rationale**: Campaign execution needs a safe reusable and snapshot-able audience.
+- **Affected Backend Areas**: New commercial marketing domain, Account/subscription read contracts, audit and job infrastructure.
+- **Database Migration**: Generated H2 schema only under the pre-production policy.
+- **Acceptance Criteria**: Explicit and typed criteria Segments, bounded preview/sample/count, lifecycle, duplication, immutable execution audience, archive/delete blockers, pagination/search/history, and separately authorized sensitive identity lookup.
+- **Tests**: Criteria validation, tenant/data privacy, deterministic snapshot, lifecycle/version, concurrency, permissions, pagination, query count, and stale preview.
+- **Future UI Flow**: Segment table, builder, audience preview, detail/history.
+
+**Execution status — complete and independently audited 2026-08-27:** Safe Segments support explicit Accounts or closed typed commercial criteria, bounded preview/count/sample, immutable signed activation, frozen Account audiences, lifecycle, revisions, compare/history, owner transfer, and separately authorized identities. The Policy target chooser resolves only executable active Segment activations and invalidates dependent views correctly. Archive/delete actions distinguish reusable/live policy references from retained terminal history. Stable pagination, supporting indexes, default-role permission coverage, backend action contracts, responsive admin workflows, and stale/loading/error/privacy behavior passed independent backend and frontend audits (664 backend tests and 257 frontend tests at closure).
+
+### Batch 11.2: Campaigns, offers, and redemption
+
+- **Prerequisites**: Batch 11.1.
+- **Action**: IMPLEMENT.
+- **Description**: Add Campaign/Offer revisions, scheduling/pause/end/archive, explicit CATALOG/CODE_ONLY discovery and CLIENT_OR_OPERATOR/OPERATOR_ONLY acceptance, permanently reserved normalized codes, exact product/Price selections, typed discount/grant/quota effects, lineage-wide audience/redemption limits, client eligibility/preview/acceptance/history, and authorized one-Account operator application through the subscription-operation engine. Selected/filtered/bulk application remains Phase 12.
+- **Tests**: Lifecycle, scheduling, code collision, eligibility privacy, direct-only product, Money bounds, per-Account/global limit concurrency, idempotent redemption, pause/end behavior, account lock, snapshot/invoice evidence, and audit.
+- **UI Flow**: Campaign table/editor/detail/operations/audience/revisions/history/owner workflows and the Offer list/builder/detail/operations/results/redemption/revision/history/owner workflows are delivered. Client catalogue, private-code resolution, signed review/acceptance, and own redemption history/detail are delivered.
+
+**Execution status — Campaign control plane complete and independently audited 2026-08-28:** The operational Campaign aggregate/API provides immutable revision lineages, one-draft and one-live concurrency rules, PUBLIC/explicit-Account/exact-Segment audiences, signed schedule evidence bound to live commercial and registry snapshots, frozen targeted audiences with privacy-separated identity resolution, truthful backend actions/blockers, lifecycle scheduling with per-Campaign failure isolation, ownership, comparison, history, audit attribution, and bounded queries. The admin UI provides guided creation/editing, list/detail/operations/audience/revision/history/owner surfaces, stale-review recovery, and least-privilege navigation without broad detail dependencies; desktop, mobile, and RTL layouts passed independent review. The Offer work that followed is recorded separately below so Campaign evidence is not rewritten as Offer evidence.
+
+**Offer implementation contract refined and independently design-audited 2026-08-28:** Offer limits and permanent customer codes belong to a stable lineage fixed to one exact Campaign revision; published revisions pin exact products and Price entries. Discovery and acceptance channel are separate. One combined commercial evaluation chooses the greater selected Policy or Offer reduction on the Policy-fixed base, with Policy winning ties and hard restrictions always vetoing. Phase 11 handles current `ACTIVE`/`TRIALING` subscriptions and one Account per reviewed operation; bulk execution, recovery lifecycle, temporary reversion, free periods, and communications stay Phase 12. Operational counts come from durable Redemptions; conversion/revenue time series stay Phase 14.
+
+**Offer execution status — backend and frontend implemented and automated/security verified 2026-08-31; authenticated browser QA pending:** Offer lineages/revisions, permanent normalized code reservation, Campaign audience inheritance, exact product/Price selection, compatible discount/free-product/quota effects, signed definition/publication/eligibility evidence, deterministic Policy-versus-Offer evaluation, concurrency-safe lineage limits, idempotent client/operator redemption, durable outcomes, privacy-separated identities, and bounded operational APIs are implemented. The admin UI provides guided authoring, lifecycle, results, redemption, revision/comparison, history, owner, and one-Account application surfaces; the client UI provides catalogue, body-only private-code discovery, signed acceptance, and own history/detail. Automated verification is 756 backend tests and 307 frontend tests plus typecheck/build. Authenticated French/Arabic browser evidence remains the Phase 11 closure gate.
+
+# Phase 12: Operational subscription and renewal jobs
+
+### Batch 12.1: Finish PLAN-011 operation engine
+
+- **Prerequisites**: Phase 11.
+- **Action**: IMPLEMENT.
+- **Description**: Extend the implemented one-Account reviewed engine to selected/filtered Account operations with immutable preview sets, scheduled timing, per-Account transactions/results, cancellation cutoff, idempotent retry, correction, reviewed trial creation, lifecycle commands, policy/Offer source, usage conflicts, communication state, and history.
+- **Tests**: Trial creation/replacement/expiry, selection privacy, version conflicts, mixed success, retry, cancel race, renewal execution, usage remediation/grace/restriction, restoration, audit and realistic table drill-down.
+- **Future UI Flow**: Subscriber workbench, bulk-operation wizard, progress/result detail, pending-renewal queue, Account commercial timeline.
+
+**Execution status — selected-Account change jobs implemented and self-audited 2026-08-31:** The
+durable job protocol now freezes 1–500 explicit Accounts with exact commercial selection and
+review evidence, supports immediate or scheduled claiming, per-Account transactions, mixed durable
+results, safe retry, pre-start cancellation, crash resume, bounded list/results, separately
+authorized Account identity, and permission-before-existence enforcement. The admin UI delivers the
+guided chooser/commercial-selection/reason/schedule/review flow plus list, progress, results,
+explicit identity reveal, cancel, and retry. Automated verification is 763 backend tests and 314
+frontend tests plus typecheck/Biome/build. Filtered and exact-Plan populations, lifecycle/trial kinds,
+correction, communications, and authenticated French/Arabic browser evidence remain open; this is a
+partial Phase 12 closure, not a claim that all subscription operations are complete.
+
+**Execution status — one-Account lifecycle controls implemented and self-audited 2026-08-31:**
+Backend-authoritative available actions, separate preview/mutation/history permissions, signed
+actor/action/version evidence, required reasons, locked rechecks, append-only lifecycle events,
+operator-versus-collection suspension semantics, exact grace extension, terminal-readable
+cancellation, and Account-wide client session revocation are implemented. The admin detail page
+mounts the bounded history independently and can perform only the intersection of backend actions
+and the operator's exact permissions. Population lifecycle jobs and reviewed trial/new-entitlement
+creation remain open.
+
+# Phase 13: Invoice, payment, credit, and refund ledgers
+
+### Batch 13.1: Complete BILLING-003
+
+- **Prerequisites**: Phases 9 and 12.
+- **Action**: IMPLEMENT.
+- **Description**: Add immutable numbered invoices/lines, idempotent payment attempts/manual settlements, credits/refunds, provider event/reconciliation boundary, zero-amount settlement, past-due/grace hooks, operational admin APIs, and client invoice/payment-history reads. Automatic tax, FX, metered billing, proration, and automatic refunds remain deferred.
+- **Tests**: Number uniqueness, exact itemization, immutable evidence, pending/succeeded/failed states, manual evidence permission, duplicate callbacks, over-refund rejection, zero amount, renewal failure, currency isolation, reconciliation, privacy, pagination and audit.
+- **Future UI Flow**: Jurisdiction-specific fiscal-document output remains deferred; the Account financial timeline, commercial document, Invoice/payment/refund workbench, and client Invoice history are implemented.
+- **Execution Status**: Ledger, operational API, provider reconciliation, Billing UI, paid renewal/grace recovery, Account financial timeline, billing profile, and printable commercial document were implemented on 2026-08-31. Positive reviewed subscription changes and paid same-terms renewals create immutable itemized Invoices, provider Payment intents, and durable outbox commands atomically; provider I/O runs outside database transactions with bounded replay-safe retries. Permission-separated admin Invoice search/detail, Payment evidence, manual settlement/recovery, Credit, provider/manual Refund, reconciliation-command, provider-event reprocessing, evidence-gated charge-retry, Account timeline, and billing-profile workflows are mounted. Clients have bounded own-Account Invoice history/detail/timeline/profile without operator or provider evidence. Invoice issuance freezes Account and issuer party identity, so later profile changes cannot rewrite the printable historical document. The document is deliberately labelled commercial and reports missing fiscal capabilities instead of claiming tax compliance. Verified provider events are persisted before processing, deduplicated, strictly matched, retained on mismatch, and explicitly reprocessable. Frontend route/query tests prove independently readable surfaces do not inherit broader Invoice, subscription, timeline, profile, or Account-identity permissions. A real provider adapter and jurisdiction-specific tax/fiscal implementation remain open in this phase.
+
+# Phase 14: Commercial facts and analytics
+
+### Batch 14.1: Durable commercial analytics
+
+#### [IMPLEMENT] ANALYTICS-001 — Commercial dashboards have no durable fact model or operational drill-down
+- **Prerequisites**: Phases 11–13.
+- **Unlocks**: Phase 15.
+- **Order Rationale**: Truthful adoption, offer, renewal, and money metrics require the completed authoritative records.
+- **Affected Backend Areas**: Commercial events/read models, subscription/billing/marketing projections, admin analytics API and permissions.
+- **Database Migration**: Generated H2 schema only under the pre-production policy.
+- **Acceptance Criteria**: Bounded summary/time-series/drill-down endpoints, currency/cycle dimensions, completeness timestamps, stable historical facts, no configured-price-as-revenue labels, and permission-separated sensitive evidence.
+- **Tests**: Timezone/interval boundaries, mixed currency, event idempotency, historical stability, incomplete data, permission/privacy, query count, and drill-down totals.
+- **Future UI Flow**: Operational commercial dashboard with range/filter controls, accessible charts, and links to exact filtered tables.
+- **Frozen Contract (2026-08-31)**: `docs/COMMERCIAL_ANALYTICS_V1.md` defines authoritative sources, exact metric names, bounded timezone-aware queries, independent permissions, API surfaces, operational drill-down, truthful incompleteness, and the near-quota usage-snapshot deferral. V1 must not introduce a second mutable analytics truth where an authoritative durable record already exists.
+- **Execution Status (2026-08-31)**: The backend is implemented with the independent `platform.analytics` permission family, overview, financial, subscription, Offer, current-holding, and paginated attention endpoints. Historical money is derived only from Invoice/Payment/Credit/Refund evidence; lifecycle and product movement use durable events and accepted-operation snapshots; current holdings and configured recurring value stay explicitly separate. Queries are range-bounded and dimensioned, buckets are timezone/DST aware, sensitive Account identity exists only on `read_operations`, and legacy incomplete lifecycle timestamps degrade to a durable creation-time fallback instead of breaking the operations queue. The admin dashboard and final browser/accessibility audit remain in progress.
+
+# Phase 15: Cross-surface consistency and adversarial audit
+
+- **Prerequisites**: Phases 9–14.
+- **Action**: IMPLEMENT.
+- **Description**: Independently audit backend and frontend after every phase, then run a final consistency pass over all commercial tables, filters, actions, forms, dialogs, detail/history tabs, loading/error/empty states, permissions, accessibility, RTL, performance, API contracts, and duplicated components. Audits must exercise realistic operator and client workflows rather than only checking file presence.
+- **Acceptance Criteria**: No unresolved high-severity correctness/security finding; reusable table/action/filter/price/impact components; stable API pagination/errors; backend-enforced actions; complete keyboard/dark/light/RTL behavior; backend/frontend/full suites green.
+
+---
+
 # Deferred work
 - **REGISTRY-001 — Removed code definitions and annotations remain as live database rows**
   - **Prerequisites**: AUTHZ-001.
@@ -1610,6 +1872,8 @@ flowchart TD
   - **Order Rationale**: Deferred by product decision. Treat deployed codes as stable developer contracts and revisit only when actual rename requirements appear.
 - All advanced target-aware management rules (deferred per `MANAGEMENT-FLOW-001` and `AUTHZ-006` agreements).
 - Emergency runtime catalog shutdowns and new-sale suspensions (`REGISTRY-FLOW-002` / `REGISTRY-004` aspects).
+- Read-access and denied-read security auditing (`AUDIT-002`) pending an explicit product/security-forensics scope, retention, privacy, and volume decision.
+- Automatic tax, foreign exchange, metered usage billing, automatic proration, customer-selectable unlimited quota pricing, perpetual/`FOREVER` licenses, and automatic refunds. Their extension points may exist, but no API/UI may claim the capability is complete.
 
 ---
 
@@ -1651,54 +1915,64 @@ flowchart TD
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **TENANCY-001** | Establish Account boundary | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.1 | AUTHZ-001 | Context ID scoping |
 | **TENANCY-002** | Account owner id relationship | PARTIAL | IMPLEMENT | Phase 1 | Batch 1.1 | TENANCY-001 | User relationship and active-member guard |
-| **RBAC-001** | Company scope represented twice | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | ROLE-003 | Consolidated columns |
-| **RBAC-002** | Inactive roles grant permissions | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-001 | Ignored in evaluation |
-| **RBAC-003** | Ceiling for assignments | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-002 | Actor ceiling enforced |
-| **RBAC-004** | Role removal ignores scope | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-003 | Scope checked |
+| **RBAC-001** | Company scope represented twice | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.4 | ROLE-003 | Explicit template boundary and assignment effect scope |
+| **RBAC-002** | Inactive roles grant permissions | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-001 | Runtime and assignment exclusion tests |
+| **RBAC-003** | Ceiling for assignments | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-002 | Scoped assignment, override, role-mutation, and B2B ceiling tests |
+| **RBAC-004** | Role removal ignores scope | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.4 | RBAC-003 | Exact Account/Company removal tests |
 | **DATA-001** | Duplicate relationships | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.4 | MEMBER-003 | Seven generated-schema unique constraints and duplicate-insert tests |
 | **TENANCY-003** | Mismatched parent accounts | PARTIAL | VERIFY FIRST | Phase 1 | Batch 1.1 | TENANCY-002 | `@PrePersist` validator |
 | **ORG-001** | Support generic Group model | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | COMPANY-002 | Generic hierarchy, memberships, lifecycle, templates, and verified APIs |
 | **ORG-002** | Groups stay outside authz | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.2 | ORG-001 | Permissionized operations with unchanged effective permissions |
-| **AUTHZ-006** | Context evaluation checks | MISSING | DESIGN FIRST | Phase 5 | Batch 5.3 | AUTHZ-003 | Design document |
-| **RBAC-006** | Exception override lifecycle | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-003 | Expire column |
-| **SUBSCRIPTION-001**| Terminological alignment | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | PLAN-006 | Enums corrected |
-| **SUBSCRIPTION-002**| JSON strings | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.5 | SUBSCRIPTION-001 | Converter classes |
-| **PLAN-001** | Database constraints | PARTIAL | VERIFY FIRST | Phase 4 | Batch 4.2 | BILLING-003 | Unique code |
-| **PLAN-006** | Lifecycle states | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | State column |
-| **PLAN-007** | Branching revisions | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Draft generation |
-| **BILLING-001** | Checkouts activation | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Payment validation |
-| **BILLING-003** | Money prices ledger | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.1 | None | Money type index |
-| **QUOTA-002** | Custom overrides limit | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Cost calculation |
-| **SUBSCRIPTION-003**| Periods scheduler | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-002 | Cron execution |
-| **SUBSCRIPTION-004**| Trial visibility | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-003 | Trial display |
-| **SUBSCRIPTION-005**| Overrides pricing | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-004 | Recalculated cost |
-| **SUBSCRIPTION-006**| Dynamic repairs | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-005 | Snapshot seeder |
-| **SUBSCRIPTION-007**| Downgrade safety checks | MISSING | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Rejections |
-| **QUOTA-004** | Discrete packages | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-003 | Packages map |
-| **QUOTA-003** | Compound key | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.4 | PLAN-008 | Collision fixed |
-| **PLAN-002** | Default plan protection | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-001 | Deletion block |
-| **PLAN-003** | Atomic plan seeding | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-002 | Transactional boot |
-| **PLAN-004** | Unique assignments | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-003 | Db unique index |
-| **PLAN-008** | PlanFeature schema | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Quota config JSON |
-| **PLAN-009** | Deletion preview | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-007 | Deletion warnings |
-| **PLAN-010** | Cloning Wizard | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Copy lineages |
-| **PLAN-011** | Subscriber management | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-010 | Pagination |
-| **PLAN-012** | Explicit AddOn | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Add_ons table |
-| **PLAN-005** | Immutable snapshots | CONTRADICTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | snapshot values |
-| **TIME-001** | Unified Timestamps | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.5 | None | Instants type |
-| **MODULES-001** | Modular Interfaces | PARTIAL | DESIGN FIRST | Phase 6 | Batch 6.4 | None | Boundary check |
-| **MODULES-002** | Company domain owner | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.4 | MODULES-001 | Package check |
-| **AUDIT-001** | Audit logs | PARTIAL | VERIFY FIRST | Phase 5 | Batch 5.4 | None | Audit logs validation |
-| **DTO-001** | Request validation | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | None | MethodArgumentNotValid |
-| **DTO-002** | Align response | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-001 | Mapped properties |
-| **AUTHZ-DTO-001**| Contextual DTO | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Scope context |
-| **DTO-003** | DTO boundaries | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-002 | Namespace mappings |
-| **DTO-004** | Client DTO clean | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Clean structure |
-| **MAPPER-001** | Prevent Lazy-Init | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.2 | DTO-003 | Excluded properties |
-| **MAPPER-002** | MapStruct mappers | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.2 | MAPPER-001 | MapStruct interfaces |
-| **SERVICE-001** | Expose DTOs | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.3 | None | UserDTO return |
-| **SERVICE-002** | Expose DTOs | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-001 | AdminDTO return |
-| **SERVICE-003** | Expose DTOs | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-002 | MemberDTO return |
+| **AUTHZ-006** | Context evaluation checks | DEFERRED BY PRODUCT DECISION | DESIGN DEFERRED | Phase 5 | Batch 5.3 | AUTHZ-003 | Service-resolved target boundary recorded; concrete model waits for a module requirement |
+| **RBAC-006** | Exception override lifecycle | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-003 | Explicit scoped exception lifecycle, provenance, expiry, and abuse tests |
+| **SUBSCRIPTION-001**| Terminological alignment | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.5 | PLAN-006 | Canonical lifecycle and usable-state tests |
+| **SUBSCRIPTION-002**| JSON strings | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.5 | SUBSCRIPTION-001 | Typed versioned JSON and validation tests |
+| **PLAN-001** | Database constraints | IMPLEMENTED | VERIFY FIRST | Phase 4 | Batch 4.2 | BILLING-003 | Verified unique code plus non-null cycle/state persistence tests |
+| **PLAN-006** | Lifecycle states | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Validated state machine, terminal archive, optimistic lock; replacement/audit later |
+| **PLAN-007** | Branching revisions | PARTIAL — REVISION FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Published immutability plus explicit lineage-aware draft revision/duplication |
+| **BILLING-001** | Checkouts activation | IMPLEMENTED FOR CLIENT ACTIVATION | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Durable non-entitling checkout plus guarded, idempotent confirmation and final recheck |
+| **BILLING-003** | Money prices ledger | PARTIAL — LEDGER, OPERATIONS, UI, RECOVERY, TIMELINE AND COMMERCIAL DOCUMENT IMPLEMENTED | IMPLEMENT | Phase 4/13 | Batch 4.1/13.1 | None | Exact Money/Price books, immutable financial ledgers and party snapshots, admin/client workbenches, verified reconciliation, recovery, renewal/grace, lifecycle, Account timeline/profile and commercial document; real adapter and jurisdictional fiscal rules remain |
+| **PRICEBOOK-001** | Multi-cycle immutable prices | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.1 | BILLING-003 foundation, PLAN-012, QUOTA-004 | Independent monthly/yearly entries, overlap race protection, exact snapshot identity and client checkout tests |
+| **COMMERCIAL-001** | Extension and policy control | IMPLEMENTED/AUDITED THROUGH PHASE 10 | IMPLEMENT | Phase 9/10 | Batch 9.2/10.1 | PRICEBOOK-001 | Extension/visibility matrix, typed precedence/lifecycle, signed preview, one-Account application, exact accepted provenance, client privacy and retained-term tests |
+| **COMMERCIAL-002** | Operational product catalogues | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001 | Bounded search/filter/sort, permissions, query count, backend actions/blockers and shared table contracts |
+| **QUOTA-005** | Capacity-package revisions | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001, PRICEBOOK-001 | Revision concurrency, copied policy/prices, immutable snapshots, lifecycle/history and admin revise flow |
+| **MARKETING-001** | Segments, campaigns and offers | IMPLEMENTED — OFFER BACKEND/UI AUTOMATED AND SECURITY VERIFIED; AUTHENTICATED BROWSER QA PENDING | VERIFY | Phase 11 | Batch 11.1/11.2 | COMMERCIAL-001 | Authenticated French/Arabic Offer authoring, application, discovery, acceptance, and history browser evidence |
+| **UI-001** | Shared section tabs lack complete keyboard and panel semantics | CONFIRMED — PHASE 15 | IMPLEMENT | Phase 15 | Consistency audit | None | Roving Arrow/Home/End focus, associated tab-panel IDs, RTL and keyboard tests |
+| **ANALYTICS-001** | Durable commercial analytics | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 14 | Batch 14.1 | MARKETING-001, BILLING-003 | Time/currency-aware facts, truthful dimensions, stable history and operational drill-down tests |
+| **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
+| **SUBSCRIPTION-003**| Periods scheduler | PARTIAL — RENEWAL/GRACE AND ONE-ACCOUNT LIFECYCLE IMPLEMENTED | IMPLEMENT | Phase 4/12/13 | Batch 4.5/12.1/13.1 | SUBSCRIPTION-002 | UTC history, paid/free renewal, collection recovery, signed lifecycle commands, session revocation; reviewed trial/population jobs open |
+| **SUBSCRIPTION-004**| Trial visibility | IMPLEMENTED; REVIEWED CREATION PHASE 12 | IMPLEMENT | Phase 4/12 | Batch 4.5/12.1 | SUBSCRIPTION-003 | Trialing Account visibility is complete; retired direct admin creation returns only as a reviewed operation |
+| **SUBSCRIPTION-005**| Overrides pricing | IMPLEMENTED BY CONTRACT CHANGE | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-004 | Raw grants removed; only priced AddOn/package identities |
+| **SUBSCRIPTION-006**| Dynamic repairs | IMPLEMENTED FOR UNPUBLISHED SCHEMA | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-005 | Mandatory snapshots and fail-closed consumers; no legacy database |
+| **SUBSCRIPTION-007**| Downgrade safety checks | IMPLEMENTED FOR PLAN CHANGES | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Feature-owned fail-closed immediate/renewal impact checks |
+| **QUOTA-004** | Discrete packages | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-003 | Versioned package aggregate, admin API, selection, snapshots, pricing, enforcement |
+| **QUOTA-003** | Compound key | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.4 | PLAN-008 | Feature/resource identity preserved end to end |
+| **PLAN-002** | Default plan protection | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-001 | Deactivation/deletion blocks and startup invariant |
+| **PLAN-003** | Atomic plan seeding | PARTIAL — SAFE BOOTSTRAP IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-002 | Explicit transactional and idempotent bootstrap tests |
+| **PLAN-004** | Unique assignments | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.2 | PLAN-003 | Verified DB constraint and race translation |
+| **PLAN-008** | PlanFeature schema | PARTIAL — EXPLICIT MODES IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | INCLUDED/OPTIONAL_ADD_ON/BLOCKED_FOR_PLAN; subscriber removal later |
+| **PLAN-009** | Deletion preview | IMPLEMENTED FOR CURRENT MODEL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-007 | Counted blockers, state token, code confirmation, lock/recheck, draft-only deletion |
+| **PLAN-010** | Cloning Wizard | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Explicit empty/duplicate/revise commands and durable source/lineage identity |
+| **PLAN-011** | Subscriber management | PARTIAL — ONE-ACCOUNT CHANGE/LIFECYCLE AND SELECTED JOBS IMPLEMENTED | IMPLEMENT | Phase 5/9/12 | Batch 5.1/9.3/12.1 | PLAN-010 | Bounded privacy-separated workbench, signed change/lifecycle operations and selected/scheduled jobs; reviewed trial and filtered/Plan population jobs remain |
+| **PLAN-012** | Explicit AddOn | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Versioned aggregate, admin API, AddOn-owned quota packages, selection, catalog, snapshots, billing |
+| **PLAN-005** | Immutable snapshots | PARTIAL — VERSIONED TERM HISTORY IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Plan/AddOn/package versions, term prices, effective periods, and operation history; lineage/billing ledgers separate |
+| **TIME-001** | Unified Timestamps | IMPLEMENTED | VERIFY FIRST | Phase 5 | Batch 5.5 | None | UTC Instant persistence and offset-explicit JSON verified |
+| **MODULES-001** | Modular Interfaces | IMPLEMENTED | DESIGN FIRST | Phase 6 | Batch 6.4 | None | Rule decided, four bypasses removed, enforced by test |
+| **MODULES-002** | Company domain owner | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.4 | MODULES-001 | Company owned by the company package |
+| **MODULES-003** | Identity to member coupling | CONFIRMED | IMPLEMENT | Phase 6 | Batch 6.4 | MODULES-001 | Unguarded membership lookup consumed by identity |
+| **AUDIT-001** | Audit logs | IMPLEMENTED | VERIFY FIRST | Phase 5 | Batch 5.4 | None | Append-only actor-aware mutation and failed-attempt records |
+| **AUDIT-002** | Read-access security audit | PRODUCT SCOPE OPEN | DECIDE FIRST | Future | Unscheduled | AUDIT-001 | Decide sensitive/denied read coverage, retention, privacy and volume |
+| **DTO-001** | Request validation | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | None | Structured negative validation tests |
+| **DTO-002** | Align response | IMPLEMENTED FOR CURRENT SURFACES | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-001 | Scope/lifecycle mapping tests |
+| **AUTHZ-DTO-001**| Contextual DTO | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Explicit Account/Company context |
+| **DTO-003** | DTO boundaries | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-002 | Admin/picker/public namespaces compile |
+| **DTO-004** | Client DTO clean | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Canonical quota JSON shape |
+| **MAPPER-001** | Prevent Lazy-Init | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.2 | DTO-003 | Constant statement count as rows grow; suite runs with open-in-view disabled |
+| **MAPPER-002** | MapStruct mappers | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.2 | MAPPER-001 | No controller maps a persistence entity |
+| **SERVICE-001** | Expose DTOs | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.3 | None | UserView for facts; one named entity door |
+| **SERVICE-002** | Expose DTOs | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-001 | Admin services return read models |
+| **SERVICE-003** | Expose DTOs | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-002 | Company, member and role return read models |
+| **SERVICE-004** | Plan admin DTOs | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.3 | SERVICE-003 | PlanAdminService returns read models |
 | **AUTH-001** | Email Canonicalized | IMPLEMENTED | VERIFY FIRST | Phase 1 | Batch 1.2 | None | Mixed-case registration/login test |
 | **AUTH-002** | Invalidate sessions | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-001 | Rotation, reuse, logout, purpose and audience tests |
 | **AUTH-003** | Align Security Context | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | AUTH-002 | Active membership/account context test |
@@ -1716,7 +1990,7 @@ flowchart TD
 | **MEMBER-001** | Owner lockout block | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | TENANCY-002 | Owner-target and self-target deactivation rejection |
 | **MEMBER-002** | Unique memberships | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-001 | Generated-schema unique constraint and concurrent conflict translation |
 | **MEMBER-003** | Active role check | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-002 | Inactive and duplicate scoped assignment rejection |
-| **MEMBER-004** | Member DTO clean | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Align fields |
+| **MEMBER-004** | Member DTO clean | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Scoped authorization-detail read model |
 | **MEMBER-005** | Token revocation | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.4 | MEMBER-003 | Access-context denial and CLIENT refresh-session revocation |
 | **EVENT-002** | Dead Event | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.6 | None | Account event/listener artifacts deleted |
 | **ROLE-001** | Role check delete | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.3 | MEMBER-003 | Never-assigned-only hard delete and retained used-role history |
@@ -1732,47 +2006,48 @@ flowchart TD
 | **INVITE-005** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Canonical identity and unique identifiers |
 | **INVITE-006** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Expiration mutation path removed |
 | **INVITE-007** | Obsolete invite | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Post-commit credential email |
-| **COLLAB-001** | Collaboration unique | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | TENANCY-003 | Unique Index |
-| **COLLAB-002** | Actor ceiling | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-001 | Ceiling validation |
-| **COLLAB-003** | Revalidate active | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-002 | Context checks |
-| **COLLAB-004** | Suspend methods | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-003 | Active state cuts |
-| **COLLAB-005** | Optimistic lock | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-004 | `@Version` checks |
-| **COLLAB-006** | Detail endpoint | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-005 | API lists grants |
-| **COLLAB-007** | Clean services | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-006 | DTO usage |
-| **COLLAB-008** | Connection codes | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-007 | Share code verified |
+| **COLLAB-001** | Collaboration unique | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | TENANCY-003 | Live-tuple DB uniqueness and terminal-history tests |
+| **COLLAB-002** | Actor ceiling | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-001 | Provider effective-permission ceiling validation |
+| **COLLAB-003** | Revalidate active | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-002 | Operation and runtime Account/Company checks |
+| **COLLAB-004** | Suspend methods | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-003 | Explicit lifecycle and scheduled resume |
+| **COLLAB-005** | Optimistic lock | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-004 | Versions, expected-version commands and DB constraints |
+| **COLLAB-006** | Detail endpoint | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-005 | Detail and configured/current grant APIs |
+| **COLLAB-007** | Clean services | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-006 | DTO-only service boundary |
+| **COLLAB-008** | Connection codes | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.2 | COLLAB-007 | Discovery/lifecycle complete; audit/notifications in Batch 5.4 |
 | **ADMIN-001** | Safe seeding logging | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | CONFIG-001 | Secure env password |
 | **ADMIN-002** | User existing seed | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.3 | ADMIN-001 | Context matches |
 | **ADMIN-AUTH-001**| Token refresh | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | None | ADMIN rotation, audience and reuse tests |
 | **ADMIN-AUTH-002**| DTO validate admin | IMPLEMENTED | IMPLEMENT | Phase 1 | Batch 1.2 | ADMIN-AUTH-001 | Validated thin controller test |
 | **ADMIN-RBAC-001**| SuperAdmin checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.3 | ADMIN-002 | Access denied blocks |
-| **ADMIN-DATA-001**| Query join | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Bulk load mapping |
-| **ADMIN-DATA-002**| Page parameters | PARTIAL | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Paginated metrics |
-| **BILLING-002** | Simulated payments | PARTIAL | IMPLEMENT | Phase 4 | Batch 4.6 | BILLING-001 | Configurable returns |
-| **EMAIL-001** | Mail error report | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.6 | None | Exception propagate |
+| **ADMIN-DATA-001**| Query join | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.1 | DTO-003 | Bounded page plus one bulk relationship load |
+| **ADMIN-DATA-002**| Page parameters | IMPLEMENTED | VERIFY FIRST | Phase 6 | Batch 6.1 | DTO-003 | Stable bounded page contract |
+| **BILLING-002** | Simulated payments | IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.6 | BILLING-001 | Dev/test-only configurable untrusted simulator and production fail-fast guard |
+| **EMAIL-001** | Mail error report | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.6 | None | Durable safe outcomes, metrics and token-rotating recovery |
 | **EMAIL-002** | Escape templates | IMPLEMENTED | REMOVE AS OBSOLETE | Phase 1 | Batch 1.5 | INVITE-000 | Escaped, validated, deadline-aware activation emails |
-| **API-ERROR-001**| Error codes payload | PARTIAL | IMPLEMENT | Phase 6 | Batch 6.5 | None | Code mapping returned |
+| **API-ERROR-001**| Error codes payload | IMPLEMENTED | IMPLEMENT | Phase 6 | Batch 6.5 | None | Stable ErrorCode on every ApiError |
 | **CONFIG-001** | Profile configs | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.1 | None | Destructive dev only |
 | **AUTHZ-001** | Explicit service guards | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | PERM-002 | Guarded services enforced |
-| **AUTHZ-002** | B2B operator check | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | COLLAB-008 | Client worker verified |
-| **AUTHZ-003** | Dynamic validation | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-002 | Keys filter checks |
-| **AUTHZ-005** | CORS headers | PARTIAL | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-003 | Header verification |
+| **AUTHZ-002** | B2B operator check | PARTIAL — SAFE ACCOUNT-WIDE CEILING IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.3 | COLLAB-008 | Provider grant plus Account-scoped owner/role/exception operator coverage |
+| **AUTHZ-007** | Collaboration-scoped B2B operator assignment | CONFIRMED — REFINEMENT DEFERRED | DEFERRED REFINEMENT | Phase 5 | Future | AUTHZ-002 | Internal Company and sibling-collaboration isolation tests |
+| **AUTHZ-003** | Dynamic validation | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-002 | Current-code runtime denial and inactive historical grant read model |
+| **AUTHZ-005** | CORS headers | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.3 | AUTHZ-003 | Browser OPTIONS preflight verifies both exact context headers |
 | **REGISTRY-001** | Deleted keys clean | PARTIAL | DEFERRED | Phase 3 | None | AUTHZ-001 | Revisit on requirement |
-| **REGISTRY-002** | Stale actions block | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | AUTHZ-001 | Grant check matches |
-| **REGISTRY-003** | Corrupt discovery crash| PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-002 | Startup validation exit |
-| **REGISTRY-004** | Visibility enums | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-009 | State column mapping |
-| **REGISTRY-005** | Clean catalog services | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-004 | Disagreeing API removed |
-| **REGISTRY-006** | Bulk picker query | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-005 | Bulk query execution |
-| **REGISTRY-007** | Repair metadata | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-003 | Sync updates columns |
-| **REGISTRY-008** | destructive block | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-006 | Action level validator |
-| **REGISTRY-009** | Seeding transaction | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-007 | Startup lock logs |
-| **REGISTRY-010** | Picker DTO | PARTIAL | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-008 | Decoupled payload |
+| **REGISTRY-002** | Stale actions block | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | AUTHZ-001 | Current-snapshot grant rejection and catalog exclusion |
+| **REGISTRY-003** | Corrupt discovery crash| IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-002 | Reflected action-set equality and fatal startup validation |
+| **REGISTRY-004** | Visibility enums | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-009 | Four independent audited controls and runtime cutoff |
+| **REGISTRY-005** | Clean catalog services | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-004 | Typed audience catalogs; raw entity path removed |
+| **REGISTRY-006** | Bulk picker query | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-005 | One bulk entitlement resolution per picker |
+| **REGISTRY-007** | Repair metadata | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-003 | Code-owned Feature and Permission metadata repair |
+| **REGISTRY-008** | destructive block | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-006 | Current action-level audience classification |
+| **REGISTRY-009** | Seeding transaction | PARTIAL — ROLLING-DEPLOYMENT GENERATION GUARD OPEN | IMPLEMENT | Phase 3 | Batch 3.1 | REGISTRY-007 | Atomic synchronization, database lock, durable run summary, monotonic deployment-generation protection |
+| **REGISTRY-010** | Picker DTO | IMPLEMENTED | IMPLEMENT | Phase 3 | Batch 3.2 | REGISTRY-008 | Versioned choices/selections and stale-write rejection |
 | **PERM-001** | AspectJ matching | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Target node proxy |
 | **PERM-002** | Startup guard checks | PARTIAL | IMPLEMENT | Phase 0 | Batch 0.2 | None | Alignment check |
 | **PERM-003** | Element key uniqueness| PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Signature compiler key |
 | **PERM-004** | Swallowed reflection | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Exception throws |
 | **PERM-005** | Precedence chain | PARTIAL | LOCK WITH TESTS | Phase 0 | Batch 0.4 | AUTHZ-001 | Precedence evaluation |
 | **TEST-001** | Negative test audit | PARTIAL | VERIFY FIRST | Phase 0 | Batch 0.1 | None | Verified negative coverage |
-| **AUTHZ-004** | Cascade overrides | PARTIAL | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-006 | Dynamic context check |
+| **AUTHZ-004** | Cascade overrides | IMPLEMENTED | IMPLEMENT | Phase 2 | Batch 2.5 | RBAC-006 | Account cascade, exact Company scope, and deny-precedence tests |
 
 ---
 
@@ -1798,8 +2073,3 @@ flowchart TD
 - **Batch 0.1 (Baseline Security & Verification)**
   - Encompasses `CONFIG-001` (configuration profiles setup), `TEST-001` (negative tests coverage audit), `PERM-001`, `PERM-003`, `PERM-004` (verification steps for standalone Permissionizer aspect behavior), and `ADMIN-001` (securing SuperAdmin startup logging and credentials).
   - This establishes safe configuration, a test baseline, and focused verification of the user-owned Permissionizer behavior before any conditional Permissionizer changes.
-
----
-
-# Questions/blockers requiring user confirmation
-1. **B2B Invitation Expiry Timeframe (COLLAB-008)**: Should B2B collaboration share codes carry a default, configurable expiration window similar to the original user invitation workflow (e.g. 7 days)?

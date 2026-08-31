@@ -1,7 +1,9 @@
 package com.hiveapp.platform.client.member.domain.entity;
 
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
+import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.role.domain.entity.Role;
+import com.hiveapp.platform.client.role.domain.constant.RoleTemplateBoundary;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.domain.TenantInvariant;
 import jakarta.persistence.*;
@@ -29,9 +31,13 @@ public class MemberRole extends BaseEntity {
     @JoinColumn(name = "role_id", nullable = false)
     private Role role;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "effect_scope", nullable = false, length = 20)
+    private RoleAssignmentScope effectScope = RoleAssignmentScope.ACCOUNT;
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id")
-    private Company company; // Null = Account-wide, Value = Company-scoped
+    @JoinColumn(name = "scope_company_id")
+    private Company scopeCompany;
 
     @Column(name = "scope_key", nullable = false, updatable = false)
     private UUID scopeKey;
@@ -43,18 +49,24 @@ public class MemberRole extends BaseEntity {
                 member.getAccount(),
                 role.getAccount(),
                 "Member and role must belong to the same account");
-        if (company != null) {
+        if (effectScope == RoleAssignmentScope.ACCOUNT && scopeCompany != null) {
+            throw new IllegalStateException("Account role assignments cannot declare a scope company");
+        }
+        if (effectScope == RoleAssignmentScope.COMPANY && scopeCompany == null) {
+            throw new IllegalStateException("Company role assignments require a scope company");
+        }
+        if (scopeCompany != null) {
             TenantInvariant.requireSameEntity(
                     member.getAccount(),
-                    company.getAccount(),
+                    scopeCompany.getAccount(),
                     "Member role company must belong to the member account");
         }
-        if (role.getCompany() != null) {
+        if (role.getTemplateBoundary() == RoleTemplateBoundary.COMPANY) {
             TenantInvariant.requireSameEntity(
-                    role.getCompany(),
-                    company,
-                    "A company-scoped role must be assigned inside its company");
+                    role.getBoundaryCompany(),
+                    scopeCompany,
+                    "A Company-bound role template must be assigned inside its boundary company");
         }
-        scopeKey = company == null ? ACCOUNT_SCOPE_KEY : company.getId();
+        scopeKey = effectScope == RoleAssignmentScope.ACCOUNT ? ACCOUNT_SCOPE_KEY : scopeCompany.getId();
     }
 }

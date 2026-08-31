@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.company.service;
 
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.collaboration.domain.constant.CollaborationStatus;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationPermissionRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
@@ -25,21 +25,23 @@ public class CompanyReactivationValidator {
     public void validate(Company company) {
         Set<String> permissionsToRestore = new LinkedHashSet<>();
 
-        memberRoleRepository.findAllByCompanyId(company.getId()).stream()
+        memberRoleRepository.findAllByScopeCompanyId(company.getId()).stream()
                 .filter(assignment -> assignment.getMember().isActive())
                 .filter(assignment -> assignment.getRole().isActive())
                 .flatMap(assignment -> assignment.getRole().getPermissions().stream())
                 .map(rolePermission -> rolePermission.getPermission().getCode())
                 .forEach(permissionsToRestore::add);
 
-        memberOverrideRepository.findAllByCompanyId(company.getId()).stream()
+        memberOverrideRepository.findAllByScopeCompanyId(company.getId()).stream()
                 .filter(override -> override.getMember().isActive())
-                .filter(override -> override.isDecision())
+                .filter(override -> override.getDecision()
+                        == com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision.GRANT)
+                .filter(override -> override.isEffectiveAt(java.time.Instant.now()))
                 .map(override -> override.getPermission().getCode())
                 .forEach(permissionsToRestore::add);
 
         collaborationPermissionRepository
-                .findAllByCollaborationCompanyIdAndCollaborationStatus(
+                .findAllByCollaborationCompanyIdAndCollaborationStatusAndIsActiveTrue(
                         company.getId(), CollaborationStatus.ACTIVE)
                 .stream()
                 .map(permission -> permission.getPermission().getCode())

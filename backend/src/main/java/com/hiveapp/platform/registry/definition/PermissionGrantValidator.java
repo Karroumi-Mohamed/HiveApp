@@ -1,6 +1,8 @@
 package com.hiveapp.platform.registry.definition;
 
 import com.hiveapp.platform.registry.domain.entity.Permission;
+import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
+import com.hiveapp.platform.registry.service.CurrentRegistrySnapshot;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -11,9 +13,16 @@ import java.util.Map;
 public class PermissionGrantValidator {
 
     private final ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
+    private final CurrentRegistrySnapshot currentRegistrySnapshot;
+    private final FeatureRepository featureRepository;
 
-    public PermissionGrantValidator(ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider) {
+    public PermissionGrantValidator(
+            ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider,
+            CurrentRegistrySnapshot currentRegistrySnapshot,
+            FeatureRepository featureRepository) {
         this.featureDefinitionCollectorProvider = featureDefinitionCollectorProvider;
+        this.currentRegistrySnapshot = currentRegistrySnapshot;
+        this.featureRepository = featureRepository;
     }
 
     public void requireClientRoleGrantable(Permission permission) {
@@ -28,8 +37,29 @@ public class PermissionGrantValidator {
         requireFlag(permissionCode, GrantTarget.PLATFORM_ADMIN_ROLE);
     }
 
+    public boolean isPlatformAdminRoleGrantable(String permissionCode) {
+        return isGrantable(permissionCode, GrantTarget.PLATFORM_ADMIN_ROLE);
+    }
+
     public boolean isClientRoleGrantable(Permission permission) {
         return isGrantable(permission.getCode(), GrantTarget.CLIENT_ROLE);
+    }
+
+    public boolean isOwnerUsable(Permission permission) {
+        if (!currentRegistrySnapshot.containsAction(permission.getCode())) {
+            return false;
+        }
+        FeatureDefinition definition = findDefinition(permission.getCode());
+        return definition != null && definition.surface() == FeatureSurface.CLIENT_WORKSPACE
+                && featureAvailableForUse(definition.code());
+    }
+
+    public boolean isClientRoleRuntimeEligible(String permissionCode) {
+        return isRuntimeEligible(permissionCode, GrantTarget.CLIENT_ROLE);
+    }
+
+    public boolean isB2bRuntimeEligible(String permissionCode) {
+        return isRuntimeEligible(permissionCode, GrantTarget.B2B_DELEGATION);
     }
 
     private void requireFlag(String permissionCode, GrantTarget target) {
@@ -40,10 +70,40 @@ public class PermissionGrantValidator {
     }
 
     private boolean isGrantable(String permissionCode, GrantTarget target) {
+        if (!currentRegistrySnapshot.containsAction(permissionCode)) {
+            return false;
+        }
         FeatureDefinition definition = findDefinition(permissionCode);
-        return definition != null && switch (target) {
-            case CLIENT_ROLE -> definition.clientRoleGrantable();
-            case PLATFORM_ADMIN_ROLE -> definition.platformAdminRoleGrantable();
+        return definition != null && featureAvailableForNewGrant(definition.code()) && switch (target) {
+            case CLIENT_ROLE -> definition.isClientRoleGrantablePermission(permissionCode);
+            case PLATFORM_ADMIN_ROLE -> definition.isPlatformAdminRoleGrantablePermission(permissionCode);
+            case B2B_DELEGATION -> definition.isB2bDelegatablePermission(permissionCode);
+        };
+    }
+
+    private boolean featureAvailableForNewGrant(String featureCode) {
+        return featureRepository.findByCode(featureCode)
+                .map(feature -> feature.isNewGrantsEnabled() && feature.isRuntimeEnabled())
+                .orElse(false);
+    }
+
+    private boolean featureAvailableForUse(String featureCode) {
+        return featureRepository.findByCode(featureCode)
+                .map(feature -> feature.isRuntimeEnabled())
+                .orElse(false);
+    }
+
+    private boolean isRuntimeEligible(String permissionCode, GrantTarget target) {
+        if (!currentRegistrySnapshot.containsAction(permissionCode)) {
+            return false;
+        }
+        FeatureDefinition definition = findDefinition(permissionCode);
+        if (definition == null || !featureAvailableForUse(definition.code())) {
+            return false;
+        }
+        return switch (target) {
+            case CLIENT_ROLE -> definition.isClientRoleGrantablePermission(permissionCode);
+            case PLATFORM_ADMIN_ROLE -> definition.isPlatformAdminRoleGrantablePermission(permissionCode);
             case B2B_DELEGATION -> definition.isB2bDelegatablePermission(permissionCode);
         };
     }

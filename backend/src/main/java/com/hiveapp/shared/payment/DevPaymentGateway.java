@@ -1,32 +1,50 @@
 package com.hiveapp.shared.payment;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /**
- * Development payment gateway — always succeeds, never charges anything.
- * Replace with a real implementation (Stripe, etc.) via @Primary or @ConditionalOnProperty
- * when moving to production.
+ * Explicit dev/test simulator. Its result is attempt telemetry only and is never trusted
+ * as settlement confirmation by the subscription checkout flow.
  */
 @Slf4j
-@Service
+@Component
+@Profile({"dev", "test"})
+@RequiredArgsConstructor
 public class DevPaymentGateway implements PaymentGateway {
+
+    private final BillingProperties billingProperties;
 
     @Override
     public PaymentResult charge(PaymentRequest request) {
-        String txId = "DEV-" + UUID.randomUUID();
-        log.info("[DEV] Simulated charge: {} {} for account {} — txId: {}",
-                request.amount(), request.currency(), request.accountId(), txId);
-        return new PaymentResult(txId, PaymentStatus.SUCCESS, null);
+        String txId = deterministicReference("DEV-CHARGE-", request.idempotencyKey());
+        PaymentStatus outcome = billingProperties.getSimulator().getOutcome();
+        String failureReason = outcome == PaymentStatus.FAILED
+                ? billingProperties.getSimulator().getFailureReason()
+                : null;
+        log.info("[DEV] Simulated payment attempt: {} {} for account {} — outcome: {}, txId: {}",
+                request.amount(), request.currency(), request.accountId(), outcome, txId);
+        return new PaymentResult(txId, outcome, failureReason);
     }
 
     @Override
-    public PaymentResult refund(String transactionId, BigDecimal amount) {
-        String txId = "DEV-REFUND-" + UUID.randomUUID();
-        log.info("[DEV] Simulated refund of {} for tx {} — refundTxId: {}", amount, transactionId, txId);
-        return new PaymentResult(txId, PaymentStatus.SUCCESS, null);
+    public PaymentResult refund(RefundRequest request) {
+        String txId = deterministicReference("DEV-REFUND-", request.idempotencyKey());
+        PaymentStatus outcome = billingProperties.getSimulator().getOutcome();
+        String failureReason = outcome == PaymentStatus.FAILED
+                ? billingProperties.getSimulator().getFailureReason()
+                : null;
+        log.info("[DEV] Simulated refund attempt of {} for tx {} — outcome: {}, refundTxId: {}",
+                request.amount(), request.paymentReference(), outcome, txId);
+        return new PaymentResult(txId, outcome, failureReason);
+    }
+
+    private String deterministicReference(String prefix, String idempotencyKey) {
+        return prefix + UUID.nameUUIDFromBytes(idempotencyKey.getBytes(StandardCharsets.UTF_8));
     }
 }

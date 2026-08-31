@@ -14,6 +14,8 @@ hiveapp:
     secret: ${HIVEAPP_JWT_SECRET}
   activation:
     base-url: ${HIVEAPP_FRONTEND_BASE_URL}
+  billing:
+    collection-enabled: ${HIVEAPP_BILLING_COLLECTION_ENABLED:false}
   admin:
     bootstrap:
       enabled: ${HIVEAPP_ADMIN_BOOTSTRAP_ENABLED:false}

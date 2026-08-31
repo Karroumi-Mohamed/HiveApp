@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.company.domain.repository;
 
 import com.hiveapp.platform.client.company.domain.entity.OrganizationGroup;
+import com.hiveapp.platform.client.company.domain.constant.GroupStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -16,6 +17,7 @@ public interface OrganizationGroupRepository extends JpaRepository<OrganizationG
     boolean existsByCompanyIdAndParentScopeKeyAndNormalizedName(UUID companyId, UUID parentScopeKey, String normalizedName);
     boolean existsByCompanyIdAndParentScopeKeyAndNormalizedNameAndIdNot(UUID companyId, UUID parentScopeKey, String normalizedName, UUID id);
     long countByParentId(UUID parentId);
+    long countByCompanyAccountIdAndStatus(UUID accountId, GroupStatus status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<OrganizationGroup> findForUpdateByCompanyIdAndParentScopeKey(UUID companyId, UUID parentScopeKey);

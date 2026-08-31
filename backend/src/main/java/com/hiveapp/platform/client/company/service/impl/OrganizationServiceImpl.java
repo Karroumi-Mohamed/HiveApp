@@ -1,7 +1,7 @@
 package com.hiveapp.platform.client.company.service.impl;
 
-import com.hiveapp.platform.client.account.domain.entity.Company;
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.company.domain.constant.GroupStatus;
 import com.hiveapp.platform.client.company.domain.constant.GroupTemplateScope;
 import com.hiveapp.platform.client.company.domain.entity.*;

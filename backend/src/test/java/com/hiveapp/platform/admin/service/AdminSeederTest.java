@@ -8,7 +8,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hiveapp.identity.domain.entity.User;
-import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.service.IdentityService;
+import com.hiveapp.identity.service.NewUserCommand;
 import com.hiveapp.platform.admin.config.AdminBootstrapProperties;
 import com.hiveapp.platform.admin.domain.entity.AdminUser;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
@@ -26,8 +27,7 @@ class AdminSeederTest {
     private static final String EMAIL = "bootstrap@example.com";
     private static final String PASSWORD = "bootstrap-password";
 
-    @Mock
-    private UserRepository userRepository;
+    @Mock private IdentityService identityService;
     @Mock
     private AdminUserRepository adminUserRepository;
     @Mock
@@ -36,18 +36,19 @@ class AdminSeederTest {
     @Test
     void createsConfiguredAdminWithoutUsingFixedCredentials() {
         when(adminUserRepository.findByUser_Email(EMAIL)).thenReturn(Optional.empty());
-        when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
+        when(identityService.emailExists(EMAIL)).thenReturn(false);
         when(passwordEncoder.encode(PASSWORD)).thenReturn("encoded");
-        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(identityService.createUser(any(NewUserCommand.class)))
+                .thenAnswer(invocation -> userFrom(invocation.getArgument(0)));
 
         seeder(enabledProperties()).seedAdmin();
 
-        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(userCaptor.capture());
-        assertThat(userCaptor.getValue().getEmail()).isEqualTo(EMAIL);
-        assertThat(userCaptor.getValue().getPasswordHash()).isEqualTo("encoded");
-        assertThat(userCaptor.getValue().getFirstName()).isEqualTo("Bootstrap");
-        assertThat(userCaptor.getValue().getLastName()).isEqualTo("Administrator");
+        ArgumentCaptor<NewUserCommand> commandCaptor = ArgumentCaptor.forClass(NewUserCommand.class);
+        verify(identityService).createUser(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().email()).isEqualTo(EMAIL);
+        assertThat(commandCaptor.getValue().passwordHash()).isEqualTo("encoded");
+        assertThat(commandCaptor.getValue().firstName()).isEqualTo("Bootstrap");
+        assertThat(commandCaptor.getValue().lastName()).isEqualTo("Administrator");
 
         ArgumentCaptor<AdminUser> adminCaptor = ArgumentCaptor.forClass(AdminUser.class);
         verify(adminUserRepository).save(adminCaptor.capture());
@@ -58,13 +59,13 @@ class AdminSeederTest {
     @Test
     void refusesToPromoteAnExistingNonAdminUser() {
         when(adminUserRepository.findByUser_Email(EMAIL)).thenReturn(Optional.empty());
-        when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(new User()));
+        when(identityService.emailExists(EMAIL)).thenReturn(true);
 
         assertThatThrownBy(() -> seeder(enabledProperties()).seedAdmin())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Refusing to promote");
 
-        verify(userRepository, never()).save(any());
+        verify(identityService, never()).createUser(any());
         verify(adminUserRepository, never()).save(any());
     }
 
@@ -77,16 +78,28 @@ class AdminSeederTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("email is required");
 
-        verify(userRepository, never()).save(any());
+        verify(identityService, never()).createUser(any());
         verify(adminUserRepository, never()).save(any());
     }
 
     private AdminSeeder seeder(AdminBootstrapProperties properties) {
-        return new AdminSeeder(userRepository, adminUserRepository, passwordEncoder, properties);
+        return new AdminSeeder(identityService, adminUserRepository, passwordEncoder, properties);
     }
 
     private AdminBootstrapProperties enabledProperties() {
         return new AdminBootstrapProperties(
                 true, EMAIL, PASSWORD, "Bootstrap", "Administrator");
+    }
+
+    private static User userFrom(NewUserCommand command) {
+        User user = new User();
+        user.setUsername(command.username());
+        user.setEmail(command.email());
+        user.setPasswordHash(command.passwordHash());
+        user.setFirstName(command.firstName());
+        user.setLastName(command.lastName());
+        user.setActive(command.active());
+        user.setEmailVerified(command.emailVerified());
+        return user;
     }
 }

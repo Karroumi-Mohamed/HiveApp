@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.company.service.impl;
 
-import com.hiveapp.platform.client.account.domain.repository.CompanyRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.company.domain.repository.*;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.shared.exception.ForbiddenException;

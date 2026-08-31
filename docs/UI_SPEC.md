@@ -1,4 +1,6 @@
 # HiveApp — Enterprise UI/UX Specification
+> **SUPERSEDED / historical inventory only.** This file contains removed invitation flows, stale permission counts, and an obsolete Bootstrap architecture. Use `UI_DESIGN_SYSTEM.md`, `UI_IMPLEMENTATION_PLAN.md`, current APIs, and `FLOW_DECISIONS.md` as the active sources.
+>
 > Version 2.1 — updated for the Bootstrap 5 admin shell, 68 discovered permissions, invitation flow, and /me endpoints
 
 ---

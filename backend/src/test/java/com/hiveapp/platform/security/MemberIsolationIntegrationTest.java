@@ -21,6 +21,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport {
 
     @Test
+    void authorizationDetailUsesAnExplicitMemberRolesAndOverridesShape() throws Exception {
+        String token = registerClientAndGetToken();
+        UUID memberId = currentMemberId(token);
+
+        mockMvc.perform(get("/api/v1/members/{id}/authorization", memberId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.member.id").value(memberId.toString()))
+                .andExpect(jsonPath("$.roles").isArray())
+                .andExpect(jsonPath("$.overrides").isArray());
+    }
+
+    @Test
     void memberListOnlyReturnsCurrentWorkspaceMembers() throws Exception {
         String ownerToken = registerClientAndGetToken();
         String otherToken = registerClientAndGetToken();
@@ -55,7 +68,31 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
         String otherToken = registerClientAndGetToken();
         UUID ownerMemberId = currentMemberId(ownerToken);
 
-        mockMvc.perform(delete("/api/v1/members/{id}", ownerMemberId)
+        mockMvc.perform(post("/api/v1/members/{id}/deactivate", ownerMemberId)
+                        .header("Authorization", bearer(otherToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Cross-workspace isolation test\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void clientCannotReadCredentialDeliveryStatusFromAnotherWorkspace() throws Exception {
+        String ownerToken = registerClientAndGetToken();
+        String otherToken = registerClientAndGetToken();
+        UUID ownerMemberId = currentMemberId(ownerToken);
+
+        mockMvc.perform(get("/api/v1/members/{id}/access", ownerMemberId)
+                        .header("Authorization", bearer(otherToken)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void clientCannotReadAuthorizationDetailFromAnotherWorkspace() throws Exception {
+        String ownerToken = registerClientAndGetToken();
+        String otherToken = registerClientAndGetToken();
+        UUID ownerMemberId = currentMemberId(ownerToken);
+
+        mockMvc.perform(get("/api/v1/members/{id}/authorization", ownerMemberId)
                         .header("Authorization", bearer(otherToken)))
                 .andExpect(status().isNotFound());
     }
@@ -64,7 +101,7 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
     void companyScopedRoleCanOnlyBeAssignedInsideItsCompany() throws Exception {
         String token = registerClientAndGetToken();
         assignPlan(token, "PRO");
-        UUID memberId = currentMemberId(token);
+        UUID memberId = createOrdinaryMember(token);
         UUID companyOneId = UUID.fromString(createCompany(token, "Company One").get("id").asText());
         UUID companyTwoId = UUID.fromString(createCompany(token, "Company Two").get("id").asText());
         UUID companyRoleId = createRole(token, companyOneId, "Company One Manager");
@@ -88,7 +125,8 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
         UUID ownerRoleId = createRole(ownerToken, null, "Owner Manager");
 
         mockMvc.perform(delete("/api/v1/members/{id}/roles/{roleId}", otherMemberId, ownerRoleId)
-                        .header("Authorization", bearer(otherToken)))
+                        .header("Authorization", bearer(otherToken))
+                        .param("scope", "ACCOUNT"))
                 .andExpect(status().isNotFound());
     }
 
@@ -117,7 +155,8 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
     private void addPermissionAndActivate(String token, UUID roleId, String permissionCode) throws Exception {
         mockMvc.perform(post("/api/v1/roles/{id}/permissions", roleId)
                         .header("Authorization", bearer(token))
-                        .param("permissionCode", permissionCode))
+                        .param("permissionCode", permissionCode)
+                        .param("registryVersion", registryCatalogVersionService.currentVersion()))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v1/roles/{id}/activate", roleId)
                         .header("Authorization", bearer(token)))
@@ -126,11 +165,11 @@ class MemberIsolationIntegrationTest extends PlatformShellIntegrationTestSupport
 
     private void assignPlan(String clientToken, String planCode) throws Exception {
         String adminToken = loginAdminAndGetToken();
-        mockMvc.perform(post("/api/admin/subscriptions/account/{accountId}", currentAccountId(clientToken))
-                        .param("planCode", planCode)
-                        .header("Authorization", bearer(adminToken)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.plan.code").value(planCode));
+        UUID accountId = currentAccountId(clientToken);
+        applyReviewedAdminSubscriptionChange(adminToken, accountId,
+                new com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest(
+                        planCode, java.util.Set.of(), java.util.List.of(),
+                        com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming.IMMEDIATE));
     }
 
     private UUID currentAccountId(String token) throws Exception {

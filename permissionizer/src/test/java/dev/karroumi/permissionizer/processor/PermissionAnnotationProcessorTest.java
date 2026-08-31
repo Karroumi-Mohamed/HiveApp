@@ -1,6 +1,7 @@
 package dev.karroumi.permissionizer.processor;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -72,6 +73,60 @@ class PermissionAnnotationProcessorTest {
 
         assertTrue(generatedSource.contains("read_text"), generatedSource);
         assertTrue(generatedSource.contains("read_number"), generatedSource);
+    }
+
+    @Test
+    void guardOffMethodIsNotEmittedAsAGrantablePermission() throws IOException {
+        Path source = tempDir.resolve("sample/InternalMethodService.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, """
+                package sample;
+
+                import dev.karroumi.permissionizer.PermissionNode;
+
+                @PermissionNode(key = "service", guard = PermissionNode.Guard.ON)
+                public class InternalMethodService {
+                    @PermissionNode(key = "read")
+                    public void read() {}
+
+                    @PermissionNode(key = "internal_bridge", guard = PermissionNode.Guard.OFF)
+                    public void internalBridge() {}
+                }
+                """);
+
+        Path classes = tempDir.resolve("classes-off");
+        Path generated = tempDir.resolve("generated-off");
+        Files.createDirectories(classes);
+        Files.createDirectories(generated);
+
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
+        try (StandardJavaFileManager files = compiler.getStandardFileManager(diagnostics, null, null)) {
+            Iterable<? extends JavaFileObject> units = files.getJavaFileObjects(source.toFile());
+            JavaCompiler.CompilationTask task = compiler.getTask(
+                    null,
+                    files,
+                    diagnostics,
+                    List.of(
+                            "-classpath", System.getProperty("java.class.path"),
+                            "-d", classes.toString(),
+                            "-s", generated.toString()),
+                    null,
+                    units);
+            task.setProcessors(List.of(new PermissionAnnotationProcessor()));
+            assertTrue(task.call(), () -> diagnostics.getDiagnostics().toString());
+        }
+
+        String generatedSource;
+        try (var paths = Files.walk(generated)) {
+            generatedSource = paths
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .map(PermissionAnnotationProcessorTest::readUnchecked)
+                    .collect(Collectors.joining("\n"));
+        }
+
+        assertTrue(generatedSource.contains("service.read"), generatedSource);
+        assertFalse(generatedSource.contains("internal_bridge"), generatedSource);
     }
 
     private static String readUnchecked(Path path) {

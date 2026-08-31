@@ -1,6 +1,6 @@
 package com.hiveapp.platform.client.company.service;
 
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.shared.exception.InvalidStateException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

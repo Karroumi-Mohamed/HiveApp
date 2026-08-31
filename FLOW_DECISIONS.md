@@ -52,11 +52,11 @@ This table will be updated as the relevant source folders are reviewed.
 | Admin area | Known purpose | Source review | Main open flow questions |
 |---|---|---:|---|
 | Admin authentication | Separate ADMIN access | Reviewed | Refresh, recovery, bootstrap, last-SuperAdmin safety |
-| Admin users | Promote users to platform administration and control access | Reviewed | Search/invite flow, deactivation effects, SuperAdmin protection |
+| Admin users | Create platform operators and control their access | Reviewed | Deactivation effects, SuperAdmin protection, recovery from total operator lockout |
 | Admin roles | Group platform-control permissions | Reviewed | Safe grant/revoke ceiling, deletion, inactive-role effects, audit |
 | Platform features | Inspect and operationally control code-defined capabilities | Not fully reviewed | Which states are editable, activation effects, subscribed-user effects |
-| Plans | Define sellable templates, included features, prices, and quotas | Not fully reviewed | Lifecycle, deletion/archive, editing, duplication, subscriber plan changes, history |
-| Subscriptions | Manage one account's purchased entitlement | Not fully reviewed | Account search, replace/cancel, overrides, immediate/renewal/scheduled plan changes, billing effects |
+| Plans | Define sellable templates, included features, prices, and quotas | Reviewed and independently audited through Phase 9 | Later bulk/scheduled subscriber operations and financial/analytics effects |
+| Subscriptions | Manage purchased entitlement and reviewed population changes | Phase 12.1 selected-Account change jobs implemented and self-audited | Filtered/Plan populations, trial/lifecycle commands, settlement and analytics |
 
 ---
 
@@ -85,6 +85,73 @@ Implementation consequences:
 - Remove workspace-switcher assumptions from the client UI.
 
 Still to decide separately: whether a person changing employers can transfer/reuse the same login identity or must receive a new identity.
+
+---
+
+## OPERATOR-IDENTITY-FLOW-001 — Platform operator identity and credentials
+
+**Status:** `DECIDED`
+
+A platform operator is created directly, with their own identity. Operators are never searched
+for, selected from, promoted out of, or imported from the client user pool. The two carry
+different trust levels, so they are different identities even when they are the same human — a
+person who is both a HiveApp employee and a member of a customer's company holds two logins.
+
+`users.kind` (`CLIENT` | `PLATFORM`) records the side. Member creation writes `CLIENT`; platform
+administration writes `PLATFORM`. An `AdminUser` may only reference a `PLATFORM` identity.
+
+One `users` table still backs both, deliberately. Email uniqueness is a database guarantee on
+that single table; splitting it would downgrade that to a cross-table application check that can
+race. The credential state machine lives there too and must not be duplicated.
+
+**Initial access**
+
+1. Creation requires an explicit initial-access method. **Email activation is the default and
+   recommended choice** when the address is a real receiving mailbox. The alternative is a
+   one-time-visible temporary password for a placeholder/non-receiving login address; choosing it
+   sends no email and does not verify the address.
+2. Only the selected credential is issued. An activation link and temporary password must never
+   be minted together: two live credentials, one of which must travel out of band, is the pair
+   that leaks.
+3. The link opens the admin activation page, which sets the password and **issues no session**.
+   The operator then signs in through the normal admin login. An emailed link must never by
+   itself produce an authenticated admin session.
+4. If the email never arrives, an authorized operator may resend it, or explicitly generate a
+   temporary password. Resending issues a fresh token, so the previous link stops working.
+
+Resend and temporary-access generation are separate permissions from creation, and separate from
+each other: re-triggering delivery to the operator's own inbox is a lesser act than producing a
+password that the acting administrator must then hand over.
+
+Operator activation is a distinct endpoint from client activation rather than a branch inside it.
+The client path requires an active workspace membership an operator does not have, and the two
+trust models must not be able to drift into each other.
+
+**Recovery**
+
+An operator whose email is verified recovers themselves through the admin forgot-password flow.
+Verification means exactly one thing: they followed a link sent to that address. Completing a
+credential with a temporary password verifies nothing, because the address was never exercised —
+an operator may hold a placeholder that receives no mail at all.
+
+So the two populations recover differently, deliberately:
+
+- **Verified email** — self-service reset by email.
+- **Unverified or non-receiving email** (for example a `name@hiveapp.com` placeholder) — an
+  authorized colleague generates a temporary password and hands it over directly. Temporary
+  passwords are never emailed.
+
+**Still open — secondary or changeable operator email.** An operator set up with a
+non-receiving address can never reach self-service recovery, and today has no way to move to one.
+Options not yet decided: allowing the operator's email to be changed (and re-verified), or adding
+a separate recovery address distinct from the login identifier. Until decided, those operators
+depend entirely on a colleague.
+
+**Still open — total operator lockout.** Self-service recovery narrows this considerably, but if
+every operator is locked out *and* unverified, the bootstrap seeder does nothing when its admin
+already exists, so the only way back is direct database access. The bootstrap password itself
+still works and is never rotated or expired, which is both the practical escape hatch today and a
+standing risk: a permanent SuperAdmin credential living in deployment configuration.
 
 ---
 
@@ -580,33 +647,39 @@ Employee number is optional and unique inside the Account. Using it to log in re
 
 ## B2B-FLOW-001 — Finding and requesting the correct provider company
 
-**Status:** `DECIDED — SOURCE IMPLEMENTATION INCOMPLETE`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 In this flow the **provider Account** owns the Company being shared; the **external client Account** receives delegated access to work in it.
 
 - A provider Company creates a share code/link instead of being exposed through broad global Company search. Exact verified business identifiers may be added later.
 - The provider controls whether the Company accepts incoming requests and may disable/regenerate its code. Regeneration invalidates the old code without changing existing collaborations.
+- A Company share code is reusable and has no implicit expiry. It remains valid until the provider disables or regenerates it; only its SHA-256 hash is stored.
 - The request shows both Account identities, target Company, purpose/message, and optional requested capabilities. Requested capabilities are non-binding; the provider chooses actual grants after acceptance.
 - An authorized external Account actor may request or cancel a pending request. An authorized provider actor may accept or reject it. These are Account-scoped Permissionizer actions.
-- At most one pending or active collaboration exists for the same external Account/provider Account/Company tuple; retries return the existing relationship rather than duplicating it.
+- At most one pending, active, or suspended collaboration exists for the same external Account/provider Account/Company tuple.
+- Request creation has an explicit three-way retry contract after purpose whitespace is trimmed/collapsed and requested capabilities are compared as an unordered set:
+  - any call that creates a new relationship record returns it with `201 Created`, whether it is the tuple's first record or follows terminal history;
+  - an identical retry of a live relationship returns the existing record with `200 OK`;
+  - the same live tuple with different normalized purpose or capabilities returns `409 Conflict`;
+- If identical concurrent requests race at the database constraint, the winning creator returns `201 Created` and the losing insert re-reads and returns the winner with `200 OK`; it must not surface a persistence error.
 
 ---
 
 ## B2B-FLOW-002 — Collaboration lifecycle
 
-**Status:** `DECIDED — COMMUNICATION CHANNEL DETAILS LATER`
+**Status:** `CORE LIFECYCLE AND AUDIT IMPLEMENTED — COMMUNICATIONS OPEN`
 
 Possible states need precise transitions and effects:
 
 ```text
 PENDING ──accept──> ACTIVE <──resume── SUSPENDED
-   │                  │                    ▲
- reject            revoke              suspend
-   ▼                  ▼                    │
-REJECTED            REVOKED ───────────────┘ (no transition back)
+   │  │               │                    ▲
+cancel reject      revoke              suspend
+   ▼  ▼               ▼                    │
+CANCELLED REJECTED  REVOKED ───────────────┘ (no transition back)
 ```
 
-- `REJECTED` means a request was never accepted; `REVOKED` means a previously accepted relationship ended.
+- `CANCELLED` means the requester withdrew a pending request, `REJECTED` means the provider refused it, and `REVOKED` means a previously accepted relationship ended.
 - Either participant may permanently revoke/end the relationship. Only the provider may suspend/resume delegated access because it owns the shared Company; the external Account controls its own workers through its roles.
 - Suspension requires a reason and may have an explicit scheduled review or resume time. Automatic resume occurs only when explicitly chosen during suspension.
 - Rejection/revocation preserve immutable history. A later request creates a new collaboration record and never silently restores old permissions.
@@ -619,7 +692,7 @@ Runtime delegated access must require an ACTIVE collaboration.
 
 ## B2B-FLOW-003 — Permission delegation
 
-**Status:** `DECIDED — SOURCE IMPLEMENTATION INCOMPLETE`
+**Status:** `PARTIALLY IMPLEMENTED — SAFE ACCOUNT-WIDE OPERATOR CEILING; COLLABORATION SCOPE OPEN`
 
 1. Provider opens collaboration detail.
 2. UI shows currently granted permissions and separately shows eligible additions.
@@ -636,7 +709,9 @@ Two authorization layers are required at use time:
 1. The provider account delegated the action for this active collaboration/company.
 2. The acting person in the client account has a client-side B2B/operator role allowing them to use that delegation.
 
-Current source enforces the first layer but grants before checking the second, so every active member of the client account can currently use all permissions delegated to that collaboration.
+Both layers are enforced. For the client-side operator layer, HiveApp currently evaluates the actor through the external Account's existing Account-scoped role/direct-exception resolver, with no foreign provider Company inserted into that scope. The external Account owner is allowed by the protected owner rule; ordinary members need an effective Account-scoped grant, and an applicable Account-scoped deny still wins. Organization Groups remain unrelated to authorization.
+
+This is a safe ceiling but an incomplete operator-management model. The provider's exact collaboration grant still bounds B2B access: it does not expose an undelegated action, Company, or collaboration. However, selecting an ordinary operator requires granting the same permission internally at Account scope, which also authorizes that action over the external Account's own Companies and makes it usable in every collaboration that separately delegates the same action. The open refinement is a Collaboration assignment effect scope that reuses role templates, assignments, and delegation ceilings without creating a parallel B2B role system.
 
 The provider owner may delegate any currently entitled, code-declared B2B action. A non-owner additionally needs delegation-management permission and may delegate only actions they effectively hold. The external Account owner or authorized role manager separately decides which external members may use available B2B delegation.
 
@@ -644,7 +719,7 @@ The provider owner may delegate any currently entitled, code-declared B2B action
 
 ## B2B-FLOW-004 — Entitlement and company lifecycle effects
 
-**Status:** `DECIDED — SOURCE IMPLEMENTATION INCOMPLETE`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 Define behavior when:
 
@@ -659,20 +734,20 @@ Decided safety rule: every use requires active provider and external Accounts, a
 
 Suspension disables configured grants without deleting them. Revocation freezes them as non-reusable history. If a feature/action becomes inactive, deprecated, non-delegatable, or unentitled, runtime stops immediately while the relationship and former grant remain explainable in history.
 
-Current source verifies active collaboration and provider entitlement, but does not verify active account/company state or whether the permission remains code-declared as B2B-delegatable.
+Current source verifies active collaboration, both active Accounts, active Company, provider entitlement, current code-declared B2B eligibility, the exact active persisted grant, exact Company scope, and the external member's Account-scoped operator authority. A stored grant that loses code eligibility remains visible as inactive history rather than remaining usable or being silently deleted.
 
 ---
 
 ## B2B-FLOW-005 — Concurrent and duplicate operations
 
-**Status:** `DECIDED — SOURCE IMPLEMENTATION INCOMPLETE`
+**Status:** `IMPLEMENTED — 2026-08-10`
 
 - At most one live collaboration per client/provider/company.
 - Granting the same permission is idempotent or returns a clear conflict.
 - Accept versus revoke/suspend uses version/locking conflict detection.
 - Retried commands cannot duplicate grants or change a terminal state unexpectedly.
 - UI refreshes from backend state after every command.
-- Treat `PENDING` and `ACTIVE` as the one live relationship slot for a client/provider/company tuple. A new request after rejection/revocation creates new history rather than mutating the terminal record.
+- Treat `PENDING`, `ACTIVE`, and `SUSPENDED` as the one live relationship slot for a client/provider/company tuple. Suspension retains grants and can resume, so releasing its slot could let a newer relationship collide with it when resumed. A new request after cancellation/rejection/revocation creates new history rather than mutating the terminal record.
 - Make request, cancel, accept, reject, suspend, resume, revoke, grant, and permission revoke idempotent or return an explicit already-applied/conflict result.
 
 ---
@@ -688,21 +763,20 @@ Current entity-level facts already observed:
 - `Subscription` points to a plan but also stores an entitlement snapshot, overrides, status, current price, and period end.
 - Successful registration currently expects a FREE plan.
 
-The main plan/subscription services, APIs, repositories, seeder, billing, entitlement, quota, and usage code have now been reviewed. Migrations, tests, security-policy ordering, payment integration, and frontend behavior still need verification before product decisions become final.
+The Plan/Product catalogues and one-Account subscription workbench have been implemented and independently audited through Phases 9 and 10. Phase 12.1 now also delivers reviewed selected-Account change jobs with durable partial results, scheduling, cancellation, retry, and privacy-separated identity reads. Filtered/Plan-subscriber populations, trial/lifecycle commands, settlement ledgers, reconciliation, and durable analytics remain their numbered later phases.
 
 ## Plan administration capability map
 
 This review must define both what exists now and the complete admin product to build.
 
-**Current backend skeleton**
+**Delivered operational foundation**
 
-- Create a plan and optionally inherit feature/quota composition from another plan or `FREE`.
-- Edit plan name, description, price, and billing cycle.
-- Toggle one active boolean and hard-delete a plan only when it has no subscription history.
-- View plan detail counts/warnings and current/trialing subscribers.
-- Add, update, list, and remove PlanFeatures with add-on price and quota configuration.
-- Manually create an Account subscription and apply direct feature/quota overrides.
-- Store a subscription entitlement snapshot, so later template edits do not automatically rewrite existing customer access.
+- Create a blank Plan or explicit duplicate, compose Feature-owned quotas, revise published products, compare revisions, and manage lifecycle/availability/visibility with backend-derived actions and blockers.
+- Manage independently versioned AddOns, capacity packages, and immutable monthly/yearly Price-book entries rather than mutable price columns.
+- Inspect bounded product catalogues, Plan subscribers, warnings, impact/history, current and historical subscription terms, and narrow Account/owner lookup surfaces.
+- Review and apply one-Account immediate or at-renewal subscription changes using exact prices, typed product selections, usage conflicts, policy-adjusted terms, required reason, and short-lived signed evidence.
+- Preserve exact accepted snapshots and provenance; later catalogue or policy changes do not rewrite them.
+- Direct admin subscription create/trial/raw-override mutations are retired. Registration-time internal FREE provisioning is the sole bootstrap exception.
 
 **Admin product capabilities that must be decided and built**
 
@@ -863,7 +937,8 @@ Creation should be guided rather than one large form:
 
 - The actor supplies a new unique code and name before duplication/revision is created.
 - The result always starts as `DRAFT`, regardless of the source plan's lifecycle.
-- Copy the source commercial configuration: description as a starting value, billing/price fields, feature modes, explicit plan blocks, dependency-satisfying composition, add-on configuration, and quota configuration. Pricing-related fields remain editable draft values and follow the later finalized pricing model.
+- Copy only Plan-owned commercial configuration: description as a starting value, billing/price fields, feature modes (including optional-add-on slots), explicit plan blocks, dependency-satisfying composition, and base quota configuration. Pricing-related fields remain editable draft values and follow the later finalized pricing model.
+- Do not copy incoming AddOn or quota-package attachments. Their `allowedPlanCodes` belong to those separate commercial items; copying them would silently mutate existing items as a side effect of creating a Plan. Operators attach compatible extensions to the new draft explicitly after reviewing it.
 - Never copy subscribers, subscription/payment/audit history, scheduled subscriber operations, Account-specific overrides/exceptions, or customer communication history.
 - Store source plan/revision identity and creation reason/type so admins can see where the draft came from. This lineage never makes later source edits mutate the copy.
 
@@ -936,6 +1011,8 @@ Creation should be guided rather than one large form:
 - Reject duplicate paid capability and overlapping included-quota definitions in the first implementation. If a Plan already includes a feature/module, the customer cannot buy the same capability again; a separately declared capacity package may still increase its quota.
 - Multiple AddOns require compatible dependencies, exclusions, and quota ownership. Backend preview explains incompatibility before purchase.
 - The immutable subscription snapshot records the Plan, AddOn versions, selected packages, effective features, effective quotas, item prices, currency, billing cycle, and effective dates.
+- `DRAFT` is the only editable AddOn definition state. Publishing is permanent: `ACTIVE` and `INACTIVE` mean respectively on sale and sales paused for a published immutable revision, while `ARCHIVED` is terminal and explicitly irreversible.
+- Changing a published AddOn creates the next copied `DRAFT` revision in the same lineage. Publishing that draft atomically pauses any older active revision for new sales; existing subscription snapshots remain unchanged. A never-published draft is deleted rather than archived.
 - Add/change/remove AddOn operations support immediate or renewal-time execution using the same authorization, impact preview, conflict handling, pending-operation, data-preservation, history, communication, and audit rules as Plan changes.
 - Advanced discounts, proration/refunds, per-unit charging, unlimited pricing, tax, and exact billing precedence remain for `PLAN-FLOW-007` and `PLAN-FLOW-008`.
 ---
@@ -981,7 +1058,7 @@ Preview every quota reduction against feature-owned current usage. Do not silent
 
 ## PLAN-FLOW-008 — Pricing and billing-cycle changes
 
-**Status:** `DECIDED FOUNDATION — ADVANCED BILLING LATER`
+**Status:** `DECIDED FOUNDATION — PRICE BOOKS AND COMMERCIAL OFFERS REOPENED 2026-08-26`
 
 ### Confirmed current behavior
 
@@ -1002,7 +1079,8 @@ Preview every quota reduction against feature-owned current usage. Do not silent
 - Keep price preview, invoice/amount due, confirmed payment, and refund/credit as distinct records/states. Only confirmed payment/manual settlement counts as collected money/revenue.
 - Payment states include at least `PENDING`, `SUCCEEDED`, `FAILED`, `PARTIALLY_REFUNDED`, and `REFUNDED`, with provider/manual references and idempotency so retries cannot charge twice.
 - Failed renewal moves to `PAST_DUE`; configured grace may continue access, then declared restricted/suspended behavior applies without deleting data. Zero-priced renewal requires no fake payment and renews after current eligibility validation.
-- Defer automatic tax, coupons/percentage discounts, metered usage charging, automatic proration, foreign-exchange conversion, and automated refunds. Keep extension points/item types without presenting those capabilities as working.
+- The V1 safety baseline persists the grace deadline and derives it from the platform renewal-grace setting (72 hours by default). A later per-Account extension is a separate reasoned, expiring, audited exception; changing Plan or Price rows never rewrites an already persisted deadline.
+- Percentage/fixed discounts and offer codes are now in scope only through the typed, versioned, auditable Offer/Commercial Policy model in `MARKETING-FLOW-002`; they are never mutable price fields or arbitrary checkout inputs. Automatic tax, metered usage charging, automatic proration, foreign-exchange conversion, and automated refunds remain deferred. Keep extension points/item types without presenting those capabilities as working.
 - Authorized manual adjustments require reason, actor, before/after calculation, and audit. Marking an amount paid requires a distinct confirmed manual settlement or provider event.
 
 ### Rule until real billing exists
@@ -1074,6 +1152,140 @@ A bulk subscriber plan change is a separate explicit operation, never a side eff
 
 ---
 
+# Commercial control-plane decisions
+
+The canonical cross-area contract is `docs/COMMERCIAL_CONTROL_PLANE_V1.md`. These decisions add capabilities to the existing Plan/AddOn/quota/subscription model; they do not relax immutable published revisions, snapshot-pinned subscriber terms, or explicit subscriber-change operations.
+
+## COMMERCIAL-FLOW-001 — Technical capabilities and commercial products remain separate
+
+**Status:** `DECIDED — 2026-08-26`
+
+- Code and the registry own Feature, permission, and quota identities and safety metadata.
+- Platform operators own Plan, AddOn, capacity-package, Price-book, policy, Campaign, and Offer records.
+- A Feature has no universal price. A commercial product revision references only currently sellable registry capabilities.
+- A subscription belongs to an Account and resolves one Plan plus selected compatible AddOns/packages and explicit commercial effects into an immutable snapshot.
+- Authorization, entitlement, quota enforcement, commercial policy, and settlement remain separate layers. Success in one layer never implies success in another.
+- Marketing may narrow or propose compatible products and adjustments; it cannot make an internal/non-sellable Feature purchasable or bypass authorization, dependency, quota-ownership, currency/cycle, payment, or platform-safety rules.
+
+## COMMERCIAL-FLOW-002 — Plan extension and sales-visibility policy
+
+**Status:** `DECIDED — 2026-08-26`
+
+Every Plan revision declares one extension policy:
+
+- `CLOSED`: the Plan cannot be extended through customer purchase.
+- `ALLOW_LIST`: only explicitly attached compatible AddOns and capacity packages are available.
+- `OPEN_COMPATIBLE`: any active public extension that passes compatibility may be sold unless explicitly blocked.
+
+Product visibility is independently `PUBLIC` or `DIRECT_ONLY`. Direct-only products remain usable by authorized operators and targeted Offers but never appear in the ordinary client catalogue.
+
+Compatibility is always backend-computed from registry sellability, dependency/exclusion rules, duplicate-capability prevention, included-quota ownership, already-entitled quota ownership for packages, active product revisions, and exact currency/cycle support. Optional Plan/Segment/Account targeting can only narrow this set. The backend catalogue and preview explain why an item is unavailable; the UI does not reproduce the rules.
+
+Changing either policy on a published product requires a new commercial revision or a separately audited sales-availability operation. Existing snapshots remain unchanged.
+
+## COMMERCIAL-FLOW-003 — Immutable multi-cycle price books
+
+**Status:** `DECIDED — 2026-08-26`
+
+- Plan, AddOn, and capacity-package revisions no longer have only one usable price/cycle. Each may expose independently entered `MONTHLY` and `YEARLY` Price-book entries for supported currencies.
+- A yearly price is never derived automatically from monthly. Zero-price recurring entries are valid.
+- Price entries use `DRAFT`, `ACTIVE`, `INACTIVE`, and terminal `ARCHIVED`. Amount, currency, cycle, owner revision, and effective-from time are immutable after activation.
+- An active entry may be paused for new selection without changing existing subscriber snapshots. A changed amount creates a new entry/version.
+- At most one entry is applicable for one product revision, currency, cycle, and instant. Activation validates overlap transactionally.
+- Every API Money amount is an exact plain-decimal JSON string with a separate ISO currency code; frontend display/input must preserve it without `number`, `parseFloat`, or implicit IEEE-754 arithmetic.
+- Subscription preview and checkout select exact compatible entries and snapshot every item. No implicit currency conversion or mixed-cycle total exists.
+- Existing subscribers change prices only through an immediate/renewal/scheduled subscription operation. A template edit never reprices them.
+
+## COMMERCIAL-FLOW-004 — Typed Account commercial policies and precedence
+
+**Status:** `IMPLEMENTED THROUGH PHASE 10 — INDEPENDENTLY AUDITED 2026-08-27`
+
+Commercial policies provide reusable operator tools without hard-coding a business strategy.
+
+- Delivered targets are one Account, explicit Accounts, subscribers of one Plan revision, or an active exact Segment revision/activation. The backend snapshots the affected set for activation and preserves accepted provenance, including the source Segment activation.
+- Delivered effects are product allow/block, Feature block, fixed recurring subscription price, fixed-Money discount, percentage discount with explicit maximum, finite quota bonus, and bounded AddOn/package grant. Free recurring periods and renewal instructions remain Phase 12.
+- Every policy has source, reason, owner, actor, lifecycle, priority, effective window, expiry or explicit permanence, optional approval/contract reference, preview version, and audit.
+- Direct Account policy outranks Segment policy. At equal priority, restriction wins over grant. Purchased extensions precede commercial adjustments, while platform hard safety ceilings and Account governance restrictions always win.
+- One-Account and explicit Account-set targets have the same direct-target specificity and both outrank Plan-revision and Segment audiences. A Plan-revision audience includes current `TRIALING`, `ACTIVE`, `PAST_DUE`, and `SUSPENDED` subscribers; terminal subscription history is excluded.
+- An active policy is immutable; editing creates a draft revision. Expiry stops future effect and never rewrites historical snapshots, invoices, or operations.
+- Activation approves the exact immutable policy revision and snapshots its Account audience; it does not itself alter subscriptions, entitlements, prices, invoices, or payments. A Segment-targeted policy requires an active immutable Segment activation. `DRAFT`, `ACTIVE`, and `PAUSED` policy references keep the Segment reusable and therefore block its archive; `ENDED` and `ARCHIVED` policy history does not, because the policy activation already retains the frozen audience and Segment provenance.
+- Time-bounded AddOn and capacity-package grants require an explicit end. Platform hard limits remain non-overridable, and every accepted subscription operation snapshots the exact winning policy revision/effects so later expiry or revision cannot rewrite accepted terms.
+- Policy activation and later Account application are separate. One-Account immediate/at-renewal application is delivered through the signed subscription preview/apply operation, including locked recomputation and accepted-effect provenance. Selected/filtered/scheduled application, per-Account job results, retry, and cancellation cutoff remain Phase 12.
+
+## COMMERCIAL-FLOW-005 — Reviewed commercial writes use operation-bound evidence
+
+**Status:** `DECIDED — 2026-08-27`
+
+- A reviewed cross-aggregate mutation carries short-lived signed evidence that binds the operation kind, exact target and optimistic version, actor, commercial-catalogue revision, registry snapshot version, evaluation time/expiry, and assessment fingerprint.
+- Apply never treats the evidence as authorization or payment. It reauthorizes the actor, takes the documented aggregate locks, re-resolves current registry/commercial state, and rejects stale, malformed, expired, cross-actor, or cross-operation evidence with a stable conflict and no write.
+- Lock order is consistent: registry-affecting commercial writes lock the commercial catalogue before the registry singleton and product rows; subscription finalization locks the Account before those commercial/registry locks and exact product/price rows.
+- A strictly row-local mutation may instead use an exact optimistic version plus locked recomputation when it cannot select or affect a different aggregate, audience, or result.
+- Signed review evidence is never placed in URLs, logs, audit payloads, analytics, or user-facing errors.
+
+## MARKETING-FLOW-001 — Safe reusable Account segments
+
+**Status:** `IMPLEMENTED — INDEPENDENTLY AUDITED 2026-08-27`
+
+- A Segment is either an explicit Account set or typed commercial criteria. It never accepts SQL, scripts, or permission/business-record predicates.
+- Initial criteria may use current Plan, subscription status, currency/cycle, Account creation date, and purchased commercial products.
+- Preview returns a bounded sample, total, criteria version, and evaluation time. Activation snapshots membership for a Campaign execution; later Account changes do not silently rewrite an already scheduled audience.
+- Segment list/detail APIs support pagination, search, lifecycle, duplication, impact preview, safe delete/archive, and history. Sensitive Account identity fields remain separately authorized.
+- Delivered operations include bounded list/search, an explicit-or-criteria builder, preview/count, separately authorized identity resolution, signed activation, immutable revisions, compare/history, owner transfer, and lifecycle control. Commercial Policies may target an exact active Segment activation through a dedicated executable reference chooser.
+- Archiving excludes a Segment from new selection. It is blocked by `DRAFT`, `ACTIVE`, or `PAUSED` policy references, but not by `ENDED` or `ARCHIVED` policy history, whose accepted activation already preserves its own frozen audience and Segment provenance.
+
+## MARKETING-FLOW-002 — Campaigns, offers, and redemption
+
+**Status:** `IMPLEMENTED — CAMPAIGNS AUDITED 2026-08-28; OFFER BACKEND AND ADMIN/CLIENT UI VERIFIED 2026-08-31; AUTHENTICATED BROWSER QA PENDING`
+
+- Campaign lifecycle is `DRAFT`, `SCHEDULED`, `ACTIVE`, `PAUSED`, `ENDED`, and terminal `ARCHIVED`.
+- Delivered Campaign operations include bounded list/search/filter/sort, guided draft terms and audience configuration, duplication/revision/compare/history, separately authorized ownership and Account identity lookup, signed schedule review, pause/resume/end/archive, safe draft deletion, and isolated scheduled start/end processing. The admin UI exposes these as permission-independent surfaces, uses narrow operation/edit/evidence contracts rather than broad detail reads, and preserves stale-review, loading, error, mobile, and RTL behavior.
+- A targeted schedule freezes the exact explicit Accounts or exact active Segment activation selected at review. Its immutable evidence binds actor, Campaign/version, commercial-catalogue revision, registry snapshot, evaluation/expiry, fingerprint, reason, and schedule window. A public Campaign deliberately stores no platform-wide Account population; eligibility remains dynamic at Offer preview/acceptance.
+- Only a draft Campaign still depends on its source Segment for future scheduling and therefore blocks Segment archive. Once scheduled, the frozen audience is self-contained; retained Campaign history still blocks destructive Segment deletion so provenance cannot be orphaned.
+- Offers are immutable published revisions in a stable lineage. The lineage owns its exact Campaign revision, permanent customer-code reservation, discovery mode, acceptance channel, and lineage-wide global/per-Account limits; publishing a successor never resets usage.
+- Discovery is either `CATALOG` or `CODE_ONLY`. Acceptance is independently `CLIENT_OR_OPERATOR` or `OPERATOR_ONLY`. A code never grants authority or bypasses the Campaign audience, and code resolution returns one generic unavailable result for unknown, ineligible, exhausted, retired, expired, or wrong-audience input without logging the raw code.
+- Every Offer revision pins one complete compatible target selection: exact Plan/Price entry, exact AddOn/Price entries, exact capacity-package/Price entries and quantities, timing, optional finite quota bonus, optional free product grants, and at most one fixed or percentage Offer discount. It cannot carry restriction effects, arbitrary fixed recurring price, tax, proration, refund, or free-period behavior.
+- Fixed/percentage discounts exist only as Offer/Policy effects with Money/currency compatibility, bounded duration/redemptions, reason/source, and immutable evidence. They are not arbitrary client-supplied checkout values.
+- Public offers are visible only to currently eligible Accounts. Targeted offers are visible only to their snapshotted audience. Direct-only products may appear through an authorized targeted offer.
+- Preview explains resulting products, features, quotas, exact itemized price, adjustment, amount due, and timing. Acceptance revalidates under an Account lock and is idempotent.
+- Pausing/ending stops new redemption but never reverses completed changes or cancels an already reserved operation. Phase 11 operator application targets exactly one Account through the same reviewed subscription-operation engine; selected/filtered/bulk execution belongs to Phase 12 jobs.
+- The Campaign owns the audience and every Offer revision inherits it. A public Campaign does not snapshot the whole platform; eligibility is resolved at preview/acceptance time.
+- Scheduling freezes the Campaign audience and timing, not an Offer set. Each Offer lineage belongs permanently to one exact Campaign revision; Campaign revision/duplication never silently copies or moves Offers.
+- Offer selection is explicit and opt-in. An Offer is not activated as an always-applicable Commercial Policy and must retain its own immutable redemption/provenance evidence.
+- One authoritative combined commercial evaluation computes catalogue subtotal, the selected Policy fixed base, selected Policy discount candidate, Offer discount candidate, winner, and final recurring price. The greater actual compatible reduction wins without stacking; Policy wins an exact tie. Restrictions and platform hard limits remain vetoes.
+- Published customer-facing codes are globally reserved permanently. A redemption reserves global capacity when its subscription operation is created; cancellation or failure before application releases capacity without deleting the historical attempt.
+- Initial redemption supports current `ACTIVE` or `TRIALING` subscriptions only. Past-due, suspended, cancelled, and win-back lifecycle recovery belongs to Phase 12.
+- The Offer eligibility window controls new acceptance. A temporary discount that later reverts requires an explicit scheduled Phase 12 subscription operation rather than silent expiry mutation.
+- Published Offer revisions are immutable. Retirement is a reversible stop for new redemption; archive is terminal.
+- Delivered Offer operations include bounded list/search/filter/sort, narrow definition and operation reads, guided exact-product authoring, backend definition/publication previews, immutable revisions and comparison, owner transfer, results, privacy-separated redemption identities, client catalogue/body-only private-code resolution, signed preview, idempotent acceptance, and one-Account operator application. The client projection contains readable product terms and omits internal Campaign, lineage, product, and Price identities.
+
+## BILLING-FLOW-001 — Invoice, settlement, credit, and refund ledgers
+
+**Status:** `DECIDED — 2026-08-26`
+
+- Price preview, invoice/amount due, payment attempt, confirmed settlement, credit, refund, and collected-value analytics are distinct records.
+- Invoices are immutable numbered documents containing Account, period, currency, status, totals, and versioned lines that retain source product/price/policy identifiers and readable snapshots.
+- Payment attempts are idempotent and record pending/succeeded/failed state, amount, method/provider type, external or manual reference, source/actor, and timestamps. Manual settlement needs a dedicated permission, evidence/reference, and reason.
+- Credit and refund records append corrections; they never mutate original invoice/payment evidence. Refund totals cannot exceed eligible settled amounts.
+- Zero-amount invoices may settle without a fake payment. Only succeeded settlement contributes to collected-value reporting.
+- Provider callbacks/reconciliation are idempotent and never activate entitlement merely because a price calculation succeeded. Failed renewal enters explicit past-due/grace/restricted lifecycle without deleting data.
+- Checkout cancellation and manual settlement cancel an automatic charge only before provider dispatch, atomically cancelling its Payment intent and outbox command. Once dispatch begins, reconciliation is required before either action so the platform cannot double-collect or falsely report a provider charge as cancelled.
+- Provider Refund transport is available only for a trusted provider-collected Payment. A cash, bank-transfer, or otherwise manual return is recorded as a separately authorized succeeded manual Refund with external evidence; it never fabricates or sends a provider Refund command.
+- A callback reaches the ledger only through a provider adapter that already verified its signature. HiveApp stores normalized evidence and a payload digest before processing, matches only by the financial idempotency key, and retains unknown/mismatched evidence without changing money or entitlement; no unsigned generic webhook is exposed.
+- Charge recovery never reopens a failed Payment. It creates a new Payment/outbox attempt with operator provenance; an ambiguous transport failure additionally requires recorded provider non-capture evidence before retry.
+- Automatic tax, FX, metered billing, automatic proration, and automatic refunds remain deferred and must not appear as implemented.
+
+## ANALYTICS-FLOW-001 — Durable commercial facts and truthful analytics
+
+**Status:** `DECIDED — 2026-08-26`
+
+- Analytics derive from durable subscription periods, operations, invoice/payment/credit/refund records, and append-only commercial events—not mutable template totals.
+- Initial metrics cover subscription state over time, configured recurring value, invoiced/settled/credited/refunded value separately, product adoption/churn, Offer eligibility/redemption, policy execution, renewal outcomes, past-due aging, and capacity-package/near-quota adoption.
+- Every endpoint takes a bounded time range, timezone, interval, and safe filters; returns completeness time and dimensions; and never sums different currencies or cycles into one unlabeled number.
+- Summary cards/charts link to the filtered operational table that explains the number. Missing/incomplete data is shown honestly rather than as zero.
+- Analytics read permissions do not imply access to sensitive payment references, owner email, or client business records.
+- The implementation contract is recorded in `docs/COMMERCIAL_ANALYTICS_V1.md`: V1 reads the authoritative ledger/lifecycle/operation/redemption records directly, exposes independently protected summary, financial, subscription, Offer, and operational surfaces, and uses explicit read watermarks rather than claiming provider finality.
+- Historical near/over-quota reporting is deferred until a cadence-based append-only usage-snapshot contract exists. V1 may report current capacity-package holdings, but it must not scan every Account's live business tables and present that unstable result as historical quota pressure.
+
 # Account subscription administration
 
 ## SUBSCRIPTION-FLOW-001 — Finding the correct account
@@ -1084,7 +1296,7 @@ Admins should not normally paste a raw UUID. Provide authorized paginated lookup
 
 ## SUBSCRIPTION-FLOW-002 — Replacing an account's plan
 
-**Status:** `DECIDED — SOURCE IMPLEMENTATION INCOMPLETE`
+**Status:** `IMPLEMENTED FOR ONE ACCOUNT — IMMEDIATE/AT RENEWAL — 2026-08-27`
 
 Required flow:
 
@@ -1092,7 +1304,7 @@ Required flow:
 2. Display current subscription snapshot and overrides.
 3. Select target plan/add-ons/quotas.
 4. Preview entitlement, usage conflicts, and price.
-5. Choose immediate or scheduled effect when supported.
+5. Choose immediate or at-renewal effect.
 6. Confirm.
 7. Revalidate under an account lock.
 8. Create history-preserving replacement state.
@@ -1104,15 +1316,16 @@ Additional decisions:
 - Authorized operators may change the plan immediately. Usage conflicts require an explicit result—grace, temporary exception, restricted state, or remediation—not automatic data deletion.
 - End/preserve the old subscription state and create a new validated snapshot/history entry; never mutate historical purchased terms in place.
 - Authorized manual corrections are supported but require a reason, before/after detail, and complete audit.
+- Selected/filtered populations, arbitrary scheduled instants, reviewed trial/lifecycle commands, job progress, retry, cutoff cancellation, and communication state remain Phase 12.
 
 ## SUBSCRIPTION-FLOW-003 — Account-specific exceptions
 
-**Status:** `DECIDED — PRICING EFFECT DEFERRED`
+**Status:** `TYPED POLICY EFFECTS IMPLEMENTED — GENERAL EXCEPTIONS LATER`
 
-- Exceptions may explicitly grant or restrict sellable client features/quotas within code-owned safety boundaries. They never enable internal, platform-control, inactive, or non-sellable capabilities.
-- Every exception stores source/type, reason, actor, effective time, and either expiry or explicit permanent status. Approver/contract reference may be attached when the business process requires it.
-- During any plan change, preview every exception and require an explicit decision to retain, remove, or replace it after validating the target plan. Never carry exceptions blindly.
-- Direct restrictions and grants remain source-visible in the effective-access UI and audit. Deferred pricing work determines their commercial charge/credit behavior.
+- Phase 10 typed policies can grant/block eligible products, block client Features, apply a fixed recurring price or one bounded non-stacking discount, add finite quota, and grant bounded AddOns/packages within code-owned safety boundaries. They never enable internal, platform-control, inactive, or non-sellable capabilities.
+- Every accepted effect retains policy revision/source, reason, owner/actor, target specificity, priority, effective window, and exact result provenance. Later expiry or revision cannot rewrite accepted terms.
+- Subscription preview exposes the winning policy-adjusted terms and conflicts; apply recomputes them under locks and snapshots the result. Restrictions outrank grants at equal specificity/priority, and direct targets outrank Plan/Segment audiences.
+- General negotiated exceptions, grace/restricted-state remediation, free periods, and renewal instructions remain later work rather than raw override fields.
 
 ## SUBSCRIPTION-FLOW-004 — Cancellation, suspension, and expiration
 
@@ -1287,6 +1500,22 @@ Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
+| 2026-08-28 | Make Offer discovery and acceptance explicit, bind limits/codes to the lineage and exact Campaign/product/price revisions, keep Phase 11 application one-Account, and choose the greater Policy-or-Offer reduction without stacking | Codes must not become credentials; revisions must not reset limits or drift with catalogue changes; one authoritative price result avoids competing truths; bulk execution and recovery need the Phase 12 job/lifecycle engine | Offer lineage/revisions/codes/capacity, Campaign relation, subscription evaluation/operations/snapshots, client/admin authorization and UI, analytics boundaries |
+| 2026-08-28 | Freeze exact targeted Campaign audiences at scheduling, keep public Campaign audiences dynamic, and release the source Segment after schedule while retaining immutable provenance | Targeted delivery must not drift after operator review, but snapshotting every Account for a public Campaign would be expensive and misleading; stored schedule evidence makes published history independent without allowing destructive provenance loss | Campaign scheduling/evidence/lifecycle, Segment archive/delete blockers, audience privacy, Offer eligibility, admin UI and tests |
+| 2026-08-27 | Let only reusable/live `DRAFT`, `ACTIVE`, or `PAUSED` policy references block Segment archive; terminal policy history keeps its frozen audience and provenance but releases the Segment | An accepted policy activation is historically independent of the later Segment lifecycle, while a policy that can still be activated or resumed must retain a valid selectable Segment | Segment lifecycle and blockers, policy Segment resolver/activation, retained audience provenance, admin actions and tests |
+| 2026-08-27 | Make Campaign the audience owner and Offers explicit opt-in immutable revisions with their own redemption evidence, never always-applicable active Policies | Offer acceptance, limits, codes, eligibility privacy, and commercial attribution require explicit provenance; representing an Offer as a Policy would silently affect ordinary subscription previews without selection | Campaign audience snapshots, Offer lifecycle/effects/codes, subscription preview/apply, redemption history, client/admin UI and analytics |
+| 2026-08-27 | Use one non-stacking selected Offer discount over other discount candidates, permanently reserve published codes, reserve redemption capacity at operation creation with pre-application release, and keep retirement reversible while archive is terminal | Deterministic pricing, race-safe limits, reusable codes, and operational pause/recovery must remain explainable without rewriting completed history | Offer validation/publication, pricing precedence, redemption concurrency/idempotency, subscription operations, audit and lifecycle UI |
+| 2026-08-27 | Retire direct admin subscription create, trial, and raw-override mutations; require signed reviewed operation evidence for subscriber-affecting admin changes, with internal registration-time FREE provisioning as the sole bootstrap exception | A privileged shortcut can bypass exact product/price/policy review, usage conflicts, concurrency checks, provenance, and history; trial creation must therefore return only as a first-class reviewed Phase 12 operation | Admin subscription API and Permissionizer nodes, Account workbench, registration provisioning, trial/lifecycle operations, audit and frontend flows |
+| 2026-08-27 | Separate commercial-policy approval from subscriber application and freeze each accepted audience/effect provenance | Activating a reusable rule is not consent to rewrite every current subscription; immutable audience snapshots plus explicit reviewed subscription operations preserve operator intent, concurrency safety, and historical terms | Commercial-policy lifecycle/activation, Account audiences, subscription preview/apply, policy explanations, future bulk execution and settlement |
+| 2026-08-27 | Bind reviewed cross-aggregate commercial writes to short-lived signed evidence and revalidate under one lock order | A browser-supplied count or stale preview version cannot prove which registry/catalogue state, actor, target, and result were reviewed; operation-bound evidence plus locked recomputation prevents substitution and TOCTOU writes without turning the token into authorization | Plan/AddOn/package/Price activation, availability and deletion, subscription changes, future policies/offers/bulk operations, audit and frontend confirmation flows |
+| 2026-08-26 | Keep V1 commercial-policy pricing to one non-stacking subtotal discount and make policy audiences/execution evidence immutable | Subtotal-only fixed/percentage discounts avoid ambiguous line allocation and surcharges; static affected sets and authorized `SYSTEM` execution keep scheduled work reproducible without silently following later Segment or operator-permission changes | Commercial-policy effects and precedence, audience snapshots, scheduled execution, subscription operations, invoices, client explanations and audit |
+| 2026-08-26 | Carry API monetary amounts as exact plain-decimal strings rather than JSON numbers | Java `BigDecimal` values can exceed JavaScript's exact integer/fraction range; converting immutable prices through IEEE-754 can silently alter accepted commercial terms | Money DTOs and snapshots, Price-book and subscription APIs, frontend contracts, formatting and tests |
+| 2026-08-26 | Build the commercial control plane as separate technical capabilities, products, prices, policies, offers, subscription operations, and financial records | Combining these meanings created unclear UI, unsafe implicit effects, and totals that could be mistaken for settlement; separation keeps each operation explainable and auditable | Registry, Plans/AddOns/packages, price books, subscriptions, policies, marketing, billing, analytics, admin/client UI |
+| 2026-08-26 | Give every Plan revision an explicit CLOSED, ALLOW_LIST, or OPEN_COMPATIBLE extension policy plus independent PUBLIC/DIRECT_ONLY product visibility | Operators need strict and extensible commercial strategies without marketing being able to override mandatory compatibility or expose private products | Plan/AddOn/package catalogue, compatibility previews, targeted offers, client self-service |
+| 2026-08-26 | Replace the single-price product assumption with immutable independently entered monthly/yearly price-book entries | A product commonly supports monthly, yearly, or both; annual price is a commercial decision, while existing subscribers must retain accepted prices | Plan/AddOn/package pricing, checkout, snapshots, renewals, admin price-book UI |
+| 2026-08-26 | Reopen discounts only as bounded typed Offer/Commercial Policy effects | Marketing control is required, but arbitrary checkout discounts or mutable base prices would bypass evidence, targeting, and currency/settlement rules | Segments, campaigns, offers, commercial policies, price preview, subscription operations, audit |
+| 2026-08-26 | Derive commercial analytics from durable operational and financial facts and never mix configured, invoiced, settled, credited, or refunded amounts | Admin decisions require truthful drillable measures rather than decorative cards or mutable configured totals mislabeled as revenue | Commercial events/read models, billing ledger, dashboard charts, operational tables and permissions |
+| 2026-08-14 | Duplicate only Plan-owned composition and require explicit AddOn/quota-package attachment to the new draft | Incoming attachments are owned by separate commercial items through `allowedPlanCodes`; copying them would silently widen those existing items while creating a Plan | Plan duplication service and wizard, AddOn/quota-package management, schema visualization, audit |
 | 2026-07-14 | HiveApp remains one organized monolith | Company/product direction | Entire backend architecture |
 | 2026-07-14 | One active client Account membership per user | Members are employer-managed workers, not users managing multiple personal workspaces | Identity, membership, invitations, request context, B2B, client UI |
 | 2026-07-14 | Account owner automatically has every permission available within their Account | The owner is the tenant authority root and must be able to do anything another Account member can do | Permissionizer policies, owner invariant, roles, overrides, delegation, member security |
@@ -1310,15 +1539,29 @@ Record accepted decisions here with date, reason, and affected source areas.
 | 2026-07-15 | Model Account exceptions and subscription cancel/suspend/expire/restore as explicit source-aware states | Customer-specific access and lifecycle actions must remain understandable, reversible where allowed, and separate from data purge | Overrides/exceptions, subscription state machine, restricted access, sessions/B2B, history/audit |
 | 2026-07-15 | Keep client subscription self-service inside explicit Account authority and real commercial confirmation | A client-facing button must not fabricate payment or allow arbitrary internal/unlimited/negotiated entitlement | Subscription visibility/management permissions, pending commercial changes, sellable-option validation, audit |
 | 2026-07-15 | Use provider-controlled Company share links and a complete history-preserving B2B lifecycle | External collaboration must be discoverable without global Company leakage and remain understandable through rejection, suspension, and revocation | B2B discovery, requests, lifecycle, grants, notifications, audit |
+| 2026-08-10 | Include `SUSPENDED` in the single live collaboration slot | A suspended relationship retains grants and can resume; releasing the slot could allow a newer relationship that collides when the suspended one resumes | Collaboration state model, live-tuple database constraint, request retries, lifecycle UI and tests |
+| 2026-08-13 | Create platform operators outright instead of promoting existing users, and never import identities from the client pool | Selection implies a trusted pool, and client members are not one; the two sides carry different trust levels, so they are different identities even for the same human | `users.kind` discriminator, operator creation endpoint, candidate search removal, operator credentials, create-operator UI |
+| 2026-08-13 | Keep one `users` table for both sides rather than separating client and platform identity tables | Email uniqueness is a database guarantee on one table; splitting downgrades it to a cross-table application check that can race, and would duplicate the credential state machine — the copy that misses the next fix | Identity model, credential lifecycle, uniqueness enforcement, `AdminUser` invariant |
+| 2026-08-13 | Default operator creation to admin-side email activation while requiring an explicit temporary-password alternative for non-receiving login addresses | Operators now have a dedicated activation endpoint that does not depend on client membership; explicit selection avoids emailing placeholders and never creates two live credentials together | Operator creation API/UI, activation and temporary-password completion, email verification/recovery, tests |
+| 2026-08-10 | Company share codes do not expire automatically and are not credentials | A code identifies a Company but grants no access; the provider must still accept each request, so it remains valid until disabled/regenerated and only its SHA-256 hash is stored | Share-code persistence, discovery/request APIs, provider usage metadata, security documentation and tests |
+| 2026-08-10 | Return `201 Created` whenever collaboration initiation creates a row and `200 OK` only when it returns an identical existing row | Callers must be able to distinguish creation from idempotent retrieval consistently, including the concurrent uniqueness race | Collaboration initiation API, controller outcome mapping, client retry handling and concurrency tests |
 | 2026-07-15 | Require both provider delegation and external-member authorization for every B2B action | An Account-level grant must not give every external employee the ability to use it | Permissionizer B2B policies, provider delegation ceiling, external operator roles, runtime revalidation |
+| 2026-08-10 | Reuse the external Account's existing Account-scoped role/exception resolver as the immediate B2B operator ceiling, with Collaboration-scoped assignment left as an explicit refinement | The immediate ceiling closes account-wide delegation to every employee and preserves owner, active-role, expiry, and deny precedence; a Collaboration effect scope is still needed to nominate external operators without widening their internal Company authority | B2B runtime policy, Account roles and direct exceptions, future Collaboration-scoped assignments, operator settings UX and tests |
+| 2026-08-10 | Order audited mutation advice as transaction → audit → Permissionizer → method | Success history must share the mutation transaction while denied and failed mutations remain catchable by the audit layer; making transaction advice outermost also places Permissionizer policy database reads inside the caller transaction | Spring transaction configuration, audit aspect, Permissionizer advisor interaction, policy reads and advisor-order integration tests |
 | 2026-07-15 | Offer both now and at-renewal timing for client upgrades and downgrades | Timing is an operator/customer choice; actual feature/quota impact, not the plan label or price direction, determines required safeguards | Client plan-change preview, pending renewal operations, conflict handling, Account locking, history/audit |
 | 2026-07-15 | Defer permission-code rename/removal migration machinery and treat annotation codes as stable | Permission codes have no expected normal reason to change after a function is guarded; adding aliases/replacement flags to Permissionizer is premature | Registry retirement flow, Permissionizer scope, future developer migrations |
 | 2026-07-15 | Separate public visibility, new-sale availability, new-grant availability, and emergency runtime shutdown | Hiding or discontinuing a feature must not accidentally change current customer access, while operators still need a deliberate emergency stop | Feature registry lifecycle, catalogs, plan validation, grant validation, runtime authorization, communications/audit |
 | 2026-07-15 | Make registry synchronization validated, atomic, inspectable, and single-writer across application nodes | A partial Permissionizer scan or half-completed seed can create an ambiguous security catalog even when startup appears successful | Feature/permission collection, startup synchronization, database locking, sync reports, CI/deployment validation |
 | 2026-07-15 | Use one versioned registry snapshot with separate audience-specific DTO catalogs and action-level eligibility | Public sales, plan composition, client roles, admin roles, and B2B delegation need different safe views without inventing different sources of truth | Registry DTOs, catalogs/pickers, grant validation, stale-write handling, caches, UI reasons |
 | 2026-07-15 | Use Plan plus admin-created AddOns plus predefined quota packages as the commercial foundation | Customers need to combine a base plan with whole modules or custom feature bundles and chosen capacity without pricing technical features globally | Plan/AddOn model, feature/module composition, quota packages, subscription snapshots, change previews, pricing |
+| 2026-08-22 | Separate permanent AddOn publication from reversible sales availability and revise published AddOns through new drafts | Returning a sold definition to draft would rewrite what customers bought, while treating draft and inactive as interchangeable leaves no safe editing path; lineage revisions preserve both operator flexibility and purchased snapshots | AddOn lineage/revisions, lifecycle API/UI, subscription catalog, audit and tests |
 | 2026-07-16 | Use explicit feature-owned quotas with fixed limits, predefined packages, and operator exceptions | Capacity must be measurable, safely enforceable, and commercially understandable without arbitrary client overrides or ambiguous null/unlimited values | Quota definitions, Plan/AddOn configuration, packages, usage contributors, exceptions, snapshots, UI/enforcement |
 | 2026-07-16 | Use one-currency exact monthly/yearly price books, immutable itemized price versions, and separate invoice/payment records | Configured recurring price and entitlement changes must remain distinct from actual money collection while leaving a safe path to real billing | Money/prices, Plan/AddOn/package versions, subscriptions, invoices, payments/refunds, renewal/past-due, admin UI/audit |
+| 2026-08-31 | Distinguish operator suspension from collection suspension and never restore collection failure by status flip | Operator intervention may be reversible within the paid term, while collection recovery requires settlement or an explicit reviewed grace extension | Subscription lifecycle, recovery, admin actions, client state, audit |
+| 2026-08-31 | Revoke all Account client sessions on subscription suspension or immediate cancellation and never resurrect them on restoration | Commercial access removal must take effect immediately; restoring entitlement must require fresh authentication rather than reviving a bearer token issued under the old state | JWT access/refresh sessions, subscription lifecycle, Account access, tests |
+| 2026-08-31 | Treat terminal subscription restoration as a new reviewed entitlement operation | A cancelled or expired historical subscription is immutable commercial evidence; reopening it would bypass current product, pricing, usage, and settlement validation | Trial/new-entitlement creation, cancellation, history, commercial previews |
+| 2026-08-31 | Keep Account billing profiles editable but freeze Account and platform issuer identity on every issued Invoice | Subscription billing belongs to the Account, while later profile or platform-configuration edits must not rewrite historical document evidence | Account billing profile, Invoice snapshots, financial timeline, commercial documents |
+| 2026-08-31 | Label printable V1 Invoice output as a commercial billing document until jurisdictional fiscal rules exist | A polished PDF/print layout does not by itself supply tax calculation, compliant numbering, legally required party fields, or jurisdiction validation | Invoice document API/UI, wording, completeness warnings, deferred tax/fiscal work |
 | 2026-07-14 | Keep Member directly under Account with organizational Groups independent from Account/Company access scopes | Supports ordinary employees and agency staff without confusing organizational placement with authority | Member placement, Groups, scoped roles, B2B |
 | 2026-07-14 | Treat member deactivation as reversible access suspension with retained history | Offboarding must stop access immediately without destroying audit or future business-module records | Member lifecycle, sessions, quota, credentials, roles, audit, future modules |
 | 2026-07-14 | Members cannot deactivate their own employer-managed membership | Account membership represents administratively managed work access, not a personal workspace subscription | Member lifecycle, scoped administration, APIs, audit |

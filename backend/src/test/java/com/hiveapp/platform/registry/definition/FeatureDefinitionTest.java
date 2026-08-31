@@ -28,29 +28,30 @@ class FeatureDefinitionTest {
         assertThat(definition.clientRoleGrantable()).isTrue();
         assertThat(definition.platformAdminRoleGrantable()).isFalse();
         assertThat(definition.publicCatalogVisible()).isTrue();
-        assertThat(definition.operationsActivationToggleable()).isFalse();
+        assertThat(definition.ownerOnlyActions()).isEmpty();
         assertThat(definition.quotaSlots()).hasSize(1);
     }
 
     @Test
-    void operationsActivationMustBeExplicitlyDeclared() {
+    void ownerOnlyActionsAreExcludedFromOrdinaryClientRoles() {
         FeatureDefinition definition = FeatureDefinition.clientWorkspace("platform.reports")
                 .displayName("Reports")
-                .operationsActivationToggleable()
+                .ownerOnlyActions("delete")
                 .build();
 
-        assertThat(definition.publicCatalogVisible()).isTrue();
-        assertThat(definition.operationsActivationToggleable()).isTrue();
+        assertThat(definition.isOwnerOnlyPermission("platform.reports.delete")).isTrue();
+        assertThat(definition.isClientRoleGrantablePermission("platform.reports.delete")).isFalse();
+        assertThat(definition.isClientRoleGrantablePermission("platform.reports.read")).isTrue();
     }
 
     @Test
-    void rejectsOperationsActivationForNonCatalogFeatures() {
-        assertThatThrownBy(() -> FeatureDefinition.platformControl("platform.registry")
-                .displayName("Registry")
-                .operationsActivationToggleable()
+    void rejectsMalformedOwnerOnlyActions() {
+        assertThatThrownBy(() -> FeatureDefinition.clientWorkspace("platform.reports")
+                .displayName("Reports")
+                .ownerOnlyActions("Delete Report")
                 .build())
                 .isInstanceOf(FeatureDefinitionException.class)
-                .hasMessage("platform.registry cannot be operations-activation toggleable unless it is public-catalog visible.");
+                .hasMessageContaining("Owner-only action must be a lowercase snake-case action");
     }
 
     @Test

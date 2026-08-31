@@ -5,8 +5,8 @@ import com.hiveapp.platform.registry.definition.FeatureDefinitionCollector;
 import com.hiveapp.platform.registry.domain.constant.FeatureStatus;
 import com.hiveapp.platform.registry.domain.entity.Feature;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
-import com.hiveapp.platform.registry.dto.PublicFeatureCatalogFeatureDto;
-import com.hiveapp.platform.registry.dto.PublicFeatureCatalogModuleDto;
+import com.hiveapp.platform.registry.dto.publicapi.PublicFeatureCatalogFeatureDto;
+import com.hiveapp.platform.registry.dto.publicapi.PublicFeatureCatalogModuleDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -52,7 +52,11 @@ public class PublicFeatureCatalogService {
 
     private boolean isPubliclyVisible(Feature feature) {
         return feature != null
-                && feature.isActive()
+                && feature.getModule() != null
+                && feature.getModule().isActive()
+                && feature.isPublicVisible()
+                && feature.isNewSalesEnabled()
+                && feature.isRuntimeEnabled()
                 && (feature.getStatus() == FeatureStatus.PUBLIC || feature.getStatus() == FeatureStatus.BETA);
     }
 

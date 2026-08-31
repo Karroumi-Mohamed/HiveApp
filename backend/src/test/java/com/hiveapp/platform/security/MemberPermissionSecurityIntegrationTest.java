@@ -4,8 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
+import com.hiveapp.platform.client.company.domain.entity.Company;
+import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
+import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.member.dto.CreateMemberRequest;
 import com.hiveapp.platform.client.member.dto.OverridePermissionRequest;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideScope;
 import com.hiveapp.identity.dto.InitialPasswordChangeRequest;
 import com.hiveapp.identity.dto.LoginRequest;
 import com.hiveapp.identity.dto.RefreshTokenRequest;
@@ -17,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.util.HashSet;
+import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 
@@ -35,10 +41,31 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
     @Autowired
     private SubscriptionSnapshotReader subscriptionSnapshotReader;
 
+    @Autowired
+    private AccountRepository accountRepository;
+
+    @Autowired
+    private CompanyRepository companyRepository;
+
+    @Test
+    void effectivePermissionResponseIdentifiesItsAccountAndCompanyContext() throws Exception {
+        String token = registerClientAndGetToken();
+        UUID accountId = currentAccountId(token);
+        UUID companyId = UUID.fromString(createCompany(token, "Context Company").get("id").asText());
+
+        mockMvc.perform(get("/api/v1/me/permissions")
+                        .header("Authorization", bearer(token))
+                        .header("X-Company-ID", companyId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountId").value(accountId.toString()))
+                .andExpect(jsonPath("$.companyId").value(companyId.toString()));
+    }
+
     @Test
     void memberPermissionOverrideCanBeGrantedAndReadWithinCurrentWorkspace() throws Exception {
         String token = registerClientAndGetToken();
-        UUID memberId = currentMemberId(token);
+        UUID creatorId = currentMemberId(token);
+        UUID memberId = createOrdinaryMember(token);
         UUID companyId = UUID.fromString(createCompany(token, "Owner Company").get("id").asText());
 
         grantOverride(token, memberId, companyId, "platform.company.read_single")
@@ -46,10 +73,66 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
 
         mockMvc.perform(get("/api/v1/members/{id}/permissions", memberId)
                         .header("Authorization", bearer(token))
+                        .param("scope", PermissionOverrideScope.COMPANY.name())
                         .param("companyId", companyId.toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].decision").value(true))
+                .andExpect(jsonPath("$[0].decision").value(PermissionOverrideDecision.GRANT.name()))
+                .andExpect(jsonPath("$[0].scope").value(PermissionOverrideScope.COMPANY.name()))
+                .andExpect(jsonPath("$[0].companyId").value(companyId.toString()))
+                .andExpect(jsonPath("$[0].reason").value("Temporary operational access"))
+                .andExpect(jsonPath("$[0].createdByMemberId").value(creatorId.toString()))
+                .andExpect(jsonPath("$[0].effective").value(true))
+                .andExpect(jsonPath("$[0].expiresAt").isNotEmpty())
                 .andExpect(jsonPath("$[0].permissionCode").value("platform.company.read_single"));
+    }
+
+    @Test
+    void accountGrantCascadesToCompanyButCompanyDenyWinsOnlyThere() throws Exception {
+        String ownerToken = registerClientAndGetToken();
+        AcceptedMemberTokens memberTokens = createAndActivateMember(ownerToken);
+        UUID memberId = memberIdForNonOwner(ownerToken);
+        UUID companyId = UUID.fromString(createCompany(ownerToken, "Scoped Company").get("id").asText());
+        String permissionCode = "platform.company.delete";
+
+        setOverride(ownerToken, memberId, PermissionOverrideScope.ACCOUNT, null,
+                permissionCode, PermissionOverrideDecision.GRANT, Instant.now().plusSeconds(3600))
+                .andExpect(status().isNoContent());
+        setOverride(ownerToken, memberId, PermissionOverrideScope.COMPANY, companyId,
+                permissionCode, PermissionOverrideDecision.DENY, null)
+                .andExpect(status().isNoContent());
+
+        assertThat(mePermissions(memberTokens.accessToken())).contains(permissionCode);
+        assertThat(mePermissions(memberTokens.accessToken(), companyId)).doesNotContain(permissionCode);
+    }
+
+    @Test
+    void companyGrantAppliesOnlyToItsExactCompany() throws Exception {
+        String ownerToken = registerClientAndGetToken();
+        AcceptedMemberTokens memberTokens = createAndActivateMember(ownerToken);
+        UUID memberId = memberIdForNonOwner(ownerToken);
+        UUID firstCompanyId = UUID.fromString(createCompany(ownerToken, "First Company").get("id").asText());
+        UUID secondCompanyId = createCompanyWithoutQuota(ownerToken, "Second Company");
+        String permissionCode = "platform.company.delete";
+
+        setOverride(ownerToken, memberId, PermissionOverrideScope.COMPANY, firstCompanyId,
+                permissionCode, PermissionOverrideDecision.GRANT, Instant.now().plusSeconds(3600))
+                .andExpect(status().isNoContent());
+
+        assertThat(mePermissions(memberTokens.accessToken(), firstCompanyId)).contains(permissionCode);
+        assertThat(mePermissions(memberTokens.accessToken(), secondCompanyId)).doesNotContain(permissionCode);
+    }
+
+    @Test
+    void grantExceptionRequiresExpiryWhileDenyMayBePermanent() throws Exception {
+        String ownerToken = registerClientAndGetToken();
+        UUID memberId = createOrdinaryMember(ownerToken);
+
+        setOverride(ownerToken, memberId, PermissionOverrideScope.ACCOUNT, null,
+                "platform.company.delete", PermissionOverrideDecision.GRANT, null)
+                .andExpect(status().isConflict());
+        setOverride(ownerToken, memberId, PermissionOverrideScope.ACCOUNT, null,
+                "platform.company.delete", PermissionOverrideDecision.DENY, null)
+                .andExpect(status().isNoContent());
     }
 
     @Test
@@ -66,7 +149,7 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
     @Test
     void memberPermissionOverrideRejectsPlatformControlPermission() throws Exception {
         String token = registerClientAndGetToken();
-        UUID memberId = currentMemberId(token);
+        UUID memberId = createOrdinaryMember(token);
         UUID companyId = UUID.fromString(createCompany(token, "Owner Company").get("id").asText());
 
         grantOverride(token, memberId, companyId, "platform.plans.create")
@@ -104,12 +187,14 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
 
         mockMvc.perform(get("/api/v1/members/{id}/permissions", otherMemberId)
                         .header("Authorization", bearer(otherToken))
+                .param("scope", PermissionOverrideScope.COMPANY.name())
                 .param("companyId", ownerCompanyId.toString()))
                 .andExpect(status().isNotFound());
 
         mockMvc.perform(delete("/api/v1/members/{id}/permissions/{permissionCode}",
                         otherMemberId, "platform.company.read_single")
                         .header("Authorization", bearer(otherToken))
+                        .param("scope", PermissionOverrideScope.COMPANY.name())
                         .param("companyId", ownerCompanyId.toString()))
                 .andExpect(status().isNotFound());
     }
@@ -119,8 +204,10 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
         String token = registerClientAndGetToken();
         UUID memberId = currentMemberId(token);
 
-        mockMvc.perform(delete("/api/v1/members/{id}", memberId)
-                        .header("Authorization", bearer(token)))
+        mockMvc.perform(post("/api/v1/members/{id}/deactivate", memberId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Owner protection test\"}"))
                 .andExpect(status().isForbidden());
     }
 
@@ -130,8 +217,10 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
         AcceptedMemberTokens memberTokens = createAndActivateMember(ownerToken);
         UUID createdMemberId = memberIdForNonOwner(ownerToken);
 
-        mockMvc.perform(delete("/api/v1/members/{id}", createdMemberId)
-                        .header("Authorization", bearer(ownerToken)))
+        mockMvc.perform(post("/api/v1/members/{id}/deactivate", createdMemberId)
+                        .header("Authorization", bearer(ownerToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Security revocation test\"}"))
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(get("/api/v1/members")
@@ -147,7 +236,21 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
 
     private org.springframework.test.web.servlet.ResultActions grantOverride(
             String token, UUID memberId, UUID companyId, String permissionCode) throws Exception {
-        OverridePermissionRequest request = new OverridePermissionRequest(permissionCode, companyId, true);
+        return setOverride(token, memberId, PermissionOverrideScope.COMPANY, companyId,
+                permissionCode, PermissionOverrideDecision.GRANT, Instant.now().plusSeconds(3600));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions setOverride(
+            String token,
+            UUID memberId,
+            PermissionOverrideScope scope,
+            UUID companyId,
+            String permissionCode,
+            PermissionOverrideDecision decision,
+            Instant expiresAt) throws Exception {
+        OverridePermissionRequest request = new OverridePermissionRequest(
+                permissionCode, scope, companyId, decision,
+                "Temporary operational access", expiresAt);
         return mockMvc.perform(post("/api/v1/members/{id}/permissions", memberId)
                 .header("Authorization", bearer(token))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -164,9 +267,28 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
         return UUID.fromString(objectMapper.readTree(response).get("id").asText());
     }
 
+    private UUID createCompanyWithoutQuota(String token, String name) throws Exception {
+        Company company = new Company();
+        company.setAccount(accountRepository.findById(currentAccountId(token)).orElseThrow());
+        company.setName(name);
+        company.setLegalName(name + " LLC");
+        company.setIndustry("Software");
+        company.setCountry("US");
+        company.setActive(true);
+        return companyRepository.saveAndFlush(company).getId();
+    }
+
     private Set<String> mePermissions(String token) throws Exception {
-        String response = mockMvc.perform(get("/api/v1/me/permissions")
-                        .header("Authorization", bearer(token)))
+        return mePermissions(token, null);
+    }
+
+    private Set<String> mePermissions(String token, UUID companyId) throws Exception {
+        var request = get("/api/v1/me/permissions")
+                .header("Authorization", bearer(token));
+        if (companyId != null) {
+            request.header("X-Company-ID", companyId.toString());
+        }
+        String response = mockMvc.perform(request)
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -179,14 +301,18 @@ class MemberPermissionSecurityIntegrationTest extends PlatformShellIntegrationTe
     }
 
     private void removeFeatureFromActiveSubscription(String token, String featureCode) throws Exception {
-        var subscription = subscriptionRepository.findActiveByAccountId(currentAccountId(token)).orElseThrow();
+        var subscription = subscriptionRepository.findActiveForSnapshotUpdateByAccountId(
+                currentAccountId(token)).orElseThrow();
         var snapshot = subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()).orElseThrow();
         var updated = new SubscriptionEntitlementSnapshot(
                 snapshot.planCode(),
                 snapshot.basePrice(),
+                snapshot.currencyCode(),
+                snapshot.billingCycle(),
                 snapshot.features().stream()
                         .filter(feature -> !featureCode.equals(feature.featureCode()))
-                        .toList());
+                        .toList(),
+                snapshot.addOns());
         subscription.setEntitlementSnapshot(subscriptionSnapshotReader.write(updated));
         subscriptionRepository.saveAndFlush(subscription);
     }

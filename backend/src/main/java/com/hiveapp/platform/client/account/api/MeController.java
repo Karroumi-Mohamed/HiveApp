@@ -23,6 +23,7 @@ public class MeController {
     @GetMapping("/permissions")
     public ResponseEntity<MemberPermissionDto> getPermissions(@AuthenticationPrincipal HiveAppUserDetails userDetails) {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return ResponseEntity.ok(effectivePermissionService.getEffectivePermissions(userDetails.getUserId(), accountId));
+        return ResponseEntity.ok(effectivePermissionService.getEffectivePermissions(
+                userDetails.getUserId(), accountId, HiveAppContextHolder.getContext().targetCompanyId()));
     }
 }

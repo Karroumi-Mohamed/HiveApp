@@ -50,6 +50,16 @@ public class Feature extends BaseEntity {
     @Column(name = "sort_order", nullable = false)
     private int sortOrder = 0;
 
-    @Column(name = "is_active", nullable = false)
-    private boolean isActive = true;
+    /** Admin-owned controls. Code synchronization must never overwrite them. */
+    @Column(name = "public_visible", nullable = false)
+    private boolean publicVisible = true;
+
+    @Column(name = "new_sales_enabled", nullable = false)
+    private boolean newSalesEnabled = true;
+
+    @Column(name = "new_grants_enabled", nullable = false)
+    private boolean newGrantsEnabled = true;
+
+    @Column(name = "runtime_enabled", nullable = false)
+    private boolean runtimeEnabled = true;
 }

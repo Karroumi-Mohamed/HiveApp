@@ -1,7 +1,7 @@
 package com.hiveapp.platform.client.company.service;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
-import com.hiveapp.platform.client.account.domain.entity.Company;
+import com.hiveapp.platform.client.company.domain.entity.Company;
 import com.hiveapp.platform.client.collaboration.domain.constant.CollaborationStatus;
 import com.hiveapp.platform.client.collaboration.domain.entity.CollaborationPermission;
 import com.hiveapp.platform.client.collaboration.domain.repository.CollaborationPermissionRepository;
@@ -43,9 +43,9 @@ class CompanyReactivationValidatorTest {
         MemberPermissionOverrideRepository overrides = mock(MemberPermissionOverrideRepository.class);
         CollaborationPermissionRepository collaborations = mock(CollaborationPermissionRepository.class);
         PlanEntitlementService entitlements = mock(PlanEntitlementService.class);
-        when(roles.findAllByCompanyId(companyId)).thenReturn(List.of());
-        when(overrides.findAllByCompanyId(companyId)).thenReturn(List.of());
-        when(collaborations.findAllByCollaborationCompanyIdAndCollaborationStatus(
+        when(roles.findAllByScopeCompanyId(companyId)).thenReturn(List.of());
+        when(overrides.findAllByScopeCompanyId(companyId)).thenReturn(List.of());
+        when(collaborations.findAllByCollaborationCompanyIdAndCollaborationStatusAndIsActiveTrue(
                 companyId, CollaborationStatus.ACTIVE)).thenReturn(List.of(grant));
         when(entitlements.isPermissionEntitled(accountId, permission.getCode())).thenReturn(false);
 

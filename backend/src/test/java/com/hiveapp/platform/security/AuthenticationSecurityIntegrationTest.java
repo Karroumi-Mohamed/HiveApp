@@ -52,6 +52,7 @@ class AuthenticationSecurityIntegrationTest extends PlatformShellIntegrationTest
 
         JsonNode rotated = refresh("/api/v1/auth/refresh", oldRefreshToken, 200);
         String replacementRefreshToken = rotated.get("refreshToken").asText();
+        String replacementAccessToken = rotated.get("accessToken").asText();
         assertThat(replacementRefreshToken).isNotEqualTo(oldRefreshToken);
 
         refresh("/api/v1/auth/refresh", oldRefreshToken, 401);
@@ -62,6 +63,9 @@ class AuthenticationSecurityIntegrationTest extends PlatformShellIntegrationTest
                 .andExpect(status().isNoContent());
 
         refresh("/api/v1/auth/refresh", replacementRefreshToken, 401);
+        mockMvc.perform(get("/api/v1/subscriptions/me")
+                        .header("Authorization", bearer(replacementAccessToken)))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

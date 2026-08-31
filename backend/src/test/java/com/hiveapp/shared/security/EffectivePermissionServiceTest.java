@@ -2,8 +2,12 @@ package com.hiveapp.shared.security;
 
 import com.hiveapp.identity.domain.entity.User;
 import com.hiveapp.platform.client.account.domain.entity.Account;
+import com.hiveapp.platform.client.company.domain.entity.Company;
+import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.domain.entity.Member;
 import com.hiveapp.platform.client.member.domain.entity.MemberRole;
+import com.hiveapp.platform.client.member.domain.entity.MemberPermissionOverride;
+import com.hiveapp.platform.client.member.domain.constant.PermissionOverrideDecision;
 import com.hiveapp.platform.client.member.domain.repository.MemberPermissionOverrideRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRoleRepository;
@@ -22,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -64,8 +69,8 @@ class EffectivePermissionServiceTest {
 
         when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(owner));
         when(permissionRepository.findAll()).thenReturn(List.of(included, excluded));
-        when(permissionGrantValidator.isClientRoleGrantable(included)).thenReturn(true);
-        when(permissionGrantValidator.isClientRoleGrantable(excluded)).thenReturn(true);
+        when(permissionGrantValidator.isOwnerUsable(included)).thenReturn(true);
+        when(permissionGrantValidator.isOwnerUsable(excluded)).thenReturn(true);
         when(planEntitlementService.isPermissionEntitled(accountId, included.getCode())).thenReturn(true);
         when(planEntitlementService.isPermissionEntitled(accountId, excluded.getCode())).thenReturn(false);
 
@@ -88,11 +93,93 @@ class EffectivePermissionServiceTest {
         when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(member));
         when(memberRoleRepository.findAllByMemberId(memberId))
                 .thenReturn(Stream.of(inactive, archived).map(role -> assignment(member, role)).toList());
-        when(memberOverrideRepository.findAllByMemberId(memberId)).thenReturn(List.of());
+        when(memberOverrideRepository.findApplicable(memberId, null)).thenReturn(List.of());
 
         var result = service.getEffectivePermissions(userId, accountId);
 
         assertThat(result.permissions()).isEmpty();
+    }
+
+    @Test
+    void companyEvaluationIncludesAccountAndMatchingCompanyAssignmentsOnly() {
+        UUID accountId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID firstCompanyId = UUID.randomUUID();
+        UUID secondCompanyId = UUID.randomUUID();
+        Account account = account(accountId);
+        Member member = member(memberId, account, user(userId), false);
+        Permission accountPermission = permission("platform.staff.read");
+        Permission firstPermission = permission("platform.company.read_single");
+        Permission secondPermission = permission("platform.company.delete");
+        Company first = company(firstCompanyId, account);
+        Company second = company(secondCompanyId, account);
+
+        when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(member));
+        when(memberRoleRepository.findAllByMemberId(memberId)).thenReturn(List.of(
+                assignment(member, role(accountId, RoleStatus.ACTIVE, accountPermission)),
+                assignment(member, role(accountId, RoleStatus.ACTIVE, firstPermission), first),
+                assignment(member, role(accountId, RoleStatus.ACTIVE, secondPermission), second)));
+        when(memberOverrideRepository.findApplicable(memberId, firstCompanyId)).thenReturn(List.of());
+        when(memberOverrideRepository.findApplicable(memberId, null)).thenReturn(List.of());
+        when(planEntitlementService.isPermissionEntitled(accountId, accountPermission.getCode())).thenReturn(true);
+        when(planEntitlementService.isPermissionEntitled(accountId, firstPermission.getCode())).thenReturn(true);
+        when(permissionGrantValidator.isClientRoleRuntimeEligible(accountPermission.getCode())).thenReturn(true);
+        when(permissionGrantValidator.isClientRoleRuntimeEligible(firstPermission.getCode())).thenReturn(true);
+
+        var companyAccess = service.getEffectivePermissions(userId, accountId, firstCompanyId);
+        var accountAccess = service.getEffectivePermissions(userId, accountId, null);
+
+        assertThat(companyAccess.permissions())
+                .containsExactlyInAnyOrder(accountPermission.getCode(), firstPermission.getCode());
+        assertThat(companyAccess.accountId()).isEqualTo(accountId);
+        assertThat(companyAccess.companyId()).isEqualTo(firstCompanyId);
+        assertThat(accountAccess.permissions()).containsExactly(accountPermission.getCode());
+        assertThat(accountAccess.accountId()).isEqualTo(accountId);
+        assertThat(accountAccess.companyId()).isNull();
+    }
+
+    @Test
+    void anyActiveApplicableDenyRemovesRoleAndGrantAuthority() {
+        UUID accountId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID companyId = UUID.randomUUID();
+        Account account = account(accountId);
+        Member member = member(memberId, account, user(userId), false);
+        Permission permission = permission("platform.company.delete");
+        Company company = company(companyId, account);
+
+        when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(member));
+        when(memberRoleRepository.findAllByMemberId(memberId)).thenReturn(List.of(
+                assignment(member, role(accountId, RoleStatus.ACTIVE, permission))));
+        when(memberOverrideRepository.findApplicable(memberId, companyId)).thenReturn(List.of(
+                permissionException(member, null, permission, PermissionOverrideDecision.GRANT,
+                        Instant.now().plusSeconds(3600)),
+                permissionException(member, company, permission, PermissionOverrideDecision.DENY, null)));
+        var result = service.getEffectivePermissions(userId, accountId, companyId);
+
+        assertThat(result.permissions()).doesNotContain(permission.getCode());
+    }
+
+    @Test
+    void expiredGrantDoesNotProvideRuntimeAuthority() {
+        UUID accountId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        Account account = account(accountId);
+        Member member = member(memberId, account, user(userId), false);
+        Permission permission = permission("platform.company.delete");
+
+        when(memberRepository.findByAccountIdAndUserId(accountId, userId)).thenReturn(Optional.of(member));
+        when(memberRoleRepository.findAllByMemberId(memberId)).thenReturn(List.of());
+        when(memberOverrideRepository.findApplicable(memberId, null)).thenReturn(List.of(
+                permissionException(member, null, permission, PermissionOverrideDecision.GRANT,
+                        Instant.now().minusSeconds(1))));
+
+        var result = service.getEffectivePermissions(userId, accountId);
+
+        assertThat(result.permissions()).doesNotContain(permission.getCode());
     }
 
     private static Account account(UUID id) {
@@ -113,6 +200,16 @@ class EffectivePermissionServiceTest {
         return user;
     }
 
+    private static Company company(UUID id, Account account) {
+        Company company = new Company();
+        ReflectionTestUtils.setField(company, "id", id);
+        company.setAccount(account);
+        company.setName("Company " + id);
+        company.setCountry("MA");
+        company.setActive(true);
+        return company;
+    }
+
     private static Member member(UUID id, Account account, User user, boolean owner) {
         Member member = new Member();
         ReflectionTestUtils.setField(member, "id", id);
@@ -128,6 +225,21 @@ class EffectivePermissionServiceTest {
         permission.setCode(code);
         permission.setName(code);
         return permission;
+    }
+
+    private static MemberPermissionOverride permissionException(
+            Member member,
+            Company company,
+            Permission permission,
+            PermissionOverrideDecision decision,
+            Instant expiresAt) {
+        MemberPermissionOverride exception = new MemberPermissionOverride();
+        exception.setMember(member);
+        exception.setScopeCompany(company);
+        exception.setPermission(permission);
+        exception.setDecision(decision);
+        exception.setExpiresAt(expiresAt);
+        return exception;
     }
 
     private static Role role(UUID accountId, RoleStatus status, Permission permission) {
@@ -147,6 +259,13 @@ class EffectivePermissionServiceTest {
         MemberRole assignment = new MemberRole();
         assignment.setMember(member);
         assignment.setRole(role);
+        return assignment;
+    }
+
+    private static MemberRole assignment(Member member, Role role, Company company) {
+        MemberRole assignment = assignment(member, role);
+        assignment.setEffectScope(RoleAssignmentScope.COMPANY);
+        assignment.setScopeCompany(company);
         return assignment;
     }
 }

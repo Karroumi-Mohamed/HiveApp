@@ -23,9 +23,9 @@ public record FeatureDefinition(
         boolean platformAdminRoleGrantable,
         boolean b2bDelegatable,
         boolean publicCatalogVisible,
-        boolean operationsActivationToggleable,
         int sortOrder,
         List<QuotaSlot> quotaSlots,
+        Set<String> ownerOnlyActions,
         Set<String> b2bDelegatableActions
 ) {
     private static final Pattern CODE_PATTERN = Pattern.compile("^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$");
@@ -49,13 +49,14 @@ public record FeatureDefinition(
                 ? lifecycleStatus
                 : (publicCatalogVisible ? FeatureStatus.PUBLIC : FeatureStatus.INTERNAL);
         quotaSlots = List.copyOf(quotaSlots == null ? List.of() : quotaSlots);
+        ownerOnlyActions = Set.copyOf(ownerOnlyActions == null ? Set.of() : ownerOnlyActions);
         b2bDelegatableActions = Set.copyOf(b2bDelegatableActions == null ? Set.of() : b2bDelegatableActions);
 
         validateSurfaceFlags(code, surface, planAssignable, clientRoleGrantable,
                 platformAdminRoleGrantable, b2bDelegatable, publicCatalogVisible);
         validateLifecycleStatus(code, publicCatalogVisible, lifecycleStatus);
-        validateOperationsActivation(code, publicCatalogVisible, operationsActivationToggleable);
         validateQuotaSlots(code, quotaSlots);
+        validateActions(code, "Owner-only", ownerOnlyActions);
         validateB2bActions(code, surface, b2bDelegatable, b2bDelegatableActions);
     }
 
@@ -92,6 +93,23 @@ public record FeatureDefinition(
         return b2bDelegatableActions.contains(permissionCode.substring(code.length() + 1));
     }
 
+    public boolean isClientRoleGrantablePermission(String permissionCode) {
+        return clientRoleGrantable && ownsPermission(permissionCode)
+                && !ownerOnlyActions.contains(action(permissionCode));
+    }
+
+    public boolean isPlatformAdminRoleGrantablePermission(String permissionCode) {
+        return platformAdminRoleGrantable && ownsPermission(permissionCode);
+    }
+
+    public boolean isOwnerOnlyPermission(String permissionCode) {
+        return ownsPermission(permissionCode) && ownerOnlyActions.contains(action(permissionCode));
+    }
+
+    private String action(String permissionCode) {
+        return permissionCode.substring(code.length() + 1);
+    }
+
     public static final class Builder {
         private final String code;
         private final FeatureSurface surface;
@@ -103,9 +121,9 @@ public record FeatureDefinition(
         private boolean platformAdminRoleGrantable;
         private boolean b2bDelegatable;
         private boolean publicCatalogVisible;
-        private boolean operationsActivationToggleable;
         private int sortOrder = 1000;
         private final List<QuotaSlot> quotaSlots = new ArrayList<>();
+        private final Set<String> ownerOnlyActions = new HashSet<>();
         private final Set<String> b2bDelegatableActions = new HashSet<>();
 
         private Builder(String code, FeatureSurface surface) {
@@ -155,12 +173,9 @@ public record FeatureDefinition(
             return this;
         }
 
-        public Builder operationsActivationToggleable() {
-            return operationsActivationToggleable(true);
-        }
-
-        public Builder operationsActivationToggleable(boolean operationsActivationToggleable) {
-            this.operationsActivationToggleable = operationsActivationToggleable;
+        public Builder ownerOnlyActions(String... actions) {
+            Objects.requireNonNull(actions, "Owner-only actions are required");
+            this.ownerOnlyActions.addAll(List.of(actions));
             return this;
         }
 
@@ -198,9 +213,9 @@ public record FeatureDefinition(
                     platformAdminRoleGrantable,
                     b2bDelegatable,
                     publicCatalogVisible,
-                    operationsActivationToggleable,
                     sortOrder,
                     quotaSlots,
+                    ownerOnlyActions,
                     b2bDelegatableActions);
         }
     }
@@ -240,16 +255,6 @@ public record FeatureDefinition(
         }
     }
 
-    private static void validateOperationsActivation(
-            String code,
-            boolean publicCatalogVisible,
-            boolean operationsActivationToggleable
-    ) {
-        if (operationsActivationToggleable && !publicCatalogVisible) {
-            throw new FeatureDefinitionException(code + " cannot be operations-activation toggleable unless it is public-catalog visible.");
-        }
-    }
-
     private static void validateQuotaSlots(String code, List<QuotaSlot> quotaSlots) {
         var resources = new java.util.HashSet<String>();
         for (QuotaSlot quotaSlot : quotaSlots) {
@@ -275,11 +280,15 @@ public record FeatureDefinition(
         if (!b2bDelegatable && !b2bDelegatableActions.isEmpty()) {
             throw new FeatureDefinitionException(code + " cannot declare B2B actions when B2B delegation is disabled");
         }
-        for (String action : b2bDelegatableActions) {
-            requireText(action, "B2B delegatable action is required for " + code);
+        validateActions(code, "B2B delegatable", b2bDelegatableActions);
+    }
+
+    private static void validateActions(String code, String label, Set<String> actions) {
+        for (String action : actions) {
+            requireText(action, label + " action is required for " + code);
             if (!ACTION_PATTERN.matcher(action).matches()) {
                 throw new FeatureDefinitionException(
-                        "B2B delegatable action must be a lowercase snake-case action for " + code + ": " + action);
+                        label + " action must be a lowercase snake-case action for " + code + ": " + action);
             }
         }
     }

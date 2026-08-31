@@ -5,6 +5,15 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+    # Disabled deliberately. A request-scoped session masks lazy access that happens outside a
+    # transaction, so a read model assembled after its service transaction closes still works in
+    # development and fails in production. Three such defects were found the day this was turned
+    # off. Read models must resolve their relationships inside the service transaction.
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
 
 hiveapp:
   jwt:
@@ -14,6 +23,15 @@ hiveapp:
   activation:
     token-expiration: 24h
     base-url: ${HIVEAPP_FRONTEND_BASE_URL}
+  billing:
+    collection-enabled: ${HIVEAPP_BILLING_COLLECTION_ENABLED:false}
+  subscriptions:
+    # Persisted on each failed renewal so a later configuration change never rewrites an
+    # Account's already-started recovery window.
+    renewal-grace: ${HIVEAPP_SUBSCRIPTION_RENEWAL_GRACE:PT72H}
+  offers:
+    codes:
+      pepper: ${HIVEAPP_OFFER_CODE_PEPPER}
 
 server:
   port: 8080

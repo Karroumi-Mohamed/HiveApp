@@ -1,0 +1,173 @@
+package com.hiveapp.platform.client.plan.domain.entity;
+
+import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignAudienceMode;
+import com.hiveapp.shared.domain.BaseEntity;
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreRemove;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Immutable;
+
+import java.time.Instant;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+
+/** Immutable schedule evidence and frozen non-public audience for one Campaign revision. */
+@Entity
+@Immutable
+@Table(name = "commercial_campaign_audience_snapshots",
+        uniqueConstraints = @UniqueConstraint(name = "uk_campaign_audience_snapshot",
+                columnNames = "campaign_id"),
+        indexes = @Index(name = "idx_campaign_snapshot_actor", columnList = "actor_user_id"))
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class CommercialCampaignAudienceSnapshot extends BaseEntity {
+
+    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "campaign_id", nullable = false, updatable = false)
+    private CommercialCampaign campaign;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "audience_mode", nullable = false, updatable = false, length = 24)
+    private CommercialCampaignAudienceMode audienceMode;
+
+    @Column(name = "actor_user_id", nullable = false, updatable = false)
+    private UUID actorUserId;
+
+    @Column(name = "evaluated_at", nullable = false, updatable = false)
+    private Instant evaluatedAt;
+
+    @Column(name = "evidence_expires_at", nullable = false, updatable = false)
+    private Instant evidenceExpiresAt;
+
+    @Column(name = "campaign_version", nullable = false, updatable = false)
+    private long campaignVersion;
+
+    @Column(name = "catalog_revision", nullable = false, updatable = false)
+    private long catalogRevision;
+
+    @Column(name = "registry_version", nullable = false, updatable = false, length = 180)
+    private String registryVersion;
+
+    @Column(name = "audience_fingerprint", nullable = false, updatable = false, length = 64)
+    private String audienceFingerprint;
+
+    @Column(name = "segment_id", updatable = false)
+    private UUID segmentId;
+
+    @Column(name = "segment_activation_id", updatable = false)
+    private UUID segmentActivationId;
+
+    @Column(name = "starts_at", nullable = false, updatable = false)
+    private Instant startsAt;
+
+    @Column(name = "ends_at", nullable = false, updatable = false)
+    private Instant endsAt;
+
+    @Column(name = "affected_account_count", nullable = false, updatable = false)
+    private int affectedAccountCount;
+
+    @Column(name = "reason", nullable = false, updatable = false, length = 500)
+    private String reason;
+
+    @ElementCollection(fetch = FetchType.LAZY)
+    @Immutable
+    @CollectionTable(name = "commercial_campaign_audience_accounts",
+            joinColumns = @JoinColumn(name = "snapshot_id"),
+            uniqueConstraints = @UniqueConstraint(name = "uk_campaign_snapshot_account",
+                    columnNames = {"snapshot_id", "account_id"}))
+    @Column(name = "account_id", nullable = false)
+    private Set<UUID> accountIds = new LinkedHashSet<>();
+
+    public static CommercialCampaignAudienceSnapshot record(
+            CommercialCampaign campaign, UUID actorUserId, Instant evaluatedAt,
+            Instant evidenceExpiresAt, long campaignVersion, long catalogRevision,
+            String registryVersion, String fingerprint, UUID segmentId, UUID segmentActivationId,
+            String reason, Collection<UUID> accountIds) {
+        CommercialCampaignAudienceSnapshot snapshot = new CommercialCampaignAudienceSnapshot();
+        snapshot.campaign = Objects.requireNonNull(campaign, "Campaign is required");
+        snapshot.audienceMode = campaign.getAudienceMode();
+        snapshot.actorUserId = Objects.requireNonNull(actorUserId, "Actor is required");
+        snapshot.evaluatedAt = Objects.requireNonNull(evaluatedAt, "Evaluation time is required");
+        snapshot.evidenceExpiresAt = Objects.requireNonNull(evidenceExpiresAt, "Evidence expiry is required");
+        snapshot.campaignVersion = campaignVersion;
+        snapshot.catalogRevision = catalogRevision;
+        snapshot.registryVersion = required(registryVersion, "Registry version");
+        snapshot.audienceFingerprint = required(fingerprint, "Audience fingerprint");
+        snapshot.segmentId = segmentId;
+        snapshot.segmentActivationId = segmentActivationId;
+        snapshot.startsAt = campaign.getStartsAt();
+        snapshot.endsAt = campaign.getEndsAt();
+        snapshot.reason = required(reason, "Schedule reason");
+        snapshot.accountIds = new LinkedHashSet<>(accountIds == null ? Set.of() : accountIds);
+        snapshot.affectedAccountCount = snapshot.accountIds.size();
+        if (snapshot.audienceMode == CommercialCampaignAudienceMode.PUBLIC) {
+            snapshot.affectedAccountCount = 0;
+            snapshot.accountIds.clear();
+        }
+        return snapshot;
+    }
+
+    public Set<UUID> getAccountIds() { return Set.copyOf(accountIds); }
+
+    @PrePersist
+    void validateInvariant() {
+        Objects.requireNonNull(campaign, "Campaign is required");
+        Objects.requireNonNull(audienceMode, "Campaign audience mode is required");
+        Objects.requireNonNull(actorUserId, "Campaign schedule reviewer is required");
+        Objects.requireNonNull(evaluatedAt, "Campaign schedule evaluation time is required");
+        Objects.requireNonNull(evidenceExpiresAt, "Campaign schedule evidence expiry is required");
+        Objects.requireNonNull(startsAt, "Campaign start is required");
+        Objects.requireNonNull(endsAt, "Campaign end is required");
+        required(audienceFingerprint, "Audience fingerprint");
+        required(registryVersion, "Registry version");
+        required(reason, "Schedule reason");
+        if (!evidenceExpiresAt.isAfter(evaluatedAt)) {
+            throw new IllegalStateException("Campaign schedule evidence must expire after evaluation.");
+        }
+        if (!endsAt.isAfter(startsAt) || campaignVersion < 0 || catalogRevision < 0) {
+            throw new IllegalStateException("Campaign schedule provenance is invalid.");
+        }
+        if (affectedAccountCount != accountIds.size()) {
+            throw new IllegalStateException("Campaign frozen audience count is inconsistent.");
+        }
+        boolean audienceValid = switch (audienceMode) {
+            case PUBLIC -> accountIds.isEmpty() && segmentId == null && segmentActivationId == null;
+            case EXPLICIT_ACCOUNTS -> !accountIds.isEmpty()
+                    && segmentId == null && segmentActivationId == null;
+            case SEGMENT -> !accountIds.isEmpty()
+                    && segmentId != null && segmentActivationId != null;
+        };
+        if (!audienceValid) {
+            throw new IllegalStateException("Campaign frozen audience provenance is inconsistent.");
+        }
+    }
+
+    @PreUpdate
+    @PreRemove
+    void rejectMutation() {
+        throw new IllegalStateException("Campaign schedule evidence is immutable.");
+    }
+
+    private static String required(String value, String label) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(label + " is required.");
+        return value.trim();
+    }
+}

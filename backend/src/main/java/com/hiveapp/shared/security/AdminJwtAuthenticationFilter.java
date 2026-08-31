@@ -24,6 +24,7 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(AdminJwtAuthenticationFilter.class);
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final TokenSessionService tokenSessionService;
     private final UserDetailsService adminUserDetailsService;
     private final AccessDeniedHandler accessDeniedHandler;
 
@@ -43,6 +44,21 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
         if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
             try {
                 var claims = jwtTokenProvider.getClaimsFromToken(token);
+
+                // A restricted admin session. It is a legitimate ADMIN token, so it must not be
+                // logged as a rejection — that buried a real signal under a warning on every
+                // password-change request. It authenticates nothing here: the two endpoints that
+                // complete or abandon the change read the bearer value themselves.
+                if (jwtTokenProvider.hasPurpose(claims, TokenAudience.ADMIN, TokenUse.INITIAL_ACCESS)) {
+                    if (isInitialAccessPath(request)) {
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
+                    accessDeniedHandler.handle(request, response, new AccessDeniedException(
+                            "An initial-access session may only complete or abandon the password change"));
+                    return;
+                }
+
                 if (!jwtTokenProvider.hasPurpose(claims, TokenAudience.ADMIN, TokenUse.ACCESS)) {
                     log.warn("Rejected token with type {} and use {} on admin endpoint",
                             claims.get("tokenType"), claims.get("tokenUse"));
@@ -51,6 +67,9 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
                                 new AccessDeniedException("Token is not valid for the admin API surface"));
                         return;
                     }
+                } else if (!tokenSessionService.isAccessActive(claims, TokenAudience.ADMIN)) {
+                    filterChain.doFilter(request, response);
+                    return;
                 } else {
                     String userId = jwtTokenProvider.getUserIdFromToken(token).toString();
                     var userDetails = adminUserDetailsService.loadUserByUsername(userId);
@@ -96,5 +115,12 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
 
     private boolean isPublicPath(HttpServletRequest request) {
         return requestPath(request).startsWith("/api/admin/auth/");
+    }
+
+    /** The only two endpoints a restricted admin session may reach. */
+    private boolean isInitialAccessPath(HttpServletRequest request) {
+        String path = requestPath(request);
+        return path.equals("/api/admin/auth/initial-password/change")
+                || path.equals("/api/admin/auth/initial-password/logout");
     }
 }
