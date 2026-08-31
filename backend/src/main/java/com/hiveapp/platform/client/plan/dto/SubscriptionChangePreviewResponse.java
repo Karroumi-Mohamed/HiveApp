@@ -1,5 +1,6 @@
 package com.hiveapp.platform.client.plan.dto;
 
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.shared.money.ExactDecimal;
 
 import java.math.BigDecimal;
@@ -21,6 +22,11 @@ public record SubscriptionChangePreviewResponse(
         @ExactDecimal BigDecimal currentPrice,
         @ExactDecimal BigDecimal previewPrice,
         String currencyCode,
+        SubscriptionChangeTiming timing,
+        Instant effectiveAt,
+        Instant effectiveUntil,
+        ClientSubscriptionEntitlementState currentEntitlements,
+        ClientSubscriptionEntitlementState targetEntitlements,
         boolean immediateAllowed,
         Set<String> effectiveFeatureCodes,
         List<EffectiveQuotaLimit> effectiveQuotaLimits,

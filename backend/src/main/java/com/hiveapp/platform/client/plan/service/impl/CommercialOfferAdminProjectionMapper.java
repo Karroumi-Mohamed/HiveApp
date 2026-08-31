@@ -5,6 +5,10 @@ import com.hiveapp.platform.client.plan.domain.entity.CommercialCampaign;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialOffer;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialOfferRedemption;
 import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferDiscountDecisionCode;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferDiscountWinner;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferProductState;
+import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.CommercialOfferViews;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOfferEvaluation;
 import java.util.Set;
@@ -16,7 +20,8 @@ import org.springframework.stereotype.Component;
 @Component
 class CommercialOfferAdminProjectionMapper {
 
-  CommercialOfferViews.ComparisonDefinition comparisonDefinition(CommercialOffer offer) {
+  CommercialOfferViews.ComparisonDefinition comparisonDefinition(
+      CommercialOffer offer, CommercialOfferViews.ClientSelection resolvedSelection) {
     return new CommercialOfferViews.ComparisonDefinition(
         offer.getId(),
         offer.getBusinessCode(),
@@ -25,6 +30,7 @@ class CommercialOfferAdminProjectionMapper {
         offer.getStatus(),
         offer.getCampaign().getId(),
         offer.getCampaign().getCode(),
+        campaignChoice(offer.getCampaign()),
         offer.getDiscovery(),
         offer.getAcceptance(),
         offer.getCustomerCodeHash() != null,
@@ -34,6 +40,7 @@ class CommercialOfferAdminProjectionMapper {
         offer.getGlobalLimit(),
         offer.getPerAccountLimit(),
         offer.getSelection(),
+        resolvedSelection,
         offer.getEffects(),
         offer.getVersion());
   }
@@ -42,6 +49,7 @@ class CommercialOfferAdminProjectionMapper {
     return switch (price.getOwnerType()) {
       case PLAN ->
           new CommercialOfferViews.PricedChoice(
+              price.getOwnerType(),
               price.getPlan().getId(),
               price.getPlan().getCode(),
               price.getPlan().getName(),
@@ -53,11 +61,11 @@ class CommercialOfferAdminProjectionMapper {
               price.getBillingCycle(),
               price.getEffectiveFrom(),
               price.getEffectiveUntil(),
-              price.getPlan().getStatus().name(),
-              price.getStatus().name(),
+              CommercialOfferProductState.valueOf(price.getPlan().getStatus().name()),
+              price.getStatus(),
               new CommercialOfferViews.ProductCompatibility(
                   price.getPlan().getSalesVisibility(),
-                  price.getPlan().getExtensionPolicy().name(),
+                  price.getPlan().getExtensionPolicy(),
                   Set.of(),
                   Set.of(),
                   Set.of(),
@@ -70,6 +78,7 @@ class CommercialOfferAdminProjectionMapper {
                   null));
       case ADD_ON ->
           new CommercialOfferViews.PricedChoice(
+              price.getOwnerType(),
               price.getAddOn().getId(),
               price.getAddOn().getCode(),
               price.getAddOn().getName(),
@@ -81,8 +90,8 @@ class CommercialOfferAdminProjectionMapper {
               price.getBillingCycle(),
               price.getEffectiveFrom(),
               price.getEffectiveUntil(),
-              price.getAddOn().getStatus().name(),
-              price.getStatus().name(),
+              CommercialOfferProductState.valueOf(price.getAddOn().getStatus().name()),
+              price.getStatus(),
               new CommercialOfferViews.ProductCompatibility(
                   price.getAddOn().getSalesVisibility(),
                   null,
@@ -98,6 +107,7 @@ class CommercialOfferAdminProjectionMapper {
                   null));
       case QUOTA_PACKAGE ->
           new CommercialOfferViews.PricedChoice(
+              price.getOwnerType(),
               price.getQuotaPackage().getId(),
               price.getQuotaPackage().getCode(),
               price.getQuotaPackage().getName(),
@@ -109,8 +119,8 @@ class CommercialOfferAdminProjectionMapper {
               price.getBillingCycle(),
               price.getEffectiveFrom(),
               price.getEffectiveUntil(),
-              price.getQuotaPackage().getStatus().name(),
-              price.getStatus().name(),
+              CommercialOfferProductState.valueOf(price.getQuotaPackage().getStatus().name()),
+              price.getStatus(),
               new CommercialOfferViews.ProductCompatibility(
                   price.getQuotaPackage().getSalesVisibility(),
                   null,
@@ -145,7 +155,10 @@ class CommercialOfferAdminProjectionMapper {
         campaign.getEndsAt());
   }
 
-  CommercialOfferViews.Redemption redemption(CommercialOfferRedemption redemption) {
+  CommercialOfferViews.Redemption redemption(
+      CommercialOfferRedemption redemption,
+      CommercialOfferViews.ClientSelection resolvedSelection,
+      ClientSubscriptionChangeOperationDto operation) {
     return new CommercialOfferViews.Redemption(
         redemption.getId(),
         redemption.getOffer().getId(),
@@ -154,9 +167,11 @@ class CommercialOfferAdminProjectionMapper {
         redemption.getOffer().getRevisionNumber(),
         redemption.getCampaignId(),
         redemption.getOffer().getSelection(),
+        resolvedSelection,
         redemption.getStatus(),
         redemption.getSurface(),
         redemption.getSubscriptionOperationId(),
+        operation,
         redemption.getReservedAt(),
         redemption.getAppliedAt(),
         redemption.getReleasedAt(),
@@ -171,8 +186,15 @@ class CommercialOfferAdminProjectionMapper {
         evaluation.offerPrice(),
         evaluation.finalPrice(),
         evaluation.currencyCode(),
-        evaluation.discountWinner(),
+        CommercialOfferDiscountWinner.valueOf(evaluation.discountWinner()),
+        decisionCode(evaluation.discountWinner()),
         evaluation.winnerReason(),
         evaluation.quotaBonuses());
+  }
+
+  private CommercialOfferDiscountDecisionCode decisionCode(String winner) {
+    return "OFFER".equals(winner)
+        ? CommercialOfferDiscountDecisionCode.OFFER_LOWER_FINAL_PRICE
+        : CommercialOfferDiscountDecisionCode.POLICY_LOWER_OR_EQUAL_FINAL_PRICE;
   }
 }

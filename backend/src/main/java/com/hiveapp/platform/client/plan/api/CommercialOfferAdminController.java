@@ -1,7 +1,11 @@
 package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferAcceptance;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferDiscovery;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferRedemptionStatus;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferStatus;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferSurface;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.dto.*;
 import com.hiveapp.platform.client.plan.service.CommercialOfferAdminService;
@@ -10,6 +14,7 @@ import jakarta.validation.Valid;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -36,12 +41,22 @@ public class CommercialOfferAdminController {
           "endsAt",
           "revisionNumber",
           "revisionNumber");
+  private static final Map<String, String> REDEMPTION_SORTS =
+      Map.of(
+          "reservedAt", "reservedAt",
+          "appliedAt", "appliedAt",
+          "releasedAt", "releasedAt",
+          "status", "status",
+          "surface", "surface");
   private final CommercialOfferAdminService service;
 
   @GetMapping
   public PageResponse<CommercialOfferViews.Summary> list(
       @RequestParam(required = false) String search,
       @RequestParam(required = false) CommercialOfferStatus status,
+      @RequestParam(required = false) UUID campaignId,
+      @RequestParam(required = false) CommercialOfferDiscovery discovery,
+      @RequestParam(required = false) CommercialOfferAcceptance acceptance,
       @RequestParam(defaultValue = "false") boolean includeArchived,
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "20") int size,
@@ -51,6 +66,9 @@ public class CommercialOfferAdminController {
         service.list(
             search,
             status,
+            campaignId,
+            discovery,
+            acceptance,
             includeArchived,
             CommercialProductPageRequest.of(
                 page, size, sort, direction, SORTS, "createdAt", Sort.Direction.DESC)));
@@ -78,10 +96,22 @@ public class CommercialOfferAdminController {
     return service.create(r);
   }
 
+  @PostMapping("/definition-preview")
+  public ResponseEntity<CommercialOfferViews.DefinitionPreview> previewCreateDefinition(
+      @Valid @RequestBody CommercialOfferRequests.Create request) {
+    return noStore(service.previewCreateDefinition(request));
+  }
+
   @PutMapping("/{id}")
   public CommercialOfferViews.Mutation update(
       @PathVariable UUID id, @Valid @RequestBody CommercialOfferRequests.Update r) {
     return service.update(id, r);
+  }
+
+  @PostMapping("/{id}/definition-preview")
+  public ResponseEntity<CommercialOfferViews.DefinitionPreview> previewUpdateDefinition(
+      @PathVariable UUID id, @Valid @RequestBody CommercialOfferRequests.Update request) {
+    return noStore(service.previewUpdateDefinition(id, request));
   }
 
   @PostMapping("/{id}/duplicate")
@@ -112,8 +142,8 @@ public class CommercialOfferAdminController {
   }
 
   @GetMapping("/{id}/publication-preview")
-  public CommercialOfferViews.PublicationPreview preview(@PathVariable UUID id) {
-    return service.previewPublication(id);
+  public ResponseEntity<CommercialOfferViews.PublicationPreview> preview(@PathVariable UUID id) {
+    return noStore(service.previewPublication(id));
   }
 
   @PostMapping("/{id}/publish")
@@ -153,7 +183,7 @@ public class CommercialOfferAdminController {
   }
 
   @PutMapping("/{id}/owner")
-  public CommercialOfferViews.Mutation owner(
+  public CommercialOfferViews.OwnerMutation owner(
       @PathVariable UUID id, @Valid @RequestBody CommercialOfferRequests.ReassignOwner r) {
     return service.reassignOwner(id, r);
   }
@@ -174,17 +204,28 @@ public class CommercialOfferAdminController {
   @GetMapping("/{id}/redemptions")
   public PageResponse<CommercialOfferViews.Redemption> redemptions(
       @PathVariable UUID id,
+      @RequestParam(required = false) CommercialOfferRedemptionStatus status,
+      @RequestParam(required = false) CommercialOfferSurface surface,
       @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size) {
-    return PageResponse.from(service.redemptions(id, page(page, size)));
+      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(required = false) String sort,
+      @RequestParam(required = false) String direction) {
+    return PageResponse.from(
+        service.redemptions(
+            id, status, surface, redemptionPage(page, size, sort, direction)));
   }
 
-  @GetMapping("/{id}/redemption-identities")
-  public PageResponse<CommercialOfferViews.RedemptionIdentity> identities(
+  @GetMapping("/{id}/redemptions/{redemptionId}")
+  public CommercialOfferViews.Redemption redemption(
+      @PathVariable UUID id, @PathVariable UUID redemptionId) {
+    return service.redemption(id, redemptionId);
+  }
+
+  @PostMapping("/{id}/redemption-identity-resolution")
+  public List<CommercialOfferViews.RedemptionIdentity> identities(
       @PathVariable UUID id,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size) {
-    return PageResponse.from(service.redemptionIdentities(id, page(page, size)));
+      @Valid @RequestBody CommercialOfferRequests.RedemptionIdentityResolution request) {
+    return service.resolveRedemptionIdentities(id, request.redemptionIds());
   }
 
   @GetMapping("/account-choices")
@@ -248,17 +289,17 @@ public class CommercialOfferAdminController {
   }
 
   @PostMapping("/{id}/accounts/{accountId}/preview")
-  public CommercialOfferViews.EligibilityPreview previewAccount(
+  public ResponseEntity<CommercialOfferViews.AccountEligibilityAssessment> previewAccount(
       @PathVariable UUID id, @PathVariable UUID accountId) {
-    return service.previewForAccount(id, accountId);
+    return noStore(service.previewForAccount(id, accountId));
   }
 
   @PostMapping("/{id}/accounts/{accountId}/apply")
-  public ResponseEntity<CommercialOfferViews.Acceptance> applyAccount(
+  public ResponseEntity<CommercialOfferViews.AdminAcceptance> applyAccount(
       @PathVariable UUID id,
       @PathVariable UUID accountId,
       @RequestHeader("Idempotency-Key") String key,
-      @Valid @RequestBody CommercialOfferRequests.Accept request) {
+      @Valid @RequestBody CommercialOfferRequests.OperatorAccept request) {
     var result = service.applyForAccount(id, accountId, key, request);
     return ResponseEntity.status(result.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
         .body(result);
@@ -267,5 +308,21 @@ public class CommercialOfferAdminController {
   private org.springframework.data.domain.Pageable page(int p, int s) {
     return CommercialProductPageRequest.of(
         p, s, null, null, Map.of("createdAt", "createdAt"), "createdAt", Sort.Direction.DESC);
+  }
+
+  private org.springframework.data.domain.Pageable redemptionPage(
+      int page, int size, String sort, String direction) {
+    return CommercialProductPageRequest.of(
+        page,
+        size,
+        sort,
+        direction,
+        REDEMPTION_SORTS,
+        "reservedAt",
+        Sort.Direction.DESC);
+  }
+
+  private <T> ResponseEntity<T> noStore(T body) {
+    return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body);
   }
 }

@@ -3,6 +3,7 @@ package com.hiveapp.shared.exception;
 import com.hiveapp.shared.quota.QuotaExceededException;
 import dev.karroumi.permissionizer.PermissionDeniedException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -123,6 +124,15 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.CONFLICT)
                 .body(ApiError.of(409, ErrorCode.STALE_RESOURCE_VERSION, "Conflict",
                         "The resource changed since it was read. Reload it and retry."));
+    }
+
+    /** Database lock races are retryable concurrent changes, never opaque infrastructure errors. */
+    @ExceptionHandler(CannotAcquireLockException.class)
+    public ResponseEntity<ApiError> handleLockConflict(CannotAcquireLockException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.STALE_RESOURCE_VERSION, "Conflict",
+                        "The resource changed concurrently. Reload it and retry."));
     }
 
     @ExceptionHandler(com.hiveapp.platform.admin.service.AdminRoleNameConflictException.class)

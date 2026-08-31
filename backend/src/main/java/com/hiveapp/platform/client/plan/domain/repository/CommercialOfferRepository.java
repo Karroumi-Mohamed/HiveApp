@@ -45,11 +45,17 @@ public interface CommercialOfferRepository
       "select o from CommercialOffer o where o.lineage.id=:lineage order by o.revisionNumber,o.id")
   List<CommercialOffer> lockLineage(@Param("lineage") UUID lineage);
 
+  @EntityGraph(attributePaths = {"sourceOffer"})
   Page<CommercialOffer> findAllByLineage_Id(UUID lineage, Pageable pageable);
 
   @Query(
       "select coalesce(max(o.revisionNumber),0) from CommercialOffer o where o.lineage.id=:lineage")
   int maxRevision(@Param("lineage") UUID lineage);
+
+  @Query(
+      "select o.lineage.id, max(o.revisionNumber) from CommercialOffer o where o.lineage.id in"
+          + " :lineages group by o.lineage.id")
+  List<Object[]> findMaximumRevisions(@Param("lineages") Collection<UUID> lineages);
 
   Optional<CommercialOffer> findFirstByLineage_IdAndStatus(
       UUID lineage, CommercialOfferStatus status);

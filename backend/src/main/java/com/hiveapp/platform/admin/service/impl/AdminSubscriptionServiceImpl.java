@@ -25,6 +25,7 @@ import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOper
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
+import com.hiveapp.platform.client.plan.service.SubscriptionChangeOperationProjectionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionOverrideReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
@@ -77,6 +78,7 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
 
     private final SubscriptionService subscriptionService;
     private final SubscriptionCheckoutService subscriptionCheckoutService;
+    private final SubscriptionChangeOperationProjectionMapper operationProjectionMapper;
     private final AccountDirectoryService accountDirectoryService;
     private final AccountRepository accountRepository;
     private final SubscriptionRepository subscriptionRepository;
@@ -456,22 +458,7 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
             throw new ResourceNotFoundException("Account", "id", accountId);
         }
         return subscriptionChangeOperationRepository.findAllByAccountId(accountId, pageable)
-                .map(this::toAdminChangeOperation);
-    }
-
-    private AdminSubscriptionChangeOperationDto toAdminChangeOperation(
-            com.hiveapp.platform.client.plan.domain.entity.SubscriptionChangeOperation operation
-    ) {
-        return new AdminSubscriptionChangeOperationDto(
-                operation.getId(), operation.getCreatedAt(), operation.getUpdatedAt(),
-                operation.getTiming(), operation.getStatus(),
-                operation.getEffectiveAt(), operation.getSourceSubscription().getPlan().getCode(),
-                operation.getTargetPlan().getCode(), operation.getAttentionReason(),
-                subscriptionCheckoutService.toDto(operation.getCheckout()),
-                operation.getRequestOrigin(), operation.getRequestedByUserId(),
-                operation.getRequestReason(), operation.getCancellationOrigin(),
-                operation.getCancelledByUserId(), operation.getCancellationReason(),
-                operation.getCancelledAt(), operation.getCommercialPolicyEvaluation());
+                .map(operationProjectionMapper::admin);
     }
 
     @Override

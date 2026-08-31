@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeTiming;
 import com.hiveapp.shared.exception.InvalidStateException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -30,6 +31,27 @@ public class SubscriptionPeriodCalculator {
             case FOREVER -> throw new InvalidStateException("FOREVER subscriptions are not supported.");
         };
         return new Period(startsAt, endsAt);
+    }
+
+    /**
+     * Calculates the target entitlement period for a reviewed subscription change.
+     * This method is the shared timing rule for both review and operation creation.
+     */
+    public Period change(
+            BillingCycle cycle,
+            SubscriptionChangeTiming timing,
+            Instant renewalAt
+    ) {
+        if (timing == null) {
+            throw new InvalidStateException("Subscription change timing is required.");
+        }
+        if (timing == SubscriptionChangeTiming.AT_RENEWAL && renewalAt == null) {
+            throw new InvalidStateException(
+                    "Renewal subscription changes require the current period end.");
+        }
+        return timing == SubscriptionChangeTiming.AT_RENEWAL
+                ? recurring(cycle, renewalAt)
+                : recurring(cycle);
     }
 
     public Period trial(int trialDays) {

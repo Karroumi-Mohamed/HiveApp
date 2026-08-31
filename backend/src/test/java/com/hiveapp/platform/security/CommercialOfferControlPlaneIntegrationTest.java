@@ -10,7 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hiveapp.identity.dto.InitialPasswordChangeRequest;
 import com.hiveapp.identity.dto.LoginRequest;
+import com.hiveapp.identity.domain.constant.InitialAccessMethod;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
+import com.hiveapp.platform.admin.dto.CreateAdminUserRequest;
+import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.member.domain.constant.RoleAssignmentScope;
 import com.hiveapp.platform.client.member.dto.AssignRoleRequest;
@@ -28,6 +31,8 @@ import com.hiveapp.shared.quota.QuotaLimitMode;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import jakarta.persistence.EntityManagerFactory;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
@@ -37,6 +42,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @TestPropertySource(
     properties = {
@@ -55,11 +61,25 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
   @Autowired private CommercialOfferCapacityRepository capacities;
   @Autowired private CommercialOfferCodeReservationRepository codeReservations;
   @Autowired private CommercialOfferRedemptionRepository redemptions;
+  @Autowired private SubscriptionChangeOperationRepository subscriptionOperations;
   @Autowired private AccountRepository accounts;
   @Autowired private EntityManagerFactory entityManagerFactory;
   @Autowired private RegistryCatalogVersionService registryCatalogVersions;
   @Autowired private AuditLogRepository auditLogs;
   @Autowired private com.hiveapp.platform.client.plan.service.CommercialOfferCodeHasher codeHasher;
+
+  @Test
+  void operationStateAdvertisesTheIndependentRedemptionDetailAction() throws Exception {
+    String token = loginAdminAndGetToken();
+    OfferFixture fixture = offerFixture(false, null);
+
+    mockMvc
+        .perform(
+            get("/api/admin/offers/{id}/operations", fixture.offer().getId())
+                .header("Authorization", bearer(token)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.availableActions", hasItem("READ_REDEMPTION_DETAIL")));
+  }
 
   @Test
   void publishRetireAndRestoreRequireFreshEvidenceAndReturnMinimalAcknowledgements()
@@ -165,6 +185,158 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
   }
 
   @Test
+  void lineageOnlyUpdateRejectsASequentialStaleWriter() throws Exception {
+    String token = loginAdminAndGetToken();
+    OfferFixture fixture = offerFixture(false, null);
+    JsonNode editable =
+        response(
+            mockMvc
+                .perform(
+                    get("/api/admin/offers/{id}/editable-definition", fixture.offer().getId())
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk()));
+    long offerVersion = editable.get("version").asLong();
+    long lineageVersion = editable.get("lineageVersion").asLong();
+    CommercialOfferRequests.Update first =
+        lineageOnlyUpdate(
+            fixture,
+            offerVersion,
+            lineageVersion,
+            CommercialOfferAcceptance.OPERATOR_ONLY,
+            25L);
+    JsonNode updated =
+        response(
+            mockMvc
+                .perform(
+                    org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                            "/api/admin/offers/{id}", fixture.offer().getId())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(first)))
+                .andExpect(status().isOk()));
+    assertThat(updated.get("version").asLong()).isEqualTo(offerVersion);
+
+    mockMvc
+        .perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/admin/offers/{id}", fixture.offer().getId())
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        lineageOnlyUpdate(
+                            fixture,
+                            offerVersion,
+                            lineageVersion,
+                            CommercialOfferAcceptance.CLIENT_OR_OPERATOR,
+                            50L))))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
+
+    JsonNode current =
+        response(
+            mockMvc
+                .perform(
+                    get("/api/admin/offers/{id}/editable-definition", fixture.offer().getId())
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.acceptance").value("OPERATOR_ONLY"))
+                .andExpect(jsonPath("$.globalLimit").value(25)));
+    assertThat(current.get("lineageVersion").asLong()).isGreaterThan(lineageVersion);
+  }
+
+  @Test
+  void ownerVersionRejectsStaleReassignmentAcrossOfferRevisions() throws Exception {
+    String token = loginAdminAndGetToken();
+    OfferFixture fixture = offerFixture(true, null);
+    OperatorFixture replacement = createSuperAdmin(token);
+    UUID originalOwnerId = adminUsers.findByUser_Email(ADMIN_EMAIL).orElseThrow().getId();
+    JsonNode owner =
+        response(
+            mockMvc
+                .perform(
+                    get("/api/admin/offers/{id}/owner", fixture.offer().getId())
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk()));
+    long staleLineageVersion = owner.get("lineageVersion").asLong();
+    JsonNode revision =
+        response(
+            mockMvc
+                .perform(
+                    post("/api/admin/offers/{id}/revisions", fixture.offer().getId())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            objectMapper.writeValueAsString(
+                                new CommercialOfferRequests.VersionReason(
+                                    fixture.offer().getVersion(), "Prepare next revision"))))
+                .andExpect(status().isCreated()));
+    UUID revisionId = UUID.fromString(revision.get("offerId").asText());
+    JsonNode reassigned =
+        response(
+            mockMvc
+                .perform(
+                    org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                            "/api/admin/offers/{id}/owner", revisionId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            objectMapper.writeValueAsString(
+                                new CommercialOfferRequests.ReassignOwner(
+                                    staleLineageVersion,
+                                    replacement.adminUserId(),
+                                    "Transfer Offer ownership"))))
+                .andExpect(status().isOk()));
+
+    mockMvc
+        .perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/admin/offers/{id}/owner", fixture.offer().getId())
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new CommercialOfferRequests.ReassignOwner(
+                            staleLineageVersion, originalOwnerId, "Stale overwrite"))))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("STALE_RESOURCE_VERSION"));
+
+    mockMvc
+        .perform(
+            get("/api/admin/offers/{id}/owner", fixture.offer().getId())
+                .header("Authorization", bearer(token)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.adminUserId").value(replacement.adminUserId().toString()))
+        .andExpect(jsonPath("$.lineageVersion").value(reassigned.get("lineageVersion").asLong()));
+  }
+
+  @Test
+  void concurrentRevisionRequestsNeverBecomeInfrastructureErrors() throws Exception {
+    String token = loginAdminAndGetToken();
+    OfferFixture fixture = offerFixture(true, null);
+    CountDownLatch start = new CountDownLatch(1);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      CompletableFuture<RevisionAttempt> first =
+          CompletableFuture.supplyAsync(() -> reviseStatus(token, fixture, start), pool);
+      CompletableFuture<RevisionAttempt> second =
+          CompletableFuture.supplyAsync(() -> reviseStatus(token, fixture, start), pool);
+      start.countDown();
+      List<RevisionAttempt> attempts = List.of(first.join(), second.join());
+      assertThat(attempts).extracting(RevisionAttempt::status).containsExactlyInAnyOrder(201, 409);
+      assertThat(attempts.stream().filter(attempt -> attempt.status() == 409).findFirst().orElseThrow().body())
+          .contains("\"code\":\"STALE_RESOURCE_VERSION\"");
+    } finally {
+      pool.shutdownNow();
+    }
+
+    assertThat(offers.findAllByLineage_Id(
+            fixture.offer().getLineageId(),
+            org.springframework.data.domain.Pageable.unpaged()))
+        .hasSize(2);
+  }
+
+  @Test
   void clientAcceptanceIsIdempotentAndOwnHistoryRetainsExactAcceptedTerms() throws Exception {
     String clientToken = registerClientAndGetToken();
     UUID accountId = currentAccountId(clientToken);
@@ -178,12 +350,15 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                         .header("Authorization", bearer(clientToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                .andExpect(status().isOk()));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.change.estimatedEffectiveAt").isString())
+                .andExpect(jsonPath("$.change.estimatedEffectiveUntil").isString())
+                .andExpect(jsonPath("$.change.effectiveAt").doesNotExist())
+                .andExpect(jsonPath("$.change.effectiveUntil").doesNotExist()));
     String key = "accept-" + UUID.randomUUID();
     String body =
         objectMapper.writeValueAsString(
-            new CommercialOfferRequests.Accept(
-                preview.get("previewToken").asText(), "Accept exact terms"));
+            new CommercialOfferRequests.ClientAccept(preview.get("previewToken").asText()));
     JsonNode accepted =
         response(
             mockMvc
@@ -196,18 +371,39 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.replayed").value(false))
                 .andExpect(jsonPath("$.acceptedTerms.finalPrice").isString())
-                .andExpect(jsonPath("$.acceptedTerms.currencyCode").value("USD")));
+                .andExpect(jsonPath("$.acceptedTerms.currencyCode").value("USD"))
+                .andExpect(jsonPath("$.operation.requestOrigin").doesNotExist())
+                .andExpect(jsonPath("$.operation.requestReason").doesNotExist())
+                .andExpect(jsonPath("$.operation.checkout.gatewayReference").doesNotExist())
+                .andExpect(jsonPath("$.operation.checkout.gatewayFailureReason").doesNotExist())
+                .andExpect(jsonPath("$.operation.commercialPolicyEvaluation.decisions[0].policyId")
+                    .doesNotExist()));
 
-    mockMvc
-        .perform(
-            post("/api/v1/subscriptions/offers/{id}/accept", fixture.offer().getId())
-                .header("Authorization", bearer(clientToken))
-                .header("Idempotency-Key", key)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(body))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.replayed").value(true))
-        .andExpect(jsonPath("$.redemptionId").value(accepted.get("redemptionId").asText()));
+    JsonNode replayed =
+        response(
+            mockMvc
+                .perform(
+                    post("/api/v1/subscriptions/offers/{id}/accept", fixture.offer().getId())
+                        .header("Authorization", bearer(clientToken))
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.replayed").value(true))
+                .andExpect(
+                    jsonPath("$.redemptionId")
+                        .value(accepted.get("redemptionId").asText())));
+    assertThat(replayed.at("/operation/id").asText())
+        .isEqualTo(accepted.at("/operation/id").asText());
+    assertThat(replayed.at("/operation/status").asText())
+        .isEqualTo(accepted.at("/operation/status").asText());
+    SubscriptionChangeOperation persistedOperation =
+        subscriptionOperations
+            .findByOfferRedemptionId(
+                UUID.fromString(accepted.get("redemptionId").asText()))
+            .orElseThrow();
+    assertThat(persistedOperation.getRequestOrigin())
+        .isEqualTo(SubscriptionChangeOrigin.CLIENT_SELF_SERVICE);
 
     mockMvc
         .perform(
@@ -217,8 +413,8 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new CommercialOfferRequests.Accept(
-                            preview.get("previewToken").asText(), "Changed request fingerprint"))))
+                        new CommercialOfferRequests.ClientAccept(
+                            preview.get("previewToken").asText() + "-tampered"))))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
 
@@ -234,6 +430,7 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
             jsonPath("$.acceptedTerms.finalPrice")
                 .value(accepted.at("/acceptedTerms/finalPrice").asText()))
         .andExpect(jsonPath("$.selection.plan.code").value(fixture.planPrice().getPlan().getCode()))
+        .andExpect(jsonPath("$.selection.plan.priceId").doesNotExist())
         .andExpect(jsonPath("$.campaignId").doesNotExist())
         .andExpect(jsonPath("$.offerLineageId").doesNotExist());
     assertThat(
@@ -248,12 +445,15 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
               assertThat(log.getActorSurface()).isEqualTo(AuditActorSurface.CLIENT_WORKSPACE);
               assertThat(log.getTargetAccountId()).isEqualTo(accountId);
               assertThat(log.getResourceId())
-                  .isEqualTo(preview.get("subscriptionId").asText());
+                  .isEqualTo(persistedOperation.getResultSubscription().getId().toString());
               assertThat(log.getRequestData())
                   .contains("[REDACTED]")
                   .doesNotContain(preview.get("previewToken").asText())
+                  .doesNotContain(persistedOperation.getOfferApplicationClaimId().toString())
                   .doesNotContain(key);
-              assertThat(log.getResultData()).doesNotContain(key);
+              assertThat(log.getResultData())
+                  .doesNotContain(persistedOperation.getOfferApplicationClaimId().toString())
+                  .doesNotContain(key);
             });
   }
 
@@ -336,7 +536,106 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
     assertThat(
             redemptions.findAllByAccount_Id(
                 accountId, org.springframework.data.domain.Pageable.unpaged()))
-        .hasSize(1);
+        .singleElement()
+        .satisfies(
+            redemption -> {
+              assertThat(redemption.getAcceptedSelection()).isNotNull();
+              SubscriptionChangeOperation operation =
+                  subscriptionOperations
+                      .findByOfferRedemptionIdAndAccountId(redemption.getId(), accountId)
+                      .orElseThrow();
+              assertThat(redemption.getSubscriptionOperationId()).isEqualTo(operation.getId());
+              assertThat(operation.getOfferApplicationClaimId())
+                  .isEqualTo(redemption.getApplicationClaimId());
+            });
+  }
+
+  @Test
+  void activeCrashWindowClaimReturnsRetryLaterWithoutApplying() throws Exception {
+    String token = registerClientAndGetToken();
+    UUID accountId = currentAccountId(token);
+    OfferFixture fixture = offerFixture(true, null);
+    CrashReservation crash =
+        reserveCrashWindow(token, accountId, fixture, Instant.now().plusSeconds(300), true);
+
+    mockMvc
+        .perform(
+            post("/api/v1/subscriptions/offers/{id}/accept", fixture.offer().getId())
+                .header("Authorization", bearer(token))
+                .header("Idempotency-Key", crash.idempotencyKey())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new CommercialOfferRequests.ClientAccept(crash.previewToken()))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.replayed").value(true))
+        .andExpect(jsonPath("$.progress").value("IN_PROGRESS"))
+        .andExpect(jsonPath("$.nextAction").value("RETRY_LATER"))
+        .andExpect(jsonPath("$.retryAfter").isString())
+        .andExpect(jsonPath("$.operation").doesNotExist());
+
+    CommercialOfferRedemption unchanged = redemptions.findById(crash.redemptionId()).orElseThrow();
+    assertThat(unchanged.getApplicationClaimId()).isEqualTo(crash.initialClaimId());
+    assertThat(unchanged.getStatus()).isEqualTo(CommercialOfferRedemptionStatus.RESERVED);
+    assertThat(subscriptionOperations.findByOfferRedemptionId(crash.redemptionId())).isEmpty();
+  }
+
+  @Test
+  void expiredClaimTakeoverIsFencedAndOperationLinkRollsBackAtomically() throws Exception {
+    String token = registerClientAndGetToken();
+    UUID accountId = currentAccountId(token);
+    OfferFixture fixture = offerFixture(true, null);
+    CrashReservation crash =
+        reserveCrashWindow(token, accountId, fixture, Instant.now().minusSeconds(60), false);
+
+    mockMvc
+        .perform(
+            post("/api/v1/subscriptions/offers/{id}/accept", fixture.offer().getId())
+                .header("Authorization", bearer(token))
+                .header("Idempotency-Key", crash.idempotencyKey())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new CommercialOfferRequests.ClientAccept(crash.previewToken()))))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("OFFER_REDEMPTION_BLOCKED"));
+
+    CommercialOfferRedemption rolledBack = redemptions.findById(crash.redemptionId()).orElseThrow();
+    assertThat(rolledBack.getStatus()).isEqualTo(CommercialOfferRedemptionStatus.RESERVED);
+    assertThat(rolledBack.getSubscriptionOperationId()).isNull();
+    assertThat(subscriptionOperations.findByOfferRedemptionId(crash.redemptionId())).isEmpty();
+    assertThat(rolledBack.getApplicationClaimId()).isNotEqualTo(crash.initialClaimId());
+
+    CommercialOfferCapacity restored = CommercialOfferCapacity.create(fixture.offer().getLineageId());
+    restored.reserve(-1, 0, -1);
+    capacities.saveAndFlush(restored);
+    ReflectionTestUtils.setField(
+        rolledBack, "applicationLeaseExpiresAt", Instant.now().minusSeconds(1));
+    redemptions.saveAndFlush(rolledBack);
+
+    JsonNode recovered =
+        response(
+            mockMvc
+                .perform(
+                    post("/api/v1/subscriptions/offers/{id}/accept", fixture.offer().getId())
+                        .header("Authorization", bearer(token))
+                        .header("Idempotency-Key", crash.idempotencyKey())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            objectMapper.writeValueAsString(
+                                new CommercialOfferRequests.ClientAccept(crash.previewToken()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.replayed").value(true))
+                .andExpect(jsonPath("$.progress").value("OPERATION_AVAILABLE")));
+
+    CommercialOfferRedemption applied = redemptions.findById(crash.redemptionId()).orElseThrow();
+    SubscriptionChangeOperation operation =
+        subscriptionOperations.findByOfferRedemptionId(crash.redemptionId()).orElseThrow();
+    assertThat(applied.getStatus()).isEqualTo(CommercialOfferRedemptionStatus.APPLIED);
+    assertThat(applied.getSubscriptionOperationId()).isEqualTo(operation.getId());
+    assertThat(operation.getOfferApplicationClaimId()).isEqualTo(applied.getApplicationClaimId());
+    assertThat(operation.getOfferApplicationClaimId()).isNotEqualTo(crash.initialClaimId());
+    assertThat(recovered.at("/operation/id").asText()).isEqualTo(operation.getId().toString());
   }
 
   @Test
@@ -355,7 +654,7 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new CommercialOfferRequests.Accept(firstPreview, null))))
+                        new CommercialOfferRequests.ClientAccept(firstPreview))))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.code").value("STALE_OFFER_PREVIEW"));
 
@@ -458,9 +757,10 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                     invalid.offer().getId(),
                     accountId)
                 .header("Authorization", bearer(adminToken)))
-        .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.code").value("INVALID_STATE"))
-        .andExpect(jsonPath("$.message").value("The selected price entry is not active and applicable."));
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.eligible").value(false))
+        .andExpect(jsonPath("$.blockers", hasItem("SELECTION_UNAVAILABLE")))
+        .andExpect(jsonPath("$.preview").doesNotExist());
 
     activateBlockingPlanPolicy(adminToken, accountId, normal.getPlan().getId());
     mockMvc
@@ -486,11 +786,10 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                     valid.offer().getId(),
                     accountId)
                 .header("Authorization", bearer(adminToken)))
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-        .andExpect(
-            jsonPath("$.message")
-                .value("The requested commercial selection is unavailable for operator assignment."));
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.eligible").value(false))
+        .andExpect(jsonPath("$.blockers", hasItem("SELECTION_UNAVAILABLE")))
+        .andExpect(jsonPath("$.preview").doesNotExist());
   }
 
   @Test
@@ -520,8 +819,10 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                       fixture.offer().getId(),
                       accountId)
                   .header("Authorization", bearer(adminToken)))
-          .andExpect(status().isNotFound())
-          .andExpect(jsonPath("$.code").value("OFFER_NOT_AVAILABLE"));
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.eligible").value(false))
+          .andExpect(jsonPath("$.blockers", hasItem("ACCOUNT_INACTIVE")))
+          .andExpect(jsonPath("$.preview").doesNotExist());
       mockMvc
           .perform(
               post(
@@ -533,14 +834,114 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                   .contentType(MediaType.APPLICATION_JSON)
                   .content(
                       objectMapper.writeValueAsString(
-                          new CommercialOfferRequests.Accept(
-                              reviewed.get("previewToken").asText(), "Inactive Account"))))
+                          new CommercialOfferRequests.OperatorAccept(
+                              reviewed.at("/preview/previewToken").asText(), "Inactive Account"))))
           .andExpect(status().isNotFound())
           .andExpect(jsonPath("$.code").value("OFFER_NOT_AVAILABLE"));
     } finally {
       account.setActive(true);
       accounts.saveAndFlush(account);
     }
+  }
+
+  @Test
+  void paidOfferApplicationIsExplicitlyUnavailableBeforeCapacityReservation() throws Exception {
+    String clientToken = registerClientAndGetToken();
+    UUID accountId = currentAccountId(clientToken);
+    String adminToken = loginAdminAndGetToken();
+    OfferFixture fixture = paidOfferFixture(true, null);
+
+    mockMvc
+        .perform(
+            post(
+                    "/api/admin/offers/{id}/accounts/{accountId}/preview",
+                    fixture.offer().getId(),
+                    accountId)
+                .header("Authorization", bearer(adminToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.eligible").value(false))
+        .andExpect(jsonPath("$.blockers", hasItem("PAID_CHECKOUT_UNAVAILABLE")))
+        .andExpect(jsonPath("$.preview").doesNotExist());
+
+    mockMvc
+        .perform(
+            post("/api/v1/subscriptions/offers/{id}/preview", fixture.offer().getId())
+                .header("Authorization", bearer(clientToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("OFFER_NOT_AVAILABLE"));
+
+    assertThat(
+            redemptions.findAllByAccount_Id(
+                accountId, org.springframework.data.domain.Pageable.unpaged()))
+        .isEmpty();
+    CommercialOfferCapacity capacity =
+        capacities.findByLineageId(fixture.offer().getLineageId()).orElseThrow();
+    assertThat(capacity.getReservedCount()).isZero();
+    assertThat(capacity.getAppliedCount()).isZero();
+  }
+
+  @Test
+  void operatorIdempotencyReplayIsBoundToTheOriginalActor() throws Exception {
+    String clientToken = registerClientAndGetToken();
+    UUID accountId = currentAccountId(clientToken);
+    String firstOperator = loginAdminAndGetToken();
+    String secondOperator = createSuperAdminToken(firstOperator);
+    OfferFixture fixture = offerFixture(true, null);
+    JsonNode preview =
+        response(
+            mockMvc
+                .perform(
+                    post(
+                            "/api/admin/offers/{id}/accounts/{accountId}/preview",
+                            fixture.offer().getId(),
+                            accountId)
+                        .header("Authorization", bearer(firstOperator)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligible").value(true)));
+    String key = "operator-actor-bound-" + UUID.randomUUID();
+    String body =
+        objectMapper.writeValueAsString(
+            new CommercialOfferRequests.OperatorAccept(
+                preview.at("/preview/previewToken").asText(), "Reviewed customer request"));
+    JsonNode accepted =
+        response(
+            mockMvc
+                .perform(
+                    post(
+                            "/api/admin/offers/{id}/accounts/{accountId}/apply",
+                            fixture.offer().getId(),
+                            accountId)
+                        .header("Authorization", bearer(firstOperator))
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated()));
+
+    mockMvc
+        .perform(
+            post(
+                    "/api/admin/offers/{id}/accounts/{accountId}/apply",
+                    fixture.offer().getId(),
+                    accountId)
+                .header("Authorization", bearer(secondOperator))
+                .header("Idempotency-Key", key)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
+
+    CommercialOfferRedemption original =
+        redemptions
+            .findById(UUID.fromString(accepted.get("redemptionId").asText()))
+            .orElseThrow();
+    assertThat(original.getActorUserId())
+        .isEqualTo(adminUsers.findByUser_Email(ADMIN_EMAIL).orElseThrow().getUser().getId());
+    assertThat(
+            redemptions.findAllByAccount_Id(
+                accountId, org.springframework.data.domain.Pageable.unpaged()))
+        .hasSize(1);
   }
 
   @Test
@@ -568,8 +969,8 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new CommercialOfferRequests.Accept(
-                            preview.get("previewToken").asText(), null))))
+                        new CommercialOfferRequests.ClientAccept(
+                            preview.get("previewToken").asText()))))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
   }
@@ -597,6 +998,101 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                 .param("size", "100"))
         .andExpect(status().isOk());
     assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(baseline);
+  }
+
+  @Test
+  void adminOfferPageActionProjectionDoesNotDeepAssessEveryRow() throws Exception {
+    String adminToken = loginAdminAndGetToken();
+    offerFixture(false, null);
+    Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+    statistics.clear();
+    mockMvc
+        .perform(
+            get("/api/admin/offers")
+                .header("Authorization", bearer(adminToken))
+                .param("size", "100"))
+        .andExpect(status().isOk());
+    long baseline = statistics.getPrepareStatementCount();
+
+    for (int index = 0; index < 8; index++) offerFixture(false, null);
+    statistics.clear();
+    mockMvc
+        .perform(
+            get("/api/admin/offers")
+                .header("Authorization", bearer(adminToken))
+                .param("size", "100"))
+        .andExpect(status().isOk());
+
+    assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(baseline);
+  }
+
+  @Test
+  void adminRedemptionReadsAreFilteredDetailedIdentityScopedAndBatchEnriched()
+      throws Exception {
+    String adminToken = loginAdminAndGetToken();
+    OfferFixture fixture = offerFixture(true, null);
+    JsonNode first = acceptOffer(registerClientAndGetToken(), fixture.offer().getId());
+    Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+    statistics.clear();
+    mockMvc
+        .perform(
+            get("/api/admin/offers/{id}/redemptions", fixture.offer().getId())
+                .header("Authorization", bearer(adminToken))
+                .param("surface", "CLIENT")
+                .param("sort", "reservedAt")
+                .param("direction", "desc")
+                .param("size", "100"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content[0].operation.id").isNotEmpty())
+        .andExpect(jsonPath("$.content[0].resolvedSelection.plan.code").isNotEmpty());
+    long baseline = statistics.getPrepareStatementCount();
+
+    for (int index = 0; index < 4; index++) {
+      acceptOffer(registerClientAndGetToken(), fixture.offer().getId());
+    }
+    statistics.clear();
+    mockMvc
+        .perform(
+            get("/api/admin/offers/{id}/redemptions", fixture.offer().getId())
+                .header("Authorization", bearer(adminToken))
+                .param("surface", "CLIENT")
+                .param("sort", "reservedAt")
+                .param("direction", "desc")
+                .param("size", "100"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(5))
+        .andExpect(jsonPath("$.content.length()").value(5));
+    assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(baseline);
+
+    UUID redemptionId = UUID.fromString(first.get("redemptionId").asText());
+    mockMvc
+        .perform(
+            get(
+                    "/api/admin/offers/{id}/redemptions/{redemptionId}",
+                    fixture.offer().getId(),
+                    redemptionId)
+                .header("Authorization", bearer(adminToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(redemptionId.toString()))
+        .andExpect(jsonPath("$.operation.requestOrigin").doesNotExist());
+    mockMvc
+        .perform(
+            post(
+                    "/api/admin/offers/{id}/redemption-identity-resolution",
+                    fixture.offer().getId())
+                .header("Authorization", bearer(adminToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"redemptionIds\":[\"" + redemptionId + "\"]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].redemptionId").value(redemptionId.toString()))
+        .andExpect(jsonPath("$[0].accountId").isNotEmpty());
+    mockMvc
+        .perform(
+            get("/api/admin/offers/{id}/redemptions", fixture.offer().getId())
+                .header("Authorization", bearer(adminToken))
+                .param("surface", "OPERATOR"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(0));
   }
 
   @Test
@@ -670,6 +1166,28 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
         .andExpect(jsonPath("$.offerStatus").value("PUBLISHED"))
         .andExpect(jsonPath("$.offerVersion").isNumber())
         .andExpect(jsonPath("$.email").value(ADMIN_EMAIL));
+  }
+
+  @Test
+  void adminOfferListSupportsCampaignScopedNavigationWithResolvedCampaignState()
+      throws Exception {
+    String token = loginAdminAndGetToken();
+    OfferFixture selected = offerFixture(false, null);
+    offerFixture(false, null);
+
+    mockMvc
+        .perform(
+            get("/api/admin/offers")
+                .header("Authorization", bearer(token))
+                .param("campaignId", selected.offer().getCampaign().getId().toString())
+                .param("size", "100"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].id").value(selected.offer().getId().toString()))
+        .andExpect(
+            jsonPath("$.content[0].campaign.id")
+                .value(selected.offer().getCampaign().getId().toString()))
+        .andExpect(jsonPath("$.content[0].campaign.code").isNotEmpty());
   }
 
   @Test
@@ -874,6 +1392,17 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
     return offerFixture(activeCampaign, globalLimit, CommercialOfferDiscovery.CATALOG, null);
   }
 
+  private OfferFixture paidOfferFixture(boolean activeCampaign, Long globalLimit) {
+    return offerFixture(
+        activeCampaign,
+        globalLimit,
+        CommercialOfferDiscovery.CATALOG,
+        null,
+        eligiblePlanPrice(),
+        null,
+        new BigDecimal("1.0000"));
+  }
+
   private OfferFixture offerFixture(
       boolean activeCampaign,
       Long globalLimit,
@@ -911,6 +1440,24 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
       String customerCodeHash,
       ProductPrice planPrice,
       String offerName) {
+    return offerFixture(
+        activeCampaign,
+        globalLimit,
+        discovery,
+        customerCodeHash,
+        planPrice,
+        offerName,
+        new BigDecimal("1000000.0000"));
+  }
+
+  private OfferFixture offerFixture(
+      boolean activeCampaign,
+      Long globalLimit,
+      CommercialOfferDiscovery discovery,
+      String customerCodeHash,
+      ProductPrice planPrice,
+      String offerName,
+      BigDecimal discountAmount) {
     Instant now = Instant.now();
     var owner = adminUsers.findByUser_Email(ADMIN_EMAIL).orElseThrow();
     String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
@@ -970,7 +1517,7 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
             selection,
             new CommercialOfferEffectSnapshot(
                 CommercialOfferDiscountType.FIXED,
-                new BigDecimal("1.0000"),
+                discountAmount,
                 null,
                 null,
                 List.of()));
@@ -1162,6 +1709,193 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
     }
   }
 
+  private JsonNode acceptOffer(String token, UUID offerId) {
+    try {
+      String previewToken = previewToken(token, offerId);
+      return response(
+          mockMvc
+              .perform(
+                  post("/api/v1/subscriptions/offers/{id}/accept", offerId)
+                      .header("Authorization", bearer(token))
+                      .header("Idempotency-Key", "accept-" + UUID.randomUUID())
+                      .contentType(MediaType.APPLICATION_JSON)
+                      .content(
+                          objectMapper.writeValueAsString(
+                              new CommercialOfferRequests.ClientAccept(previewToken))))
+              .andExpect(status().isCreated()));
+    } catch (Exception exception) {
+      throw new CompletionException(exception);
+    }
+  }
+
+  private CrashReservation reserveCrashWindow(
+      String token,
+      UUID accountId,
+      OfferFixture fixture,
+      Instant leaseExpiresAt,
+      boolean reserveCapacity)
+      throws Exception {
+    JsonNode preview =
+        response(
+            mockMvc
+                .perform(
+                    post("/api/v1/subscriptions/offers/{id}/preview", fixture.offer().getId())
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk()));
+    String previewToken = preview.get("previewToken").asText();
+    String idempotencyKey = "crash-window-" + UUID.randomUUID();
+    Account account = accounts.findById(accountId).orElseThrow();
+    UUID actorId = account.getOwner().getId();
+    UUID claimId = UUID.randomUUID();
+    SubscriptionChangeRequest acceptedSelection =
+        new SubscriptionChangeRequest(
+            fixture.planPrice().getPlan().getCode(),
+            Set.of(),
+            List.of(),
+            fixture.offer().getSelection().timing(),
+            new ProductPriceSelectionRequest(fixture.planPrice().getId(), null, null),
+            Map.of(),
+            Map.of());
+    SubscriptionOfferEvaluation evaluation =
+        new SubscriptionOfferEvaluation(
+            fixture.campaign().getId(),
+            fixture.offer().getLineageId(),
+            fixture.offer().getId(),
+            fixture.offer().getRevisionNumber(),
+            new BigDecimal(preview.get("catalogueSubtotal").asText()),
+            new BigDecimal(preview.get("policyPrice").asText()),
+            new BigDecimal(preview.get("offerPrice").asText()),
+            new BigDecimal(preview.get("finalPrice").asText()),
+            preview.get("currencyCode").asText(),
+            preview.get("discountWinner").asText(),
+            preview.get("winnerReason").asText(),
+            List.of());
+    if (reserveCapacity) {
+      CommercialOfferCapacity capacity =
+          capacities.findByLineageId(fixture.offer().getLineageId()).orElseThrow();
+      capacity.reserve(-1, 0, -1);
+      capacities.saveAndFlush(capacity);
+    } else {
+      capacities
+          .findByLineageId(fixture.offer().getLineageId())
+          .ifPresent(
+              capacity -> {
+                capacities.delete(capacity);
+                capacities.flush();
+              });
+    }
+    String keyHash = sha256(accountId + "|" + idempotencyKey);
+    String fingerprint =
+        sha256(
+            "offer-accept:v2|"
+                + fixture.offer().getId()
+                + "|"
+                + actorId
+                + "|CLIENT|"
+                + sha256(previewToken));
+    CommercialOfferRedemption redemption =
+        CommercialOfferRedemption.reserve(
+            account,
+            fixture.offer(),
+            CommercialOfferSurface.CLIENT,
+            actorId,
+            keyHash,
+            fingerprint,
+            acceptedSelection,
+            evaluation,
+            Instant.now().minusSeconds(120),
+            claimId,
+            leaseExpiresAt);
+    redemption = redemptions.saveAndFlush(redemption);
+    return new CrashReservation(
+        redemption.getId(), idempotencyKey, previewToken, claimId);
+  }
+
+  private String sha256(String value) {
+    try {
+      return HexFormat.of()
+          .formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+    } catch (java.security.NoSuchAlgorithmException impossible) {
+      throw new IllegalStateException(impossible);
+    }
+  }
+
+  private String createSuperAdminToken(String creatorToken) throws Exception {
+    return createSuperAdmin(creatorToken).token();
+  }
+
+  private OperatorFixture createSuperAdmin(String creatorToken) throws Exception {
+    String email = "offer-operator-" + UUID.randomUUID() + "@hiveapp.test";
+    JsonNode created =
+        response(
+            mockMvc
+                .perform(
+                    post("/api/admin/users")
+                        .header("Authorization", bearer(creatorToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            objectMapper.writeValueAsString(
+                                new CreateAdminUserRequest(
+                                    "Offer",
+                                    "Operator",
+                                    email,
+                                    InitialAccessMethod.TEMPORARY_PASSWORD,
+                                    true))))
+                .andExpect(status().isCreated()));
+    JsonNode login =
+        response(
+            mockMvc
+                .perform(
+                    post("/api/admin/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            objectMapper.writeValueAsString(
+                                new LoginRequest(
+                                    email, created.get("temporaryPassword").asText()))))
+                .andExpect(status().isOk()));
+    String token = response(
+            mockMvc
+                .perform(
+                    post("/api/admin/auth/initial-password/change")
+                        .header("Authorization", bearer(login.get("accessToken").asText()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                            objectMapper.writeValueAsString(
+                                new InitialPasswordChangeRequest("offer-operator-password"))))
+                .andExpect(status().isOk()))
+        .get("accessToken")
+        .asText();
+    return new OperatorFixture(
+        UUID.fromString(created.at("/operator/id").asText()), token);
+  }
+
+  private CommercialOfferRequests.Update lineageOnlyUpdate(
+      OfferFixture fixture,
+      long offerVersion,
+      long lineageVersion,
+      CommercialOfferAcceptance acceptance,
+      Long globalLimit) {
+    CommercialOffer offer = fixture.offer();
+    return new CommercialOfferRequests.Update(
+        offerVersion,
+        offer.getName(),
+        offer.getDescription(),
+        offer.getStartsAt(),
+        offer.getEndsAt(),
+        offer.getSelection(),
+        offer.getEffects(),
+        new CommercialOfferRequests.LineageTerms(
+            lineageVersion,
+            CommercialOfferDiscovery.CATALOG,
+            acceptance,
+            globalLimit,
+            null,
+            new CommercialOfferRequests.CustomerCodeChange(
+                CommercialOfferRequests.CustomerCodeChangeMode.KEEP, null)));
+  }
+
   private void activateBlockingPlanPolicy(String token, UUID accountId, UUID planId)
       throws Exception {
     CommercialPolicyRequests.Create request =
@@ -1238,10 +1972,30 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                   .contentType(MediaType.APPLICATION_JSON)
                   .content(
                       objectMapper.writeValueAsString(
-                          new CommercialOfferRequests.Accept(previewToken, null))))
+                          new CommercialOfferRequests.ClientAccept(previewToken))))
           .andReturn()
           .getResponse()
           .getStatus();
+    } catch (Exception exception) {
+      throw new CompletionException(exception);
+    }
+  }
+
+  private RevisionAttempt reviseStatus(String token, OfferFixture fixture, CountDownLatch start) {
+    try {
+      start.await();
+      var response = mockMvc
+          .perform(
+              post("/api/admin/offers/{id}/revisions", fixture.offer().getId())
+                  .header("Authorization", bearer(token))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      objectMapper.writeValueAsString(
+                          new CommercialOfferRequests.VersionReason(
+                              fixture.offer().getVersion(), "Concurrent revision"))))
+          .andReturn()
+          .getResponse();
+      return new RevisionAttempt(response.getStatus(), response.getContentAsString());
     } catch (Exception exception) {
       throw new CompletionException(exception);
     }
@@ -1261,6 +2015,13 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
 
   private record OfferFixture(
       CommercialOffer offer, CommercialCampaign campaign, ProductPrice planPrice) {}
+
+  private record RevisionAttempt(int status, String body) {}
+
+  private record CrashReservation(
+      UUID redemptionId, String idempotencyKey, String previewToken, UUID initialClaimId) {}
+
+  private record OperatorFixture(UUID adminUserId, String token) {}
 
   private record ActivatedMember(String token) {}
 }

@@ -1,5 +1,7 @@
 package com.hiveapp.platform.client.plan.service.impl;
 
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferDiscountDecisionCode;
+import com.hiveapp.platform.client.plan.domain.constant.CommercialOfferDiscountWinner;
 import com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialOffer;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialOfferRedemption;
@@ -7,6 +9,7 @@ import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.dto.CommercialOfferSelection;
 import com.hiveapp.platform.client.plan.dto.CommercialOfferViews;
+import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangeOperationDto;
 import com.hiveapp.shared.exception.OfferNotAvailableException;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -38,7 +41,29 @@ class CommercialOfferClientProjectionMapper {
 
   CommercialOfferViews.ClientOffer client(
       CommercialOffer offer, Map<UUID, ProductPrice> exactPrices) {
-    var selection = offer.getSelection();
+    CommercialOfferViews.ClientSelection clientSelection = selection(offer, exactPrices);
+    ProductPrice planPrice = exactPrice(exactPrices, offer.getSelection().planPriceId());
+    return new CommercialOfferViews.ClientOffer(
+        offer.getId(),
+        offer.getName(),
+        offer.getDescription(),
+        offer.getEndsAt(),
+        planPrice.getPlan().getCode(),
+        offer.getEffects().discountType(),
+        offer.getEffects().discountAmount(),
+        offer.getEffects().percentage(),
+        offer.getEffects().percentageCap(),
+        clientSelection,
+        offer.getEffects());
+  }
+
+  CommercialOfferViews.ClientSelection selection(
+      CommercialOffer offer, Map<UUID, ProductPrice> exactPrices) {
+    return selection(offer.getSelection(), exactPrices);
+  }
+
+  CommercialOfferViews.ClientSelection selection(
+      CommercialOfferSelection selection, Map<UUID, ProductPrice> exactPrices) {
     ProductPrice planPrice = exactPrice(exactPrices, selection.planPriceId());
     if (planPrice.getOwnerType() != ProductPriceOwnerType.PLAN
         || !planPrice.getPlan().getId().equals(selection.planId())) {
@@ -80,17 +105,7 @@ class CommercialOfferClientProjectionMapper {
                       item.quantity());
                 })
             .toList();
-    return new CommercialOfferViews.ClientOffer(
-        offer.getId(),
-        offer.getName(),
-        offer.getDescription(),
-        offer.getEndsAt(),
-        planPrice.getPlan().getCode(),
-        offer.getEffects().discountType(),
-        offer.getEffects().discountAmount(),
-        offer.getEffects().percentage(),
-        offer.getEffects().percentageCap(),
-        new CommercialOfferViews.ClientSelection(
+    return new CommercialOfferViews.ClientSelection(
             clientProduct(
                 planPrice.getPlan().getCode(),
                 planPrice.getPlan().getName(),
@@ -100,8 +115,16 @@ class CommercialOfferClientProjectionMapper {
                 1),
             addOnProducts,
             packageProducts,
-            selection.timing()),
-        offer.getEffects());
+            selection.timing());
+  }
+
+  Map<UUID, ProductPrice> exactPrices(CommercialOfferSelection selection) {
+    var ids = new LinkedHashSet<UUID>();
+    ids.add(selection.planPriceId());
+    selection.addOns().forEach(item -> ids.add(item.priceId()));
+    selection.quotaPackages().forEach(item -> ids.add(item.priceId()));
+    return prices.findAllByIdIn(ids).stream()
+        .collect(Collectors.toMap(ProductPrice::getId, price -> price));
   }
 
   CommercialOfferViews.AcceptedTerms accepted(CommercialOfferRedemption redemption) {
@@ -112,13 +135,16 @@ class CommercialOfferClientProjectionMapper {
         evaluation.offerPrice(),
         evaluation.finalPrice(),
         evaluation.currencyCode(),
-        evaluation.discountWinner(),
+        CommercialOfferDiscountWinner.valueOf(evaluation.discountWinner()),
+        decisionCode(evaluation.discountWinner()),
         evaluation.winnerReason(),
         evaluation.quotaBonuses());
   }
 
   CommercialOfferViews.ClientRedemption clientRedemption(
-      CommercialOfferRedemption redemption, Map<UUID, ProductPrice> exactPrices) {
+      CommercialOfferRedemption redemption,
+      Map<UUID, ProductPrice> exactPrices,
+      ClientSubscriptionChangeOperationDto operation) {
     CommercialOffer offer = redemption.getOffer();
     return new CommercialOfferViews.ClientRedemption(
         redemption.getId(),
@@ -128,10 +154,17 @@ class CommercialOfferClientProjectionMapper {
         client(offer, exactPrices).selection(),
         redemption.getStatus(),
         redemption.getSubscriptionOperationId(),
+        operation,
         redemption.getReservedAt(),
         redemption.getAppliedAt(),
         redemption.getReleasedAt(),
         accepted(redemption));
+  }
+
+  private CommercialOfferDiscountDecisionCode decisionCode(String winner) {
+    return "OFFER".equals(winner)
+        ? CommercialOfferDiscountDecisionCode.OFFER_LOWER_FINAL_PRICE
+        : CommercialOfferDiscountDecisionCode.POLICY_LOWER_OR_EQUAL_FINAL_PRICE;
   }
 
   private ProductPrice exactPrice(Map<UUID, ProductPrice> pricesById, UUID id) {

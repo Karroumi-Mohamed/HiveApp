@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.hiveapp.platform.admin.dto.AdminSubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.domain.constant.*;
 import com.hiveapp.shared.audit.domain.AuditOutcome;
 import com.hiveapp.shared.money.ExactDecimal;
@@ -18,6 +19,7 @@ public final class CommercialOfferViews {
       CommercialOfferStatus status,
       CommercialOfferDiscovery discovery,
       CommercialOfferAcceptance acceptance,
+      CampaignChoice campaign,
       Instant startsAt,
       Instant endsAt,
       int revisionNumber,
@@ -36,6 +38,7 @@ public final class CommercialOfferViews {
       boolean customerCodeConfigured,
       UUID campaignId,
       String campaignCode,
+      CampaignChoice campaign,
       Instant startsAt,
       Instant endsAt,
       UUID lineageId,
@@ -43,6 +46,7 @@ public final class CommercialOfferViews {
       Long globalLimit,
       Long perAccountLimit,
       CommercialOfferSelection selection,
+      ClientSelection resolvedSelection,
       CommercialOfferEffectSnapshot effects,
       Instant publishedAt,
       Instant retiredAt,
@@ -65,6 +69,8 @@ public final class CommercialOfferViews {
   /** Draft definition returned only to callers with explicit edit-definition authority. */
   public record EditableDefinition(
       UUID id,
+      String businessCode,
+      CommercialOfferStatus status,
       String name,
       String description,
       Instant startsAt,
@@ -72,10 +78,16 @@ public final class CommercialOfferViews {
       CommercialOfferDiscovery discovery,
       CommercialOfferAcceptance acceptance,
       boolean customerCodeConfigured,
+      CampaignChoice campaign,
+      UUID lineageId,
+      int revisionNumber,
+      boolean lineageTermsEditable,
       Long globalLimit,
       Long perAccountLimit,
       CommercialOfferSelection selection,
+      ClientSelection resolvedSelection,
       CommercialOfferEffectSnapshot effects,
+      long lineageVersion,
       long version) {}
 
   /** Minimal acknowledgement for Offer mutations; definition reads remain separately authorized. */
@@ -87,12 +99,18 @@ public final class CommercialOfferViews {
   }
 
   public record Revision(
-      UUID id, int revisionNumber, CommercialOfferStatus status, Instant createdAt) {}
+      UUID id,
+      int revisionNumber,
+      CommercialOfferStatus status,
+      UUID sourceOfferId,
+      long version,
+      Instant createdAt) {}
 
   public record Comparison(
       UUID leftId,
       UUID rightId,
       boolean sameLineage,
+      boolean directSuccessor,
       Set<String> changedFields,
       ComparisonDefinition left,
       ComparisonDefinition right) {
@@ -110,6 +128,7 @@ public final class CommercialOfferViews {
       CommercialOfferStatus status,
       UUID campaignId,
       String campaignCode,
+      CampaignChoice campaign,
       CommercialOfferDiscovery discovery,
       CommercialOfferAcceptance acceptance,
       boolean customerCodeConfigured,
@@ -119,27 +138,56 @@ public final class CommercialOfferViews {
       Long globalLimit,
       Long perAccountLimit,
       CommercialOfferSelection selection,
+      ClientSelection resolvedSelection,
       CommercialOfferEffectSnapshot effects,
       long version) {}
+
+  public record DefinitionIssue(
+      CommercialOfferDefinitionIssueCode code, String fieldPath, String message) {}
+
+  public record DefinitionPreview(
+      UUID offerId,
+      Long expectedVersion,
+      boolean valid,
+      boolean lineageTermsEditable,
+      CampaignChoice campaign,
+      ClientSelection resolvedSelection,
+      List<DefinitionIssue> issues) {
+    public DefinitionPreview {
+      issues = issues == null ? List.of() : List.copyOf(issues);
+    }
+  }
 
   public record PublicationPreview(
       UUID offerId,
       long expectedVersion,
-      List<String> blockers,
+      CommercialOfferPublicationMode mode,
+      boolean ready,
+      List<CommercialOfferBlocker> blockers,
+      List<DefinitionIssue> definitionIssues,
       Instant evaluatedAt,
       Instant expiresAt,
-      String previewToken) {}
+      String previewToken) {
+    public PublicationPreview {
+      blockers = blockers == null ? List.of() : List.copyOf(blockers);
+      definitionIssues = definitionIssues == null ? List.of() : List.copyOf(definitionIssues);
+    }
+  }
 
   public record Owner(
       UUID offerId,
       CommercialOfferStatus offerStatus,
       long offerVersion,
+      long lineageVersion,
       UUID adminUserId,
       UUID userId,
       String email,
       String username,
       String displayName,
       boolean active) {}
+
+  /** Minimal acknowledgement for a versioned Offer-lineage ownership mutation. */
+  public record OwnerMutation(UUID offerId, UUID adminUserId, long lineageVersion) {}
 
   /** Minimal active-operator identity used only by separately authorized owner choosers. */
   public record OwnerChoice(UUID adminUserId, String email, String username, String displayName) {}
@@ -156,7 +204,7 @@ public final class CommercialOfferViews {
 
   public record ProductCompatibility(
       ProductSalesVisibility salesVisibility,
-      String extensionPolicy,
+      PlanExtensionPolicy extensionPolicy,
       Set<String> allowedPlanCodes,
       Set<String> blockedPlanCodes,
       Set<String> dependencyCodes,
@@ -181,6 +229,7 @@ public final class CommercialOfferViews {
   }
 
   public record PricedChoice(
+      ProductPriceOwnerType ownerType,
       UUID productId,
       String productCode,
       String productName,
@@ -192,8 +241,8 @@ public final class CommercialOfferViews {
       BillingCycle billingCycle,
       Instant effectiveFrom,
       Instant effectiveUntil,
-      String productState,
-      String priceState,
+      CommercialOfferProductState productState,
+      ProductPriceStatus priceState,
       ProductCompatibility compatibility) {}
 
   public record QuotaResourceChoice(
@@ -236,10 +285,30 @@ public final class CommercialOfferViews {
 
   public record CodeResolution(ClientOffer offer, Instant expiresAt, String discoveryToken) {}
 
-  public record EligibilityPreview(
+  public record ChangeReview(
+      @ExactDecimal BigDecimal currentPrice,
+      SubscriptionChangeTiming timing,
+      Instant estimatedEffectiveAt,
+      Instant estimatedEffectiveUntil,
+      boolean immediateAllowed,
+      ClientSubscriptionEntitlementState currentEntitlements,
+      ClientSubscriptionEntitlementState targetEntitlements,
+      List<SubscriptionChangeConflict> conflicts,
+      ClientCommercialPolicyEvaluation policyEvaluation,
+      boolean checkoutRequired,
+      @ExactDecimal BigDecimal checkoutAmount,
+      SubscriptionChangeStatus expectedOperationStatus) {
+    public ChangeReview {
+      conflicts = conflicts == null ? List.of() : List.copyOf(conflicts);
+    }
+  }
+
+  public record ClientEligibilityPreview(
       UUID offerId,
       UUID subscriptionId,
       long expectedSubscriptionVersion,
+      ClientSelection selection,
+      ChangeReview change,
       @ExactDecimal BigDecimal catalogueSubtotal,
       @ExactDecimal BigDecimal policyPrice,
       @ExactDecimal BigDecimal offerPrice,
@@ -247,11 +316,24 @@ public final class CommercialOfferViews {
       String currencyCode,
       @ExactDecimal BigDecimal policyFixedBase,
       @ExactDecimal BigDecimal freeProductReduction,
-      String discountWinner,
+      CommercialOfferDiscountWinner discountWinner,
+      CommercialOfferDiscountDecisionCode discountDecisionCode,
       String winnerReason,
       Instant evaluatedAt,
       Instant expiresAt,
       String previewToken) {}
+
+  public record AccountEligibilityAssessment(
+      UUID offerId,
+      UUID accountId,
+      boolean eligible,
+      List<CommercialOfferEligibilityBlocker> blockers,
+      Instant evaluatedAt,
+      ClientEligibilityPreview preview) {
+    public AccountEligibilityAssessment {
+      blockers = blockers == null ? List.of() : List.copyOf(blockers);
+    }
+  }
 
   public record AcceptedTerms(
       @ExactDecimal BigDecimal catalogueSubtotal,
@@ -259,7 +341,8 @@ public final class CommercialOfferViews {
       @ExactDecimal BigDecimal offerPrice,
       @ExactDecimal BigDecimal finalPrice,
       String currencyCode,
-      String discountWinner,
+      CommercialOfferDiscountWinner discountWinner,
+      CommercialOfferDiscountDecisionCode discountDecisionCode,
       String winnerReason,
       List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses) {
     public AcceptedTerms {
@@ -267,11 +350,26 @@ public final class CommercialOfferViews {
     }
   }
 
-  public record Acceptance(
+  public record ClientAcceptance(
       UUID redemptionId,
       UUID subscriptionOperationId,
       CommercialOfferRedemptionStatus status,
       boolean replayed,
+      CommercialOfferAcceptanceProgress progress,
+      CommercialOfferAcceptanceNextAction nextAction,
+      Instant retryAfter,
+      ClientSubscriptionChangeOperationDto operation,
+      AcceptedTerms acceptedTerms) {}
+
+  public record AdminAcceptance(
+      UUID redemptionId,
+      UUID subscriptionOperationId,
+      CommercialOfferRedemptionStatus status,
+      boolean replayed,
+      CommercialOfferAcceptanceProgress progress,
+      CommercialOfferAcceptanceNextAction nextAction,
+      Instant retryAfter,
+      AdminSubscriptionChangeOperationDto operation,
       AcceptedTerms acceptedTerms) {}
 
   public record Redemption(
@@ -282,9 +380,11 @@ public final class CommercialOfferViews {
       int offerRevisionNumber,
       UUID campaignId,
       CommercialOfferSelection selection,
+      ClientSelection resolvedSelection,
       CommercialOfferRedemptionStatus status,
       CommercialOfferSurface surface,
       UUID subscriptionOperationId,
+      ClientSubscriptionChangeOperationDto operation,
       Instant reservedAt,
       Instant appliedAt,
       Instant releasedAt,
@@ -299,6 +399,7 @@ public final class CommercialOfferViews {
       ClientSelection selection,
       CommercialOfferRedemptionStatus status,
       UUID subscriptionOperationId,
+      ClientSubscriptionChangeOperationDto operation,
       Instant reservedAt,
       Instant appliedAt,
       Instant releasedAt,

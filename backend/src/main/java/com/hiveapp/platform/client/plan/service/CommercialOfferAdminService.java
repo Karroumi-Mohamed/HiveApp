@@ -8,7 +8,13 @@ import org.springframework.data.domain.*;
 
 public interface CommercialOfferAdminService {
   Page<CommercialOfferViews.Summary> list(
-      String search, CommercialOfferStatus status, boolean includeArchived, Pageable pageable);
+      String search,
+      CommercialOfferStatus status,
+      UUID campaignId,
+      CommercialOfferDiscovery discovery,
+      CommercialOfferAcceptance acceptance,
+      boolean includeArchived,
+      Pageable pageable);
 
   CommercialOfferViews.Detail get(UUID id);
 
@@ -18,7 +24,12 @@ public interface CommercialOfferAdminService {
 
   CommercialOfferViews.Mutation create(CommercialOfferRequests.Create r);
 
+  CommercialOfferViews.DefinitionPreview previewCreateDefinition(CommercialOfferRequests.Create r);
+
   CommercialOfferViews.Mutation update(UUID id, CommercialOfferRequests.Update r);
+
+  CommercialOfferViews.DefinitionPreview previewUpdateDefinition(
+      UUID id, CommercialOfferRequests.Update r);
 
   CommercialOfferViews.Mutation duplicate(UUID id, CommercialOfferRequests.Duplicate r);
 
@@ -42,13 +53,21 @@ public interface CommercialOfferAdminService {
 
   CommercialOfferViews.Owner owner(UUID id);
 
-  CommercialOfferViews.Mutation reassignOwner(UUID id, CommercialOfferRequests.ReassignOwner r);
+  CommercialOfferViews.OwnerMutation reassignOwner(
+      UUID id, CommercialOfferRequests.ReassignOwner r);
 
   CommercialOfferViews.Stats stats(UUID id);
 
-  Page<CommercialOfferViews.Redemption> redemptions(UUID id, Pageable p);
+  Page<CommercialOfferViews.Redemption> redemptions(
+      UUID id,
+      CommercialOfferRedemptionStatus status,
+      CommercialOfferSurface surface,
+      Pageable p);
 
-  Page<CommercialOfferViews.RedemptionIdentity> redemptionIdentities(UUID id, Pageable p);
+  CommercialOfferViews.Redemption redemption(UUID id, UUID redemptionId);
+
+  List<CommercialOfferViews.RedemptionIdentity> resolveRedemptionIdentities(
+      UUID id, Collection<UUID> redemptionIds);
 
   Page<CommercialOfferViews.History> history(UUID id, Pageable p);
 
@@ -72,8 +91,12 @@ public interface CommercialOfferAdminService {
 
   List<CommercialOfferViews.CampaignChoice> resolveCampaignChoices(Collection<UUID> campaignIds);
 
-  CommercialOfferViews.EligibilityPreview previewForAccount(UUID offerId, UUID accountId);
+  CommercialOfferViews.AccountEligibilityAssessment previewForAccount(
+      UUID offerId, UUID accountId);
 
-  CommercialOfferViews.Acceptance applyForAccount(
-      UUID offerId, UUID accountId, String idempotencyKey, CommercialOfferRequests.Accept request);
+  CommercialOfferViews.AdminAcceptance applyForAccount(
+      UUID offerId,
+      UUID accountId,
+      String idempotencyKey,
+      CommercialOfferRequests.OperatorAccept request);
 }

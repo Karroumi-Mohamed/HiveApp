@@ -7,6 +7,8 @@ import com.hiveapp.platform.client.plan.domain.repository.*;
 import com.hiveapp.shared.exception.OfferNotAvailableException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -31,8 +33,7 @@ class CommercialOfferEligibilityService {
 
   CommercialOffer requireAvailable(UUID id, UUID accountId, boolean operator, boolean discovered) {
     CommercialOffer offer = offers.findDetailById(id).orElseThrow(OfferNotAvailableException::new);
-    if (!eligible(offer, accountId, operator, discovered)
-        || !hasAvailableCapacity(offer, accountId)) {
+    if (!blockers(offer, accountId, operator, discovered).isEmpty()) {
       throw new OfferNotAvailableException();
     }
     return offer;
@@ -43,33 +44,75 @@ class CommercialOfferEligibilityService {
   }
 
   boolean eligible(CommercialOffer offer, UUID accountId, boolean operator, boolean discovered) {
+    return staticBlockers(offer, accountId, operator, discovered).isEmpty();
+  }
+
+  List<CommercialOfferEligibilityBlocker> blockers(
+      CommercialOffer offer, UUID accountId, boolean operator, boolean discovered) {
+    List<CommercialOfferEligibilityBlocker> result =
+        new ArrayList<>(staticBlockers(offer, accountId, operator, discovered));
+    if (result.isEmpty()) result.addAll(capacityBlockers(offer, accountId));
+    return List.copyOf(new LinkedHashSet<>(result));
+  }
+
+  private List<CommercialOfferEligibilityBlocker> staticBlockers(
+      CommercialOffer offer, UUID accountId, boolean operator, boolean discovered) {
+    List<CommercialOfferEligibilityBlocker> result = new ArrayList<>();
     Instant now = clock.instant();
-    if (!accounts.existsActiveById(accountId)
-        || offer.getStatus() != CommercialOfferStatus.PUBLISHED
-        || now.isBefore(offer.getStartsAt())
-        || !now.isBefore(offer.getEndsAt())
-        || offer.getCampaign().getStatus() != CommercialCampaignStatus.ACTIVE) {
-      return false;
+    if (!accounts.existsActiveById(accountId)) {
+      result.add(CommercialOfferEligibilityBlocker.ACCOUNT_INACTIVE);
     }
-    if (!operator && offer.getAcceptance() == CommercialOfferAcceptance.OPERATOR_ONLY) return false;
-    if (!discovered && offer.getDiscovery() != CommercialOfferDiscovery.CATALOG) return false;
-    return audiences.countEligibleAccount(offer.getCampaign().getId(), accountId) > 0
-        && subscriptions
-            .findTopByAccountIdAndStatusInOrderByCreatedAtDesc(
-                accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
-            .isPresent();
+    if (offer.getStatus() != CommercialOfferStatus.PUBLISHED) {
+      result.add(CommercialOfferEligibilityBlocker.OFFER_NOT_PUBLISHED);
+    }
+    if (now.isBefore(offer.getStartsAt())) {
+      result.add(CommercialOfferEligibilityBlocker.OFFER_WINDOW_NOT_STARTED);
+    }
+    if (!now.isBefore(offer.getEndsAt())) {
+      result.add(CommercialOfferEligibilityBlocker.OFFER_WINDOW_ENDED);
+    }
+    if (offer.getCampaign().getStatus() != CommercialCampaignStatus.ACTIVE) {
+      result.add(CommercialOfferEligibilityBlocker.CAMPAIGN_NOT_ACTIVE);
+    }
+    if (!operator && offer.getAcceptance() == CommercialOfferAcceptance.OPERATOR_ONLY) {
+      result.add(CommercialOfferEligibilityBlocker.SELECTION_UNAVAILABLE);
+    }
+    if (!discovered && offer.getDiscovery() != CommercialOfferDiscovery.CATALOG) {
+      result.add(CommercialOfferEligibilityBlocker.SELECTION_UNAVAILABLE);
+    }
+    if (audiences.countEligibleAccount(offer.getCampaign().getId(), accountId) == 0) {
+      result.add(CommercialOfferEligibilityBlocker.ACCOUNT_OUTSIDE_AUDIENCE);
+    }
+    if (subscriptions
+        .findTopByAccountIdAndStatusInOrderByCreatedAtDesc(
+            accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING))
+        .isEmpty()) {
+      result.add(CommercialOfferEligibilityBlocker.NO_ACTIVE_SUBSCRIPTION);
+    }
+    return List.copyOf(new LinkedHashSet<>(result));
   }
 
   boolean hasAvailableCapacity(CommercialOffer offer, UUID accountId) {
+    return capacityBlockers(offer, accountId).isEmpty();
+  }
+
+  private List<CommercialOfferEligibilityBlocker> capacityBlockers(
+      CommercialOffer offer, UUID accountId) {
+    List<CommercialOfferEligibilityBlocker> result = new ArrayList<>();
     var capacity = capacities.findByLineageId(offer.getLineageId()).orElse(null);
-    if (capacity == null) return false;
+    if (capacity == null) {
+      return List.of(CommercialOfferEligibilityBlocker.GLOBAL_CAPACITY_EXHAUSTED);
+    }
     if (offer.getGlobalLimit() != null
         && capacity.getReservedCount() + capacity.getAppliedCount() >= offer.getGlobalLimit()) {
-      return false;
+      result.add(CommercialOfferEligibilityBlocker.GLOBAL_CAPACITY_EXHAUSTED);
     }
-    return offer.getPerAccountLimit() == null
-        || redemptions.countByOfferLineageIdAndAccount_IdAndStatusIn(
+    if (offer.getPerAccountLimit() != null
+        && redemptions.countByOfferLineageIdAndAccount_IdAndStatusIn(
                 offer.getLineageId(), accountId, USED)
-            < offer.getPerAccountLimit();
+            >= offer.getPerAccountLimit()) {
+      result.add(CommercialOfferEligibilityBlocker.ACCOUNT_CAPACITY_EXHAUSTED);
+    }
+    return List.copyOf(result);
   }
 }

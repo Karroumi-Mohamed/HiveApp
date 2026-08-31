@@ -31,9 +31,16 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "subscription_change_operations", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_subscription_change_pending_account", columnNames = "pending_account_id")
-})
+@Table(
+        name = "subscription_change_operations",
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_subscription_change_pending_account",
+                        columnNames = "pending_account_id"),
+                @UniqueConstraint(
+                        name = "uk_subscription_change_offer_redemption",
+                        columnNames = "offer_redemption_id")
+        })
 @Getter
 @Setter
 public class SubscriptionChangeOperation extends BaseEntity {
@@ -94,6 +101,9 @@ public class SubscriptionChangeOperation extends BaseEntity {
     @Column(name = "offer_redemption_id")
     private UUID offerRedemptionId;
 
+    @Column(name = "offer_application_claim_id")
+    private UUID offerApplicationClaimId;
+
     @Column(name = "attention_reason", length = 2000)
     private String attentionReason;
 
@@ -142,6 +152,11 @@ public class SubscriptionChangeOperation extends BaseEntity {
                 || (requestOrigin == SubscriptionChangeOrigin.PLATFORM_ADMIN
                 && (requestReason == null || requestReason.isBlank()))) {
             throw new IllegalStateException("Subscription change request provenance is incomplete");
+        }
+        if ((offerRedemptionId == null) != (offerApplicationClaimId == null)
+                || (offerRedemptionId == null) != (commercialOfferEvaluation == null)) {
+            throw new IllegalStateException(
+                    "Offer subscription changes require redemption, claim, and evaluation provenance");
         }
         if (status == SubscriptionChangeStatus.CANCELLED) {
             if (cancellationOrigin == null || cancelledAt == null

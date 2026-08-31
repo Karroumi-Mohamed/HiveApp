@@ -49,24 +49,24 @@ public class CommercialOfferController {
   }
 
   @PostMapping("/code-resolution")
-  public CommercialOfferViews.CodeResolution resolve(
+  public ResponseEntity<CommercialOfferViews.CodeResolution> resolve(
       @Valid @RequestBody CommercialOfferRequests.ResolveCode r) {
     var c = HiveAppContextHolder.getContext();
-    return service.resolveOfferCode(c.currentAccountId(), c.actorUserId(), r);
+    return noStore(service.resolveOfferCode(c.currentAccountId(), c.actorUserId(), r));
   }
 
   @PostMapping("/{id}/preview")
-  public CommercialOfferViews.EligibilityPreview preview(
+  public ResponseEntity<CommercialOfferViews.ClientEligibilityPreview> preview(
       @PathVariable UUID id, @Valid @RequestBody CommercialOfferRequests.Preview r) {
     var c = HiveAppContextHolder.getContext();
-    return service.previewOffer(c.currentAccountId(), c.actorUserId(), id, r);
+    return noStore(service.previewOffer(c.currentAccountId(), c.actorUserId(), id, r));
   }
 
   @PostMapping("/{id}/accept")
-  public ResponseEntity<CommercialOfferViews.Acceptance> accept(
+  public ResponseEntity<CommercialOfferViews.ClientAcceptance> accept(
       @PathVariable UUID id,
       @RequestHeader("Idempotency-Key") String key,
-      @Valid @RequestBody CommercialOfferRequests.Accept r) {
+      @Valid @RequestBody CommercialOfferRequests.ClientAccept r) {
     var c = HiveAppContextHolder.getContext();
     var result = service.acceptOffer(c.currentAccountId(), c.actorUserId(), id, key, r);
     return ResponseEntity.status(result.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
@@ -100,5 +100,9 @@ public class CommercialOfferController {
       int page, int size, String sort, String direction) {
     return CommercialProductPageRequest.of(
         page, size, sort, direction, REDEMPTION_SORTS, "reservedAt", Sort.Direction.DESC);
+  }
+
+  private <T> ResponseEntity<T> noStore(T body) {
+    return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body);
   }
 }

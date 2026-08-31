@@ -46,7 +46,11 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   private final PlanFeatureRepository planFeatures;
   private final AddOnFeatureRepository addOnFeatures;
   private final CommercialOfferPublicationValidator publicationValidator;
+  private final CommercialOfferDefinitionAssessor definitionAssessor;
   private final CommercialOfferAdminProjectionMapper projections;
+  private final CommercialOfferClientProjectionMapper clientProjections;
+  private final SubscriptionChangeOperationRepository subscriptionOperations;
+  private final SubscriptionChangeOperationProjectionMapper operationProjections;
   private final AdminUserRepository admins;
   private final AdminMutationAuthorizer authorizer;
   private final CommercialCatalogVersionService catalogVersions;
@@ -68,13 +72,28 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   @Transactional(readOnly = true)
   @PermissionNode(key = "list", description = "List Offers")
   public Page<CommercialOfferViews.Summary> list(
-      String search, CommercialOfferStatus status, boolean archived, Pageable p) {
+      String search,
+      CommercialOfferStatus status,
+      UUID campaignId,
+      CommercialOfferDiscovery discovery,
+      CommercialOfferAcceptance acceptance,
+      boolean archived,
+      Pageable p) {
     Specification<CommercialOffer> s =
         (r, q, c) -> {
           var ps = new ArrayList<jakarta.persistence.criteria.Predicate>();
           if (!archived && status != CommercialOfferStatus.ARCHIVED)
             ps.add(c.notEqual(r.get("status"), CommercialOfferStatus.ARCHIVED));
           if (status != null) ps.add(c.equal(r.get("status"), status));
+          if (campaignId != null) {
+            ps.add(c.equal(r.get("lineage").get("campaign").get("id"), campaignId));
+          }
+          if (discovery != null) {
+            ps.add(c.equal(r.get("lineage").get("discovery"), discovery));
+          }
+          if (acceptance != null) {
+            ps.add(c.equal(r.get("lineage").get("acceptance"), acceptance));
+          }
           if (search != null && !search.isBlank()) {
             String x =
                 "%"
@@ -102,6 +121,11 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
     Set<UUID> published =
         offers.findLineageIdsWithStatus(lineageIds, CommercialOfferStatus.PUBLISHED);
     Set<UUID> drafts = offers.findLineageIdsWithStatus(lineageIds, CommercialOfferStatus.DRAFT);
+    Map<UUID, Integer> maximumRevisions =
+        offers.findMaximumRevisions(lineageIds).stream()
+            .collect(
+                java.util.stream.Collectors.toUnmodifiableMap(
+                    row -> (UUID) row[0], row -> ((Number) row[1]).intValue()));
     List<CommercialOfferViews.Summary> content =
         page.getContent().stream()
             .map(
@@ -112,7 +136,10 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
                         new ActionContext(
                             referenced.contains(offer.getId()),
                             published.contains(offer.getLineageId()),
-                            drafts.contains(offer.getLineageId()))))
+                            drafts.contains(offer.getLineageId()),
+                            offer.getRevisionNumber()
+                                == maximumRevisions.getOrDefault(
+                                    offer.getLineageId(), offer.getRevisionNumber()))))
             .toList();
     return new PageImpl<>(content, page.getPageable(), page.getTotalElements());
   }
@@ -152,8 +179,11 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
     if (offer.getStatus() != CommercialOfferStatus.DRAFT) {
       throw new InvalidStateException("Only a draft Offer has an editable definition.");
     }
+    var exactPrices = clientProjections.exactPrices(List.of(offer));
     return new CommercialOfferViews.EditableDefinition(
         offer.getId(),
+        offer.getBusinessCode(),
+        offer.getStatus(),
         offer.getName(),
         offer.getDescription(),
         offer.getStartsAt(),
@@ -161,11 +191,28 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
         offer.getDiscovery(),
         offer.getAcceptance(),
         offer.getCustomerCodeHash() != null,
+        projections.campaignChoice(offer.getCampaign()),
+        offer.getLineageId(),
+        offer.getRevisionNumber(),
+        definitionAssessor.lineageTermsEditable(offer),
         offer.getGlobalLimit(),
         offer.getPerAccountLimit(),
         offer.getSelection(),
+        clientProjections.selection(offer, exactPrices),
         offer.getEffects(),
+        offer.getLineage().getVersion(),
         offer.getVersion());
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  @PermissionNode(
+      key = "preview_create_definition",
+      description = "Preview a new Offer definition")
+  public CommercialOfferViews.DefinitionPreview previewCreateDefinition(
+      CommercialOfferRequests.Create request) {
+    var assessment = definitionAssessor.assessCreate(request);
+    return definitionPreview(null, null, assessment);
   }
 
   @Override
@@ -173,6 +220,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   @CommercialCatalogMutation
   @PermissionNode(key = "create", description = "Create Offer draft")
   public CommercialOfferViews.Mutation create(CommercialOfferRequests.Create r) {
+    definitionAssessor.requireValid(definitionAssessor.assessCreate(r));
     var campaign = requireCampaign(r.campaignId());
     var owner = currentOwner();
     var lineage =
@@ -195,7 +243,6 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
             r.endsAt(),
             r.selection(),
             r.effects());
-    publicationValidator.validateSelection(o);
     try {
       o = offers.saveAndFlush(o);
       capacities.saveAndFlush(CommercialOfferCapacity.create(o.getLineageId()));
@@ -206,12 +253,42 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   }
 
   @Override
+  @Transactional(readOnly = true)
+  @PermissionNode(
+      key = "preview_update_definition",
+      description = "Preview an Offer definition update")
+  public CommercialOfferViews.DefinitionPreview previewUpdateDefinition(
+      UUID id, CommercialOfferRequests.Update request) {
+    var offer = require(id);
+    if (offer.getStatus() != CommercialOfferStatus.DRAFT) {
+      throw new InvalidStateException("Only a draft Offer has an editable definition.");
+    }
+    var assessment = definitionAssessor.assessUpdate(offer, request);
+    return definitionPreview(offer.getId(), offer.getVersion(), assessment);
+  }
+
+  @Override
   @Transactional
   @CommercialCatalogMutation
   @PermissionNode(key = "update", description = "Update Offer draft")
   public CommercialOfferViews.Mutation update(UUID id, CommercialOfferRequests.Update r) {
     var o = lock(id);
     version(o, r.version());
+    CommercialOfferLineage lockedLineage = null;
+    if (r.lineageTerms() != null) {
+      lockedLineage =
+          lineages
+              .findByIdForUpdate(o.getLineageId())
+              .orElseThrow(
+                  () ->
+                      new ResourceNotFoundException(
+                          "CommercialOfferLineage", "id", o.getLineageId()));
+      if (lockedLineage.getVersion() != r.lineageTerms().expectedLineageVersion()) {
+        throw new StaleResourceVersionException(
+            "Offer lineage terms changed since they were read.");
+      }
+    }
+    definitionAssessor.requireValid(definitionAssessor.assessUpdate(o, r));
     translate(
         () ->
             o.edit(
@@ -231,11 +308,9 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
               yield codeHasher.hash(t.customerCodeChange().value());
             }
           };
-      o.getLineage()
-          .editBeforeFirstPublication(
-              t.discovery(), t.acceptance(), hash, t.globalLimit(), t.perAccountLimit());
+      lockedLineage.editBeforeFirstPublication(
+          t.discovery(), t.acceptance(), hash, t.globalLimit(), t.perAccountLimit());
     }
-    publicationValidator.validateSelection(o);
     offers.flush();
     return mutation(o);
   }
@@ -268,11 +343,21 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   @CommercialCatalogMutation
   @PermissionNode(key = "revise", description = "Revise Offer")
   public CommercialOfferViews.Mutation revise(UUID id, CommercialOfferRequests.VersionReason r) {
-    var src = lock(id);
+    CommercialOffer hint = require(id);
+    List<CommercialOffer> lineage = offers.lockLineage(hint.getLineageId());
+    CommercialOffer src =
+        lineage.stream()
+            .filter(candidate -> candidate.getId().equals(id))
+            .findFirst()
+            .orElseThrow(() -> new ResourceNotFoundException("CommercialOffer", "id", id));
     version(src, r.version());
-    offers.lockLineage(src.getLineageId());
+    int maximumRevision =
+        lineage.stream().mapToInt(CommercialOffer::getRevisionNumber).max().orElse(0);
+    if (src.getRevisionNumber() != maximumRevision) {
+      throw new InvalidStateException("Only the latest Offer revision can be revised.");
+    }
     try {
-      return mutation(offers.saveAndFlush(src.revise(offers.maxRevision(src.getLineageId()) + 1)));
+      return mutation(offers.saveAndFlush(src.revise(maximumRevision + 1)));
     } catch (DataIntegrityViolationException e) {
       throw new DraftSuccessorExistsException("An Offer draft successor already exists.");
     }
@@ -288,7 +373,12 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
         .map(
             x ->
                 new CommercialOfferViews.Revision(
-                    x.getId(), x.getRevisionNumber(), x.getStatus(), x.getCreatedAt()));
+                    x.getId(),
+                    x.getRevisionNumber(),
+                    x.getStatus(),
+                    x.getSourceOffer() == null ? null : x.getSourceOffer().getId(),
+                    x.getVersion(),
+                    x.getCreatedAt()));
   }
 
   @Override
@@ -313,13 +403,18 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
         || !Objects.equals(l.getEndsAt(), r.getEndsAt())) changed.add("window");
     if (!Objects.equals(l.getGlobalLimit(), r.getGlobalLimit())
         || !Objects.equals(l.getPerAccountLimit(), r.getPerAccountLimit())) changed.add("capacity");
+    Map<UUID, ProductPrice> exactPrices = clientProjections.exactPrices(List.of(l, r));
+    boolean directSuccessor =
+        l.getSourceOffer() != null && l.getSourceOffer().getId().equals(r.getId())
+            || r.getSourceOffer() != null && r.getSourceOffer().getId().equals(l.getId());
     return new CommercialOfferViews.Comparison(
         a,
         b,
         l.getLineageId().equals(r.getLineageId()),
+        directSuccessor,
         Set.copyOf(changed),
-        projections.comparisonDefinition(l),
-        projections.comparisonDefinition(r));
+        projections.comparisonDefinition(l, clientProjections.selection(l, exactPrices)),
+        projections.comparisonDefinition(r, clientProjections.selection(r, exactPrices)));
   }
 
   @Override
@@ -329,9 +424,10 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
     var o = require(id);
     long catalog = catalogVersions.currentRevision();
     String registry = registryVersions.currentVersion();
-    var blockers = publicationValidator.blockers(o);
+    var definitionIssues = publicationValidator.definitionIssues(o);
+    var blockers = publicationValidator.blockers(o, definitionIssues);
     Instant now = clock.instant();
-    String fp = fingerprint(o, blockers);
+    String fp = fingerprint(o, blockers, definitionIssues);
     var evidence =
         previewTokens.issue(
             CommercialPreviewKind.COMMERCIAL_OFFER_PUBLICATION,
@@ -345,7 +441,12 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
     return new CommercialOfferViews.PublicationPreview(
         id,
         o.getVersion(),
+        o.getStatus() == CommercialOfferStatus.RETIRED
+            ? CommercialOfferPublicationMode.RESTORE
+            : CommercialOfferPublicationMode.PUBLISH,
+        blockers.isEmpty() && definitionIssues.isEmpty(),
         blockers,
+        definitionIssues,
         evidence.evaluatedAt(),
         evidence.expiresAt(),
         evidence.token());
@@ -361,7 +462,8 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
     var o = lock(id);
     offers.lockLineage(o.getLineageId());
     long catalog = catalogVersions.currentRevision();
-    var blockers = publicationValidator.blockers(o);
+    var definitionIssues = publicationValidator.definitionIssues(o);
+    var blockers = publicationValidator.blockers(o, definitionIssues);
     previewTokens.requireValid(
         r.previewToken(),
         CommercialPreviewKind.COMMERCIAL_OFFER_PUBLICATION,
@@ -370,10 +472,10 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
         authorizer.currentActorUserId(),
         catalog,
         registry,
-        fingerprint(o, blockers),
+        fingerprint(o, blockers, definitionIssues),
         StaleOfferPreviewException::new);
     if (r.version() != o.getVersion()) throw new StaleOfferPreviewException();
-    if (!blockers.isEmpty())
+    if (!blockers.isEmpty() || !definitionIssues.isEmpty())
       throw new InvalidStateException("Offer cannot be published: " + blockers);
     reserveCode(o);
     offers
@@ -409,7 +511,8 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
     var o = lock(id);
     offers.lockLineage(o.getLineageId());
     long catalog = catalogVersions.currentRevision();
-    var blockers = publicationValidator.blockers(o);
+    var definitionIssues = publicationValidator.definitionIssues(o);
+    var blockers = publicationValidator.blockers(o, definitionIssues);
     previewTokens.requireValid(
         r.previewToken(),
         CommercialPreviewKind.COMMERCIAL_OFFER_PUBLICATION,
@@ -418,10 +521,10 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
         authorizer.currentActorUserId(),
         catalog,
         registry,
-        fingerprint(o, blockers),
+        fingerprint(o, blockers, definitionIssues),
         StaleOfferPreviewException::new);
     if (r.version() != o.getVersion()) throw new StaleOfferPreviewException();
-    if (!blockers.isEmpty())
+    if (!blockers.isEmpty() || !definitionIssues.isEmpty())
       throw new InvalidStateException("Offer cannot be restored: " + blockers);
     offers
         .findFirstByLineage_IdAndStatus(o.getLineageId(), CommercialOfferStatus.PUBLISHED)
@@ -474,12 +577,18 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   @PermissionNode(key = "read_owner", description = "Read Offer owner")
   public CommercialOfferViews.Owner owner(UUID id) {
     var o = require(id);
-    var owner = o.getOwner();
+    return owner(o, o.getLineage());
+  }
+
+  private CommercialOfferViews.Owner owner(
+      CommercialOffer o, CommercialOfferLineage lineage) {
+    var owner = lineage.getOwner();
     var user = owner.getUser();
     return new CommercialOfferViews.Owner(
         o.getId(),
         o.getStatus(),
         o.getVersion(),
+        lineage.getVersion(),
         owner.getId(),
         user.getId(),
         user.getEmail(),
@@ -492,18 +601,25 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   @Transactional
   @CommercialCatalogMutation
   @PermissionNode(key = "reassign_owner", description = "Reassign Offer lineage owner")
-  public CommercialOfferViews.Mutation reassignOwner(
+  public CommercialOfferViews.OwnerMutation reassignOwner(
       UUID id, CommercialOfferRequests.ReassignOwner r) {
-    var o = lock(id);
-    version(o, r.version());
+    CommercialOffer o = require(id);
+    CommercialOfferLineage lineage =
+        lineages
+            .findByIdForUpdate(o.getLineageId())
+            .orElseThrow(
+                () -> new ResourceNotFoundException("CommercialOfferLineage", "id", o.getLineageId()));
+    if (lineage.getVersion() != r.lineageVersion()) {
+      throw new StaleResourceVersionException("Offer owner changed since it was read.");
+    }
     var owner =
         admins
             .findWithUserById(r.ownerAdminUserId())
             .filter(AdminUser::isActive)
             .orElseThrow(() -> new InvalidRequestException("Offer owner must be active."));
-    o.getLineage().reassignOwner(owner);
+    lineage.reassignOwner(owner);
     lineages.flush();
-    return mutation(o);
+    return new CommercialOfferViews.OwnerMutation(o.getId(), owner.getId(), lineage.getVersion());
   }
 
   @Override
@@ -535,10 +651,48 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   @Override
   @Transactional(readOnly = true)
   @PermissionNode(key = "read_redemptions", description = "Read Offer redemption outcomes")
-  public Page<CommercialOfferViews.Redemption> redemptions(UUID id, Pageable p) {
-    return this.redemptions
-        .findAllByOfferLineageId(require(id).getLineageId(), bounded(p))
-        .map(projections::redemption);
+  public Page<CommercialOfferViews.Redemption> redemptions(
+      UUID id,
+      CommercialOfferRedemptionStatus status,
+      CommercialOfferSurface surface,
+      Pageable p) {
+    UUID lineageId = require(id).getLineageId();
+    Specification<CommercialOfferRedemption> specification =
+        (root, query, cb) -> {
+          List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
+          predicates.add(cb.equal(root.get("offerLineageId"), lineageId));
+          if (status != null) predicates.add(cb.equal(root.get("status"), status));
+          if (surface != null) predicates.add(cb.equal(root.get("surface"), surface));
+          return cb.and(
+              predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
+        };
+    Page<CommercialOfferRedemption> page =
+        redemptions.findAll(specification, bounded(p));
+    return enrichRedemptions(page);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  @PermissionNode(
+      key = "read_redemption_detail",
+      description = "Read one Offer redemption outcome")
+  public CommercialOfferViews.Redemption redemption(UUID id, UUID redemptionId) {
+    UUID lineageId = require(id).getLineageId();
+    CommercialOfferRedemption redemption =
+        redemptions
+            .findByIdAndOfferLineageId(redemptionId, lineageId)
+            .orElseThrow(
+                () ->
+                    new ResourceNotFoundException(
+                        "CommercialOfferRedemption", "id", redemptionId));
+    Map<UUID, ProductPrice> exactPrices =
+        clientProjections.exactPrices(List.of(redemption.getOffer()));
+    SubscriptionChangeOperation operation =
+        subscriptionOperations.findByOfferRedemptionId(redemptionId).orElse(null);
+    return projections.redemption(
+        redemption,
+        clientProjections.selection(redemption.getOffer(), exactPrices),
+        operation == null ? null : operationProjections.client(operation));
   }
 
   @Override
@@ -546,17 +700,25 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   @PermissionNode(
       key = "read_redemption_identities",
       description = "Read Offer redemption Account identities")
-  public Page<CommercialOfferViews.RedemptionIdentity> redemptionIdentities(UUID id, Pageable p) {
+  public List<CommercialOfferViews.RedemptionIdentity> resolveRedemptionIdentities(
+      UUID id, Collection<UUID> redemptionIds) {
+    if (redemptionIds == null || redemptionIds.isEmpty() || redemptionIds.size() > 100) {
+      throw new InvalidRequestException("Between 1 and 100 redemption ids are required.");
+    }
+    UUID lineageId = require(id).getLineageId();
     return redemptions
-        .findAllWithIdentitiesByOfferLineageId(
-            require(id).getLineageId(), historyPage(p, "reservedAt"))
+        .findAllWithIdentitiesByOfferLineageIdAndIdIn(
+            lineageId, new LinkedHashSet<>(redemptionIds))
+        .stream()
+        .sorted(Comparator.comparing(r -> r.getId().toString()))
         .map(
             r ->
                 new CommercialOfferViews.RedemptionIdentity(
                     r.getId(),
                     r.getAccount().getId(),
                     r.getAccount().getName(),
-                    r.getActorUserId()));
+                    r.getActorUserId()))
+        .toList();
   }
 
   @Override
@@ -597,7 +759,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
       key = "choose_accounts",
       description = "Choose safe Accounts for one-Account Offer operations")
   public Page<AccountDirectoryEntryDto> chooseAccounts(String query, Boolean active, Pageable p) {
-    return accountDirectoryService.search(query, active, bounded(p));
+    return accountDirectoryService.search(normalizedChoiceSearch(query), active, stableChoicePage(p));
   }
 
   @Override
@@ -616,7 +778,8 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   @PermissionNode(key = "choose_products", description = "Choose exact Offer products and prices")
   public Page<CommercialOfferViews.PricedChoice> chooseProducts(
       ProductPriceOwnerType type, String query, Pageable p) {
-    String term = query == null || query.isBlank() ? null : query.trim().toLowerCase(Locale.ROOT);
+    String normalized = normalizedChoiceSearch(query);
+    String term = normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
     Specification<ProductPrice> spec =
         (root, q, cb) -> {
           var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
@@ -636,7 +799,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
           }
           return cb.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
         };
-    return prices.findAll(spec, bounded(p)).map(projections::pricedChoice);
+    return prices.findAll(spec, stableChoicePage(p)).map(projections::pricedChoice);
   }
 
   @Override
@@ -647,7 +810,10 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   public List<CommercialOfferViews.PricedChoice> resolveProductChoices(Collection<UUID> ids) {
     if (ids == null || ids.isEmpty() || ids.size() > 100)
       throw new InvalidRequestException("Between 1 and 100 Price ids are required.");
-    return prices.findAllByIdIn(ids).stream().map(projections::pricedChoice).toList();
+    return prices.findAllByIdIn(ids).stream()
+        .sorted(Comparator.comparing(price -> price.getId().toString()))
+        .map(projections::pricedChoice)
+        .toList();
   }
 
   @Override
@@ -694,13 +860,17 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
                   addFiniteQuotaResources(
                       selectedResources, item.getFeature(), item.getQuotaConfigs()));
     }
-    String term = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+    String normalized = normalizedChoiceSearch(query);
+    String term = normalized == null ? "" : normalized.toLowerCase(Locale.ROOT);
     return selectedResources.values().stream()
         .filter(
             item ->
                 term.isBlank()
                     || item.featureCode().toLowerCase(Locale.ROOT).contains(term)
                     || item.resource().toLowerCase(Locale.ROOT).contains(term))
+        .sorted(
+            Comparator.comparing(CommercialOfferViews.QuotaResourceChoice::featureCode)
+                .thenComparing(CommercialOfferViews.QuotaResourceChoice::resource))
         .limit(100)
         .toList();
   }
@@ -737,7 +907,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   public Page<CommercialOfferViews.OwnerChoice> chooseOwners(String query, Pageable p) {
     return admins
         .searchPageWithUser(
-            query == null || query.isBlank() ? null : query.trim(), true, bounded(p))
+            normalizedChoiceSearch(query), true, stableChoicePage(p))
         .map(projections::ownerChoice);
   }
 
@@ -756,7 +926,8 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
       key = "choose_campaigns",
       description = "Choose exact Campaign revisions for Offers")
   public Page<CommercialOfferViews.CampaignChoice> chooseCampaigns(String query, Pageable p) {
-    String term = query == null || query.isBlank() ? null : query.trim().toLowerCase(Locale.ROOT);
+    String normalized = normalizedChoiceSearch(query);
+    String term = normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
     Specification<CommercialCampaign> spec =
         (root, q, cb) -> {
           var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
@@ -770,7 +941,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
           }
           return cb.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
         };
-    return campaigns.findAll(spec, bounded(p)).map(projections::campaignChoice);
+    return campaigns.findAll(spec, stableChoicePage(p)).map(projections::campaignChoice);
   }
 
   @Override
@@ -785,28 +956,31 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
   }
 
   @Override
-  @Transactional(readOnly = true)
+  @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
   @PermissionNode(key = "preview_for_account", description = "Preview an Offer for one Account")
-  public CommercialOfferViews.EligibilityPreview previewForAccount(UUID offerId, UUID accountId) {
+  public CommercialOfferViews.AccountEligibilityAssessment previewForAccount(
+      UUID offerId, UUID accountId) {
     authorizer.requireCanManagePermission(
         "platform.subscriptions.preview_change", "preview an Offer subscription change with");
-    return commercialOfferService.preview(
-        accountId, authorizer.currentActorUserId(), offerId, null, true);
+    return commercialOfferService.assessForOperator(
+        accountId, authorizer.currentActorUserId(), offerId);
   }
 
   @Override
-  @Transactional
   @PermissionNode(key = "apply_for_account", description = "Apply a reviewed Offer for one Account")
-  public CommercialOfferViews.Acceptance applyForAccount(
-      UUID offerId, UUID accountId, String idempotencyKey, CommercialOfferRequests.Accept request) {
+  public CommercialOfferViews.AdminAcceptance applyForAccount(
+      UUID offerId,
+      UUID accountId,
+      String idempotencyKey,
+      CommercialOfferRequests.OperatorAccept request) {
     authorizer.requireCanManagePermission(
         "platform.offers.preview_for_account", "preview an Offer for one Account with");
     authorizer.requireCanManagePermission(
         "platform.subscriptions.preview_change", "preview an Offer subscription change with");
     authorizer.requireCanManagePermission(
         "platform.subscriptions.apply_change", "apply an Offer subscription change with");
-    return commercialOfferService.accept(
-        accountId, authorizer.currentActorUserId(), offerId, idempotencyKey, request, true);
+    return commercialOfferService.acceptAsOperator(
+        accountId, authorizer.currentActorUserId(), offerId, idempotencyKey, request);
   }
 
   private void reserveCode(CommercialOffer o) {
@@ -859,7 +1033,10 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
     return CommercialCodeGenerator.generate(n, "OFFER", lineages::existsByBusinessCode);
   }
 
-  private String fingerprint(CommercialOffer o, List<String> b) {
+  private String fingerprint(
+      CommercialOffer o,
+      List<CommercialOfferBlocker> blockers,
+      List<CommercialOfferViews.DefinitionIssue> definitionIssues) {
     return sha(
         o.getId()
             + "|"
@@ -871,7 +1048,9 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
             + "|"
             + o.getEffects()
             + "|"
-            + b);
+            + blockers
+            + "|"
+            + definitionIssues);
   }
 
   static String sha(String value) {
@@ -903,6 +1082,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
         o.getStatus(),
         o.getDiscovery(),
         o.getAcceptance(),
+        projections.campaignChoice(o.getCampaign()),
         o.getStartsAt(),
         o.getEndsAt(),
         o.getRevisionNumber(),
@@ -913,6 +1093,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
 
   private CommercialOfferViews.Detail detail(CommercialOffer o) {
     var a = actions(o, authorizer.currentActorGrantCeiling(), true);
+    Map<UUID, ProductPrice> exactPrices = clientProjections.exactPrices(List.of(o));
     return new CommercialOfferViews.Detail(
         o.getId(),
         o.getBusinessCode(),
@@ -924,6 +1105,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
         o.getCustomerCodeHash() != null,
         o.getCampaign().getId(),
         o.getCampaign().getCode(),
+        projections.campaignChoice(o.getCampaign()),
         o.getStartsAt(),
         o.getEndsAt(),
         o.getLineageId(),
@@ -931,6 +1113,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
         o.getGlobalLimit(),
         o.getPerAccountLimit(),
         o.getSelection(),
+        clientProjections.selection(o, exactPrices),
         o.getEffects(),
         o.getPublishedAt(),
         o.getRetiredAt(),
@@ -959,17 +1142,22 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
       AdminMutationAuthorizer.GrantCeiling ceiling,
       ActionContext context,
       boolean validateDefinition) {
-    boolean invalidSelection =
+    List<CommercialOfferBlocker> definitionBlockers =
         validateDefinition
-            && (o.getStatus() == CommercialOfferStatus.DRAFT
-                || o.getStatus() == CommercialOfferStatus.RETIRED)
-            && publicationValidator.hasInvalidSelection(o);
+                && (o.getStatus() == CommercialOfferStatus.DRAFT
+                    || o.getStatus() == CommercialOfferStatus.RETIRED)
+            ? publicationValidator.definitionBlockers(publicationValidator.definitionIssues(o))
+            : List.of();
+    List<CommercialOfferBlocker> cheapPublicationBlockers =
+        publicationValidator.cheapActionBlockers(o, context.publishedExists());
     List<CommercialOfferAction> available = new ArrayList<>();
     Map<CommercialOfferAction, List<CommercialOfferBlocker>> blocked =
         new EnumMap<>(CommercialOfferAction.class);
     for (CommercialOfferAction action : CommercialOfferAction.values()) {
       if (!ceiling.allowsAll(actionPermissions(action))) continue;
-      List<CommercialOfferBlocker> blockers = actionBlockers(o, action, context, invalidSelection);
+      List<CommercialOfferBlocker> blockers =
+          actionBlockers(
+              o, action, context, cheapPublicationBlockers, definitionBlockers);
       if (blockers.isEmpty()) available.add(action);
       else blocked.put(action, blockers);
     }
@@ -1004,6 +1192,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
       case REASSIGN_OWNER -> Set.of(base + "reassign_owner");
       case READ_STATS -> Set.of(base + "read_stats");
       case READ_REDEMPTIONS -> Set.of(base + "read_redemptions");
+      case READ_REDEMPTION_DETAIL -> Set.of(base + "read_redemption_detail");
       case READ_REDEMPTION_IDENTITIES -> Set.of(base + "read_redemption_identities");
     };
   }
@@ -1012,7 +1201,8 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
       CommercialOffer o,
       CommercialOfferAction action,
       ActionContext context,
-      boolean invalidSelection) {
+      List<CommercialOfferBlocker> cheapPublicationBlockers,
+      List<CommercialOfferBlocker> definitionBlockers) {
     List<CommercialOfferBlocker> blockers = new ArrayList<>();
     switch (action) {
       case UPDATE, READ_DEFINITION -> {
@@ -1030,8 +1220,8 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
         if (o.getStatus() != CommercialOfferStatus.DRAFT) {
           blockers.add(CommercialOfferBlocker.NOT_DRAFT);
         } else {
-          blockers.addAll(publicationValidator.actionBlockers(o, context.publishedExists()));
-          if (invalidSelection) blockers.add(CommercialOfferBlocker.INVALID_SELECTION);
+          blockers.addAll(cheapPublicationBlockers);
+          blockers.addAll(definitionBlockers);
         }
       }
       case PREVIEW_PUBLICATION -> {
@@ -1039,8 +1229,8 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
             && o.getStatus() != CommercialOfferStatus.RETIRED) {
           blockers.add(CommercialOfferBlocker.NOT_DRAFT);
         } else {
-          blockers.addAll(publicationValidator.actionBlockers(o, context.publishedExists()));
-          if (invalidSelection) blockers.add(CommercialOfferBlocker.INVALID_SELECTION);
+          blockers.addAll(cheapPublicationBlockers);
+          blockers.addAll(definitionBlockers);
         }
       }
       case RETIRE -> {
@@ -1051,8 +1241,8 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
         if (o.getStatus() != CommercialOfferStatus.RETIRED) {
           blockers.add(CommercialOfferBlocker.NOT_RETIRED);
         } else {
-          blockers.addAll(publicationValidator.actionBlockers(o, context.publishedExists()));
-          if (invalidSelection) blockers.add(CommercialOfferBlocker.INVALID_SELECTION);
+          blockers.addAll(cheapPublicationBlockers);
+          blockers.addAll(definitionBlockers);
         }
       }
       case ARCHIVE -> {
@@ -1065,6 +1255,22 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
           blockers.add(CommercialOfferBlocker.NOT_PUBLISHED);
         }
         if (context.draftExists()) blockers.add(CommercialOfferBlocker.DRAFT_SUCCESSOR_EXISTS);
+        if (!context.latest()) blockers.add(CommercialOfferBlocker.NOT_LATEST_REVISION);
+      }
+      case PREVIEW_FOR_ACCOUNT, APPLY_FOR_ACCOUNT -> {
+        Instant now = clock.instant();
+        if (o.getStatus() != CommercialOfferStatus.PUBLISHED) {
+          blockers.add(CommercialOfferBlocker.NOT_PUBLISHED);
+        }
+        if (o.getCampaign().getStatus() != CommercialCampaignStatus.ACTIVE) {
+          blockers.add(CommercialOfferBlocker.CAMPAIGN_NOT_ACTIVE);
+        }
+        if (now.isBefore(o.getStartsAt())) {
+          blockers.add(CommercialOfferBlocker.WINDOW_NOT_STARTED);
+        }
+        if (!now.isBefore(o.getEndsAt())) {
+          blockers.add(CommercialOfferBlocker.WINDOW_ENDED);
+        }
       }
       default -> {}
     }
@@ -1075,14 +1281,71 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
     return new ActionContext(
         offers.existsBySourceOffer_Id(offer.getId()),
         offers.existsByLineage_IdAndStatus(offer.getLineageId(), CommercialOfferStatus.PUBLISHED),
-        offers.existsByLineage_IdAndStatus(offer.getLineageId(), CommercialOfferStatus.DRAFT));
+        offers.existsByLineage_IdAndStatus(offer.getLineageId(), CommercialOfferStatus.DRAFT),
+        offer.getRevisionNumber() == offers.maxRevision(offer.getLineageId()));
   }
 
-  private record ActionContext(boolean derived, boolean publishedExists, boolean draftExists) {}
+  private record ActionContext(
+      boolean derived, boolean publishedExists, boolean draftExists, boolean latest) {}
 
   private record ActionState(
       List<CommercialOfferAction> available,
       Map<CommercialOfferAction, List<CommercialOfferBlocker>> blocked) {}
+
+  private CommercialOfferViews.DefinitionPreview definitionPreview(
+      UUID offerId,
+      Long expectedVersion,
+      CommercialOfferDefinitionAssessor.Assessment assessment) {
+    return new CommercialOfferViews.DefinitionPreview(
+        offerId,
+        expectedVersion,
+        assessment.valid(),
+        assessment.lineageTermsEditable(),
+        assessment.campaign(),
+        assessment.resolvedSelection(),
+        assessment.issues());
+  }
+
+  private Page<CommercialOfferViews.Redemption> enrichRedemptions(
+      Page<CommercialOfferRedemption> page) {
+    if (page.isEmpty()) return Page.empty(page.getPageable());
+    List<CommercialOffer> pageOffers =
+        page.getContent().stream().map(CommercialOfferRedemption::getOffer).toList();
+    Map<UUID, ProductPrice> exactPrices = clientProjections.exactPrices(pageOffers);
+    Set<UUID> redemptionIds =
+        page.getContent().stream()
+            .map(CommercialOfferRedemption::getId)
+            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    Map<UUID, UUID> redemptionAccounts =
+        page.getContent().stream()
+            .collect(
+                java.util.stream.Collectors.toUnmodifiableMap(
+                    CommercialOfferRedemption::getId,
+                    redemption -> redemption.getAccount().getId()));
+    Map<UUID, SubscriptionChangeOperation> operations =
+        subscriptionOperations.findAllByOfferRedemptionIdIn(redemptionIds).stream()
+            .filter(
+                operation ->
+                    Objects.equals(
+                        redemptionAccounts.get(operation.getOfferRedemptionId()),
+                        operation.getAccount().getId()))
+            .collect(
+                java.util.stream.Collectors.toUnmodifiableMap(
+                    SubscriptionChangeOperation::getOfferRedemptionId,
+                    java.util.function.Function.identity()));
+    List<CommercialOfferViews.Redemption> content =
+        page.getContent().stream()
+            .map(
+                redemption -> {
+                  SubscriptionChangeOperation operation = operations.get(redemption.getId());
+                  return projections.redemption(
+                      redemption,
+                      clientProjections.selection(redemption.getOffer(), exactPrices),
+                      operation == null ? null : operationProjections.client(operation));
+                })
+            .toList();
+    return new PageImpl<>(content, page.getPageable(), page.getTotalElements());
+  }
 
   private CommercialOfferViews.Mutation mutation(CommercialOffer offer) {
     return new CommercialOfferViews.Mutation(offer.getId(), offer.getStatus(), offer.getVersion());
@@ -1092,6 +1355,23 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
     if (p == null || p.getPageNumber() < 0 || p.getPageSize() < 1 || p.getPageSize() > 100)
       throw new InvalidRequestException("Page must be non-negative and size between 1 and 100.");
     return p;
+  }
+
+  private Pageable stableChoicePage(Pageable pageable) {
+    Pageable page = bounded(pageable);
+    return PageRequest.of(
+        page.getPageNumber(),
+        page.getPageSize(),
+        page.getSort().and(Sort.by(Sort.Direction.ASC, "id")));
+  }
+
+  private String normalizedChoiceSearch(String query) {
+    if (query == null || query.isBlank()) return null;
+    String normalized = query.trim();
+    if (normalized.length() > 160) {
+      throw new InvalidRequestException("Chooser search must not exceed 160 characters.");
+    }
+    return normalized;
   }
 
   private Pageable historyPage(Pageable pageable, String property) {

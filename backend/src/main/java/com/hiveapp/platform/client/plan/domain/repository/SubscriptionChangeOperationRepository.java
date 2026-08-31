@@ -27,9 +27,22 @@ public interface SubscriptionChangeOperationRepository
   Optional<SubscriptionChangeOperation> findTopByAccountIdAndStatusIn(
       UUID accountId, Collection<SubscriptionChangeStatus> statuses);
 
+  @EntityGraph(attributePaths = {"sourceSubscription.plan", "targetPlan", "checkout"})
   Optional<SubscriptionChangeOperation> findByIdAndAccountId(UUID id, UUID accountId);
 
+  @EntityGraph(attributePaths = {"sourceSubscription.plan", "targetPlan", "checkout"})
   Optional<SubscriptionChangeOperation> findByOfferRedemptionId(UUID offerRedemptionId);
+
+  @EntityGraph(attributePaths = {"sourceSubscription.plan", "targetPlan", "checkout"})
+  Optional<SubscriptionChangeOperation> findByOfferRedemptionIdAndAccountId(
+      UUID offerRedemptionId, UUID accountId);
+
+  @EntityGraph(attributePaths = {"sourceSubscription.plan", "targetPlan", "checkout"})
+  @Query(
+      "select operation from SubscriptionChangeOperation operation "
+          + "where operation.offerRedemptionId in :redemptionIds")
+  List<SubscriptionChangeOperation> findAllByOfferRedemptionIdIn(
+      @Param("redemptionIds") Collection<UUID> redemptionIds);
 
   @EntityGraph(attributePaths = {"sourceSubscription.plan", "targetPlan", "checkout"})
   Page<SubscriptionChangeOperation> findAllByAccountId(UUID accountId, Pageable pageable);
