@@ -160,6 +160,42 @@ public class BillingRefund extends BaseEntity {
         completedAt = Objects.requireNonNull(at);
     }
 
+    public void reconcileProviderResult(PaymentResult result, Instant at) {
+        if (kind != BillingRefundKind.PROVIDER) {
+            throw new IllegalStateException("Provider evidence cannot reconcile a manual Refund");
+        }
+        if (result == null || result.status() == null) {
+            throw new IllegalArgumentException("Provider refund result status is required");
+        }
+        String reference = result.transactionId() == null || result.transactionId().isBlank()
+                ? null : result.transactionId().trim();
+        if (status == BillingRefundStatus.SUCCEEDED) {
+            if (result.status() != PaymentStatus.SUCCESS
+                    || !Objects.equals(providerReference, reference)) {
+                throw new IllegalStateException("Provider evidence conflicts with succeeded Refund evidence");
+            }
+            return;
+        }
+        if (result.status() == PaymentStatus.PENDING) {
+            if (status != BillingRefundStatus.PENDING) {
+                throw new IllegalStateException("Pending evidence cannot reopen a terminal Refund");
+            }
+            if (providerReference != null && reference != null
+                    && !providerReference.equals(reference)) {
+                throw new IllegalStateException("Provider reference conflicts with pending Refund evidence");
+            }
+            if (reference != null) providerReference = reference;
+            return;
+        }
+        providerReference = reference;
+        status = result.status() == PaymentStatus.SUCCESS
+                ? BillingRefundStatus.SUCCEEDED : BillingRefundStatus.FAILED;
+        failureReason = status == BillingRefundStatus.FAILED
+                ? (result.failureReason() == null || result.failureReason().isBlank()
+                ? "Payment provider declined the Refund." : result.failureReason().trim()) : null;
+        completedAt = Objects.requireNonNull(at);
+    }
+
     public Money money() { return Money.of(amount, currencyCode); }
 
     @PrePersist

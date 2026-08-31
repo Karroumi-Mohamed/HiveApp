@@ -414,6 +414,11 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         LimitedAdmin listReader = createLimitedAdmin("platform.billing.list_invoices");
         LimitedAdmin identityReader = createLimitedAdmin(
                 "platform.billing.read_account_identity");
+        LimitedAdmin eventReader = createLimitedAdmin("platform.billing.list_provider_events");
+        LimitedAdmin eventReconciler = createLimitedAdmin(
+                "platform.billing.reconcile_provider_event");
+        LimitedAdmin retryPreviewer = createLimitedAdmin(
+                "platform.billing.preview_charge_retry");
 
         mockMvc.perform(get("/api/admin/billing/invoices/{id}", absentInvoiceId)
                         .header("Authorization", bearer(unrelated.token())))
@@ -428,6 +433,28 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/admin/billing/invoices/{id}/account-identity", absentInvoiceId)
                         .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/admin/billing/provider-events")
+                        .header("Authorization", bearer(unrelated.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/billing/provider-events")
+                        .header("Authorization", bearer(eventReader.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray());
+        UUID absentEventId = UUID.randomUUID();
+        mockMvc.perform(post("/api/admin/billing/provider-events/{id}/reprocess", absentEventId)
+                        .header("Authorization", bearer(unrelated.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/billing/provider-events/{id}/reprocess", absentEventId)
+                        .header("Authorization", bearer(eventReconciler.token())))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/admin/billing/invoices/{id}/charge-retry-preview", absentInvoiceId)
+                        .header("Authorization", bearer(unrelated.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/billing/invoices/{id}/charge-retry-preview", absentInvoiceId)
+                        .header("Authorization", bearer(retryPreviewer.token())))
                 .andExpect(status().isNotFound());
     }
 

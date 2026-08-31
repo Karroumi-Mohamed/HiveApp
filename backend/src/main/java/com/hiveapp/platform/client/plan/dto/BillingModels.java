@@ -5,10 +5,12 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingInvoiceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingLineType;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxOperation;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingProviderEventStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentKind;
 import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentStatus;
-import com.hiveapp.platform.client.plan.domain.constant.BillingRefundStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingRefundKind;
+import com.hiveapp.platform.client.plan.domain.constant.BillingRefundStatus;
+import com.hiveapp.shared.payment.PaymentStatus;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -63,6 +65,8 @@ public final class BillingModels {
             String failureReason,
             UUID operatorUserId,
             String operatorReason,
+            UUID retryOfPaymentId,
+            String recoveryReference,
             Instant completedAt,
             Instant createdAt
     ) {}
@@ -144,6 +148,33 @@ public final class BillingModels {
             Instant createdAt
     ) {}
 
+    public record ProviderEventRow(
+            UUID id,
+            String provider,
+            String eventId,
+            BillingOutboxOperation operation,
+            PaymentStatus providerStatus,
+            BigDecimal amount,
+            String currencyCode,
+            BillingProviderEventStatus processingStatus,
+            UUID aggregateId,
+            UUID outboxCommandId,
+            String providerReference,
+            String attentionReason,
+            Instant occurredAt,
+            Instant processedAt,
+            Instant createdAt
+    ) {}
+
+    public record ChargeRetryPreview(
+            UUID previousPaymentId,
+            BillingPaymentStatus previousPaymentStatus,
+            BillingOutboxStatus previousCommandStatus,
+            boolean retryAllowed,
+            boolean providerConfirmationRequired,
+            String blocker
+    ) {}
+
     public record ManualSettlementRequest(
             @NotBlank @Size(max = 255) String reference,
             @NotBlank @Size(max = 2000) String reason
@@ -168,5 +199,11 @@ public final class BillingModels {
             @NotBlank @Size(min = 3, max = 3) String currencyCode,
             @NotBlank @Size(max = 2000) String reason,
             @NotBlank @Size(max = 255) String externalReference
+    ) {}
+
+    public record ChargeRetryRequest(
+            @NotBlank @Size(max = 2000) String reason,
+            @NotBlank @Size(max = 255) String recoveryReference,
+            boolean providerConfirmedNotCaptured
     ) {}
 }

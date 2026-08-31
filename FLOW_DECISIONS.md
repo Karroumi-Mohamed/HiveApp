@@ -1269,6 +1269,8 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - Provider callbacks/reconciliation are idempotent and never activate entitlement merely because a price calculation succeeded. Failed renewal enters explicit past-due/grace/restricted lifecycle without deleting data.
 - Checkout cancellation and manual settlement cancel an automatic charge only before provider dispatch, atomically cancelling its Payment intent and outbox command. Once dispatch begins, reconciliation is required before either action so the platform cannot double-collect or falsely report a provider charge as cancelled.
 - Provider Refund transport is available only for a trusted provider-collected Payment. A cash, bank-transfer, or otherwise manual return is recorded as a separately authorized succeeded manual Refund with external evidence; it never fabricates or sends a provider Refund command.
+- A callback reaches the ledger only through a provider adapter that already verified its signature. HiveApp stores normalized evidence and a payload digest before processing, matches only by the financial idempotency key, and retains unknown/mismatched evidence without changing money or entitlement; no unsigned generic webhook is exposed.
+- Charge recovery never reopens a failed Payment. It creates a new Payment/outbox attempt with operator provenance; an ambiguous transport failure additionally requires recorded provider non-capture evidence before retry.
 - Automatic tax, FX, metered billing, automatic proration, and automatic refunds remain deferred and must not appear as implemented.
 
 ## ANALYTICS-FLOW-001 — Durable commercial facts and truthful analytics

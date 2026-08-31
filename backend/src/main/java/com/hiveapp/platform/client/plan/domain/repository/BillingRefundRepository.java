@@ -15,6 +15,8 @@ import org.springframework.data.repository.query.Param;
 public interface BillingRefundRepository extends JpaRepository<BillingRefund, UUID> {
     Optional<BillingRefund> findByIdempotencyKey(String idempotencyKey);
 
+    Optional<BillingRefund> findByProviderReference(String providerReference);
+
     List<BillingRefund> findAllByPaymentInvoiceIdOrderByCreatedAtDesc(UUID invoiceId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

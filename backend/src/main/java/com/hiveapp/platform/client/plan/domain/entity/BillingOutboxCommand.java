@@ -124,6 +124,16 @@ public class BillingOutboxCommand extends BaseEntity {
         this.nextAttemptAt = Objects.requireNonNull(nextAttemptAt);
     }
 
+    public void reconciled(Instant now) {
+        if (status == BillingOutboxStatus.CANCELLED) {
+            throw new IllegalStateException("A cancelled provider command cannot be reconciled as processed");
+        }
+        status = BillingOutboxStatus.PROCESSED;
+        claimedAt = null;
+        processedAt = Objects.requireNonNull(now);
+        lastError = null;
+    }
+
     @PrePersist
     @PreUpdate
     void validateCommand() {

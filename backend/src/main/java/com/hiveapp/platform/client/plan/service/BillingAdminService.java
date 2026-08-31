@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.BillingInvoiceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxOperation;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingProviderEventStatus;
 import com.hiveapp.platform.client.plan.dto.BillingModels;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -69,4 +70,22 @@ public interface BillingAdminService {
             BillingOutboxStatus status,
             BillingOutboxOperation operation,
             Pageable pageable);
+
+    Page<BillingModels.ProviderEventRow> providerEvents(
+            BillingProviderEventStatus status,
+            BillingOutboxOperation operation,
+            String provider,
+            Pageable pageable);
+
+    BillingModels.ProviderEventRow reprocessProviderEvent(UUID eventId);
+
+    BillingModels.ChargeRetryPreview previewChargeRetry(UUID invoiceId);
+
+    BillingModels.Payment retryCharge(
+            UUID invoiceId,
+            UUID operatorUserId,
+            String idempotencyKey,
+            String reason,
+            String recoveryReference,
+            boolean providerConfirmedNotCaptured);
 }

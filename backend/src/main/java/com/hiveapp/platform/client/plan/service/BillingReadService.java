@@ -152,6 +152,8 @@ public class BillingReadService {
                 payment.getFailureReason(),
                 includeSensitiveReferences ? payment.getOperatorUserId() : null,
                 includeSensitiveReferences ? payment.getOperatorReason() : null,
+                payment.getRetryOfPaymentId(),
+                includeSensitiveReferences ? payment.getRecoveryReference() : null,
                 payment.getCompletedAt(), payment.getCreatedAt());
     }
 }

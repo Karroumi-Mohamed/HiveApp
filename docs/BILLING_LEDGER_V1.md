@@ -84,6 +84,19 @@ tokens, passwords, customer codes, raw exceptions, or mutable serialized busines
 Provider callbacks are stored by `(provider, eventId)` before processing. Unknown or mismatched
 evidence is retained for reconciliation but cannot settle an Invoice.
 
+Only a provider adapter that has already authenticated the callback may create
+`VerifiedBillingProviderEvent`. HiveApp deliberately exposes no unsigned generic webhook. The
+normalized evidence retains provider/event identity, operation, exact money, provider status,
+event time, reference, and a SHA-256 payload digest; raw provider payloads and secrets are not
+stored in the billing ledger. The outbox idempotency key is the authoritative match. Amount,
+currency, operation, command state, financial state, and provider-reference uniqueness must all
+agree before the event is applied. A same-id/same-digest delivery is harmless; a same-id/different-
+digest delivery is a conflict.
+
+A failed charge retry creates a new Payment attempt and outbox command. It never reopens or erases
+the failed attempt. A definitive provider decline may be retried directly; an ambiguous transport
+failure additionally requires operator evidence that the provider did not capture the charge.
+
 ## 5. Credits and refunds
 
 - Credits require Invoice, amount/currency, reason, source, actor, and optional external reference.
@@ -112,7 +125,8 @@ idempotency keys, and reconciliation detail.
 
 Admin surfaces provide bounded/filterable Invoice and Payment tables, Account financial timeline,
 Invoice detail/lines, attempt history, manual settlement, Credit, Refund review/confirmation,
-outbox/reconciliation status, and stable drill-down from subscription operations. Backend actions
+outbox/provider-event reconciliation status, verified-event reprocessing, evidence-gated failed-
+charge retry, and stable drill-down from subscription operations. Backend actions
 and blockers are authoritative; the UI never manufactures lifecycle availability.
 
 Client surfaces provide bounded own Invoice history and detail with download-ready immutable

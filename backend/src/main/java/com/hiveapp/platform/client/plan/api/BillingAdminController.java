@@ -4,6 +4,7 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.BillingInvoiceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxOperation;
 import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingProviderEventStatus;
 import com.hiveapp.platform.client.plan.dto.BillingModels;
 import com.hiveapp.platform.client.plan.service.BillingAdminService;
 import com.hiveapp.shared.api.PageResponse;
@@ -45,6 +46,12 @@ public class BillingAdminController {
             "status", "status",
             "operation", "operation",
             "attemptCount", "attemptCount");
+    private static final Map<String, String> PROVIDER_EVENT_SORTS = Map.of(
+            "receivedAt", "createdAt",
+            "occurredAt", "occurredAt",
+            "status", "processingStatus",
+            "operation", "operation",
+            "provider", "provider");
 
     private final BillingAdminService billing;
 
@@ -158,6 +165,47 @@ public class BillingAdminController {
                 CommercialProductPageRequest.of(
                         page, size, sort, direction, RECONCILIATION_SORTS,
                         "createdAt", Sort.Direction.DESC)));
+    }
+
+    @GetMapping("/provider-events")
+    public PageResponse<BillingModels.ProviderEventRow> providerEvents(
+            @RequestParam(required = false) BillingProviderEventStatus status,
+            @RequestParam(required = false) BillingOutboxOperation operation,
+            @RequestParam(required = false) String provider,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction
+    ) {
+        return PageResponse.from(billing.providerEvents(
+                status, operation, provider,
+                CommercialProductPageRequest.of(
+                        page, size, sort, direction, PROVIDER_EVENT_SORTS,
+                        "receivedAt", Sort.Direction.DESC)));
+    }
+
+    @PostMapping("/provider-events/{eventId}/reprocess")
+    public BillingModels.ProviderEventRow reprocessProviderEvent(@PathVariable UUID eventId) {
+        return billing.reprocessProviderEvent(eventId);
+    }
+
+    @GetMapping("/invoices/{invoiceId}/charge-retry-preview")
+    public BillingModels.ChargeRetryPreview previewChargeRetry(@PathVariable UUID invoiceId) {
+        return billing.previewChargeRetry(invoiceId);
+    }
+
+    @PostMapping("/invoices/{invoiceId}/charge-retries")
+    @ResponseStatus(HttpStatus.CREATED)
+    public BillingModels.Payment retryCharge(
+            @PathVariable UUID invoiceId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody BillingModels.ChargeRetryRequest request,
+            Authentication authentication
+    ) {
+        return billing.retryCharge(
+                invoiceId, actor(authentication), requireIdempotencyKey(idempotencyKey),
+                request.reason(), request.recoveryReference(),
+                request.providerConfirmedNotCaptured());
     }
 
     private UUID actor(Authentication authentication) {

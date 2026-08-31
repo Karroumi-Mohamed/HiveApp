@@ -71,6 +71,12 @@ public class BillingPaymentAttempt extends BaseEntity {
     @Column(name = "operator_reason", length = 2000)
     private String operatorReason;
 
+    @Column(name = "retry_of_payment_id", updatable = false)
+    private UUID retryOfPaymentId;
+
+    @Column(name = "recovery_reference", updatable = false, length = 255)
+    private String recoveryReference;
+
     @Column(name = "completed_at")
     private Instant completedAt;
 
@@ -103,6 +109,24 @@ public class BillingPaymentAttempt extends BaseEntity {
         attempt.operatorUserId = Objects.requireNonNull(operatorUserId, "Manual settlement operator is required");
         attempt.operatorReason = requireText(reason);
         attempt.completedAt = Objects.requireNonNull(completedAt, "Manual settlement time is required");
+        return attempt;
+    }
+
+    public static BillingPaymentAttempt pendingProviderRetry(
+            BillingInvoice invoice,
+            String idempotencyKey,
+            UUID previousPaymentId,
+            UUID operatorUserId,
+            String reason,
+            String recoveryReference
+    ) {
+        BillingPaymentAttempt attempt = base(
+                invoice, BillingPaymentKind.PROVIDER, idempotencyKey);
+        attempt.status = BillingPaymentStatus.PENDING;
+        attempt.retryOfPaymentId = Objects.requireNonNull(previousPaymentId);
+        attempt.operatorUserId = Objects.requireNonNull(operatorUserId);
+        attempt.operatorReason = requireText(reason);
+        attempt.recoveryReference = requireText(recoveryReference);
         return attempt;
     }
 
@@ -150,6 +174,41 @@ public class BillingPaymentAttempt extends BaseEntity {
         completedAt = Objects.requireNonNull(at);
     }
 
+    public void reconcileProviderResult(PaymentResult result, boolean trusted, Instant at) {
+        if (kind != BillingPaymentKind.PROVIDER || status == BillingPaymentStatus.CANCELLED) {
+            throw new IllegalStateException("Provider evidence cannot reconcile this Payment");
+        }
+        Objects.requireNonNull(result, "Provider result is required");
+        Objects.requireNonNull(result.status(), "Provider result status is required");
+        String reference = trimToNull(result.transactionId());
+        if (status == BillingPaymentStatus.SUCCEEDED) {
+            if (result.status() != PaymentStatus.SUCCESS
+                    || !Objects.equals(externalReference, reference)) {
+                throw new IllegalStateException("Provider evidence conflicts with settled Payment evidence");
+            }
+            trustedForSettlement = trustedForSettlement || trusted;
+            return;
+        }
+        if (result.status() == PaymentStatus.PENDING) {
+            if (status != BillingPaymentStatus.PENDING) {
+                throw new IllegalStateException("Pending evidence cannot reopen a terminal Payment");
+            }
+            if (externalReference != null && reference != null
+                    && !externalReference.equals(reference)) {
+                throw new IllegalStateException("Provider reference conflicts with pending Payment evidence");
+            }
+            if (reference != null) externalReference = reference;
+            return;
+        }
+        externalReference = reference;
+        status = result.status() == PaymentStatus.SUCCESS
+                ? BillingPaymentStatus.SUCCEEDED : BillingPaymentStatus.FAILED;
+        trustedForSettlement = status == BillingPaymentStatus.SUCCEEDED && trusted;
+        failureReason = status == BillingPaymentStatus.FAILED
+                ? defaultFailure(result.failureReason()) : null;
+        completedAt = Objects.requireNonNull(at);
+    }
+
     public void cancel(String reason, Instant at) {
         if (kind != BillingPaymentKind.PROVIDER || status != BillingPaymentStatus.PENDING) {
             throw new IllegalStateException("Only a pending provider attempt may be cancelled");
@@ -179,6 +238,11 @@ public class BillingPaymentAttempt extends BaseEntity {
                 && (status != BillingPaymentStatus.SUCCEEDED || operatorUserId == null
                 || operatorReason == null || externalReference == null)) {
             throw new IllegalStateException("Manual settlement requires operator evidence");
+        }
+        if (retryOfPaymentId != null
+                && (kind != BillingPaymentKind.PROVIDER || operatorUserId == null
+                || operatorReason == null || recoveryReference == null)) {
+            throw new IllegalStateException("Provider retry requires recovery evidence");
         }
     }
 

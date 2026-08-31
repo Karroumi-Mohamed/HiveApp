@@ -7,16 +7,21 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentStatus;
 import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentKind;
 import com.hiveapp.platform.client.plan.domain.constant.BillingRefundStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingProviderEventStatus;
 import com.hiveapp.platform.client.plan.domain.entity.BillingInvoice;
 import com.hiveapp.platform.client.plan.domain.entity.BillingOutboxCommand;
+import com.hiveapp.platform.client.plan.domain.entity.BillingProviderEvent;
 import com.hiveapp.platform.client.plan.domain.repository.BillingInvoiceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.BillingOutboxCommandRepository;
 import com.hiveapp.platform.client.plan.domain.repository.BillingPaymentAttemptRepository;
+import com.hiveapp.platform.client.plan.domain.repository.BillingProviderEventRepository;
 import com.hiveapp.platform.client.plan.domain.repository.BillingRefundRepository;
 import com.hiveapp.platform.client.plan.dto.BillingModels;
 import com.hiveapp.platform.client.plan.service.BillingAdjustmentService;
 import com.hiveapp.platform.client.plan.service.BillingAdminService;
 import com.hiveapp.platform.client.plan.service.BillingReadService;
+import com.hiveapp.platform.client.plan.service.BillingOutboxTransactionService;
+import com.hiveapp.platform.client.plan.service.BillingRecoveryService;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.registry.definition.BillingFeature;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
@@ -50,11 +55,14 @@ public class BillingAdminServiceImpl extends PlatformControlFeatureService
         implements BillingAdminService {
     private final BillingInvoiceRepository invoices;
     private final BillingPaymentAttemptRepository payments;
+    private final BillingProviderEventRepository providerEvents;
     private final BillingRefundRepository refunds;
     private final BillingOutboxCommandRepository outbox;
     private final BillingReadService reads;
     private final BillingAdjustmentService adjustments;
     private final SubscriptionCheckoutService checkouts;
+    private final BillingOutboxTransactionService outboxTransactions;
+    private final BillingRecoveryService recovery;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -267,6 +275,70 @@ public class BillingAdminServiceImpl extends PlatformControlFeatureService
                 command.getProcessedAt(), command.getLastError(), command.getCreatedAt()));
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "list_provider_events", description = "List verified provider evidence")
+    public Page<BillingModels.ProviderEventRow> providerEvents(
+            BillingProviderEventStatus status,
+            BillingOutboxOperation operation,
+            String provider,
+            Pageable pageable
+    ) {
+        String normalizedProvider = normalizeProvider(provider);
+        Specification<BillingProviderEvent> specification = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (status != null) predicates.add(cb.equal(root.get("processingStatus"), status));
+            if (operation != null) predicates.add(cb.equal(root.get("operation"), operation));
+            if (normalizedProvider != null) {
+                predicates.add(cb.equal(root.get("provider"), normalizedProvider));
+            }
+            return cb.and(predicates.toArray(Predicate[]::new));
+        };
+        boolean references = has("read_payment_references");
+        return providerEvents.findAll(specification, pageable)
+                .map(event -> providerEvent(event, references));
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "reconcile_provider_event",
+            description = "Reprocess retained verified provider evidence")
+    public BillingModels.ProviderEventRow reprocessProviderEvent(UUID eventId) {
+        outboxTransactions.reconcileProviderEvent(eventId);
+        BillingProviderEvent event = providerEvents.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "BillingProviderEvent", "id", eventId));
+        return providerEvent(event, has("read_payment_references"));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "preview_charge_retry", description = "Preview failed charge recovery")
+    public BillingModels.ChargeRetryPreview previewChargeRetry(UUID invoiceId) {
+        BillingRecoveryService.RetryPreview preview = recovery.preview(invoiceId);
+        return new BillingModels.ChargeRetryPreview(
+                preview.previousPaymentId(), preview.previousPaymentStatus(),
+                preview.previousCommandStatus(), preview.retryAllowed(),
+                preview.providerConfirmationRequired(), preview.blocker());
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "retry_charge", description = "Retry a failed provider charge")
+    public BillingModels.Payment retryCharge(
+            UUID invoiceId,
+            UUID operatorUserId,
+            String idempotencyKey,
+            String reason,
+            String recoveryReference,
+            boolean providerConfirmedNotCaptured
+    ) {
+        var payment = recovery.retryCharge(
+                invoiceId, operatorUserId, idempotencyKey, reason,
+                recoveryReference, providerConfirmedNotCaptured);
+        return reads.payment(payment, has("read_payment_references"));
+    }
+
     private boolean has(String action) {
         return PermissionGuard.has(new Permission(BillingFeature.CODE + "." + action));
     }
@@ -283,5 +355,25 @@ public class BillingAdminServiceImpl extends PlatformControlFeatureService
         String normalized = value.trim().toUpperCase(Locale.ROOT);
         if (normalized.length() != 3) throw new InvalidRequestException("Currency must use 3 letters.");
         return normalized;
+    }
+
+    private String normalizeProvider(String value) {
+        if (value == null || value.isBlank()) return null;
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.length() > 64) throw new InvalidRequestException("Provider is too long.");
+        return normalized;
+    }
+
+    private BillingModels.ProviderEventRow providerEvent(
+            BillingProviderEvent event,
+            boolean includeReference
+    ) {
+        return new BillingModels.ProviderEventRow(
+                event.getId(), event.getProvider(), event.getEventId(), event.getOperation(),
+                event.getProviderStatus(), event.getAmount(), event.getCurrencyCode(),
+                event.getProcessingStatus(), event.getAggregateId(), event.getOutboxCommandId(),
+                includeReference ? event.getProviderReference() : null,
+                event.getAttentionReason(), event.getOccurredAt(), event.getProcessedAt(),
+                event.getCreatedAt());
     }
 }

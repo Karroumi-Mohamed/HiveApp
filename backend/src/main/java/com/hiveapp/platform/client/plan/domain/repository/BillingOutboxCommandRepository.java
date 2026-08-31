@@ -17,6 +17,12 @@ import org.springframework.data.repository.query.Param;
 
 public interface BillingOutboxCommandRepository extends JpaRepository<BillingOutboxCommand, UUID>,
         JpaSpecificationExecutor<BillingOutboxCommand> {
+    Optional<BillingOutboxCommand> findByIdempotencyKey(String idempotencyKey);
+
+    Optional<BillingOutboxCommand> findByAggregateIdAndOperation(
+            UUID aggregateId,
+            BillingOutboxOperation operation);
+
     @Query("select command.id from BillingOutboxCommand command "
             + "where command.status = :status and command.nextAttemptAt <= :cutoff "
             + "order by command.nextAttemptAt asc, command.id asc")
@@ -36,6 +42,10 @@ public interface BillingOutboxCommandRepository extends JpaRepository<BillingOut
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select command from BillingOutboxCommand command where command.id = :id")
     Optional<BillingOutboxCommand> findByIdForUpdate(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select command from BillingOutboxCommand command where command.idempotencyKey = :key")
+    Optional<BillingOutboxCommand> findByIdempotencyKeyForUpdate(@Param("key") String idempotencyKey);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select command from BillingOutboxCommand command "
