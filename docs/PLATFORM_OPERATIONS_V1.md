@@ -1,6 +1,6 @@
 # Platform Operations V1
 
-**Status:** Frozen implementation contract  
+**Status:** Implemented and verified
 **Date:** 2026-08-31  
 **Scope:** Platform-admin Activities, credential-email delivery operations, and production observability
 
@@ -144,3 +144,13 @@ HiveApp does not copy raw production logs into its business database. Log search
 - generic credential-email resend or stored-content preview;
 - a built-in raw-log store/viewer;
 - traces, metrics-series storage, alerts, and incident workflow beyond the external-provider boundary.
+
+## 8. Implementation evidence
+
+Implemented on 2026-08-31 in backend commit `16904e8` and frontend commit `0210389`.
+
+- Activities, Communications, and Observability use separate Permissionizer feature families and keep metadata, identity, payload/failure evidence, health, backlog, and external-log access independently readable.
+- Lists are range-bounded and server-paginated. Identity enrichment is bulk-resolved only when authorized; query-count tests pin that boundary.
+- Request correlation now spans the response header, normalized errors, MDC lifetime, and new audit evidence, with invalid incoming identifiers replaced rather than trusted.
+- The frontend replaces all three placeholders with French-first operational tables, compact narrow-screen records, permission-gated detail queries, honest empty/error/retry states, and no resend, content-preview, secret, or raw-log claim.
+- Backend verification is green at 812 tests; frontend verification is green at 346 tests. Authenticated browser QA covered activity detail, communications empty state, health/backlog navigation, light/dark desktop, narrow layouts, and RTL direction. Delivery-failure and least-privilege evidence paths are additionally exercised by automated integration/wiring tests.

@@ -3185,7 +3185,7 @@ Decorative totals may be mislabeled as revenue, mixed currency/cycle values can 
 
 ### OPERATIONS-001 — Audit, delivery, and health evidence have no safe operational surface
 
-**Status:** `IMPLEMENTATION CONTRACT FROZEN — 2026-08-31`
+**Status:** `IMPLEMENTED AND VERIFIED — 2026-08-31`
 
 **Evidence**
 
@@ -3203,6 +3203,16 @@ Operators cannot investigate real platform behavior from the UI. Implementing th
 - Keep identities, audit payloads, delivery failure evidence, health, backlogs, and log access independently authorized.
 - Add bounded correlation ids across HTTP response/error, MDC, and new audit records.
 - Keep `AUDIT-002`, export, generic resend/content preview, and internal raw-log storage explicitly deferred.
+
+**Implementation evidence — 2026-08-31**
+
+- `platform.activities`, `platform.communications`, and `platform.observability` now expose separate service-boundary permissions for safe metadata and each sensitive evidence class. SuperAdmin remains the authority root; frontend visibility is not the security boundary.
+- Activities provide bounded filtering, stable pagination, safe detail, optional bulk-resolved actor/Account identity, and separately fetched redacted payload evidence. Communications provide durable status/purpose summaries and delivery rows, with recipient identity and failure evidence fetched only under their narrow permissions.
+- Observability exposes safe component states, aggregate billing/provider/email backlog evidence, owning-workbench links, and only the configured external log-provider destination. It never exposes raw logs, stack traces, environment values, message bodies, action URLs, or credentials.
+- Every request receives a bounded correlation identifier that is returned in `X-Request-ID` and `ApiError`, scoped to logging MDC, and persisted on new mutation audit rows. Tests cover accepted/replaced identifiers, error propagation, MDC cleanup, and audit persistence.
+- The three former placeholders are real French-first workbenches using shared tables/actions on desktop and compact records on narrow screens. Queries mount by exact permission, payload/identity/failure reads do not piggyback on list access, and loading/error/empty/retry states remain explicit.
+- The complete backend suite passes 812 tests; the complete frontend suite passes 346 tests. Authenticated browser QA covered desktop, narrow, light/dark, RTL, Activity investigation, Communications, and health/backlog navigation.
+- `AUDIT-002`, export, generic email replay/content preview, built-in raw-log storage, traces, alerting, and incident workflow remain explicit deferrals rather than implied missing buttons.
 
 ---
 

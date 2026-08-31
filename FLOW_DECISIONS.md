@@ -1289,13 +1289,14 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 
 ## OPERATIONS-FLOW-001 — Activities, communications, and logs are different products
 
-**Status:** `DECIDED — 2026-08-31`
+**Status:** `IMPLEMENTED — 2026-08-31`
 
 - Activities expose the existing append-only mutation/security evidence under separate metadata, actor-identity, Account-identity, and payload permissions. They do not begin recording reads; `AUDIT-002` remains open.
 - Communications expose durable credential-email delivery status. Raw tokens, links, and bodies are never stored, so the page cannot preview or replay an old message. A new credential message must originate from its authorized operator/member workflow.
 - Observability exposes safe health and aggregate backlog evidence plus an external-log-provider boundary. HiveApp does not copy raw production logs, stack traces, secrets, or environment data into the business database.
 - Every request receives a bounded correlation id returned in errors/responses and attached to new audit evidence so operators can cross-reference an activity with external logs.
 - The complete permission, API, privacy, performance, UI, and deferral contract is frozen in `docs/PLATFORM_OPERATIONS_V1.md`.
+- The backend and admin UI now implement that contract with independent evidence permissions, bounded lists, bulk identity enrichment, safe aggregate health/backlogs, permission-gated detail requests, compact mobile records, and authenticated light/dark/RTL browser verification. Raw logs and generic credential-message replay remain deliberately absent.
 
 # Account subscription administration
 
