@@ -69,6 +69,19 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
   @Autowired private com.hiveapp.platform.client.plan.service.CommercialOfferCodeHasher codeHasher;
 
   @Test
+  void operationStateAdvertisesTheIndependentRedemptionDetailAction() throws Exception {
+    String token = loginAdminAndGetToken();
+    OfferFixture fixture = offerFixture(false, null);
+
+    mockMvc
+        .perform(
+            get("/api/admin/offers/{id}/operations", fixture.offer().getId())
+                .header("Authorization", bearer(token)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.availableActions", hasItem("READ_REDEMPTION_DETAIL")));
+  }
+
+  @Test
   void publishRetireAndRestoreRequireFreshEvidenceAndReturnMinimalAcknowledgements()
       throws Exception {
     String token = loginAdminAndGetToken();
@@ -295,6 +308,32 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.adminUserId").value(replacement.adminUserId().toString()))
         .andExpect(jsonPath("$.lineageVersion").value(reassigned.get("lineageVersion").asLong()));
+  }
+
+  @Test
+  void concurrentRevisionRequestsNeverBecomeInfrastructureErrors() throws Exception {
+    String token = loginAdminAndGetToken();
+    OfferFixture fixture = offerFixture(true, null);
+    CountDownLatch start = new CountDownLatch(1);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      CompletableFuture<RevisionAttempt> first =
+          CompletableFuture.supplyAsync(() -> reviseStatus(token, fixture, start), pool);
+      CompletableFuture<RevisionAttempt> second =
+          CompletableFuture.supplyAsync(() -> reviseStatus(token, fixture, start), pool);
+      start.countDown();
+      List<RevisionAttempt> attempts = List.of(first.join(), second.join());
+      assertThat(attempts).extracting(RevisionAttempt::status).containsExactlyInAnyOrder(201, 409);
+      assertThat(attempts.stream().filter(attempt -> attempt.status() == 409).findFirst().orElseThrow().body())
+          .contains("\"code\":\"STALE_RESOURCE_VERSION\"");
+    } finally {
+      pool.shutdownNow();
+    }
+
+    assertThat(offers.findAllByLineage_Id(
+            fixture.offer().getLineageId(),
+            org.springframework.data.domain.Pageable.unpaged()))
+        .hasSize(2);
   }
 
   @Test
@@ -1942,6 +1981,26 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
     }
   }
 
+  private RevisionAttempt reviseStatus(String token, OfferFixture fixture, CountDownLatch start) {
+    try {
+      start.await();
+      var response = mockMvc
+          .perform(
+              post("/api/admin/offers/{id}/revisions", fixture.offer().getId())
+                  .header("Authorization", bearer(token))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      objectMapper.writeValueAsString(
+                          new CommercialOfferRequests.VersionReason(
+                              fixture.offer().getVersion(), "Concurrent revision"))))
+          .andReturn()
+          .getResponse();
+      return new RevisionAttempt(response.getStatus(), response.getContentAsString());
+    } catch (Exception exception) {
+      throw new CompletionException(exception);
+    }
+  }
+
   private JsonNode response(org.springframework.test.web.servlet.ResultActions result)
       throws Exception {
     return objectMapper.readTree(result.andReturn().getResponse().getContentAsString());
@@ -1956,6 +2015,8 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
 
   private record OfferFixture(
       CommercialOffer offer, CommercialCampaign campaign, ProductPrice planPrice) {}
+
+  private record RevisionAttempt(int status, String body) {}
 
   private record CrashReservation(
       UUID redemptionId, String idempotencyKey, String previewToken, UUID initialClaimId) {}

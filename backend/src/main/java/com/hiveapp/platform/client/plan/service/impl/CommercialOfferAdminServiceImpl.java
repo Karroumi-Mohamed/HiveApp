@@ -1192,6 +1192,7 @@ public class CommercialOfferAdminServiceImpl extends PlatformControlFeatureServi
       case REASSIGN_OWNER -> Set.of(base + "reassign_owner");
       case READ_STATS -> Set.of(base + "read_stats");
       case READ_REDEMPTIONS -> Set.of(base + "read_redemptions");
+      case READ_REDEMPTION_DETAIL -> Set.of(base + "read_redemption_detail");
       case READ_REDEMPTION_IDENTITIES -> Set.of(base + "read_redemption_identities");
     };
   }
