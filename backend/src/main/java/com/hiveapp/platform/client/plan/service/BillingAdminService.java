@@ -1,0 +1,72 @@
+package com.hiveapp.platform.client.plan.service;
+
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
+import com.hiveapp.platform.client.plan.domain.constant.BillingInvoiceStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxOperation;
+import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxStatus;
+import com.hiveapp.platform.client.plan.dto.BillingModels;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
+public interface BillingAdminService {
+    Page<BillingModels.InvoiceRow> listInvoices(
+            String search,
+            UUID accountId,
+            BillingInvoiceStatus status,
+            String currencyCode,
+            BillingCycle billingCycle,
+            Instant issuedFrom,
+            Instant issuedUntil,
+            Pageable pageable);
+
+    BillingModels.InvoiceDetail invoice(UUID invoiceId);
+
+    BillingModels.AccountIdentity accountIdentity(UUID invoiceId);
+
+    List<BillingModels.Payment> payments(UUID invoiceId);
+
+    BillingModels.Payment paymentReference(UUID paymentId);
+
+    BillingModels.InvoiceDetail settleManually(
+            UUID invoiceId,
+            UUID operatorUserId,
+            String reference,
+            String reason);
+
+    BillingModels.Credit issueCredit(
+            UUID invoiceId,
+            BigDecimal amount,
+            String currencyCode,
+            String reason,
+            String source,
+            UUID operatorUserId,
+            String externalReference);
+
+    BillingModels.RefundPreview previewRefund(UUID paymentId);
+
+    BillingModels.Refund requestRefund(
+            UUID paymentId,
+            BigDecimal amount,
+            String currencyCode,
+            String reason,
+            UUID operatorUserId,
+            String idempotencyKey);
+
+    BillingModels.Refund recordManualRefund(
+            UUID paymentId,
+            BigDecimal amount,
+            String currencyCode,
+            String reason,
+            String externalReference,
+            UUID operatorUserId,
+            String idempotencyKey);
+
+    Page<BillingModels.OutboxRow> reconciliation(
+            BillingOutboxStatus status,
+            BillingOutboxOperation operation,
+            Pageable pageable);
+}

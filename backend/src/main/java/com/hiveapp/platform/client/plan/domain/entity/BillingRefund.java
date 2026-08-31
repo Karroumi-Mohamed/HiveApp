@@ -1,6 +1,8 @@
 package com.hiveapp.platform.client.plan.domain.entity;
 
+import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentKind;
 import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingRefundKind;
 import com.hiveapp.platform.client.plan.domain.constant.BillingRefundStatus;
 import com.hiveapp.shared.domain.BaseEntity;
 import com.hiveapp.shared.money.Money;
@@ -39,6 +41,10 @@ public class BillingRefund extends BaseEntity {
     private BillingPaymentAttempt payment;
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false, updatable = false, length = 16)
+    private BillingRefundKind kind;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private BillingRefundStatus status;
 
@@ -70,21 +76,24 @@ public class BillingRefund extends BaseEntity {
     @Column(name = "row_version", nullable = false)
     private long version;
 
-    public static BillingRefund pending(
+    public static BillingRefund pendingProvider(
             BillingPaymentAttempt payment,
             Money money,
             String reason,
             UUID operatorUserId,
             String idempotencyKey
     ) {
-        if (payment.getStatus() != BillingPaymentStatus.SUCCEEDED
+        if (payment.getKind() != BillingPaymentKind.PROVIDER
+                || payment.getStatus() != BillingPaymentStatus.SUCCEEDED
                 || !payment.isTrustedForSettlement()) {
-            throw new IllegalArgumentException("Only a trusted succeeded Payment can be refunded");
+            throw new IllegalArgumentException(
+                    "Only a trusted succeeded provider Payment can use provider Refund transport");
         }
         if (money.amount().signum() <= 0) throw new IllegalArgumentException("Refund must be positive");
         money.requireSameCurrency(payment.money());
         BillingRefund refund = new BillingRefund();
         refund.payment = payment;
+        refund.kind = BillingRefundKind.PROVIDER;
         refund.status = BillingRefundStatus.PENDING;
         refund.amount = money.amount();
         refund.currencyCode = money.currencyCode();
@@ -94,8 +103,37 @@ public class BillingRefund extends BaseEntity {
         return refund;
     }
 
+    public static BillingRefund manualSucceeded(
+            BillingPaymentAttempt payment,
+            Money money,
+            String reason,
+            UUID operatorUserId,
+            String idempotencyKey,
+            String externalReference,
+            Instant completedAt
+    ) {
+        if (payment.getStatus() != BillingPaymentStatus.SUCCEEDED
+                || !payment.isTrustedForSettlement()) {
+            throw new IllegalArgumentException("Only a trusted succeeded Payment can be refunded");
+        }
+        if (money.amount().signum() <= 0) throw new IllegalArgumentException("Refund must be positive");
+        money.requireSameCurrency(payment.money());
+        BillingRefund refund = new BillingRefund();
+        refund.payment = payment;
+        refund.kind = BillingRefundKind.MANUAL;
+        refund.status = BillingRefundStatus.SUCCEEDED;
+        refund.amount = money.amount();
+        refund.currencyCode = money.currencyCode();
+        refund.reason = requireText(reason);
+        refund.operatorUserId = Objects.requireNonNull(operatorUserId);
+        refund.idempotencyKey = requireText(idempotencyKey);
+        refund.providerReference = requireText(externalReference);
+        refund.completedAt = Objects.requireNonNull(completedAt);
+        return refund;
+    }
+
     public void recordProviderResult(PaymentResult result, Instant at) {
-        if (status != BillingRefundStatus.PENDING) {
+        if (kind != BillingRefundKind.PROVIDER || status != BillingRefundStatus.PENDING) {
             throw new IllegalStateException("Only a pending Refund may record a provider result");
         }
         if (result == null || result.status() == null) {
@@ -113,7 +151,7 @@ public class BillingRefund extends BaseEntity {
     }
 
     public void recordTransportFailure(String reason, Instant at) {
-        if (status != BillingRefundStatus.PENDING) {
+        if (kind != BillingRefundKind.PROVIDER || status != BillingRefundStatus.PENDING) {
             throw new IllegalStateException("Only a pending Refund may fail transport");
         }
         status = BillingRefundStatus.FAILED;
@@ -127,6 +165,8 @@ public class BillingRefund extends BaseEntity {
     @PrePersist
     @PreUpdate
     void validateRefund() {
+        Objects.requireNonNull(kind, "Refund kind is required");
+        Objects.requireNonNull(status, "Refund status is required");
         if (Money.of(amount, currencyCode).amount().signum() <= 0) {
             throw new IllegalStateException("Refund must be positive");
         }

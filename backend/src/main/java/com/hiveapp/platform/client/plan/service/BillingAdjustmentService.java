@@ -53,15 +53,8 @@ public class BillingAdjustmentService {
         var payment = payments.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "BillingPaymentAttempt", "id", paymentId));
-        Money reserved = Money.of(
-                refunds.sumAmountByPaymentIdAndStatusIn(
-                        paymentId,
-                        List.of(BillingRefundStatus.PENDING, BillingRefundStatus.SUCCEEDED)),
-                payment.getCurrencyCode());
-        if (reserved.add(amount).amount().compareTo(payment.getAmount()) > 0) {
-            throw new InvalidStateException("Refund exceeds the remaining refundable Payment amount.");
-        }
-        BillingRefund refund = refunds.saveAndFlush(BillingRefund.pending(
+        requireRefundCapacity(paymentId, payment.getCurrencyCode(), payment.getAmount(), amount);
+        BillingRefund refund = refunds.saveAndFlush(BillingRefund.pendingProvider(
                 payment, amount, normalizedReason, operatorUserId, normalizedKey));
         outbox.save(BillingOutboxCommand.pending(
                 BillingOutboxOperation.REFUND,
@@ -69,6 +62,39 @@ public class BillingAdjustmentService {
                 normalizedKey,
                 clock.instant()));
         return refund;
+    }
+
+    @Transactional
+    public BillingRefund recordManualRefund(
+            UUID paymentId,
+            Money amount,
+            String reason,
+            UUID operatorUserId,
+            String idempotencyKey,
+            String externalReference
+    ) {
+        String normalizedKey = requireText(idempotencyKey, "Refund idempotency key is required");
+        String normalizedReason = requireText(reason, "Refund reason is required");
+        String normalizedReference = requireText(
+                externalReference, "Manual Refund reference is required");
+        BillingRefund replay = refunds.findByIdempotencyKey(normalizedKey).orElse(null);
+        if (replay != null) {
+            if (replay.getPayment().getId().equals(paymentId)
+                    && replay.money().equals(amount)
+                    && replay.getReason().equals(normalizedReason)
+                    && replay.getOperatorUserId().equals(operatorUserId)
+                    && normalizedReference.equals(replay.getProviderReference())) {
+                return replay;
+            }
+            throw new InvalidStateException("Refund idempotency key was used for different data.");
+        }
+        var payment = payments.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "BillingPaymentAttempt", "id", paymentId));
+        requireRefundCapacity(paymentId, payment.getCurrencyCode(), payment.getAmount(), amount);
+        return refunds.save(BillingRefund.manualSucceeded(
+                payment, amount, normalizedReason, operatorUserId, normalizedKey,
+                normalizedReference, clock.instant()));
     }
 
     @Transactional
@@ -93,5 +119,21 @@ public class BillingAdjustmentService {
     private String requireText(String value, String message) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(message);
         return value.trim();
+    }
+
+    private void requireRefundCapacity(
+            UUID paymentId,
+            String currencyCode,
+            java.math.BigDecimal paymentAmount,
+            Money requested
+    ) {
+        Money reserved = Money.of(
+                refunds.sumAmountByPaymentIdAndStatusIn(
+                        paymentId,
+                        List.of(BillingRefundStatus.PENDING, BillingRefundStatus.SUCCEEDED)),
+                currencyCode);
+        if (reserved.add(requested).amount().compareTo(paymentAmount) > 0) {
+            throw new InvalidStateException("Refund exceeds the remaining refundable Payment amount.");
+        }
     }
 }

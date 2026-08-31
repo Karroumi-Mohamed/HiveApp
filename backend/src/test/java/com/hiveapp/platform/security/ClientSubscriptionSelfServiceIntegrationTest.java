@@ -402,6 +402,10 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         assertThat(billingPaymentAttemptRepository.findAllByInvoiceIdOrderByCreatedAtDesc(invoice.getId()))
                 .extracting(payment -> payment.getKind())
                 .containsExactlyInAnyOrder(BillingPaymentKind.PROVIDER, BillingPaymentKind.MANUAL);
+        var manualPayment = billingPaymentAttemptRepository
+                .findAllByInvoiceIdOrderByCreatedAtDesc(invoice.getId()).stream()
+                .filter(payment -> payment.getKind() == BillingPaymentKind.MANUAL)
+                .findFirst().orElseThrow();
         var cancelledProviderPayment = billingPaymentAttemptRepository
                 .findAllByInvoiceIdOrderByCreatedAtDesc(invoice.getId()).stream()
                 .filter(payment -> payment.getKind() == BillingPaymentKind.PROVIDER)
@@ -432,6 +436,67 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andExpect(jsonPath("$.content[0].checkout.gatewayFailureReason").doesNotExist())
                 .andExpect(jsonPath("$.content[0].checkout.confirmationSource").doesNotExist())
                 .andExpect(jsonPath("$.content[0].checkout.confirmationReference").doesNotExist());
+
+        mockMvc.perform(get("/api/v1/subscriptions/invoices")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(invoice.getId().toString()))
+                .andExpect(jsonPath("$.content[0].account").doesNotExist());
+        mockMvc.perform(get("/api/v1/subscriptions/invoices/{invoiceId}", invoice.getId())
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.invoice.id").value(invoice.getId().toString()))
+                .andExpect(jsonPath("$.invoice.account").doesNotExist())
+                .andExpect(jsonPath("$.lines[0].sourceCode").value("PRO"))
+                .andExpect(jsonPath("$.payments[*].externalReference").doesNotExist())
+                .andExpect(jsonPath("$.payments[*].operatorUserId").doesNotExist());
+
+        String otherClient = registerClientAndGetToken();
+        mockMvc.perform(get("/api/v1/subscriptions/invoices/{invoiceId}", invoice.getId())
+                        .header("Authorization", bearer(otherClient)))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/admin/billing/invoices")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/billing/invoices"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/admin/billing/invoices")
+                        .header("Authorization", bearer(adminToken))
+                        .param("search", invoice.getInvoiceNumber()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(invoice.getId().toString()))
+                .andExpect(jsonPath("$.content[0].account.id").value(accountId.toString()));
+        mockMvc.perform(get("/api/admin/billing/invoices/{invoiceId}", invoice.getId())
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payments[?(@.kind == 'MANUAL')].externalReference")
+                        .value(hasItem("manual-contract-" + checkoutId)))
+                .andExpect(jsonPath("$.payments[?(@.kind == 'MANUAL')].operatorUserId")
+                        .isNotEmpty());
+
+        mockMvc.perform(get("/api/admin/billing/payments/{paymentId}/refund-preview", manualPayment.getId())
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.providerRefundAllowed").value(false))
+                .andExpect(jsonPath("$.manualRefundAllowed").value(true))
+                .andExpect(jsonPath("$.providerBlocker").value(
+                        "Manual settlements cannot use provider Refund transport."));
+        var manualRefund = Map.of(
+                "amount", "1.00",
+                "currencyCode", "USD",
+                "reason", "Customer overpayment returned by bank transfer",
+                "externalReference", "refund-bank-" + invoice.getId());
+        mockMvc.perform(post("/api/admin/billing/payments/{paymentId}/manual-refunds", manualPayment.getId())
+                        .header("Authorization", bearer(adminToken))
+                        .header("Idempotency-Key", "manual-refund-" + invoice.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(manualRefund)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.kind").value("MANUAL"))
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.providerReference").value(
+                        "refund-bank-" + invoice.getId()));
 
         var usable = subscriptionRepository.findAllByAccountIdAndStatusIn(
                 accountId, List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING));

@@ -10,11 +10,13 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface BillingOutboxCommandRepository extends JpaRepository<BillingOutboxCommand, UUID> {
+public interface BillingOutboxCommandRepository extends JpaRepository<BillingOutboxCommand, UUID>,
+        JpaSpecificationExecutor<BillingOutboxCommand> {
     @Query("select command.id from BillingOutboxCommand command "
             + "where command.status = :status and command.nextAttemptAt <= :cutoff "
             + "order by command.nextAttemptAt asc, command.id asc")

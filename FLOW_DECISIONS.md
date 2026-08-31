@@ -1268,6 +1268,7 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - Zero-amount invoices may settle without a fake payment. Only succeeded settlement contributes to collected-value reporting.
 - Provider callbacks/reconciliation are idempotent and never activate entitlement merely because a price calculation succeeded. Failed renewal enters explicit past-due/grace/restricted lifecycle without deleting data.
 - Checkout cancellation and manual settlement cancel an automatic charge only before provider dispatch, atomically cancelling its Payment intent and outbox command. Once dispatch begins, reconciliation is required before either action so the platform cannot double-collect or falsely report a provider charge as cancelled.
+- Provider Refund transport is available only for a trusted provider-collected Payment. A cash, bank-transfer, or otherwise manual return is recorded as a separately authorized succeeded manual Refund with external evidence; it never fabricates or sends a provider Refund command.
 - Automatic tax, FX, metered billing, automatic proration, and automatic refunds remain deferred and must not appear as implemented.
 
 ## ANALYTICS-FLOW-001 — Durable commercial facts and truthful analytics

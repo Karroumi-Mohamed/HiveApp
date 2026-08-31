@@ -3,6 +3,7 @@ package com.hiveapp.shared.exception;
 import com.hiveapp.shared.quota.QuotaExceededException;
 import dev.karroumi.permissionizer.PermissionDeniedException;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.HttpStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -10,6 +11,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GlobalExceptionHandlerTest {
 
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
+
+    @Test
+    void nestedAccessDenialUsesTheStablePermissionErrorInsteadOfInternalError() {
+        var response = handler.handleAccessDenied(new AccessDeniedException("sensitive detail"));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(403);
+        assertThat(response.getBody().code())
+                .isEqualTo(ErrorCode.PERMISSION_DENIED);
+        assertThat(response.getBody().message())
+                .doesNotContain("sensitive detail");
+        assertThat(ErrorCodes.of(new AccessDeniedException("hidden")))
+                .isEqualTo(ErrorCode.PERMISSION_DENIED);
+    }
 
     @Test
     void invalidRequestReturnsStableBadRequestBody() {

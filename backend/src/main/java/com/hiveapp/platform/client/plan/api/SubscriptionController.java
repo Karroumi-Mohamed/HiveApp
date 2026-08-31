@@ -7,6 +7,7 @@ import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangePreviewRespo
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.dto.BillingModels;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
@@ -37,6 +38,11 @@ public class SubscriptionController {
             "effectiveAt", "effectiveAt",
             "status", "status",
             "timing", "timing");
+    private static final Map<String, String> INVOICE_SORTS = Map.of(
+            "issuedAt", "issuedAt",
+            "invoiceNumber", "invoiceNumber",
+            "status", "status",
+            "amount", "totalAmount");
 
     private final SubscriptionService subscriptionService;
 
@@ -91,5 +97,26 @@ public class SubscriptionController {
         var context = HiveAppContextHolder.getContext();
         return ClientSubscriptionChangeOperationDto.from(subscriptionService.cancelPendingChange(
                 context.currentAccountId(), operationId, context.actorUserId()));
+    }
+
+    @GetMapping("/invoices")
+    public PageResponse<BillingModels.InvoiceRow> invoices(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction
+    ) {
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return PageResponse.from(subscriptionService.invoiceHistory(
+                accountId,
+                CommercialProductPageRequest.of(
+                        page, size, sort, direction, INVOICE_SORTS,
+                        "issuedAt", Sort.Direction.DESC)));
+    }
+
+    @GetMapping("/invoices/{invoiceId}")
+    public BillingModels.ClientInvoiceDetail invoice(@PathVariable UUID invoiceId) {
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return subscriptionService.invoice(accountId, invoiceId);
     }
 }

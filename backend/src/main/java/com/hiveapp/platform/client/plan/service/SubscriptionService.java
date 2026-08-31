@@ -12,6 +12,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOfferEvaluation;
+import com.hiveapp.platform.client.plan.dto.BillingModels;
 import java.util.UUID;
 import java.util.List;
 import org.springframework.data.domain.Page;
@@ -109,4 +110,8 @@ public interface SubscriptionService {
   Page<CommercialOfferViews.ClientRedemption> offerHistory(UUID accountId, Pageable pageable);
 
   CommercialOfferViews.ClientRedemption offerRedemption(UUID accountId, UUID redemptionId);
+
+  Page<BillingModels.InvoiceRow> invoiceHistory(UUID accountId, Pageable pageable);
+
+  BillingModels.ClientInvoiceDetail invoice(UUID accountId, UUID invoiceId);
 }

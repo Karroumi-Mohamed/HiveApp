@@ -20,8 +20,10 @@ entitlement.
 - A **Manual settlement** is a succeeded Payment recorded by an authorized operator with an exact
   external reference and reason.
 - A **Credit** reduces what the Account owes without pretending money moved back through a provider.
-- A **Refund** is an idempotent return of a succeeded Payment. It may be pending, succeeded, or
-  failed. Aggregate succeeded refunds cannot exceed the refundable succeeded amount.
+- A **Refund** is an idempotent return of a succeeded Payment. Provider Refunds may be pending,
+  succeeded, or failed; an externally completed manual Refund is recorded as succeeded evidence
+  with its operator and external reference and is never sent through provider transport. Aggregate
+  pending/succeeded refunds cannot exceed the refundable succeeded amount.
 - An **Outbox command** is the durable intent to perform one provider charge or refund outside the
   database transaction that created it.
 - A **Provider event** is idempotent inbound evidence. It never becomes authority merely because it
@@ -86,9 +88,10 @@ evidence is retained for reconciliation but cannot settle an Invoice.
 
 - Credits require Invoice, amount/currency, reason, source, actor, and optional external reference.
 - Refunds require one succeeded Payment, amount/currency, reason, actor, idempotency key, and provider
-  or manual evidence.
+  or manual evidence. Only a trusted provider-collected Payment may use provider Refund transport;
+  manual settlement/refund evidence must not manufacture a provider transaction.
 - Issued Credits and succeeded Refunds are append-only. Failed provider Refund attempts remain
-  evidence and may be retried through a new outbox attempt bound to the same Refund.
+  evidence; an explicit retry creates a new Refund request with its own idempotency key.
 - `succeeded refund total <= succeeded payment amount` is checked under a Payment lock and protected
   against concurrent requests.
 - V1 does not automatically change entitlement after a Credit or Refund. A commercial correction is

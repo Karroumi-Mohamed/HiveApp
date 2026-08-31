@@ -406,6 +406,32 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void billingPermissionsRunBeforeResourceExistenceAndKeepAccountIdentitySeparate()
+            throws Exception {
+        UUID absentInvoiceId = UUID.randomUUID();
+        LimitedAdmin unrelated = createLimitedAdmin("platform.plans.list");
+        LimitedAdmin invoiceReader = createLimitedAdmin("platform.billing.read_invoice");
+        LimitedAdmin listReader = createLimitedAdmin("platform.billing.list_invoices");
+        LimitedAdmin identityReader = createLimitedAdmin(
+                "platform.billing.read_account_identity");
+
+        mockMvc.perform(get("/api/admin/billing/invoices/{id}", absentInvoiceId)
+                        .header("Authorization", bearer(unrelated.token())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/billing/invoices/{id}", absentInvoiceId)
+                        .header("Authorization", bearer(invoiceReader.token())))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/admin/billing/invoices")
+                        .header("Authorization", bearer(listReader.token()))
+                        .param("accountId", UUID.randomUUID().toString()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/billing/invoices/{id}/account-identity", absentInvoiceId)
+                        .header("Authorization", bearer(identityReader.token())))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void priceBookPermissionsAreFineGrainedAndRejectClientIdentities() throws Exception {
         String clientToken = registerClientAndGetToken();
         LimitedAdmin reader = createLimitedAdmin("platform.price_books.list");

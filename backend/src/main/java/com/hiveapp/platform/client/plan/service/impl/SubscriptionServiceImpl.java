@@ -58,6 +58,7 @@ import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionImpactAnalyzer;
 import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
+import com.hiveapp.platform.client.plan.service.BillingReadService;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeOperationProjectionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeActivationService;
 import com.hiveapp.platform.client.plan.service.CommercialOfferRedemptionTransitionService;
@@ -145,7 +146,28 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final CommercialPreviewTokenService previewTokenService;
     private final ObjectProvider<CommercialOfferService> commercialOfferServiceProvider;
     private final EffectivePermissionService effectivePermissionService;
+    private final BillingReadService billingReadService;
     private final Clock clock;
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "list_invoices", description = "List own Account Invoices")
+    public Page<com.hiveapp.platform.client.plan.dto.BillingModels.InvoiceRow> invoiceHistory(
+            UUID accountId,
+            Pageable pageable
+    ) {
+        return billingReadService.listClient(accountId, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_invoice", description = "Read an own Account Invoice")
+    public com.hiveapp.platform.client.plan.dto.BillingModels.ClientInvoiceDetail invoice(
+            UUID accountId,
+            UUID invoiceId
+    ) {
+        return billingReadService.clientDetail(accountId, invoiceId);
+    }
 
     @Override @Transactional(readOnly = true)
     @PermissionNode(key = "offer_catalog", description = "List eligible commercial Offers")

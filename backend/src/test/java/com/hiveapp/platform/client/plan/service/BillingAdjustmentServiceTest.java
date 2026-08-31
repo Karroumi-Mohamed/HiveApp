@@ -3,6 +3,8 @@ package com.hiveapp.platform.client.plan.service;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.BillingLineType;
+import com.hiveapp.platform.client.plan.domain.constant.BillingRefundKind;
+import com.hiveapp.platform.client.plan.domain.constant.BillingRefundStatus;
 import com.hiveapp.platform.client.plan.domain.entity.BillingInvoice;
 import com.hiveapp.platform.client.plan.domain.entity.BillingInvoiceLine;
 import com.hiveapp.platform.client.plan.domain.entity.BillingCredit;
@@ -93,6 +95,42 @@ class BillingAdjustmentServiceTest {
     }
 
     @Test
+    void providerRefundCannotBeSentForManualSettlement() {
+        BillingPaymentAttempt payment = manualPayment("100.00");
+        when(refunds.findByIdempotencyKey("provider-refund-for-manual")).thenReturn(Optional.empty());
+        when(payments.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+        when(refunds.sumAmountByPaymentIdAndStatusIn(any(), any())).thenReturn(BigDecimal.ZERO);
+
+        assertThatThrownBy(() -> service.requestRefund(
+                payment.getId(), Money.of(new BigDecimal("20.00"), "USD"),
+                "Refunded by bank transfer", UUID.randomUUID(), "provider-refund-for-manual"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("provider Payment");
+    }
+
+    @Test
+    void manualRefundRecordsExternalEvidenceWithoutProviderCommand() {
+        BillingPaymentAttempt payment = manualPayment("100.00");
+        UUID operatorId = UUID.randomUUID();
+        when(refunds.findByIdempotencyKey("manual-refund-1")).thenReturn(Optional.empty());
+        when(payments.findByIdForUpdate(payment.getId())).thenReturn(Optional.of(payment));
+        when(refunds.sumAmountByPaymentIdAndStatusIn(any(), any())).thenReturn(BigDecimal.ZERO);
+        when(refunds.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        BillingRefund refund = service.recordManualRefund(
+                payment.getId(), Money.of(new BigDecimal("20.00"), "USD"),
+                "Refunded by bank transfer", operatorId, "manual-refund-1", "bank-ref-42");
+
+        assertThat(refund.getKind()).isEqualTo(BillingRefundKind.MANUAL);
+        assertThat(refund.getStatus()).isEqualTo(BillingRefundStatus.SUCCEEDED);
+        assertThat(refund.getOperatorUserId()).isEqualTo(operatorId);
+        assertThat(refund.getProviderReference()).isEqualTo("bank-ref-42");
+        assertThat(refund.getCompletedAt()).isEqualTo(NOW);
+        verify(refunds).save(refund);
+        org.mockito.Mockito.verifyNoInteractions(outbox);
+    }
+
+    @Test
     void issuedCreditsCannotExceedInvoiceTotal() {
         BillingInvoice invoice = settledPayment("100.00").getInvoice();
         when(invoices.findByIdForUpdate(invoice.getId())).thenReturn(Optional.of(invoice));
@@ -122,6 +160,23 @@ class BillingAdjustmentServiceTest {
     }
 
     private BillingPaymentAttempt settledPayment(String amount) {
+        BillingInvoice invoice = invoice(amount);
+        BillingPaymentAttempt payment = BillingPaymentAttempt.pendingProvider(invoice, "charge-1");
+        ReflectionTestUtils.setField(payment, "id", UUID.randomUUID());
+        payment.recordProviderResult(
+                new PaymentResult("provider-payment", PaymentStatus.SUCCESS, null), true, NOW);
+        return payment;
+    }
+
+    private BillingPaymentAttempt manualPayment(String amount) {
+        BillingPaymentAttempt payment = BillingPaymentAttempt.manualSucceeded(
+                invoice(amount), UUID.randomUUID(), "manual-payment-ref",
+                "Received by bank transfer", NOW);
+        ReflectionTestUtils.setField(payment, "id", UUID.randomUUID());
+        return payment;
+    }
+
+    private BillingInvoice invoice(String amount) {
         Account account = new Account();
         ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
         SubscriptionChangeOperation operation = new SubscriptionChangeOperation();
@@ -140,10 +195,6 @@ class BillingAdjustmentServiceTest {
                 BillingLineType.PLAN, "PRO", "Pro", 1, UUID.randomUUID(), 1,
                 Money.of(new BigDecimal(amount), "USD")));
         ReflectionTestUtils.setField(invoice, "id", UUID.randomUUID());
-        BillingPaymentAttempt payment = BillingPaymentAttempt.pendingProvider(invoice, "charge-1");
-        ReflectionTestUtils.setField(payment, "id", UUID.randomUUID());
-        payment.recordProviderResult(
-                new PaymentResult("provider-payment", PaymentStatus.SUCCESS, null), true, NOW);
-        return payment;
+        return invoice;
     }
 }

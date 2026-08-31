@@ -3,6 +3,7 @@ package com.hiveapp.shared.exception;
 import dev.karroumi.permissionizer.PermissionDeniedException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
 
 /**
  * Maps an exception to its stable {@link ErrorCode}.
@@ -34,6 +35,7 @@ public final class ErrorCodes {
             case DataIntegrityViolationException ignored -> ErrorCode.DATA_CONFLICT;
             case InvalidPermissionGrantException ignored -> ErrorCode.INVALID_PERMISSION_GRANT;
             case PermissionDeniedException ignored -> ErrorCode.PERMISSION_DENIED;
+            case AccessDeniedException ignored -> ErrorCode.PERMISSION_DENIED;
             case ForbiddenException ignored -> ErrorCode.FORBIDDEN;
             case UnauthorizedException ignored -> ErrorCode.UNAUTHENTICATED;
             case OperationBlockedException ignored -> ErrorCode.OPERATION_BLOCKED;

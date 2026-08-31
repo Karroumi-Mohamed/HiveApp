@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -196,6 +197,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(PermissionDeniedException.class)
     public ResponseEntity<ApiError> handlePermissionDenied(PermissionDeniedException ex) {
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiError.of(403, ErrorCode.PERMISSION_DENIED, "Forbidden",
+                        "You do not have permission to access this resource"));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException ex) {
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
                 .body(ApiError.of(403, ErrorCode.PERMISSION_DENIED, "Forbidden",

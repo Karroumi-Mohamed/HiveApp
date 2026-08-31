@@ -2903,9 +2903,9 @@ Restrict the fake gateway to an explicit local/test profile. Production startup 
 
 ---
 
-### BILLING-003 — HiveApp has a financial ledger foundation but no operational Billing surface or provider reconciliation
+### BILLING-003 — HiveApp has a financial ledger and operational APIs but no provider-event or renewal recovery
 
-**Status:** `PARTIAL — LEDGER/OUTBOX FOUNDATION IMPLEMENTED; OPERATIONS AND RECONCILIATION OPEN`
+**Status:** `PARTIAL — LEDGER/OUTBOX AND OPERATIONAL APIS IMPLEMENTED; PROVIDER EVENTS, RECOVERY AND UI OPEN`
 
 **Evidence**
 
@@ -2913,7 +2913,8 @@ Restrict the fake gateway to an explicit local/test profile. Production startup 
 - Subscription preview itemizes configured recurring terms by one currency/cycle and does not describe them as settlement or revenue.
 - Positive reviewed subscription changes now persist immutable numbered Invoice/InvoiceLine evidence, provider/manual Payment attempts, Credits, Refund intents, and durable idempotent outbox commands.
 - Price preview, amount due, provider attempt, trusted/manual settlement, entitlement activation, Credit, and Refund are distinct facts. Pre-dispatch cancellation and manual settlement cannot leave an automatic charge runnable.
-- Provider event ingestion/deduplication, reconciliation operations, recurring renewal/grace production, operational APIs, and admin/client Billing surfaces are still absent.
+- Fine-grained admin Invoice/search/detail/payment/manual-settlement/Credit/Refund/reconciliation reads and Account-isolated client Invoice history/detail are mounted. Account identity, Payment evidence, and sensitive references remain separately authorized.
+- Provider event ingestion/deduplication, explicit recovery operations, recurring renewal/grace production, and admin/client Billing UI are still absent.
 
 **Risk**
 
@@ -2922,7 +2923,7 @@ Without the remaining operational and reconciliation layer, support/accounting s
 **Required fix direction**
 
 - Preserve the implemented ISO Money and immutable exact monthly/yearly Price-book contracts; keep one currency/cycle per subscription and never perform implicit FX.
-- Expose immutable accepted Invoice lines, Payment evidence, Credits, Refunds, and transport state through permission-separated operational APIs and Account-isolated client projections.
+- Preserve the implemented permission-separated operational APIs and Account-isolated client projections for immutable accepted Invoice lines, Payment evidence, Credits, Refunds, and transport state.
 - Keep preview, amount due/Invoice, pending attempt, trusted/manual settlement, entitlement activation, Credit, Refund, and collected-value analytics distinct. Only trusted/manual succeeded settlement counts as collected money.
 - Ingest provider events idempotently, reconcile unknown/mismatched/in-flight evidence safely, and expose retry/attention operations without leaking references or Account identity.
 - At renewal, apply the selected new price version for the new period. For immediate mid-period changes, initially support no automatic proration plus explicit audited operator adjustment/credit; defer automatic tax, discounts, metered charging, proration, FX, and automated refunds.
@@ -2937,11 +2938,12 @@ Without the remaining operational and reconciliation layer, support/accounting s
 - `BillingCalculator` now returns `Money` for persistence and rejects mixed-currency calculations. Seeded prices are explicitly USD, and focused plus integration tests cover arithmetic, precision, persistence/API exposure, mixed-currency rejection, and safe plan-currency changes.
 - Phase 9 completed independently entered immutable monthly/yearly Price-book entries, exact-decimal APIs, overlap-safe activation, current-selection pause, and exact accepted-price snapshot identity for Plans, AddOns, and capacity packages.
 - On 2026-08-31, Phase 13 added immutable itemized Invoices, provider/manual Payment evidence, Credits, concurrency-capped Refund intents, replay-safe provider commands outside database transactions, and atomic pre-dispatch cancellation. The full backend suite passed with 774 tests.
+- The next Phase 13 slice mounted bounded/filterable admin Billing APIs and own-Account client Invoice history/detail; added permission-before-existence, nested privacy, cross-surface, cross-Account, and provider-versus-manual Refund tests; and fixed nested Spring access denials to return the stable `PERMISSION_DENIED` 403 contract rather than 500.
 - No Flyway history was added because the application is unpublished and currently uses a disposable generated H2 schema, per the agreed pre-production database policy.
 
 **Remaining scope**
 
-Provider-event deduplication/reconciliation, fine-grained admin and Account-isolated client APIs, Billing workbenches/history, zero-amount renewal evidence, and grace/past-due recovery remain in Phase 13. Immutable Price books and the core Invoice/Payment/Credit/Refund/outbox persistence boundary are complete foundations and are no longer part of this finding's remaining scope.
+Provider-event deduplication, explicit recovery commands, Billing workbenches/history, zero-amount renewal evidence, and grace/past-due recovery remain in Phase 13. Fine-grained admin and Account-isolated client APIs, immutable Price books, and the core Invoice/Payment/Credit/Refund/outbox persistence boundary are implemented and are no longer part of this finding's remaining scope.
 
 ---
 
