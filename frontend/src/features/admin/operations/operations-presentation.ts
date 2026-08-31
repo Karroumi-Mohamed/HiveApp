@@ -11,8 +11,29 @@ export function operationDateTime(value: string | null | undefined) {
   return new Intl.DateTimeFormat("fr", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
+export function toOptionalInstant(value: string) {
+  return value ? new Date(value).toISOString() : undefined;
+}
+
+const technicalActionLabels: Record<string, string> = {
+  activate: "Activation",
+  archive: "Archivage",
+  assign: "Attribution",
+  assign_role: "Attribution du rôle",
+  automatic_resume: "Reprise automatique",
+  create: "Création",
+  deactivate: "Désactivation",
+  delete: "Suppression",
+  preview_activation: "Aperçu avant activation",
+  process_due: "Traitement des échéances",
+  remove: "Retrait",
+  remove_role: "Retrait du rôle",
+  update: "Modification",
+};
+
 export function technicalActionLabel(action: string) {
   const tail = action.split(".").at(-1) ?? action;
+  if (technicalActionLabels[tail]) return technicalActionLabels[tail];
   return tail.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 
@@ -31,7 +52,7 @@ export function communicationStatusPresentation(status: PlatformEmailDeliverySta
     PENDING: { label: "En attente", tone: "warning" },
     SENT: { label: "Envoyé", tone: "success" },
     FAILED: { label: "Échec", tone: "danger" },
-    SUPPRESSED: { label: "Supprimé", tone: "neutral" },
+    SUPPRESSED: { label: "Non envoyé (dev)", tone: "neutral" },
   }[status] as { label: string; tone: "warning" | "success" | "danger" | "neutral" };
 }
 
@@ -47,7 +68,7 @@ export function componentStatePresentation(state: PlatformComponentState) {
   return {
     UP: { label: "Opérationnel", tone: "success" },
     CONFIGURED: { label: "Configuré", tone: "success" },
-    SUPPRESSED: { label: "Supprimé", tone: "warning" },
+    SUPPRESSED: { label: "Mode test", tone: "warning" },
     DISABLED: { label: "Désactivé", tone: "neutral" },
     DEGRADED: { label: "Dégradé", tone: "warning" },
     UNAVAILABLE: { label: "Indisponible", tone: "danger" },
@@ -102,7 +123,7 @@ export function backlogStatusLabel(status: string) {
       UNMATCHED: "Non rapprochés",
       MISMATCHED: "Incohérents",
       SENT: "Envoyés",
-      SUPPRESSED: "Supprimés",
+      SUPPRESSED: "Non envoyés (dev)",
     }[status] ?? status.replaceAll("_", " ").toLocaleLowerCase("fr")
   );
 }

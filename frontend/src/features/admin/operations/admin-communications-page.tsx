@@ -12,16 +12,31 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remo
 import { RowAction } from "@/components/patterns/row-action";
 import { StatusText } from "@/components/patterns/status-text";
 import { TableActionsCell, tableActionsColumnMeta } from "@/components/patterns/table-actions-cell";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { OperationsAdvancedFilters, OperationsFilterField } from "./operations-advanced-filters";
 import {
   communicationPurposeLabel,
   communicationStatusPresentation,
   operationDateTime,
+  toOptionalInstant,
 } from "./operations-presentation";
 
 const columns = createDataColumns<PlatformCommunication>();
 const ALL = "ALL";
+type CommunicationAdvancedFilters = {
+  from: string;
+  until: string;
+  accountId: string;
+  recipientUserId: string;
+};
+const emptyAdvancedFilters: CommunicationAdvancedFilters = {
+  from: "",
+  until: "",
+  accountId: "",
+  recipientUserId: "",
+};
 
 function CommunicationSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
   const session = useAdminSession();
@@ -170,22 +185,30 @@ function MobileCommunications({
 }
 
 export function AdminCommunicationsPage() {
+  const session = useAdminSession();
+  const canRecipient = session.can(adminPermissions.communicationsReadRecipientIdentity);
   const [page, setPage] = useState(0);
   const [status, setStatus] = useState<string>(ALL);
   const [purpose, setPurpose] = useState<string>(ALL);
+  const [advancedDraft, setAdvancedDraft] = useState<CommunicationAdvancedFilters>(emptyAdvancedFilters);
+  const [advanced, setAdvanced] = useState<CommunicationAdvancedFilters>(emptyAdvancedFilters);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const summary = useQuery({
     queryKey: ["admin", "communications", "summary"],
     queryFn: adminApi.communicationSummary,
   });
   const list = useQuery({
-    queryKey: ["admin", "communications", page, status, purpose],
+    queryKey: ["admin", "communications", page, status, purpose, advanced],
     queryFn: () =>
       adminApi.communications({
         page,
         size: 25,
         status: status === ALL ? undefined : (status as PlatformEmailDeliveryStatus),
         purpose: purpose === ALL ? undefined : (purpose as CredentialTokenPurpose),
+        from: toOptionalInstant(advanced.from),
+        until: toOptionalInstant(advanced.until),
+        accountId: advanced.accountId.trim() || undefined,
+        recipientUserId: canRecipient ? advanced.recipientUserId.trim() || undefined : undefined,
       }),
     placeholderData: keepPreviousData,
   });
@@ -242,9 +265,9 @@ export function AdminCommunicationsPage() {
       {summary.isError ? (
         <ErrorState retry={() => summary.refetch()} />
       ) : summary.data ? (
-        <section aria-label="État des livraisons" className="grid grid-cols-2 border-y sm:grid-cols-5">
+        <section aria-label="Historique complet des livraisons" className="grid grid-cols-2 border-y sm:grid-cols-5">
           <div className="col-span-2 px-4 py-4 sm:col-span-1">
-            <div className="text-xs text-muted-foreground">Total</div>
+            <div className="text-xs text-muted-foreground">Total historique</div>
             <div className="mt-1 text-2xl font-semibold tabular-nums">{summary.data.total}</div>
           </div>
           {statuses.map((item) => {
@@ -276,7 +299,7 @@ export function AdminCommunicationsPage() {
               <SelectItem value="SENT">Envoyés</SelectItem>
               <SelectItem value="PENDING">En attente</SelectItem>
               <SelectItem value="FAILED">Échecs</SelectItem>
-              <SelectItem value="SUPPRESSED">Supprimés</SelectItem>
+              <SelectItem value="SUPPRESSED">Non envoyés (dev)</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -300,6 +323,66 @@ export function AdminCommunicationsPage() {
             </SelectContent>
           </Select>
         </div>
+        <OperationsAdvancedFilters
+          activeCount={
+            Object.entries(advanced).filter(
+              ([key, value]) => Boolean(value) && (key !== "recipientUserId" || canRecipient),
+            ).length
+          }
+          onApply={() => {
+            setAdvanced({
+              ...advancedDraft,
+              recipientUserId: canRecipient ? advancedDraft.recipientUserId : "",
+            });
+            setPage(0);
+          }}
+          onClear={() => {
+            setAdvancedDraft(emptyAdvancedFilters);
+            setAdvanced(emptyAdvancedFilters);
+            setPage(0);
+          }}
+        >
+          <OperationsFilterField htmlFor="communication-from" label="Du">
+            <Input
+              className="h-8"
+              id="communication-from"
+              onChange={(event) => setAdvancedDraft((current) => ({ ...current, from: event.target.value }))}
+              type="datetime-local"
+              value={advancedDraft.from}
+            />
+          </OperationsFilterField>
+          <OperationsFilterField htmlFor="communication-until" label="Au">
+            <Input
+              className="h-8"
+              id="communication-until"
+              onChange={(event) => setAdvancedDraft((current) => ({ ...current, until: event.target.value }))}
+              type="datetime-local"
+              value={advancedDraft.until}
+            />
+          </OperationsFilterField>
+          <OperationsFilterField htmlFor="communication-account-id" label="Identifiant compte">
+            <Input
+              className="h-8 font-mono text-xs"
+              id="communication-account-id"
+              onChange={(event) => setAdvancedDraft((current) => ({ ...current, accountId: event.target.value }))}
+              pattern="[0-9a-fA-F-]{36}"
+              value={advancedDraft.accountId}
+            />
+          </OperationsFilterField>
+          {canRecipient ? (
+            <OperationsFilterField htmlFor="communication-recipient-id" label="Identifiant destinataire">
+              <Input
+                className="h-8 font-mono text-xs"
+                id="communication-recipient-id"
+                onChange={(event) =>
+                  setAdvancedDraft((current) => ({ ...current, recipientUserId: event.target.value }))
+                }
+                pattern="[0-9a-fA-F-]{36}"
+                value={advancedDraft.recipientUserId}
+              />
+            </OperationsFilterField>
+          ) : null}
+        </OperationsAdvancedFilters>
       </section>
       <section className="overflow-hidden rounded-xl border">
         {list.isError ? (

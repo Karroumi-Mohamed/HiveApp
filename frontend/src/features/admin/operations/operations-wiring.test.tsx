@@ -38,7 +38,7 @@ Object.defineProperty(globalThis, "cancelAnimationFrame", {
 });
 
 const originalFetch = globalThis.fetch;
-const { cleanup, render, within } = await import("@testing-library/react");
+const { cleanup, render, waitFor, within } = await import("@testing-library/react");
 const userEvent = (await import("@testing-library/user-event")).default;
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { createMemoryRouter, RouterProvider } = await import("react-router");
@@ -131,6 +131,10 @@ describe("operations least-privilege wiring", () => {
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
     const view = renderPage("/admin/activities", <AdminActivitiesPage />, [adminPermissions.activitiesRead]);
+    await userEvent.click(await view.findByRole("button", { name: "Plus de filtres" }));
+    await userEvent.type(view.getByRole("textbox", { name: "Type de ressource" }), "PLAN_ADMIN");
+    await userEvent.click(view.getByRole("button", { name: "Appliquer" }));
+    await waitFor(() => expect(requests.some((url) => url.includes("resourceType=PLAN_ADMIN"))).toBe(true));
     const [examineActivity] = await view.findAllByRole("button", { name: "Examiner" });
     if (!examineActivity) throw new Error("Activity action is missing");
     await userEvent.click(examineActivity);
@@ -175,6 +179,9 @@ describe("operations least-privilege wiring", () => {
     const view = renderPage("/admin/communications", <AdminCommunicationsPage />, [
       adminPermissions.communicationsRead,
     ]);
+    await userEvent.click(await view.findByRole("button", { name: "Plus de filtres" }));
+    expect(view.queryByRole("textbox", { name: "Identifiant destinataire" })).toBeNull();
+    await userEvent.keyboard("{Escape}");
     const [examineCommunication] = await view.findAllByRole("button", { name: "Examiner" });
     if (!examineCommunication) throw new Error("Communication action is missing");
     await userEvent.click(examineCommunication);

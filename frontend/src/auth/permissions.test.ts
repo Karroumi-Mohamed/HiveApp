@@ -72,18 +72,12 @@ describe("session permission bypasses", () => {
     ]);
   });
 
-  test("operations routes preserve every independently readable evidence surface", () => {
-    expect(adminActivitiesSurfacePermissions).toEqual([
-      adminPermissions.activitiesRead,
-      adminPermissions.activitiesReadPayload,
-      adminPermissions.activitiesReadActorIdentity,
-      adminPermissions.activitiesReadAccountIdentity,
-    ]);
-    expect(adminCommunicationsSurfacePermissions).toEqual([
-      adminPermissions.communicationsRead,
-      adminPermissions.communicationsReadRecipientIdentity,
-      adminPermissions.communicationsReadFailureEvidence,
-    ]);
+  test("operations routes require their base metadata permission", () => {
+    expect(adminActivitiesSurfacePermissions).toEqual([adminPermissions.activitiesRead]);
+    expect(adminCommunicationsSurfacePermissions).toEqual([adminPermissions.communicationsRead]);
+  });
+
+  test("observability preserves every independently readable surface", () => {
     expect(adminObservabilitySurfacePermissions).toEqual([
       adminPermissions.observabilityReadHealth,
       adminPermissions.observabilityReadBacklogs,

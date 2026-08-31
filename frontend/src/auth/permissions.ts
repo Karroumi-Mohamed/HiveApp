@@ -414,18 +414,12 @@ export const adminAnalyticsSurfacePermissions = [
   adminPermissions.analyticsReadOperations,
 ] as const;
 
-export const adminActivitiesSurfacePermissions = [
-  adminPermissions.activitiesRead,
-  adminPermissions.activitiesReadPayload,
-  adminPermissions.activitiesReadActorIdentity,
-  adminPermissions.activitiesReadAccountIdentity,
-] as const;
+// Activity evidence enrichments are supplementary: every corresponding backend endpoint also
+// requires the base metadata permission. They must therefore never make the page reachable alone.
+export const adminActivitiesSurfacePermissions = [adminPermissions.activitiesRead] as const;
 
-export const adminCommunicationsSurfacePermissions = [
-  adminPermissions.communicationsRead,
-  adminPermissions.communicationsReadRecipientIdentity,
-  adminPermissions.communicationsReadFailureEvidence,
-] as const;
+// Recipient and failure evidence follow the same conjunctive contract as activity enrichments.
+export const adminCommunicationsSurfacePermissions = [adminPermissions.communicationsRead] as const;
 
 export const adminObservabilitySurfacePermissions = [
   adminPermissions.observabilityReadHealth,

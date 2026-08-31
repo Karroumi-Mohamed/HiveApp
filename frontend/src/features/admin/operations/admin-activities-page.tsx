@@ -15,16 +15,35 @@ import { TableActionsCell, tableActionsColumnMeta } from "@/components/patterns/
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { OperationsAdvancedFilters, OperationsFilterField } from "./operations-advanced-filters";
 import {
   actorSurfaceLabel,
   auditOutcomePresentation,
   formatEvidence,
   operationDateTime,
   technicalActionLabel,
+  toOptionalInstant,
 } from "./operations-presentation";
 
 const columns = createDataColumns<PlatformActivity>();
 const ALL = "ALL";
+type ActivityAdvancedFilters = {
+  from: string;
+  until: string;
+  resourceType: string;
+  resourceId: string;
+  actorUserId: string;
+  targetAccountId: string;
+};
+const emptyAdvancedFilters: ActivityAdvancedFilters = {
+  from: "",
+  until: "",
+  resourceType: "",
+  resourceId: "",
+  actorUserId: "",
+  targetAccountId: "",
+};
 
 function ActorCell({ activity }: { activity: PlatformActivity }) {
   if (activity.actorIdentity)
@@ -203,16 +222,25 @@ export function AdminActivitiesPage() {
   const [outcome, setOutcome] = useState<string>(ALL);
   const [surface, setSurface] = useState<string>(ALL);
   const [actionPrefix, setActionPrefix] = useState("");
+  const debouncedActionPrefix = useDebouncedValue(actionPrefix);
+  const [advancedDraft, setAdvancedDraft] = useState<ActivityAdvancedFilters>(emptyAdvancedFilters);
+  const [advanced, setAdvanced] = useState<ActivityAdvancedFilters>(emptyAdvancedFilters);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const query = useQuery({
-    queryKey: ["admin", "activities", page, outcome, surface, actionPrefix],
+    queryKey: ["admin", "activities", page, outcome, surface, debouncedActionPrefix, advanced],
     queryFn: () =>
       adminApi.activities({
         page,
         size: 25,
         outcome: outcome === ALL ? undefined : (outcome as AuditOutcome),
         actorSurface: surface === ALL ? undefined : (surface as AuditActorSurface),
-        actionPrefix: actionPrefix.trim() || undefined,
+        actionPrefix: debouncedActionPrefix.trim() || undefined,
+        from: toOptionalInstant(advanced.from),
+        until: toOptionalInstant(advanced.until),
+        resourceType: advanced.resourceType.trim() || undefined,
+        resourceId: advanced.resourceId.trim() || undefined,
+        actorUserId: advanced.actorUserId.trim() || undefined,
+        targetAccountId: advanced.targetAccountId.trim() || undefined,
       }),
     placeholderData: keepPreviousData,
   });
@@ -322,6 +350,74 @@ export function AdminActivitiesPage() {
             </SelectContent>
           </Select>
         </div>
+        <OperationsAdvancedFilters
+          activeCount={Object.values(advanced).filter(Boolean).length}
+          onApply={() => {
+            setAdvanced({ ...advancedDraft });
+            setPage(0);
+          }}
+          onClear={() => {
+            setAdvancedDraft(emptyAdvancedFilters);
+            setAdvanced(emptyAdvancedFilters);
+            setPage(0);
+          }}
+        >
+          <OperationsFilterField htmlFor="activity-from" label="Du">
+            <Input
+              className="h-8"
+              id="activity-from"
+              onChange={(event) => setAdvancedDraft((current) => ({ ...current, from: event.target.value }))}
+              type="datetime-local"
+              value={advancedDraft.from}
+            />
+          </OperationsFilterField>
+          <OperationsFilterField htmlFor="activity-until" label="Au">
+            <Input
+              className="h-8"
+              id="activity-until"
+              onChange={(event) => setAdvancedDraft((current) => ({ ...current, until: event.target.value }))}
+              type="datetime-local"
+              value={advancedDraft.until}
+            />
+          </OperationsFilterField>
+          <OperationsFilterField htmlFor="activity-resource-type" label="Type de ressource">
+            <Input
+              className="h-8"
+              id="activity-resource-type"
+              maxLength={100}
+              onChange={(event) => setAdvancedDraft((current) => ({ ...current, resourceType: event.target.value }))}
+              placeholder="PLAN_ADMIN"
+              value={advancedDraft.resourceType}
+            />
+          </OperationsFilterField>
+          <OperationsFilterField htmlFor="activity-resource-id" label="Identifiant de ressource">
+            <Input
+              className="h-8"
+              id="activity-resource-id"
+              maxLength={100}
+              onChange={(event) => setAdvancedDraft((current) => ({ ...current, resourceId: event.target.value }))}
+              value={advancedDraft.resourceId}
+            />
+          </OperationsFilterField>
+          <OperationsFilterField htmlFor="activity-actor-id" label="Identifiant acteur">
+            <Input
+              className="h-8 font-mono text-xs"
+              id="activity-actor-id"
+              onChange={(event) => setAdvancedDraft((current) => ({ ...current, actorUserId: event.target.value }))}
+              pattern="[0-9a-fA-F-]{36}"
+              value={advancedDraft.actorUserId}
+            />
+          </OperationsFilterField>
+          <OperationsFilterField htmlFor="activity-account-id" label="Identifiant compte cible">
+            <Input
+              className="h-8 font-mono text-xs"
+              id="activity-account-id"
+              onChange={(event) => setAdvancedDraft((current) => ({ ...current, targetAccountId: event.target.value }))}
+              pattern="[0-9a-fA-F-]{36}"
+              value={advancedDraft.targetAccountId}
+            />
+          </OperationsFilterField>
+        </OperationsAdvancedFilters>
       </section>
       <section className="overflow-hidden rounded-xl border">
         {query.isError ? (
