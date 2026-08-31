@@ -1,7 +1,7 @@
 # HiveApp Subscription Operations V1
 
 **Date:** 2026-08-31
-**Status:** implementation contract for Phase 12
+**Status:** selected-Account `CHANGE_SELECTION` slice implemented 2026-08-31; remaining kinds and target modes open
 
 This contract implements `PLAN-011`, `PLAN-FLOW-010`, and `SUBSCRIPTION-FLOW-002..004` without
 reopening their product decisions. It extends the audited one-Account subscription-change engine;
@@ -103,3 +103,31 @@ Closure requires permission-before-existence tests, immutable audience tests, st
 Account changes, mixed success, crash/retry/idempotency, cancellation races, scheduled claiming,
 bounded queries, no N+1 results, client privacy, audit provenance, and mounted French/Arabic UI
 workflows. Phase 13 settlement and Phase 14 analytics remain separate.
+
+## 9. Implementation evidence — 2026-08-31
+
+The first slice is implemented across backend and admin UI:
+
+- a reviewed explicit population of 1–500 Account IDs is stored durably with the exact commercial
+  selection, operator, reason, execution time, catalogue revision, registry version, and assessment
+  fingerprint;
+- confirmation queues or schedules the frozen job; each Account is reassessed and executed in its
+  own transaction through the existing one-Account engine;
+- mixed `APPLIED`, `PENDING_RENEWAL`, `AWAITING_PAYMENT`, `CONFLICT`, `FAILED`, and `CANCELLED`
+  results are retained, paginated, retryable only where safe, and never flattened into false
+  all-or-nothing success;
+- list, detail, results, Account-identity reveal, cancel, and retry are separate Permissionizer
+  surfaces with permission-before-existence security tests;
+- the admin portal provides a guided Account chooser, shared commercial selector, reason/schedule,
+  signed population review, explicit confirmation, progress/results, identity reveal, and guarded
+  cancel/retry using shared table and action patterns;
+- identity wiring tests prove ordinary result access neither requests nor renders Account identity.
+
+Verification at this checkpoint: 763 backend tests and 314 frontend tests, with frontend typecheck,
+Biome, production build, and `git diff --check` green. Authenticated French/Arabic browser evidence
+is still pending because no credential was entered during the automated run.
+
+Still open in Phase 12: `FILTERED_ACCOUNTS`, `PLAN_SUBSCRIBERS`, reviewed trial/lifecycle commands,
+correction-from-result, Account commercial timeline, communication delivery state, and client-facing
+pending-job projection. Phase 13 remains responsible for settlement/outbox correctness; the current
+payment gateway boundary is not represented as an external exactly-once side effect.

@@ -1052,12 +1052,12 @@ A copied plan can become sellable before review, admins cannot understand its or
 
 ### PLAN-011 — Admin subscriber management is a collection of single-record endpoints, not the decided operational flow
 
-**Status:** `PARTIALLY RESOLVED — ONE-ACCOUNT REVIEWED WORKBENCH IMPLEMENTED AND AUDITED 2026-08-27`
+**Status:** `PARTIALLY RESOLVED — SELECTED-ACCOUNT CHANGE JOBS IMPLEMENTED 2026-08-31`
 
 **Remaining evidence**
 
-- One-Account immediate and at-renewal changes now use the reviewed operation engine, but selected/filtered populations and arbitrary scheduled execution are not implemented.
-- Reviewed trial creation, cancel-at-period-end, immediate cancellation, suspension, expiry, restoration, correction, progress/retry, and communications are not yet first-class operator commands.
+- One-Account immediate and at-renewal changes and explicit selected-Account jobs now use the reviewed operation engine, but filtered/Plan-subscriber populations and lifecycle command kinds are not implemented.
+- Reviewed trial creation, cancel-at-period-end, immediate cancellation, suspension, expiry, restoration, correction, and communications are not yet first-class operator commands. Progress, partial results, cancellation, and safe retry are implemented for selected-Account `CHANGE_SELECTION` jobs.
 - General negotiated/grace/restricted-state exceptions remain later than the delivered typed commercial-policy effects.
 
 **Risk**
@@ -1083,7 +1083,8 @@ An admin UI built over these endpoints would force unsafe UUID-driven changes, h
 - Direct admin create/trial/raw-override mutations and their Permissionizer nodes were removed. Internal registration-time FREE provisioning remains the narrow bootstrap exception; reviewed trial creation belongs to Phase 12.
 - Admin responses preserve actor, request/cancellation, checkout and policy provenance. Client responses deliberately expose only safe effective terms, stable attention codes, and checkout state.
 - Exact retained Plan/AddOn/package Price-entry identities and quantities survive later catalogue pause/inactivation/direct-only changes; retained items remain visible/removable but cannot be newly selected or increased.
-- Versioned bulk population previews, immutable affected sets, partial-success jobs/retry, scheduled operations, lifecycle/correction commands, export, and communications remain unresolved and must be implemented before claiming a complete subscriber-management workflow.
+- Selected-Account population previews, immutable affected sets, partial-success jobs/retry, and scheduled execution are now durable operational APIs with admin list/create/detail/results UI and independently authorized identity reveal.
+- Filtered/Plan-subscriber populations, lifecycle/correction command kinds, export, client pending-job projection, and communications remain unresolved and must be implemented before claiming a complete subscriber-management workflow.
 
 ---
 

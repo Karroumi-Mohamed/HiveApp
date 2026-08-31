@@ -56,7 +56,7 @@ This table will be updated as the relevant source folders are reviewed.
 | Admin roles | Group platform-control permissions | Reviewed | Safe grant/revoke ceiling, deletion, inactive-role effects, audit |
 | Platform features | Inspect and operationally control code-defined capabilities | Not fully reviewed | Which states are editable, activation effects, subscribed-user effects |
 | Plans | Define sellable templates, included features, prices, and quotas | Reviewed and independently audited through Phase 9 | Later bulk/scheduled subscriber operations and financial/analytics effects |
-| Subscriptions | Manage one account's purchased entitlement | Reviewed and independently audited through Phase 10 | Reviewed trial/lifecycle commands, selected/filtered/scheduled jobs, settlement and analytics |
+| Subscriptions | Manage purchased entitlement and reviewed population changes | Phase 12.1 selected-Account change jobs implemented and self-audited | Filtered/Plan populations, trial/lifecycle commands, settlement and analytics |
 
 ---
 
@@ -763,7 +763,7 @@ Current entity-level facts already observed:
 - `Subscription` points to a plan but also stores an entitlement snapshot, overrides, status, current price, and period end.
 - Successful registration currently expects a FREE plan.
 
-The Plan/Product catalogues and one-Account subscription workbench have been implemented and independently audited through Phases 9 and 10. Reviewed trial/lifecycle commands, selected/filtered/scheduled jobs, settlement ledgers, reconciliation, and durable analytics remain their numbered later phases.
+The Plan/Product catalogues and one-Account subscription workbench have been implemented and independently audited through Phases 9 and 10. Phase 12.1 now also delivers reviewed selected-Account change jobs with durable partial results, scheduling, cancellation, retry, and privacy-separated identity reads. Filtered/Plan-subscriber populations, trial/lifecycle commands, settlement ledgers, reconciliation, and durable analytics remain their numbered later phases.
 
 ## Plan administration capability map
 

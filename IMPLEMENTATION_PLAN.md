@@ -1809,6 +1809,17 @@ flowchart TD
 - **Tests**: Trial creation/replacement/expiry, selection privacy, version conflicts, mixed success, retry, cancel race, renewal execution, usage remediation/grace/restriction, restoration, audit and realistic table drill-down.
 - **Future UI Flow**: Subscriber workbench, bulk-operation wizard, progress/result detail, pending-renewal queue, Account commercial timeline.
 
+**Execution status — selected-Account change jobs implemented and self-audited 2026-08-31:** The
+durable job protocol now freezes 1–500 explicit Accounts with exact commercial selection and
+review evidence, supports immediate or scheduled claiming, per-Account transactions, mixed durable
+results, safe retry, pre-start cancellation, crash resume, bounded list/results, separately
+authorized Account identity, and permission-before-existence enforcement. The admin UI delivers the
+guided chooser/commercial-selection/reason/schedule/review flow plus list, progress, results,
+explicit identity reveal, cancel, and retry. Automated verification is 763 backend tests and 314
+frontend tests plus typecheck/Biome/build. Filtered and exact-Plan populations, lifecycle/trial kinds,
+correction, communications, and authenticated French/Arabic browser evidence remain open; this is a
+partial Phase 12 closure, not a claim that all subscription operations are complete.
+
 # Phase 13: Invoice, payment, credit, and refund ledgers
 
 ### Batch 13.1: Complete BILLING-003
