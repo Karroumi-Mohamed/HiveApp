@@ -106,7 +106,11 @@ public class SubscriptionCheckout extends BaseEntity {
         if (status == SubscriptionCheckoutStatus.CONFIRMED) {
             if (confirmationSource == null || confirmationReference == null
                     || confirmationReference.isBlank() || confirmationReason == null
-                    || confirmationReason.isBlank() || confirmedByUserId == null || confirmedAt == null) {
+                    || confirmationReason.isBlank() || confirmedAt == null
+                    || (confirmationSource == CheckoutConfirmationSource.MANUAL_OPERATOR
+                    && confirmedByUserId == null)
+                    || (confirmationSource == CheckoutConfirmationSource.TRUSTED_PROVIDER
+                    && confirmedByUserId != null)) {
                 throw new IllegalStateException("A confirmed checkout requires confirmation evidence");
             }
         } else if (confirmationSource != null || confirmationReference != null

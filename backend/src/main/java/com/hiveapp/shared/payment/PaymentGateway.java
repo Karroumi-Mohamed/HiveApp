@@ -21,5 +21,5 @@ public interface PaymentGateway {
     /**
      * Refund a previous charge by transaction ID.
      */
-    PaymentResult refund(String transactionId, java.math.BigDecimal amount);
+    PaymentResult refund(RefundRequest request);
 }

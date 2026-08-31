@@ -12,15 +12,11 @@ import com.hiveapp.platform.client.plan.domain.entity.SubscriptionCheckout;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionCheckoutRepository;
 import com.hiveapp.shared.money.Money;
-import com.hiveapp.shared.payment.PaymentGateway;
-import com.hiveapp.shared.payment.PaymentResult;
-import com.hiveapp.shared.payment.PaymentStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -28,7 +24,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,8 +39,7 @@ class SubscriptionCheckoutServiceTest {
     @Mock private SubscriptionCheckoutRepository checkoutRepository;
     @Mock private SubscriptionChangeOperationRepository operationRepository;
     @Mock private SubscriptionChangeActivationService activationService;
-    @Mock private ObjectProvider<PaymentGateway> paymentGatewayProvider;
-    @Mock private PaymentGateway paymentGateway;
+    @Mock private BillingLedgerService billingLedgerService;
     @Mock private Clock clock;
 
     private SubscriptionCheckoutService checkoutService;
@@ -53,23 +47,22 @@ class SubscriptionCheckoutServiceTest {
     @BeforeEach
     void setUp() {
         checkoutService = new SubscriptionCheckoutService(
-                checkoutRepository, operationRepository, activationService, paymentGatewayProvider, clock);
+                checkoutRepository, operationRepository, activationService, billingLedgerService, clock);
     }
 
     @Test
-    void simulatedSuccessRemainsPendingUntilSeparateTrustedConfirmation() {
+    void initiationPersistsCheckoutThenQueuesDurableBillingWithoutActivating() {
         SubscriptionChangeOperation operation = operation(SubscriptionChangeTiming.IMMEDIATE, NOW);
-        when(paymentGatewayProvider.orderedStream()).thenReturn(Stream.of(paymentGateway));
-        when(paymentGateway.charge(any())).thenReturn(
-                new PaymentResult("DEV-success", PaymentStatus.SUCCESS, null));
         when(checkoutRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         SubscriptionCheckout checkout = checkoutService.initiate(
                 operation, Money.of(new BigDecimal("29.99"), "USD"), UUID.randomUUID());
 
-        assertThat(checkout.getGatewayAttemptStatus()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(checkout.getStatus()).isEqualTo(SubscriptionCheckoutStatus.PENDING_CONFIRMATION);
         assertThat(operation.getStatus()).isEqualTo(SubscriptionChangeStatus.AWAITING_CONFIRMATION);
+        verify(billingLedgerService).invoiceAndQueueCharge(
+                checkout, operation.getTargetSnapshot(), Money.of(new BigDecimal("29.99"), "USD"),
+                checkout.getRequestedByUserId());
         verify(activationService, never()).activate(any(), any());
     }
 
@@ -79,6 +72,7 @@ class SubscriptionCheckoutServiceTest {
         SubscriptionCheckout checkout = checkout(operation);
         UUID operatorId = UUID.randomUUID();
         when(clock.instant()).thenReturn(NOW);
+        when(checkoutRepository.findById(checkout.getId())).thenReturn(Optional.of(checkout));
         when(checkoutRepository.findByIdForUpdate(checkout.getId())).thenReturn(Optional.of(checkout));
         when(activationService.activate(operation, NOW)).thenReturn(operation);
 
@@ -90,6 +84,8 @@ class SubscriptionCheckoutServiceTest {
         assertThat(result.getConfirmationReference()).isEqualTo("manual-123");
         assertThat(result.getConfirmedByUserId()).isEqualTo(operatorId);
         verify(activationService).activate(operation, NOW);
+        verify(billingLedgerService).recordManualSettlement(
+                checkout.getId(), operatorId, "manual-123", "External contract confirmed");
     }
 
     @Test
@@ -98,6 +94,7 @@ class SubscriptionCheckoutServiceTest {
         SubscriptionChangeOperation operation = operation(SubscriptionChangeTiming.AT_RENEWAL, renewal);
         SubscriptionCheckout checkout = checkout(operation);
         when(clock.instant()).thenReturn(NOW);
+        when(checkoutRepository.findById(checkout.getId())).thenReturn(Optional.of(checkout));
         when(checkoutRepository.findByIdForUpdate(checkout.getId())).thenReturn(Optional.of(checkout));
 
         checkoutService.confirmManual(

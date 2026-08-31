@@ -2903,27 +2903,28 @@ Restrict the fake gateway to an explicit local/test profile. Production startup 
 
 ---
 
-### BILLING-003 — HiveApp has exact Money and Price books but no invoice or payment ledger
+### BILLING-003 — HiveApp has a financial ledger foundation but no operational Billing surface or provider reconciliation
 
-**Status:** `PARTIAL — MONEY AND IMMUTABLE PRICE BOOKS IMPLEMENTED; FINANCIAL LEDGER PHASE 13`
+**Status:** `PARTIAL — LEDGER/OUTBOX FOUNDATION IMPLEMENTED; OPERATIONS AND RECONCILIATION OPEN`
 
 **Evidence**
 
 - Exact ISO-currency Money, independently entered monthly/yearly Price-book entries, overlap protection, and immutable accepted price identity are implemented and audited under `PRICEBOOK-001`.
 - Subscription preview itemizes configured recurring terms by one currency/cycle and does not describe them as settlement or revenue.
-- No reviewed Invoice, InvoiceLine, Payment, Refund/Credit, adjustment, provider event/reference, reconciliation, or idempotency model exists.
-- Price preview, entitlement activation, amount due, settlement, and revenue are not represented as distinct facts.
+- Positive reviewed subscription changes now persist immutable numbered Invoice/InvoiceLine evidence, provider/manual Payment attempts, Credits, Refund intents, and durable idempotent outbox commands.
+- Price preview, amount due, provider attempt, trusted/manual settlement, entitlement activation, Credit, and Refund are distinct facts. Pre-dispatch cancellation and manual settlement cannot leave an automatic charge runnable.
+- Provider event ingestion/deduplication, reconciliation operations, recurring renewal/grace production, operational APIs, and admin/client Billing surfaces are still absent.
 
 **Risk**
 
-Without the remaining financial ledgers, UI totals can still be mistaken for invoiced or collected revenue, retries could duplicate external settlement, and support/accounting cannot yet explain or reconcile what an Account owed, paid, credited, or received back. Exact Price-book identity and accepted terms are already protected; this finding no longer treats mutable pricing as unresolved.
+Without the remaining operational and reconciliation layer, support/accounting still cannot safely search, explain, reconcile, credit, or refund Account financial evidence through the product, and asynchronous provider callbacks cannot yet close pending attempts. The durable records and transport boundary now prevent calculated prices from masquerading as collected value and make the remaining work additive.
 
 **Required fix direction**
 
-- Introduce a Money type using ISO currency and safe decimal/minor-unit rules. One subscription uses one currency/cycle; reject incompatible Plan/AddOn/package/adjustment items and never perform implicit FX conversion.
-- Preserve the implemented immutable exact monthly/yearly Price-book contract while deriving future invoice lines from accepted Plan/AddOn/package/policy evidence. Zero-priced recurring Plans are valid; perpetual commercial licensing is deferred.
-- Separate preview from amount due/invoice, pending transaction, confirmed payment/manual settlement, and refund/credit. Only confirmed settlement counts as collected money/revenue.
-- Add versioned invoices/lines and idempotent payment/refund records with provider/manual references and `PENDING`, `SUCCEEDED`, `FAILED`, `PARTIALLY_REFUNDED`, and `REFUNDED` behavior. Zero-price renewals create no fake payment.
+- Preserve the implemented ISO Money and immutable exact monthly/yearly Price-book contracts; keep one currency/cycle per subscription and never perform implicit FX.
+- Expose immutable accepted Invoice lines, Payment evidence, Credits, Refunds, and transport state through permission-separated operational APIs and Account-isolated client projections.
+- Keep preview, amount due/Invoice, pending attempt, trusted/manual settlement, entitlement activation, Credit, Refund, and collected-value analytics distinct. Only trusted/manual succeeded settlement counts as collected money.
+- Ingest provider events idempotently, reconcile unknown/mismatched/in-flight evidence safely, and expose retry/attention operations without leaking references or Account identity.
 - At renewal, apply the selected new price version for the new period. For immediate mid-period changes, initially support no automatic proration plus explicit audited operator adjustment/credit; defer automatic tax, discounts, metered charging, proration, FX, and automated refunds.
 - Connect payment failure to `PAST_DUE`, configured grace, and eventual restricted/suspended access without data deletion. Reconciliation/webhook handling must be idempotent and authorization-safe.
 - Store exact purchased terms in subscription history independently from financial records. Add currency mismatch, cycle mismatch, annual exact-price, zero-price, immutable version, itemization, pending-versus-paid, duplicate event, failed renewal/grace, manual settlement, adjustment, refund-state, and mixed-total reporting tests.
@@ -2935,11 +2936,12 @@ Without the remaining financial ledgers, UI totals can still be mistaken for inv
 - Entity lifecycle validation and billing configuration validation reject missing/invalid currencies and mixed Plan/add-on/quota/subscription amounts. Plan currency cannot change after monetary composition or subscription history exists; unpriced composition may safely be reused across currencies.
 - `BillingCalculator` now returns `Money` for persistence and rejects mixed-currency calculations. Seeded prices are explicitly USD, and focused plus integration tests cover arithmetic, precision, persistence/API exposure, mixed-currency rejection, and safe plan-currency changes.
 - Phase 9 completed independently entered immutable monthly/yearly Price-book entries, exact-decimal APIs, overlap-safe activation, current-selection pause, and exact accepted-price snapshot identity for Plans, AddOns, and capacity packages.
+- On 2026-08-31, Phase 13 added immutable itemized Invoices, provider/manual Payment evidence, Credits, concurrency-capped Refund intents, replay-safe provider commands outside database transactions, and atomic pre-dispatch cancellation. The full backend suite passed with 774 tests.
 - No Flyway history was added because the application is unpublished and currently uses a disposable generated H2 schema, per the agreed pre-production database policy.
 
 **Remaining scope**
 
-Itemized invoices, payment/refund/credit ledgers, settlement states, renewal recovery, reconciliation, and grace/past-due behavior remain intentionally scheduled for Phase 13. Immutable Price books are complete under `PRICEBOOK-001` and are no longer part of this finding's remaining scope.
+Provider-event deduplication/reconciliation, fine-grained admin and Account-isolated client APIs, Billing workbenches/history, zero-amount renewal evidence, and grace/past-due recovery remain in Phase 13. Immutable Price books and the core Invoice/Payment/Credit/Refund/outbox persistence boundary are complete foundations and are no longer part of this finding's remaining scope.
 
 ---
 

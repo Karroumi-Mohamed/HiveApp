@@ -12,6 +12,12 @@ import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
+import com.hiveapp.platform.client.plan.domain.repository.BillingInvoiceRepository;
+import com.hiveapp.platform.client.plan.domain.repository.BillingPaymentAttemptRepository;
+import com.hiveapp.platform.client.plan.domain.repository.BillingOutboxCommandRepository;
+import com.hiveapp.platform.client.plan.domain.constant.BillingInvoiceStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingOutboxStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingPaymentKind;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.ProductPriceSelectionRequest;
 import com.hiveapp.platform.registry.definition.StaffFeature;
@@ -63,6 +69,15 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
 
     @Autowired
     private SubscriptionChangeOperationRepository subscriptionChangeOperationRepository;
+
+    @Autowired
+    private BillingInvoiceRepository billingInvoiceRepository;
+
+    @Autowired
+    private BillingPaymentAttemptRepository billingPaymentAttemptRepository;
+
+    @Autowired
+    private BillingOutboxCommandRepository billingOutboxCommandRepository;
 
     @Autowired
     private AuditLogRepository auditLogRepository;
@@ -342,6 +357,26 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         UUID checkoutId = UUID.fromString(objectMapper.readTree(applyResponse)
                 .get("operation").get("checkout").get("id").asText());
 
+        var invoice = billingInvoiceRepository.findByCheckoutId(checkoutId).orElseThrow();
+        assertThat(invoice.getStatus()).isEqualTo(BillingInvoiceStatus.OPEN);
+        assertThat(invoice.getLines()).isNotEmpty();
+        assertThat(invoice.getLines().stream()
+                .map(line -> line.getLineAmount())
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add))
+                .isEqualByComparingTo(invoice.getTotalAmount());
+        assertThat(billingPaymentAttemptRepository.findAllByInvoiceIdOrderByCreatedAtDesc(invoice.getId()))
+                .singleElement()
+                .extracting(payment -> payment.getKind())
+                .isEqualTo(BillingPaymentKind.PROVIDER);
+        assertThat(billingOutboxCommandRepository.findAll())
+                .anySatisfy(command -> {
+                    assertThat(command.getAggregateId()).isNotNull();
+                    assertThat(command.getStatus()).isIn(
+                            BillingOutboxStatus.PENDING,
+                            BillingOutboxStatus.PROCESSING,
+                            BillingOutboxStatus.PROCESSED);
+                });
+
         assertThat(subscriptionRepository.findActiveByAccountId(accountId).orElseThrow()
                 .getEntitlementSnapshot().planCode()).isEqualTo("FREE");
 
@@ -361,6 +396,24 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
                 .andExpect(jsonPath("$.confirmationSource").value("MANUAL_OPERATOR"));
+
+        assertThat(billingInvoiceRepository.findByCheckoutId(checkoutId).orElseThrow().getStatus())
+                .isEqualTo(BillingInvoiceStatus.SETTLED);
+        assertThat(billingPaymentAttemptRepository.findAllByInvoiceIdOrderByCreatedAtDesc(invoice.getId()))
+                .extracting(payment -> payment.getKind())
+                .containsExactlyInAnyOrder(BillingPaymentKind.PROVIDER, BillingPaymentKind.MANUAL);
+        var cancelledProviderPayment = billingPaymentAttemptRepository
+                .findAllByInvoiceIdOrderByCreatedAtDesc(invoice.getId()).stream()
+                .filter(payment -> payment.getKind() == BillingPaymentKind.PROVIDER)
+                .findFirst().orElseThrow();
+        assertThat(cancelledProviderPayment)
+                .extracting(payment -> payment.getStatus())
+                .isEqualTo(com.hiveapp.platform.client.plan.domain.constant.BillingPaymentStatus.CANCELLED);
+        assertThat(billingOutboxCommandRepository.findAll())
+                .filteredOn(command -> command.getAggregateId().equals(cancelledProviderPayment.getId()))
+                .singleElement()
+                .extracting(command -> command.getStatus())
+                .isEqualTo(BillingOutboxStatus.CANCELLED);
 
         // The same reference is an idempotent acknowledgement, not a second activation.
         mockMvc.perform(post("/api/admin/subscriptions/checkouts/{checkoutId}/confirm-manual", checkoutId)
@@ -489,6 +542,8 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                 .andReturn().getResponse().getContentAsString();
         UUID operationId = UUID.fromString(
                 objectMapper.readTree(applyBody).path("operation").path("id").asText());
+        UUID checkoutId = UUID.fromString(
+                objectMapper.readTree(applyBody).path("operation").path("checkout").path("id").asText());
         var createdOperation = subscriptionChangeOperationRepository.findById(operationId).orElseThrow();
         assertThat(createdOperation.getRequestOrigin())
                 .isEqualTo(SubscriptionChangeOrigin.PLATFORM_ADMIN);
@@ -523,6 +578,13 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         assertThat(cancelledOperation.getCancellationReason())
                 .isEqualTo("Customer withdrew the approved change");
         assertThat(cancelledOperation.getCancelledAt()).isNotNull();
+        var cancelledInvoice = billingInvoiceRepository.findByCheckoutId(checkoutId).orElseThrow();
+        assertThat(cancelledInvoice.getStatus()).isEqualTo(BillingInvoiceStatus.CANCELLED);
+        assertThat(billingPaymentAttemptRepository
+                .findAllByInvoiceIdOrderByCreatedAtDesc(cancelledInvoice.getId()))
+                .singleElement()
+                .extracting(payment -> payment.getStatus())
+                .isEqualTo(com.hiveapp.platform.client.plan.domain.constant.BillingPaymentStatus.CANCELLED);
 
         mockMvc.perform(get("/api/admin/subscriptions/account/{accountId}/changes", accountId)
                         .header("Authorization", bearer(adminToken))

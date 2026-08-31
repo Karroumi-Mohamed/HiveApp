@@ -14,8 +14,9 @@ entitlement.
 - An **Invoice line** is immutable readable evidence for one accepted Plan, AddOn, capacity package,
   or explicit commercial adjustment. It retains source type/code/name/version/Price identity,
   quantity, unit amount, and line amount.
-- A **Payment attempt** is one idempotent attempt to settle an Invoice. `PENDING`, `SUCCEEDED`, and
-  `FAILED` describe transport/settlement evidence, not price calculation.
+- A **Payment attempt** is one idempotent attempt to settle an Invoice. `PENDING`, `SUCCEEDED`,
+  `FAILED`, and pre-dispatch `CANCELLED` describe transport/settlement evidence, not price
+  calculation.
 - A **Manual settlement** is a succeeded Payment recorded by an authorized operator with an exact
   external reference and reason.
 - A **Credit** reduces what the Account owes without pretending money moved back through a provider.
@@ -70,6 +71,11 @@ Provider calls never run inside the transaction that persists Invoice/Payment/Re
 4. A second transaction records the provider result and finishes or reschedules the command.
 5. A crash after the provider call may replay the same idempotency key; the adapter contract must
    make that replay safe.
+
+A manual settlement or checkout cancellation may cancel an automatic provider intent only while
+its outbox command is still pending. Payment attempt, outbox command, and Invoice are changed in the
+same transaction. Once dispatch starts, the operator must reconcile the provider result rather than
+risk a second collection or claim that an in-flight charge was cancelled.
 
 Outbox payloads contain only internal record IDs and stable operation type. They never contain
 tokens, passwords, customer codes, raw exceptions, or mutable serialized business objects.

@@ -2,7 +2,6 @@ package com.hiveapp.shared.payment;
 
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -50,7 +49,7 @@ class BillingStartupValidatorTest {
         }
 
         @Override
-        public PaymentResult refund(String transactionId, BigDecimal amount) {
+        public PaymentResult refund(RefundRequest request) {
             return new PaymentResult("provider-refund", PaymentStatus.PENDING, null);
         }
     }

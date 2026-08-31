@@ -46,6 +46,15 @@ class DevPaymentGatewayTest {
         assertThat(gateway.trustedForSettlement()).isFalse();
     }
 
+    @Test
+    void replayingTheSameIdempotencyKeyReturnsTheSameProviderReference() {
+        BillingProperties properties = new BillingProperties();
+        DevPaymentGateway gateway = new DevPaymentGateway(properties);
+
+        assertThat(gateway.charge(request()).transactionId())
+                .isEqualTo(gateway.charge(request()).transactionId());
+    }
+
     private PaymentRequest request() {
         return new PaymentRequest(
                 UUID.randomUUID(), new BigDecimal("29.99"), "USD", "Test checkout", "checkout-1");

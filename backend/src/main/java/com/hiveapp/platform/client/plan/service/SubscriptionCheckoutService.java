@@ -12,12 +12,8 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionCheckoutDto;
 import com.hiveapp.shared.exception.InvalidStateException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.money.Money;
-import com.hiveapp.shared.payment.PaymentGateway;
-import com.hiveapp.shared.payment.PaymentRequest;
-import com.hiveapp.shared.payment.PaymentResult;
 import com.hiveapp.shared.payment.PaymentStatus;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,7 +28,7 @@ public class SubscriptionCheckoutService {
     private final SubscriptionCheckoutRepository checkoutRepository;
     private final SubscriptionChangeOperationRepository operationRepository;
     private final SubscriptionChangeActivationService activationService;
-    private final ObjectProvider<PaymentGateway> paymentGatewayProvider;
+    private final BillingLedgerService billingLedgerService;
     private final Clock clock;
 
     @Transactional
@@ -55,43 +51,15 @@ public class SubscriptionCheckoutService {
         checkout.setAccount(operation.getAccount());
         checkout.setChangeOperation(operation);
         checkout.setStatus(SubscriptionCheckoutStatus.PENDING_CONFIRMATION);
+        checkout.setGatewayAttemptStatus(PaymentStatus.PENDING);
         checkout.setMoney(amount);
         checkout.setRequestedByUserId(requestedByUserId);
-
-        paymentGatewayProvider.orderedStream().findFirst().ifPresent(gateway -> {
-            PaymentResult result;
-            try {
-                result = gateway.charge(new PaymentRequest(
-                        operation.getAccount().getId(),
-                        amount.amount(),
-                        amount.currencyCode(),
-                        "Subscription change to " + operation.getTargetPlan().getCode(),
-                        operation.getId().toString()));
-            } catch (RuntimeException exception) {
-                result = new PaymentResult(null, PaymentStatus.FAILED,
-                        "Payment attempt could not be initiated: " + exception.getMessage());
-            }
-            if (result == null || result.status() == null) {
-                throw new IllegalStateException("Payment gateway returned an invalid attempt result");
-            }
-            checkout.setGatewayAttemptStatus(result.status());
-            checkout.setGatewayReference(result.transactionId());
-            checkout.setGatewayFailureReason(result.failureReason());
-
-            // Even SUCCESS is attempt telemetry. Only a separate trusted asynchronous/manual
-            // confirmation may set CONFIRMED and activate entitlement.
-            if (result.status() == PaymentStatus.FAILED) {
-                checkout.setStatus(SubscriptionCheckoutStatus.FAILED);
-                operation.setStatus(SubscriptionChangeStatus.NEEDS_ATTENTION);
-                operation.setAttentionReason(result.failureReason() != null
-                        ? result.failureReason()
-                        : "Payment attempt failed.");
-            }
-        });
 
         SubscriptionCheckout saved = checkoutRepository.saveAndFlush(checkout);
         operation.setCheckout(saved);
         operationRepository.save(operation);
+        billingLedgerService.invoiceAndQueueCharge(
+                saved, operation.getTargetSnapshot(), amount, requestedByUserId);
         return saved;
     }
 
@@ -108,7 +76,7 @@ public class SubscriptionCheckoutService {
             throw new IllegalArgumentException("Confirming operator is required");
         }
 
-        SubscriptionCheckout checkout = checkoutRepository.findByIdForUpdate(checkoutId)
+        SubscriptionCheckout checkout = checkoutRepository.findById(checkoutId)
                 .orElseThrow(() -> new ResourceNotFoundException("SubscriptionCheckout", "id", checkoutId));
         if (checkout.getStatus() == SubscriptionCheckoutStatus.CONFIRMED) {
             if (normalizedReference.equals(checkout.getConfirmationReference())) {
@@ -121,6 +89,19 @@ public class SubscriptionCheckoutService {
         }
 
         Instant now = clock.instant();
+        billingLedgerService.recordManualSettlement(
+                checkoutId, operatorUserId, normalizedReference, normalizedReason);
+        checkout = checkoutRepository.findByIdForUpdate(checkoutId)
+                .orElseThrow(() -> new ResourceNotFoundException("SubscriptionCheckout", "id", checkoutId));
+        if (checkout.getStatus() == SubscriptionCheckoutStatus.CONFIRMED) {
+            if (normalizedReference.equals(checkout.getConfirmationReference())) {
+                return checkout;
+            }
+            throw new InvalidStateException("Checkout was already confirmed with a different reference.");
+        }
+        if (checkout.getStatus() != SubscriptionCheckoutStatus.PENDING_CONFIRMATION) {
+            throw new InvalidStateException("Only a pending checkout can be confirmed.");
+        }
         checkout.setStatus(SubscriptionCheckoutStatus.CONFIRMED);
         checkout.setConfirmationSource(CheckoutConfirmationSource.MANUAL_OPERATOR);
         checkout.setConfirmationReference(normalizedReference);
@@ -151,8 +132,15 @@ public class SubscriptionCheckoutService {
                 throw new InvalidStateException("A confirmed checkout cannot be cancelled.");
             }
             if (checkout.getStatus() == SubscriptionCheckoutStatus.PENDING_CONFIRMATION) {
-                checkout.setStatus(SubscriptionCheckoutStatus.CANCELLED);
-                checkoutRepository.save(checkout);
+                billingLedgerService.cancelForCheckout(checkout.getId());
+                SubscriptionCheckout locked = checkoutRepository.findByIdForUpdate(checkout.getId())
+                        .orElseThrow(() -> new ResourceNotFoundException(
+                                "SubscriptionCheckout", "id", checkout.getId()));
+                if (locked.getStatus() != SubscriptionCheckoutStatus.PENDING_CONFIRMATION) {
+                    throw new InvalidStateException("Only a pending checkout can be cancelled.");
+                }
+                locked.setStatus(SubscriptionCheckoutStatus.CANCELLED);
+                checkoutRepository.save(locked);
             }
         });
     }
