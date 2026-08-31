@@ -1163,7 +1163,7 @@ flowchart TD
 - **Acceptance Criteria**: Scheduled task updates active subscriptions at period end.
 - **Tests**: Integration scheduler tests.
 - **Future UI Flow**: None.
-- **Execution Status**: Period/change-operation foundation completed on 2026-08-10 and paid renewal recovery completed on 2026-08-31. UTC periods retain immutable history; explicit renewal changes run first; paid same-terms renewal creates durable Invoice/Payment/outbox evidence, persists a 72-hour default grace, remains entitled only before the exact deadline, suspends after grace, and recovers through trusted provider or authorized manual settlement. Reviewed lifecycle commands, Account grace exceptions, and communications remain later flows.
+- **Execution Status**: Period/change-operation foundation completed on 2026-08-10; paid renewal recovery and one-Account lifecycle control completed on 2026-08-31. UTC periods retain immutable history; explicit renewal changes run first; paid same-terms renewal creates durable Invoice/Payment/outbox evidence, persists a 72-hour default grace, remains entitled only before the exact deadline, suspends after grace, and recovers through trusted provider or authorized manual settlement. Independently permissioned signed commands now cover cancel-at-period-end, keep-renewing, immediate cancellation, operator suspension/restoration, grace extension, session revocation, and bounded history. Reviewed trial/new-entitlement creation, population lifecycle jobs, and communications remain open.
 
 #### [IMPLEMENT] SUBSCRIPTION-004 — Trial subscriptions are authorized but invisible to client subscription flows
 - **Prerequisites**: SUBSCRIPTION-003.
@@ -1820,6 +1820,15 @@ frontend tests plus typecheck/Biome/build. Filtered and exact-Plan populations, 
 correction, communications, and authenticated French/Arabic browser evidence remain open; this is a
 partial Phase 12 closure, not a claim that all subscription operations are complete.
 
+**Execution status — one-Account lifecycle controls implemented and self-audited 2026-08-31:**
+Backend-authoritative available actions, separate preview/mutation/history permissions, signed
+actor/action/version evidence, required reasons, locked rechecks, append-only lifecycle events,
+operator-versus-collection suspension semantics, exact grace extension, terminal-readable
+cancellation, and Account-wide client session revocation are implemented. The admin detail page
+mounts the bounded history independently and can perform only the intersection of backend actions
+and the operator's exact permissions. Population lifecycle jobs and reviewed trial/new-entitlement
+creation remain open.
+
 # Phase 13: Invoice, payment, credit, and refund ledgers
 
 ### Batch 13.1: Complete BILLING-003
@@ -1920,7 +1929,7 @@ partial Phase 12 closure, not a claim that all subscription operations are compl
 | **PLAN-006** | Lifecycle states | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | Validated state machine, terminal archive, optimistic lock; replacement/audit later |
 | **PLAN-007** | Branching revisions | PARTIAL — REVISION FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-006, SUBSCRIPTION-003 | Published immutability plus explicit lineage-aware draft revision/duplication |
 | **BILLING-001** | Checkouts activation | IMPLEMENTED FOR CLIENT ACTIVATION | IMPLEMENT | Phase 4 | Batch 4.6 | SUBSCRIPTION-003 | Durable non-entitling checkout plus guarded, idempotent confirmation and final recheck |
-| **BILLING-003** | Money prices ledger | PARTIAL — LEDGER, OPERATIONS AND BILLING UI IMPLEMENTED; RENEWAL OPEN | IMPLEMENT | Phase 4/13 | Batch 4.1/13.1 | None | Exact Money/Price books, immutable financial ledgers, admin/client workbenches, verified callback reconciliation and evidence-gated recovery; real adapter, renewal/grace, Account timeline and fiscal documents remain |
+| **BILLING-003** | Money prices ledger | PARTIAL — LEDGER, OPERATIONS, UI AND RENEWAL RECOVERY IMPLEMENTED | IMPLEMENT | Phase 4/13 | Batch 4.1/13.1 | None | Exact Money/Price books, immutable financial ledgers, admin/client workbenches, verified reconciliation, recovery, renewal/grace and lifecycle hooks; real adapter, Account timeline and fiscal documents remain |
 | **PRICEBOOK-001** | Multi-cycle immutable prices | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.1 | BILLING-003 foundation, PLAN-012, QUOTA-004 | Independent monthly/yearly entries, overlap race protection, exact snapshot identity and client checkout tests |
 | **COMMERCIAL-001** | Extension and policy control | IMPLEMENTED/AUDITED THROUGH PHASE 10 | IMPLEMENT | Phase 9/10 | Batch 9.2/10.1 | PRICEBOOK-001 | Extension/visibility matrix, typed precedence/lifecycle, signed preview, one-Account application, exact accepted provenance, client privacy and retained-term tests |
 | **COMMERCIAL-002** | Operational product catalogues | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001 | Bounded search/filter/sort, permissions, query count, backend actions/blockers and shared table contracts |
@@ -1929,7 +1938,7 @@ partial Phase 12 closure, not a claim that all subscription operations are compl
 | **UI-001** | Shared section tabs lack complete keyboard and panel semantics | CONFIRMED — PHASE 15 | IMPLEMENT | Phase 15 | Consistency audit | None | Roving Arrow/Home/End focus, associated tab-panel IDs, RTL and keyboard tests |
 | **ANALYTICS-001** | Durable commercial analytics | CONFIRMED — DESIGN DECIDED | IMPLEMENT | Phase 14 | Batch 14.1 | MARKETING-001, BILLING-003 | Time/currency-aware facts, truthful dimensions, stable history and operational drill-down tests |
 | **QUOTA-002** | Custom overrides limit | IMPLEMENTED FOR SELF-SERVICE | IMPLEMENT | Phase 4 | Batch 4.4 | QUOTA-004 | Arbitrary/unlimited requests removed; predefined package selection only |
-| **SUBSCRIPTION-003**| Periods scheduler | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-002 | UTC history, scheduled trial/free/paid transitions and renewal operations |
+| **SUBSCRIPTION-003**| Periods scheduler | PARTIAL — RENEWAL/GRACE AND ONE-ACCOUNT LIFECYCLE IMPLEMENTED | IMPLEMENT | Phase 4/12/13 | Batch 4.5/12.1/13.1 | SUBSCRIPTION-002 | UTC history, paid/free renewal, collection recovery, signed lifecycle commands, session revocation; reviewed trial/population jobs open |
 | **SUBSCRIPTION-004**| Trial visibility | IMPLEMENTED; REVIEWED CREATION PHASE 12 | IMPLEMENT | Phase 4/12 | Batch 4.5/12.1 | SUBSCRIPTION-003 | Trialing Account visibility is complete; retired direct admin creation returns only as a reviewed operation |
 | **SUBSCRIPTION-005**| Overrides pricing | IMPLEMENTED BY CONTRACT CHANGE | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-004 | Raw grants removed; only priced AddOn/package identities |
 | **SUBSCRIPTION-006**| Dynamic repairs | IMPLEMENTED FOR UNPUBLISHED SCHEMA | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-005 | Mandatory snapshots and fail-closed consumers; no legacy database |
@@ -1942,7 +1951,7 @@ partial Phase 12 closure, not a claim that all subscription operations are compl
 | **PLAN-008** | PlanFeature schema | PARTIAL — EXPLICIT MODES IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-004 | INCLUDED/OPTIONAL_ADD_ON/BLOCKED_FOR_PLAN; subscriber removal later |
 | **PLAN-009** | Deletion preview | IMPLEMENTED FOR CURRENT MODEL | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-007 | Counted blockers, state token, code confirmation, lock/recheck, draft-only deletion |
 | **PLAN-010** | Cloning Wizard | IMPLEMENTED | IMPLEMENT | Phase 5 | Batch 5.1 | PLAN-009 | Explicit empty/duplicate/revise commands and durable source/lineage identity |
-| **PLAN-011** | Subscriber management | PARTIAL — ONE-ACCOUNT REVIEWED WORKBENCH IMPLEMENTED/AUDITED | IMPLEMENT | Phase 5/9/12 | Batch 5.1/9.3/12.1 | PLAN-010 | Bounded privacy-separated lookup/history plus signed immediate/renewal apply; reviewed trial/lifecycle and selected/filtered/scheduled jobs remain |
+| **PLAN-011** | Subscriber management | PARTIAL — ONE-ACCOUNT CHANGE/LIFECYCLE AND SELECTED JOBS IMPLEMENTED | IMPLEMENT | Phase 5/9/12 | Batch 5.1/9.3/12.1 | PLAN-010 | Bounded privacy-separated workbench, signed change/lifecycle operations and selected/scheduled jobs; reviewed trial and filtered/Plan population jobs remain |
 | **PLAN-012** | Explicit AddOn | PARTIAL — FOUNDATION IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.3 | PLAN-008 | Versioned aggregate, admin API, AddOn-owned quota packages, selection, catalog, snapshots, billing |
 | **PLAN-005** | Immutable snapshots | PARTIAL — VERSIONED TERM HISTORY IMPLEMENTED | IMPLEMENT | Phase 4 | Batch 4.5 | SUBSCRIPTION-006 | Plan/AddOn/package versions, term prices, effective periods, and operation history; lineage/billing ledgers separate |
 | **TIME-001** | Unified Timestamps | IMPLEMENTED | VERIFY FIRST | Phase 5 | Batch 5.5 | None | UTC Instant persistence and offset-explicit JSON verified |

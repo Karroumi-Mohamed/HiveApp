@@ -104,6 +104,17 @@ public class Subscription extends BaseEntity {
     @Column(name = "suspended_at")
     private Instant suspendedAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "suspension_cause", length = 24)
+    private com.hiveapp.platform.client.plan.domain.constant.SubscriptionSuspensionCause suspensionCause;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "suspended_from_status", length = 24)
+    private SubscriptionStatus suspendedFromStatus;
+
+    @Column(name = "suspension_reason", length = 2000)
+    private String suspensionReason;
+
     /**
      * Snapshot of the calculated monthly price at the time overrides were last saved.
      * = plan.basePrice + sum(addOnPrices) + sum(quotaBumpCosts).
@@ -165,6 +176,14 @@ public class Subscription extends BaseEntity {
         if (status == SubscriptionStatus.PAST_DUE
                 && (pastDueAt == null || graceEndsAt == null || !graceEndsAt.isAfter(pastDueAt))) {
             throw new IllegalStateException("A past-due subscription requires a future grace deadline");
+        }
+        if (status == SubscriptionStatus.SUSPENDED && suspensionCause == null) {
+            throw new IllegalStateException("A suspended subscription requires a suspension cause");
+        }
+        if (suspensionCause == com.hiveapp.platform.client.plan.domain.constant.SubscriptionSuspensionCause.OPERATOR
+                && suspendedFromStatus != SubscriptionStatus.ACTIVE
+                && suspendedFromStatus != SubscriptionStatus.TRIALING) {
+            throw new IllegalStateException("Operator suspension requires its prior entitled status");
         }
     }
 

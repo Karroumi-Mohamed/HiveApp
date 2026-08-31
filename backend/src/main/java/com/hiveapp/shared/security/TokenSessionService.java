@@ -19,14 +19,19 @@ public class TokenSessionService {
     private static final String INVALID_REFRESH_TOKEN = "Invalid, expired, or already used refresh token";
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final ConcurrentMap<UUID, AccessSession> activeAccessTokens = new ConcurrentHashMap<>();
     private final ConcurrentMap<UUID, RefreshSession> activeRefreshTokens = new ConcurrentHashMap<>();
     private final ConcurrentMap<UUID, InitialAccessSession> activeInitialAccessTokens = new ConcurrentHashMap<>();
 
     public IssuedTokens issue(UUID userId, TokenAudience audience) {
         removeExpiredSessions();
         UUID tokenId = UUID.randomUUID();
-        String accessToken = jwtTokenProvider.generateAccessToken(userId, audience);
+        String accessToken = jwtTokenProvider.generateAccessToken(userId, audience, tokenId);
         String refreshToken = jwtTokenProvider.generateRefreshToken(userId, audience, tokenId);
+        activeAccessTokens.put(tokenId, new AccessSession(
+                userId,
+                audience,
+                Instant.now().plusSeconds(jwtTokenProvider.getAccessTokenExpiration())));
         activeRefreshTokens.put(tokenId, new RefreshSession(
                 userId,
                 audience,
@@ -89,11 +94,41 @@ public class TokenSessionService {
     }
 
     public void revoke(String refreshToken, TokenAudience expectedAudience) {
-        consume(refreshToken, expectedAudience);
+        ParsedRefreshToken parsed = parse(refreshToken, expectedAudience);
+        RefreshSession session = activeRefreshTokens.get(parsed.tokenId());
+        if (session == null
+                || !session.userId().equals(parsed.userId())
+                || session.audience() != expectedAudience
+                || !activeRefreshTokens.remove(parsed.tokenId(), session)) {
+            throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
+        }
+        activeAccessTokens.remove(parsed.tokenId());
+    }
+
+    /** Every ordinary access token is a live server-side session, not only a signed bearer. */
+    public boolean isAccessActive(Claims claims, TokenAudience expectedAudience) {
+        try {
+            if (!jwtTokenProvider.hasPurpose(claims, expectedAudience, TokenUse.ACCESS)
+                    || claims.getId() == null) {
+                return false;
+            }
+            UUID tokenId = UUID.fromString(claims.getId());
+            UUID userId = UUID.fromString(claims.getSubject());
+            AccessSession session = activeAccessTokens.get(tokenId);
+            return session != null
+                    && session.userId().equals(userId)
+                    && session.audience() == expectedAudience
+                    && session.expiresAt().isAfter(Instant.now());
+        } catch (RuntimeException exception) {
+            return false;
+        }
     }
 
     public void revokeAll(Collection<UUID> userIds, TokenAudience audience) {
         Set<UUID> revokedUserIds = Set.copyOf(userIds);
+        activeAccessTokens.entrySet().removeIf(entry ->
+                entry.getValue().audience() == audience
+                        && revokedUserIds.contains(entry.getValue().userId()));
         activeRefreshTokens.entrySet().removeIf(entry ->
                 entry.getValue().audience() == audience
                         && revokedUserIds.contains(entry.getValue().userId()));
@@ -106,6 +141,7 @@ public class TokenSessionService {
 
     private void removeExpiredSessions() {
         Instant now = Instant.now();
+        activeAccessTokens.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
         activeRefreshTokens.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
         activeInitialAccessTokens.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
     }
@@ -131,6 +167,9 @@ public class TokenSessionService {
     }
 
     private record RefreshSession(UUID userId, TokenAudience audience, Instant expiresAt) {
+    }
+
+    private record AccessSession(UUID userId, TokenAudience audience, Instant expiresAt) {
     }
 
     private record InitialAccessSession(UUID userId, TokenAudience audience, Instant expiresAt) {

@@ -146,6 +146,7 @@ class PermissionPolicyOrderTest {
     private SecurityConfig securityConfig() {
         return new SecurityConfig(
                 mock(JwtTokenProvider.class),
+                mock(TokenSessionService.class),
                 mock(UserDetailsServiceImpl.class),
                 mock(com.hiveapp.platform.admin.infrastructure.security.AdminUserDetailsServiceImpl.class),
                 mock(AuthEntryPoint.class),

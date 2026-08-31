@@ -1,7 +1,8 @@
 # HiveApp Subscription Operations V1
 
 **Date:** 2026-08-31
-**Status:** selected-Account `CHANGE_SELECTION` slice implemented 2026-08-31; remaining kinds and target modes open
+**Status:** selected-Account `CHANGE_SELECTION` and one-Account lifecycle controls implemented
+2026-08-31; reviewed trial creation and population lifecycle jobs remain open
 
 This contract implements `PLAN-011`, `PLAN-FLOW-010`, and `SUBSCRIPTION-FLOW-002..004` without
 reopening their product decisions. It extends the audited one-Account subscription-change engine;
@@ -34,9 +35,11 @@ V1 exposes distinct typed commands:
 7. `RESTORE` — create fresh current entitlement only after current Account, product, usage, and
    dependency revalidation. Old sessions are never resurrected.
 
-The first implementation slice delivers the durable job protocol and `CHANGE_SELECTION`; the
-lifecycle kinds then reuse the same target, result, retry, cancellation, authorization, and audit
-contracts rather than growing one-off endpoints.
+The durable job protocol currently delivers `CHANGE_SELECTION`. One-Account
+`CANCEL_AT_PERIOD_END`, `KEEP_RENEWING`, `CANCEL_IMMEDIATELY`, `SUSPEND`, `RESTORE`, and
+`EXTEND_GRACE` are separately delivered as signed, reasoned lifecycle commands. Population-wide
+lifecycle work will reuse the job target/result/retry contract; the one-Account commands remain the
+authoritative per-Account executor rather than being replaced by a privileged batch path.
 
 ## 3. Targeting
 
@@ -127,7 +130,21 @@ Verification at this checkpoint: 763 backend tests and 314 frontend tests, with 
 Biome, production build, and `git diff --check` green. Authenticated French/Arabic browser evidence
 is still pending because no credential was entered during the automated run.
 
-Still open in Phase 12: `FILTERED_ACCOUNTS`, `PLAN_SUBSCRIBERS`, reviewed trial/lifecycle commands,
-correction-from-result, Account commercial timeline, communication delivery state, and client-facing
-pending-job projection. Phase 13 remains responsible for settlement/outbox correctness; the current
-payment gateway boundary is not represented as an external exactly-once side effect.
+The second slice adds the one-Account lifecycle control plane:
+
+- every command requires its own Permissionizer node, a separate preview permission, a short-lived
+  actor/action/version-bound review, and a non-empty operator reason;
+- operator suspension is distinct from collection suspension. Only operator suspension can be
+  restored directly, and collection recovery requires settlement or an explicit grace extension;
+- immediate cancellation closes outstanding subscription changes, preserves the terminal
+  subscription read model, and revokes every current Account member access and refresh session;
+- suspension also revokes sessions. Restoration never resurrects those tokens, so members must
+  authenticate again;
+- append-only lifecycle events retain before/after state, deadline changes, effective time, actor,
+  and reason through a bounded independently permissioned history surface;
+- the admin detail page renders only backend-available actions intersected with the exact operator
+  permissions, then requires the signed review before confirmation.
+
+Still open in Phase 12: `FILTERED_ACCOUNTS`, `PLAN_SUBSCRIBERS`, reviewed trial/new-entitlement
+creation, population lifecycle jobs, correction-from-result, communication delivery state, and the
+client-facing pending-job projection. The Account commercial/financial timeline is Phase 13.

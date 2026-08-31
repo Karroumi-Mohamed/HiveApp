@@ -24,6 +24,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final TokenSessionService tokenSessionService;
     private final UserDetailsService userDetailsService;
     private final AccessDeniedHandler accessDeniedHandler;
 
@@ -58,6 +59,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 } else if (initialAccess && !isInitialAccessPath(request)) {
                     accessDeniedHandler.handle(request, response,
                             new AccessDeniedException("Initial-access tokens may only change the password or log out"));
+                    return;
+                } else if (normalAccess
+                        && !tokenSessionService.isAccessActive(claims, TokenAudience.CLIENT)) {
+                    filterChain.doFilter(request, response);
                     return;
                 } else {
                     String userId = jwtTokenProvider.getUserIdFromToken(token).toString();

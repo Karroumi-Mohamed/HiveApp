@@ -27,6 +27,17 @@ public interface SubscriptionChangeOperationRepository
   Optional<SubscriptionChangeOperation> findTopByAccountIdAndStatusIn(
       UUID accountId, Collection<SubscriptionChangeStatus> statuses);
 
+  boolean existsByAccountIdAndStatusIn(
+      UUID accountId, Collection<SubscriptionChangeStatus> statuses);
+
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @EntityGraph(attributePaths = {"checkout"})
+  @Query("select operation from SubscriptionChangeOperation operation "
+      + "where operation.account.id = :accountId and operation.status in :statuses")
+  List<SubscriptionChangeOperation> findOutstandingForLifecycleUpdate(
+      @Param("accountId") UUID accountId,
+      @Param("statuses") Collection<SubscriptionChangeStatus> statuses);
+
   @EntityGraph(attributePaths = {"sourceSubscription.plan", "targetPlan", "checkout"})
   Optional<SubscriptionChangeOperation> findByIdAndAccountId(UUID id, UUID accountId);
 

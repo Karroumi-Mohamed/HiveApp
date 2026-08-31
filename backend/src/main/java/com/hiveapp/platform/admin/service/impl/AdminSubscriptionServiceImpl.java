@@ -22,6 +22,7 @@ import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SubscriptionLifecycleEventRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
@@ -39,6 +40,9 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeJobModels;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobItemStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobStatus;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeJobService;
+import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleAdminService;
+import com.hiveapp.platform.client.plan.dto.SubscriptionLifecycleModels;
+import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
 import com.hiveapp.shared.money.Money;
@@ -94,7 +98,94 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     private final CommercialCatalogResolver commercialCatalogResolver;
     private final SubscriptionOverrideChoiceService subscriptionOverrideChoiceService;
     private final SubscriptionChangeJobService subscriptionChangeJobService;
+    private final SubscriptionLifecycleAdminService subscriptionLifecycle;
+    private final SubscriptionLifecycleEventRepository subscriptionLifecycleEvents;
+    private final AdminUserRepository adminUsers;
     private final Clock clock;
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_lifecycle_actions",
+            description = "Read available subscription lifecycle actions")
+    public SubscriptionLifecycleModels.Actions lifecycleActions(UUID accountId) {
+        return subscriptionLifecycle.actions(accountId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "preview_lifecycle", description = "Preview a subscription lifecycle command")
+    public SubscriptionLifecycleModels.Preview previewLifecycle(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.PreviewRequest request) {
+        return subscriptionLifecycle.preview(accountId, actorUserId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "cancel_at_period_end", description = "Cancel subscription at period end")
+    public SubscriptionLifecycleModels.Mutation cancelAtPeriodEnd(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request) {
+        return subscriptionLifecycle.cancelAtPeriodEnd(accountId, actorUserId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "keep_renewing", description = "Remove scheduled subscription cancellation")
+    public SubscriptionLifecycleModels.Mutation keepRenewing(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request) {
+        return subscriptionLifecycle.keepRenewing(accountId, actorUserId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "cancel_immediately", description = "Cancel subscription immediately")
+    public SubscriptionLifecycleModels.Mutation cancelImmediately(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request) {
+        return subscriptionLifecycle.cancelImmediately(accountId, actorUserId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "suspend", description = "Suspend subscription access")
+    public SubscriptionLifecycleModels.Mutation suspend(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request) {
+        return subscriptionLifecycle.suspend(accountId, actorUserId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "restore", description = "Restore an operator-suspended subscription")
+    public SubscriptionLifecycleModels.Mutation restore(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request) {
+        return subscriptionLifecycle.restore(accountId, actorUserId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "extend_grace", description = "Extend subscription collection grace")
+    public SubscriptionLifecycleModels.Mutation extendGrace(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request) {
+        return subscriptionLifecycle.extendGrace(accountId, actorUserId, request);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_lifecycle_history", description = "Read subscription lifecycle history")
+    public Page<SubscriptionLifecycleModels.Event> lifecycleHistory(UUID accountId, Pageable pageable) {
+        subscriptionRepository.findTopByAccountIdOrderByCreatedAtDesc(accountId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Subscription", "accountId", accountId));
+        var page = subscriptionLifecycleEvents.findAllByAccountId(accountId, pageable);
+        Set<UUID> actorIds = page.getContent().stream()
+                .map(com.hiveapp.platform.client.plan.domain.entity.SubscriptionLifecycleEvent::getActorUserId)
+                .collect(Collectors.toSet());
+        Map<UUID, String> actorEmails = actorIds.isEmpty()
+                ? Map.of()
+                : adminUsers.findAllWithUserByUserIdIn(actorIds).stream()
+                        .collect(Collectors.toMap(
+                                admin -> admin.getUser().getId(),
+                                admin -> admin.getUser().getEmail()));
+        return page.map(event -> new SubscriptionLifecycleModels.Event(
+                event.getId(), event.getSubscription().getId(), event.getAction(),
+                event.getBeforeStatus(), event.getAfterStatus(), event.getEffectiveAt(),
+                event.getPreviousGraceEndsAt(), event.getNextGraceEndsAt(),
+                event.getActorUserId(),
+                actorEmails.getOrDefault(event.getActorUserId(), event.getActorUserId().toString()),
+                event.getReason(), event.getCreatedAt()));
+    }
 
     @Override
     @PermissionNode(key = "search_accounts", description = "Search accounts for subscription operations")
@@ -628,6 +719,10 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
                 subscription.getPastDueAt(),
                 subscription.getGraceEndsAt(),
                 subscription.getSuspendedAt(),
+                subscription.getSuspensionCause(),
+                subscription.getSuspensionReason(),
+                com.hiveapp.platform.client.plan.service.SubscriptionLifecycleRules.availableActions(
+                        subscription, clock.instant()),
                 subscriptionOverrideReader.read(subscription.getCustomOverrides()),
                 subscriptionSnapshotReader.read(subscription.getEntitlementSnapshot()).orElse(null));
     }

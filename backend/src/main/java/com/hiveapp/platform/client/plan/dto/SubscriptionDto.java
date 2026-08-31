@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionSuspensionCause;
 import com.hiveapp.shared.money.ExactDecimal;
 
 public record SubscriptionDto(
@@ -17,7 +18,8 @@ public record SubscriptionDto(
         boolean cancelAtPeriodEnd,
         Instant pastDueAt,
         Instant graceEndsAt,
-        Instant suspendedAt
+        Instant suspendedAt,
+        SubscriptionSuspensionCause suspensionCause
 ) {
     public record PlanSummaryDto(
             String code,

@@ -22,6 +22,8 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionLifecycleModels;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionLifecycleAction;
 import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.shared.security.HiveAppUserDetails;
 import jakarta.validation.Valid;
@@ -54,6 +56,10 @@ public class SubscriptionAdminController {
             "effectiveAt", "effectiveAt",
             "status", "status",
             "timing", "timing");
+    private static final Map<String, String> LIFECYCLE_HISTORY_SORTS = Map.of(
+            "createdAt", "createdAt",
+            "effectiveAt", "effectiveAt",
+            "action", "action");
 
     private final AdminSubscriptionService adminSubscriptionService;
 
@@ -251,6 +257,51 @@ public class SubscriptionAdminController {
         UUID actorUserId = actorUserId(authentication);
         return adminSubscriptionService.confirmCheckoutManually(
                 checkoutId, actorUserId, request.reference(), request.reason());
+    }
+
+    @GetMapping("/account/{accountId}/lifecycle/actions")
+    public SubscriptionLifecycleModels.Actions lifecycleActions(@PathVariable UUID accountId) {
+        return adminSubscriptionService.lifecycleActions(accountId);
+    }
+
+    @PostMapping("/account/{accountId}/lifecycle/preview")
+    public SubscriptionLifecycleModels.Preview previewLifecycle(
+            @PathVariable UUID accountId,
+            @Valid @RequestBody SubscriptionLifecycleModels.PreviewRequest request,
+            Authentication authentication) {
+        return adminSubscriptionService.previewLifecycle(
+                accountId, actorUserId(authentication), request);
+    }
+
+    @PostMapping("/account/{accountId}/lifecycle/{action}")
+    public SubscriptionLifecycleModels.Mutation applyLifecycle(
+            @PathVariable UUID accountId,
+            @PathVariable SubscriptionLifecycleAction action,
+            @Valid @RequestBody SubscriptionLifecycleModels.ApplyRequest request,
+            Authentication authentication) {
+        UUID actor = actorUserId(authentication);
+        return switch (action) {
+            case CANCEL_AT_PERIOD_END -> adminSubscriptionService.cancelAtPeriodEnd(accountId, actor, request);
+            case KEEP_RENEWING -> adminSubscriptionService.keepRenewing(accountId, actor, request);
+            case CANCEL_IMMEDIATELY -> adminSubscriptionService.cancelImmediately(accountId, actor, request);
+            case SUSPEND -> adminSubscriptionService.suspend(accountId, actor, request);
+            case RESTORE -> adminSubscriptionService.restore(accountId, actor, request);
+            case EXTEND_GRACE -> adminSubscriptionService.extendGrace(accountId, actor, request);
+        };
+    }
+
+    @GetMapping("/account/{accountId}/lifecycle-history")
+    public PageResponse<SubscriptionLifecycleModels.Event> lifecycleHistory(
+            @PathVariable UUID accountId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction) {
+        return PageResponse.from(adminSubscriptionService.lifecycleHistory(
+                accountId,
+                CommercialProductPageRequest.of(
+                        page, size, sort, direction, LIFECYCLE_HISTORY_SORTS,
+                        "createdAt", Sort.Direction.DESC)));
     }
 
     private UUID actorUserId(Authentication authentication) {

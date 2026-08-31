@@ -1179,6 +1179,79 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
+    void subscriptionLifecycleReviewMutationAndHistoryUseSeparatePermissionNodes()
+            throws Exception {
+        UUID missingAccountId = UUID.randomUUID();
+        LimitedAdmin previewer = createLimitedAdmin(
+                "platform.subscriptions.preview_lifecycle");
+        LimitedAdmin actionReader = createLimitedAdmin(
+                "platform.subscriptions.read_lifecycle_actions");
+        LimitedAdmin suspender = createLimitedAdmin("platform.subscriptions.suspend");
+        LimitedAdmin historian = createLimitedAdmin(
+                "platform.subscriptions.read_lifecycle_history");
+        String previewBody = "{\"action\":\"SUSPEND\"}";
+        String applyBody = """
+                {"previewToken":"not-valid-evidence","reason":"Permission boundary test"}
+                """;
+
+        mockMvc.perform(get(
+                                "/api/admin/subscriptions/account/{id}/lifecycle/actions",
+                                missingAccountId)
+                        .header("Authorization", bearer(previewer.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(get(
+                                "/api/admin/subscriptions/account/{id}/lifecycle/actions",
+                                missingAccountId)
+                        .header("Authorization", bearer(actionReader.token())))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{id}/lifecycle/preview",
+                                missingAccountId)
+                        .header("Authorization", bearer(suspender.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(previewBody))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{id}/lifecycle/preview",
+                                missingAccountId)
+                        .header("Authorization", bearer(previewer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(previewBody))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{id}/lifecycle/SUSPEND",
+                                missingAccountId)
+                        .header("Authorization", bearer(previewer.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applyBody))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(post(
+                                "/api/admin/subscriptions/account/{id}/lifecycle/SUSPEND",
+                                missingAccountId)
+                        .header("Authorization", bearer(suspender.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applyBody))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get(
+                                "/api/admin/subscriptions/account/{id}/lifecycle-history",
+                                missingAccountId)
+                        .header("Authorization", bearer(previewer.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"));
+        mockMvc.perform(get(
+                                "/api/admin/subscriptions/account/{id}/lifecycle-history",
+                                missingAccountId)
+                        .header("Authorization", bearer(historian.token())))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void scheduledReplacementPreviewAndExecutionUseSeparatePermissionNodes() throws Exception {
         UUID currentId = UUID.randomUUID();
         UUID successorId = UUID.randomUUID();

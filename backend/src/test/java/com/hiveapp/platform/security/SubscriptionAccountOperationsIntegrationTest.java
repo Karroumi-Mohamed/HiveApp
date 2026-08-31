@@ -6,6 +6,7 @@ import com.hiveapp.identity.dto.RegisterRequest;
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionSuspensionCause;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
@@ -369,6 +370,11 @@ class SubscriptionAccountOperationsIntegrationTest extends PlatformShellIntegrat
     private void changeStatus(Account account, SubscriptionStatus status) {
         Subscription subscription = subscriptionRepository.findUsableByAccountId(account.getId()).orElseThrow();
         subscription.setStatus(status);
+        if (status == SubscriptionStatus.SUSPENDED) {
+            subscription.setSuspensionCause(SubscriptionSuspensionCause.OPERATOR);
+            subscription.setSuspendedFromStatus(SubscriptionStatus.ACTIVE);
+            subscription.setSuspensionReason("Operational table fixture");
+        }
         subscriptionRepository.saveAndFlush(subscription);
     }
 

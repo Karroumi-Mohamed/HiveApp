@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionPeriodStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionSuspensionCause;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.entity.SubscriptionPeriod;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionPeriodRepository;
@@ -42,6 +43,9 @@ public class SubscriptionLifecycleManager {
         subscription.setPastDueAt(null);
         subscription.setGraceEndsAt(null);
         subscription.setSuspendedAt(null);
+        subscription.setSuspensionCause(null);
+        subscription.setSuspendedFromStatus(null);
+        subscription.setSuspensionReason(null);
         subscription.setEntitlementSnapshot(
                 subscription.getEntitlementSnapshot().withEffectivePeriod(period.startsAt(), period.endsAt()));
     }
@@ -61,6 +65,12 @@ public class SubscriptionLifecycleManager {
         closeOpenPeriod(subscription, SubscriptionPeriodStatus.CANCELLED, clock.instant());
     }
 
+    public void cancelImmediately(Subscription subscription, Instant cancelledAt) {
+        subscription.setStatus(SubscriptionStatus.CANCELLED);
+        subscription.setCancelAtPeriodEnd(false);
+        closeOpenPeriod(subscription, SubscriptionPeriodStatus.CANCELLED, cancelledAt);
+    }
+
     @Transactional
     @AuditedMutation(
             action = "platform.client.subscription.lifecycle.process_due",
@@ -72,6 +82,9 @@ public class SubscriptionLifecycleManager {
         due.forEach(subscription -> processDue(subscription, now));
         subscriptionRepository.findGraceExpiredForUpdate(SubscriptionStatus.PAST_DUE, now)
                 .forEach(subscription -> suspendAfterGrace(subscription, now));
+        subscriptionRepository.findExpiredSuspensionsForUpdate(
+                        SubscriptionStatus.SUSPENDED, SubscriptionSuspensionCause.OPERATOR, now)
+                .forEach(subscription -> closeExpiredOperatorSuspension(subscription, now));
     }
 
     private void processDue(Subscription subscription, Instant now) {
@@ -106,6 +119,21 @@ public class SubscriptionLifecycleManager {
     private void suspendAfterGrace(Subscription subscription, Instant now) {
         subscription.setStatus(SubscriptionStatus.SUSPENDED);
         subscription.setSuspendedAt(now);
+        subscription.setSuspensionCause(
+                com.hiveapp.platform.client.plan.domain.constant.SubscriptionSuspensionCause.COLLECTION);
+        subscription.setSuspendedFromStatus(SubscriptionStatus.PAST_DUE);
+        subscription.setSuspensionReason("Renewal collection grace expired");
+        subscriptionRepository.save(subscription);
+    }
+
+    private void closeExpiredOperatorSuspension(Subscription subscription, Instant now) {
+        if (subscription.getSuspendedFromStatus() == SubscriptionStatus.TRIALING) {
+            subscription.setStatus(SubscriptionStatus.EXPIRED);
+            closeOpenPeriod(subscription, SubscriptionPeriodStatus.TRIAL_EXPIRED, now);
+        } else {
+            subscription.setStatus(SubscriptionStatus.CANCELLED);
+            closeOpenPeriod(subscription, SubscriptionPeriodStatus.CANCELLED, now);
+        }
         subscriptionRepository.save(subscription);
     }
 

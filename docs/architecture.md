@@ -337,6 +337,12 @@ This filtering must be derived from code-owned feature definitions and validated
 
 Platform admin delegation also has an actor ceiling. A non-SuperAdmin may grant or assign only permissions already held through active admin roles; activating a feature does not bypass that ceiling. Only a SuperAdmin may create another SuperAdmin. An admin cannot deactivate their own account, and once another admin deactivates them, an existing admin JWT must no longer authenticate future requests. Reads of role or user detail are separately permissioned actions rather than an accidental side effect of listing access.
 
+Ordinary access JWTs are also server-side sessions. Login registers an access/refresh pair; logout,
+credential reset, user deactivation, Account subscription suspension, and immediate cancellation can
+revoke the pair before cryptographic expiry. Session state is process-local in the current
+unpublished single-process environment, so restart intentionally logs everyone out. A shared
+persistent session store is required before a multi-instance production deployment.
+
 The admin UI groups this control-plane surface as Admin Access, with Members and Roles pages under `/admin/access/*`. Members are platform admin operators, not client workspace members. Roles are platform admin roles, not `platform.rbac` client roles. The backend list responses may include the summaries required by those workflows: admin-user rows include assigned role summaries, and admin-role rows include assigned registry permission summaries. Those summaries are read models for the operator UI; write-side services still enforce the actor ceiling, role active state, SuperAdmin-only escalation, self-deactivation rule, and `PLATFORM_ADMIN_ROLE_GRANTABLE` feature-surface validation.
 
 ## 15. Current Platform Shell Feature Map

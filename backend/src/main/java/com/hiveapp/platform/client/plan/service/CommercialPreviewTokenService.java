@@ -116,11 +116,11 @@ public class CommercialPreviewTokenService {
         try {
             String[] parts = token.split("\\.", -1);
             if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) throw invalid();
-            byte[] suppliedSignature = Base64.getUrlDecoder().decode(parts[1]);
+            byte[] suppliedSignature = decodeCanonical(parts[1]);
             byte[] expectedSignature = sign(parts[0].getBytes(StandardCharsets.US_ASCII));
             if (!MessageDigest.isEqual(expectedSignature, suppliedSignature)) throw invalid();
 
-            String[] claims = new String(Base64.getUrlDecoder().decode(parts[0]),
+            String[] claims = new String(decodeCanonical(parts[0]),
                     StandardCharsets.UTF_8).split("\\n", -1);
             if (claims.length != 10 || !VERSION.equals(claims[0])) throw invalid();
             CommercialPreviewKind kind = CommercialPreviewKind.valueOf(claims[1]);
@@ -210,6 +210,13 @@ public class CommercialPreviewTokenService {
 
     private String encode(byte[] value) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(value);
+    }
+
+    /** Rejects alternate Base64 spellings whose ignored trailing bits decode to signed bytes. */
+    private byte[] decodeCanonical(String value) {
+        byte[] decoded = Base64.getUrlDecoder().decode(value);
+        if (!encode(decoded).equals(value)) throw invalid();
+        return decoded;
     }
 
     private InvalidEvidenceException invalid() {

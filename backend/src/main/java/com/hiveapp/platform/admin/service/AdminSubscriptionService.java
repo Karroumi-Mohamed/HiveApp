@@ -21,6 +21,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionOverrideChoicePage;
 import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
+import com.hiveapp.platform.client.plan.dto.SubscriptionLifecycleModels;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -72,6 +73,22 @@ public interface AdminSubscriptionService {
             UUID accountId, UUID operationId, UUID actorUserId, String reason);
     SubscriptionCheckoutDto confirmCheckoutManually(
             UUID checkoutId, UUID actorUserId, String reference, String reason);
+    SubscriptionLifecycleModels.Actions lifecycleActions(UUID accountId);
+    SubscriptionLifecycleModels.Preview previewLifecycle(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.PreviewRequest request);
+    SubscriptionLifecycleModels.Mutation cancelAtPeriodEnd(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request);
+    SubscriptionLifecycleModels.Mutation keepRenewing(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request);
+    SubscriptionLifecycleModels.Mutation cancelImmediately(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request);
+    SubscriptionLifecycleModels.Mutation suspend(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request);
+    SubscriptionLifecycleModels.Mutation restore(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request);
+    SubscriptionLifecycleModels.Mutation extendGrace(
+            UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request);
+    Page<SubscriptionLifecycleModels.Event> lifecycleHistory(UUID accountId, Pageable pageable);
     SubscriptionChangeJobModels.Preview previewChangeJob(
             UUID actorUserId, SubscriptionChangeJobModels.PreviewRequest request);
     SubscriptionChangeJobModels.Detail confirmChangeJob(

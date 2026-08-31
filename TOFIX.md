@@ -678,7 +678,7 @@ Client self-service may select only versioned predefined quota packages explicit
 
 ### SUBSCRIPTION-003 — Subscription periods and lifecycle transitions are not implemented
 
-**Status:** `PARTIALLY RESOLVED — RENEWAL/GRACE RECOVERY IMPLEMENTED 2026-08-31`
+**Status:** `PARTIALLY RESOLVED — RENEWAL/GRACE AND ONE-ACCOUNT LIFECYCLE IMPLEMENTED 2026-08-31`
 
 **Evidence**
 
@@ -714,8 +714,16 @@ Define the lifecycle state machine and actor/event for every transition. Store u
 - Trusted provider evidence or separately authorized manual settlement activates the already
   invoiced next period from its original renewal boundary. Manual settlement can recover a failed
   Checkout/operation while retaining the failed automatic Payment evidence.
-- Current admin/client read models include recovery timestamps. Reviewed lifecycle commands,
-  Account-specific grace extension, communications, and filtered/Plan populations remain open.
+- Current admin/client read models include recovery timestamps.
+- One-Account cancel-at-period-end, keep-renewing, immediate cancellation, operator suspension,
+  restoration, and collection-grace extension use independent permissions, actor/action/version-
+  bound signed reviews, required reasons, locked mutation, and append-only bounded history.
+- Collection suspension cannot be restored through an operator status flip. Operator suspension
+  retains its prior entitled state only for bounded restoration before term end.
+- Suspension and immediate cancellation revoke every current Account member access and refresh
+  session; restoration does not reactivate old tokens. Terminal subscriptions remain readable.
+- Reviewed trial/new-entitlement creation, population lifecycle jobs, communications, and
+  filtered/Plan populations remain open.
 
 ---
 
@@ -1715,7 +1723,7 @@ Define one email canonicalization policy and apply it before uniqueness checks, 
 
 ### AUTH-002 — Refresh-token type and revocation behavior are not visible at the service boundary
 
-**Status:** `RESOLVED FOR CURRENT IN-MEMORY STAGE — 2026-07-16`
+**Status:** `RESOLVED FOR CURRENT SINGLE-PROCESS IN-MEMORY STAGE — UPDATED 2026-08-31`
 
 **Evidence**
 
@@ -1733,10 +1741,17 @@ Add explicit audience/token-use claims, require `refresh` use at refresh endpoin
 
 **Implementation evidence — 2026-07-16**
 
-- Every token now has explicit `CLIENT`/`ADMIN` audience and `ACCESS`/`REFRESH` use; refresh tokens also have a unique token ID.
-- `TokenSessionService` registers refresh sessions, consumes each token atomically once, rotates it on refresh, rejects reuse and audience mismatch, and revokes it on logout.
-- Both security filters require an audience-matching access token, so refresh tokens cannot authenticate API requests and access tokens cannot be exchanged at refresh endpoints.
-- Current refresh-session state is intentionally process-local while the application is unpublished and uses disposable in-memory data. Restart invalidates all refresh sessions safely. A shared persistent session store is deployment hardening for future multi-instance production, not a current Flyway task.
+- Every token has explicit `CLIENT`/`ADMIN` audience and `ACCESS`/`REFRESH` use plus a unique pair ID.
+- `TokenSessionService` registers both members of the pair, consumes each refresh token atomically
+  once, rotates it on refresh, rejects reuse/audience mismatch, and revokes both tokens on logout or
+  an access-reset operation.
+- Both security filters require an audience-matching, currently active access session, so a signed
+  token revoked by Account suspension, cancellation, credential reset, or deactivation cannot keep
+  authenticating until JWT expiry.
+- All session state remains intentionally process-local while the application is unpublished and
+  single-process. Restart invalidates every session safely. A shared persistent session store is a
+  mandatory deployment prerequisite before multi-instance production, not an unrecorded promise of
+  the current generated-schema environment.
 
 ---
 

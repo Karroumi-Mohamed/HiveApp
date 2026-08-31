@@ -64,12 +64,20 @@ before its persisted grace deadline. `SUSPENDED`, `CANCELLED`, and `EXPIRED` are
 Current-subscription read models still expose `PAST_DUE` and `SUSPENDED` so the client and operator
 can understand and recover the state; ordinary entitlement checks remain fail-closed.
 
-## 5. Remaining lifecycle operations
+## 5. Lifecycle controls delivered after renewal recovery
 
-This renewal recovery does not collapse the separately decided commands. Reviewed
-cancel-at-period-end, immediate cancellation, operator suspension, restoration, trial creation,
-plan-wide renewal instructions, and reasoned Account grace exceptions remain distinct Phase 12
-operations with their own permissions, previews, actor/reason provenance, and UI.
+Reviewed cancel-at-period-end, keep-renewing, immediate cancellation, operator suspension,
+operator restoration, and Account grace extension are distinct one-Account operations. Every
+operation has its own permission, requires an actor/action/version-bound preview plus reason, and
+records append-only lifecycle history.
+
+Collection and operator suspension are deliberately different. A collection suspension cannot be
+restored by flipping its status; it needs trusted settlement or a separately reviewed grace
+extension. Operator suspension remembers its prior `ACTIVE` or `TRIALING` status and is restorable
+only before that term ends. Suspension and immediate cancellation revoke all current Account client
+sessions, while restoration never makes an old token valid again.
+
+Reviewed trial/new-entitlement creation and population-wide lifecycle jobs remain Phase 12 work.
 
 ## 6. Verification gate
 

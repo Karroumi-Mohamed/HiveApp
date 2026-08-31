@@ -2,6 +2,7 @@ package com.hiveapp.platform.client.plan.domain.repository;
 
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionSuspensionCause;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.domain.Specification;
@@ -35,6 +36,9 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
     Optional<Subscription> findTopByAccountIdAndStatusInOrderByCreatedAtDesc(
             UUID accountId,
             Collection<SubscriptionStatus> statuses);
+
+    @EntityGraph(attributePaths = "plan")
+    Optional<Subscription> findTopByAccountIdOrderByCreatedAtDesc(UUID accountId);
 
     List<Subscription> findAllByPlan_IdAndStatusInOrderByCreatedAtDesc(UUID planId, Collection<SubscriptionStatus> statuses);
 
@@ -77,6 +81,16 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
             + "where subscription.status = :status and subscription.graceEndsAt <= :cutoff")
     List<Subscription> findGraceExpiredForUpdate(
             @Param("status") SubscriptionStatus status,
+            @Param("cutoff") Instant cutoff);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select subscription from Subscription subscription "
+            + "where subscription.status = :status "
+            + "and subscription.suspensionCause = :cause "
+            + "and subscription.currentPeriodEnd <= :cutoff")
+    List<Subscription> findExpiredSuspensionsForUpdate(
+            @Param("status") SubscriptionStatus status,
+            @Param("cause") SubscriptionSuspensionCause cause,
             @Param("cutoff") Instant cutoff);
 
     @Query("select subscription from Subscription subscription "
@@ -174,6 +188,17 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
                 List.of(SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING,
                         SubscriptionStatus.PAST_DUE, SubscriptionStatus.SUSPENDED));
     }
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"account", "plan"})
+    @Query("select subscription from Subscription subscription "
+            + "where subscription.id = :subscriptionId "
+            + "and subscription.account.id = :accountId "
+            + "and subscription.status in :statuses")
+    Optional<Subscription> findCurrentForLifecycleUpdate(
+            @Param("subscriptionId") UUID subscriptionId,
+            @Param("accountId") UUID accountId,
+            @Param("statuses") Collection<SubscriptionStatus> statuses);
 
     @Override
     @EntityGraph(attributePaths = "plan")

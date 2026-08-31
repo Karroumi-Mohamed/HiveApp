@@ -130,7 +130,7 @@ class MemberCredentialLifecycleIntegrationTest extends PlatformShellIntegrationT
 
         mockMvc.perform(get("/api/v1/members")
                         .header("Authorization", bearer(oldAccessToken)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new RefreshTokenRequest(oldRefreshToken))))

@@ -219,22 +219,22 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     }
 
     /**
-     * Internal cross-service lookup returning the entity. Unguarded on purpose: its only caller
-     * is the admin subscription surface, which carries its own guard. The client-facing guard
-     * lives on {@link #getMySubscription(UUID)}.
+     * Internal cross-service read lookup returning the latest subscription, including terminal
+     * history. Unguarded on purpose: its only caller is the admin subscription surface, which
+     * carries its own guard. Mutation paths use their stricter current-subscription lookups.
      */
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "internal_subscription", guard = PermissionNode.Guard.OFF)
     public Subscription getSubscription(UUID accountId) {
-        return requireCurrentSubscription(accountId);
+        return requireLatestSubscription(accountId);
     }
 
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "read", description = "View my subscription")
     public SubscriptionDto getMySubscription(UUID accountId) {
-        return subscriptionMapper.toDto(requireCurrentSubscription(accountId));
+        return subscriptionMapper.toDto(requireLatestSubscription(accountId));
     }
 
     /**
@@ -250,6 +250,11 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
 
     private Subscription requireCurrentSubscription(UUID accountId) {
         return subscriptionRepository.findCurrentByAccountId(accountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Subscription", "accountId", accountId));
+    }
+
+    private Subscription requireLatestSubscription(UUID accountId) {
+        return subscriptionRepository.findTopByAccountIdOrderByCreatedAtDesc(accountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Subscription", "accountId", accountId));
     }
 
@@ -1687,7 +1692,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 subscription.isCancelAtPeriodEnd(),
                 subscription.getPastDueAt(),
                 subscription.getGraceEndsAt(),
-                subscription.getSuspendedAt());
+                subscription.getSuspendedAt(),
+                subscription.getSuspensionCause());
     }
 
     private record ChangeSelection(

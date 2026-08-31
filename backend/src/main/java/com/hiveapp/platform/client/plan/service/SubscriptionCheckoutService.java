@@ -139,13 +139,15 @@ public class SubscriptionCheckoutService {
             if (checkout.getStatus() == SubscriptionCheckoutStatus.CONFIRMED) {
                 throw new InvalidStateException("A confirmed checkout cannot be cancelled.");
             }
-            if (checkout.getStatus() == SubscriptionCheckoutStatus.PENDING_CONFIRMATION) {
+            if (checkout.getStatus() == SubscriptionCheckoutStatus.PENDING_CONFIRMATION
+                    || checkout.getStatus() == SubscriptionCheckoutStatus.FAILED) {
                 billingLedgerService.cancelForCheckout(checkout.getId());
                 SubscriptionCheckout locked = checkoutRepository.findByIdForUpdate(checkout.getId())
                         .orElseThrow(() -> new ResourceNotFoundException(
                                 "SubscriptionCheckout", "id", checkout.getId()));
-                if (locked.getStatus() != SubscriptionCheckoutStatus.PENDING_CONFIRMATION) {
-                    throw new InvalidStateException("Only a pending checkout can be cancelled.");
+                if (locked.getStatus() != SubscriptionCheckoutStatus.PENDING_CONFIRMATION
+                        && locked.getStatus() != SubscriptionCheckoutStatus.FAILED) {
+                    throw new InvalidStateException("Only a pending or failed checkout can be cancelled.");
                 }
                 locked.setStatus(SubscriptionCheckoutStatus.CANCELLED);
                 checkoutRepository.save(locked);

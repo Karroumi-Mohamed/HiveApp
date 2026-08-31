@@ -46,6 +46,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class SecurityConfig {
     private final JwtTokenProvider jwtTokenProvider;
+    private final TokenSessionService tokenSessionService;
     private final com.hiveapp.identity.infrastructure.security.UserDetailsServiceImpl userDetailsService;
     private final com.hiveapp.platform.admin.infrastructure.security.AdminUserDetailsServiceImpl adminUserDetailsService;
     private final AuthEntryPoint authEntryPoint;
@@ -63,12 +64,14 @@ public class SecurityConfig {
 
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        return new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService, accessDeniedHandler);
+        return new JwtAuthenticationFilter(
+                jwtTokenProvider, tokenSessionService, userDetailsService, accessDeniedHandler);
     }
 
     @Bean
     public AdminJwtAuthenticationFilter adminJwtAuthenticationFilter() {
-        return new AdminJwtAuthenticationFilter(jwtTokenProvider, adminUserDetailsService, accessDeniedHandler);
+        return new AdminJwtAuthenticationFilter(
+                jwtTokenProvider, tokenSessionService, adminUserDetailsService, accessDeniedHandler);
     }
 
     @Bean

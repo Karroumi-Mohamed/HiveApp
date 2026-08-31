@@ -89,6 +89,25 @@ class CommercialPreviewTokenServiceTest {
     }
 
     @Test
+    void nonCanonicalBase64CannotAliasTheSignedBytes() {
+        UUID resourceId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        String token = service.issue(
+                CommercialPreviewKind.COMMERCIAL_POLICY_ACTIVATION,
+                resourceId, 2, actorId, 3, REGISTRY, "fingerprint", NOW).token();
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        char last = token.charAt(token.length() - 1);
+        int canonicalIndex = alphabet.indexOf(last);
+        assertThat(canonicalIndex).isGreaterThanOrEqualTo(0).isLessThan(63);
+        assertThat(canonicalIndex % 4).isZero();
+        char alias = alphabet.charAt(canonicalIndex + 1);
+        String nonCanonical = token.substring(0, token.length() - 1) + alias;
+
+        assertStale(nonCanonical, CommercialPreviewKind.COMMERCIAL_POLICY_ACTIVATION,
+                resourceId, 2, actorId, 3, REGISTRY, "fingerprint");
+    }
+
+    @Test
     void reusableVerifierUsesTheCallingPreviewDomainsRejectionContract() {
         UUID resourceId = UUID.randomUUID();
         UUID actorId = UUID.randomUUID();

@@ -124,8 +124,7 @@ class AccountProvisioningIntegrationTest extends PlatformShellIntegrationTestSup
 
         mockMvc.perform(get("/api/v1/accounts/me")
                         .header("Authorization", bearer(accessToken)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.message").value("Access Denied: Workspace account is suspended"));
+                .andExpect(status().isUnauthorized());
 
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)

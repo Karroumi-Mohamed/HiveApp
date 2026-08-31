@@ -390,6 +390,11 @@ class CommercialAvailabilityControlPlaneIntegrationTest
                         Instant pastDueAt = Instant.now();
                         managed.setPastDueAt(pastDueAt);
                         managed.setGraceEndsAt(pastDueAt.plusSeconds(3_600));
+                    } else if (managedStatus == SubscriptionStatus.SUSPENDED) {
+                        managed.setSuspensionCause(
+                                com.hiveapp.platform.client.plan.domain.constant.SubscriptionSuspensionCause.COLLECTION);
+                        managed.setSuspendedFromStatus(SubscriptionStatus.PAST_DUE);
+                        managed.setSuspensionReason("Commercial availability fixture");
                     }
                     subscriptionRepository.saveAndFlush(managed);
                 });
@@ -474,6 +479,9 @@ class CommercialAvailabilityControlPlaneIntegrationTest
                                         SubscriptionStatus.SUSPENDED))
                         .ifPresent(subscription -> {
                             subscription.setStatus(SubscriptionStatus.ACTIVE);
+                            subscription.setSuspensionCause(null);
+                            subscription.setSuspendedFromStatus(null);
+                            subscription.setSuspensionReason(null);
                             subscriptionRepository.save(subscription);
                         });
             });

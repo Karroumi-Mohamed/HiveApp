@@ -24,6 +24,7 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(AdminJwtAuthenticationFilter.class);
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final TokenSessionService tokenSessionService;
     private final UserDetailsService adminUserDetailsService;
     private final AccessDeniedHandler accessDeniedHandler;
 
@@ -66,6 +67,9 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
                                 new AccessDeniedException("Token is not valid for the admin API surface"));
                         return;
                     }
+                } else if (!tokenSessionService.isAccessActive(claims, TokenAudience.ADMIN)) {
+                    filterChain.doFilter(request, response);
+                    return;
                 } else {
                     String userId = jwtTokenProvider.getUserIdFromToken(token).toString();
                     var userDetails = adminUserDetailsService.loadUserByUsername(userId);

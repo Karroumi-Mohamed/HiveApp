@@ -27,10 +27,11 @@ public class JwtTokenProvider {
                 jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateAccessToken(UUID userId, TokenAudience audience) {
+    public String generateAccessToken(UUID userId, TokenAudience audience, UUID tokenId) {
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(userId.toString())
+                .id(tokenId.toString())
                 .claim("tokenType", audience.name())
                 .claim("tokenUse", TokenUse.ACCESS.name())
                 .issuedAt(new Date(now))

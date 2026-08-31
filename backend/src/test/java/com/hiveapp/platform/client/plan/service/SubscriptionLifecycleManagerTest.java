@@ -3,6 +3,7 @@ package com.hiveapp.platform.client.plan.service;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionPeriodStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
+import com.hiveapp.platform.client.plan.domain.constant.SubscriptionSuspensionCause;
 import com.hiveapp.platform.client.plan.domain.entity.Plan;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
 import com.hiveapp.platform.client.plan.domain.entity.SubscriptionPeriod;
@@ -124,7 +125,32 @@ class SubscriptionLifecycleManagerTest {
 
         assertThat(pastDue.getStatus()).isEqualTo(SubscriptionStatus.SUSPENDED);
         assertThat(pastDue.getSuspendedAt()).isEqualTo(NOW);
+        assertThat(pastDue.getSuspensionCause()).isEqualTo(SubscriptionSuspensionCause.COLLECTION);
+        assertThat(pastDue.getSuspendedFromStatus()).isEqualTo(SubscriptionStatus.PAST_DUE);
         verify(subscriptionRepository).save(pastDue);
+    }
+
+    @Test
+    void operatorSuspensionClosesWhenItsPaidPeriodEnds() {
+        Subscription suspended = subscription(
+                SubscriptionStatus.SUSPENDED, Money.of(new BigDecimal("20.00"), "USD"));
+        suspended.setSuspensionCause(SubscriptionSuspensionCause.OPERATOR);
+        suspended.setSuspendedFromStatus(SubscriptionStatus.ACTIVE);
+        suspended.setSuspendedAt(NOW.minusSeconds(3_600));
+        SubscriptionPeriod open = openPeriod(suspended);
+        when(clock.instant()).thenReturn(NOW);
+        when(subscriptionRepository.findExpiredSuspensionsForUpdate(
+                SubscriptionStatus.SUSPENDED, SubscriptionSuspensionCause.OPERATOR, NOW))
+                .thenReturn(List.of(suspended));
+        when(subscriptionPeriodRepository.findBySubscriptionIdAndStatus(
+                suspended.getId(), SubscriptionPeriodStatus.OPEN)).thenReturn(Optional.of(open));
+
+        lifecycleManager.processDueSubscriptions();
+
+        assertThat(suspended.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
+        assertThat(open.getStatus()).isEqualTo(SubscriptionPeriodStatus.CANCELLED);
+        assertThat(open.getClosedAt()).isEqualTo(NOW);
+        verify(subscriptionRepository).save(suspended);
     }
 
     private Subscription subscription(SubscriptionStatus status, Money money) {
