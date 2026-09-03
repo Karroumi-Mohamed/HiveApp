@@ -71,6 +71,31 @@ public class SubscriptionLifecycleManager {
         closeOpenPeriod(subscription, SubscriptionPeriodStatus.CANCELLED, cancelledAt);
     }
 
+    public void suspendForAgreementReview(
+            Subscription subscription, Instant at, String reason) {
+        closeOpenPeriod(subscription, SubscriptionPeriodStatus.COMPLETED, at);
+        subscription.setStatus(SubscriptionStatus.SUSPENDED);
+        subscription.setCancelAtPeriodEnd(false);
+        subscription.setPastDueAt(null);
+        subscription.setGraceEndsAt(null);
+        subscription.setSuspendedAt(at);
+        subscription.setSuspensionCause(SubscriptionSuspensionCause.AGREEMENT_REVIEW);
+        subscription.setSuspendedFromStatus(SubscriptionStatus.ACTIVE);
+        subscription.setSuspensionReason(reason);
+    }
+
+    public void awaitAgreementRestoration(
+            Subscription subscription, Instant at) {
+        closeOpenPeriod(subscription, SubscriptionPeriodStatus.PAYMENT_DUE, at);
+        subscription.setStatus(SubscriptionStatus.PAST_DUE);
+        subscription.setPastDueAt(at);
+        subscription.setGraceEndsAt(graceDeadline(at));
+        subscription.setSuspendedAt(null);
+        subscription.setSuspensionCause(null);
+        subscription.setSuspendedFromStatus(null);
+        subscription.setSuspensionReason(null);
+    }
+
     @Transactional
     @AuditedMutation(
             action = "platform.client.subscription.lifecycle.process_due",

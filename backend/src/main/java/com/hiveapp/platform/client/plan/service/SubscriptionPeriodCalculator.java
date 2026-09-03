@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.util.OptionalLong;
 
 @Component
 @RequiredArgsConstructor
@@ -60,6 +62,27 @@ public class SubscriptionPeriodCalculator {
         }
         Instant startsAt = clock.instant();
         return new Period(startsAt, startsAt.plusSeconds(Math.multiplyExact(trialDays, 86_400L)));
+    }
+
+    public Period exact(Instant startsAt, Instant endsAt) {
+        if (startsAt == null || endsAt == null || !endsAt.isAfter(startsAt)) {
+            throw new InvalidStateException("Agreement end must be after its start.");
+        }
+        return new Period(startsAt, endsAt);
+    }
+
+    /** Returns a cycle count only when the exact UTC term is made of complete catalogue cycles. */
+    public OptionalLong completeCycles(BillingCycle cycle, Instant startsAt, Instant endsAt) {
+        exact(startsAt, endsAt);
+        if (cycle == null || cycle == BillingCycle.FOREVER) return OptionalLong.empty();
+        ZonedDateTime cursor = startsAt.atZone(ZoneOffset.UTC);
+        ZonedDateTime target = endsAt.atZone(ZoneOffset.UTC);
+        long cycles = 0;
+        while (cursor.isBefore(target) && cycles < 1_200) {
+            cursor = cycle == BillingCycle.MONTHLY ? cursor.plusMonths(1) : cursor.plusYears(1);
+            cycles++;
+        }
+        return cursor.equals(target) ? OptionalLong.of(cycles) : OptionalLong.empty();
     }
 
     public record Period(Instant startsAt, Instant endsAt) {}

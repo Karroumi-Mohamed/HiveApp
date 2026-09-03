@@ -46,4 +46,34 @@ class SubscriptionPeriodCalculatorTest {
                 .isInstanceOf(InvalidStateException.class)
                 .hasMessage("Renewal subscription changes require the current period end.");
     }
+
+    @Test
+    void exactAgreementPeriodPreservesItsAuthoritativeBounds() {
+        Instant start = Instant.parse("2028-02-29T08:00:00Z");
+        Instant end = Instant.parse("2028-05-29T08:00:00Z");
+
+        assertThat(calculator.exact(start, end))
+                .isEqualTo(new SubscriptionPeriodCalculator.Period(start, end));
+        assertThat(calculator.completeCycles(BillingCycle.MONTHLY, start, end))
+                .hasValue(3L);
+    }
+
+    @Test
+    void catalogueCycleCountUsesUtcCalendarArithmetic() {
+        Instant start = Instant.parse("2027-01-31T10:15:30Z");
+        Instant oneMonth = Instant.parse("2027-02-28T10:15:30Z");
+        Instant irregular = Instant.parse("2027-03-01T10:15:30Z");
+
+        assertThat(calculator.completeCycles(BillingCycle.MONTHLY, start, oneMonth))
+                .hasValue(1L);
+        assertThat(calculator.completeCycles(BillingCycle.MONTHLY, start, irregular))
+                .isEmpty();
+    }
+
+    @Test
+    void exactAgreementPeriodRejectsInvalidBounds() {
+        assertThatThrownBy(() -> calculator.exact(NOW, NOW))
+                .isInstanceOf(InvalidStateException.class)
+                .hasMessage("Agreement end must be after its start.");
+    }
 }

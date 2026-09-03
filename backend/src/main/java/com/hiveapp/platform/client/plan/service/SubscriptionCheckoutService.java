@@ -29,6 +29,7 @@ public class SubscriptionCheckoutService {
     private final SubscriptionChangeOperationRepository operationRepository;
     private final SubscriptionChangeActivationService activationService;
     private final BillingLedgerService billingLedgerService;
+    private final SpecialAgreementTransitionService specialAgreements;
     private final Clock clock;
 
     @Transactional
@@ -62,6 +63,62 @@ public class SubscriptionCheckoutService {
         operationRepository.save(operation);
         billingLedgerService.invoiceAndQueueCharge(
                 saved, operation.getTargetSnapshot(), amount, requestedByUserId);
+        return saved;
+    }
+
+    @Transactional
+    public SubscriptionCheckout initiateManual(
+            SubscriptionChangeOperation operation,
+            Money amount,
+            UUID requestedByUserId
+    ) {
+        if (amount.amount().signum() <= 0) {
+            throw new IllegalArgumentException("Manual settlement requires a positive amount");
+        }
+        if (operation.getId() == null) {
+            throw new IllegalStateException("Change operation must be persisted before checkout initiation");
+        }
+        SubscriptionCheckout checkout = new SubscriptionCheckout();
+        checkout.setAccount(operation.getAccount());
+        checkout.setChangeOperation(operation);
+        checkout.setStatus(SubscriptionCheckoutStatus.PENDING_CONFIRMATION);
+        checkout.setGatewayAttemptStatus(null);
+        checkout.setMoney(amount);
+        checkout.setRequestedByUserId(requestedByUserId);
+        SubscriptionCheckout saved = checkoutRepository.saveAndFlush(checkout);
+        operation.setCheckout(saved);
+        operationRepository.save(operation);
+        billingLedgerService.invoiceForManualSettlement(
+                saved, operation.getTargetSnapshot(), amount, requestedByUserId);
+        return saved;
+    }
+
+    @Transactional
+    public SubscriptionCheckout recordNoPaymentRequired(
+            SubscriptionChangeOperation operation,
+            UUID requestedByUserId
+    ) {
+        if (operation.getId() == null) {
+            throw new IllegalStateException("Change operation must be persisted before checkout creation");
+        }
+        Instant now = clock.instant();
+        SubscriptionCheckout checkout = new SubscriptionCheckout();
+        checkout.setAccount(operation.getAccount());
+        checkout.setChangeOperation(operation);
+        checkout.setStatus(SubscriptionCheckoutStatus.CONFIRMED);
+        checkout.setGatewayAttemptStatus(null);
+        checkout.setMoney(Money.zero(operation.getTargetSnapshot().currencyCode()));
+        checkout.setRequestedByUserId(requestedByUserId);
+        checkout.setConfirmationSource(CheckoutConfirmationSource.NO_PAYMENT_REQUIRED);
+        checkout.setConfirmationReference("no-payment:" + operation.getId());
+        checkout.setConfirmationReason("Complimentary special agreement; no payment required.");
+        checkout.setConfirmedByUserId(null);
+        checkout.setConfirmedAt(now);
+        SubscriptionCheckout saved = checkoutRepository.saveAndFlush(checkout);
+        operation.setCheckout(saved);
+        operationRepository.save(operation);
+        billingLedgerService.invoiceWithoutCharge(
+                saved, operation.getTargetSnapshot(), requestedByUserId);
         return saved;
     }
 
@@ -119,16 +176,15 @@ public class SubscriptionCheckoutService {
                     "Checkout change operation is not awaiting confirmation or recovery.");
         }
         operation.setAttentionReason(null);
-        if (operation.getTiming() == SubscriptionChangeTiming.AT_RENEWAL
-                && operation.getEffectiveAt().isAfter(now)) {
+        if (operation.getEffectiveAt().isAfter(now)) {
             operation.setStatus(SubscriptionChangeStatus.PENDING);
             operation.setAttentionReason(null);
             operationRepository.save(operation);
+            specialAgreements.operationScheduled(operation);
         } else {
             activationService.activate(
                     operation,
-                    operation.getTiming() == SubscriptionChangeTiming.AT_RENEWAL
-                            ? operation.getEffectiveAt() : now);
+                    operation.getEffectiveAt().isAfter(now) ? operation.getEffectiveAt() : now);
         }
         return checkout;
     }

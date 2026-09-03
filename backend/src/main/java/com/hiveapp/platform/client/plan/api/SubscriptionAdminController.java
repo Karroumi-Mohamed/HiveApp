@@ -24,6 +24,8 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoi
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionLifecycleModels;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionLifecycleAction;
+import com.hiveapp.platform.client.plan.domain.constant.SpecialAgreementStatus;
+import com.hiveapp.platform.client.plan.dto.SpecialAgreementModels;
 import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.shared.security.HiveAppUserDetails;
 import jakarta.validation.Valid;
@@ -60,6 +62,12 @@ public class SubscriptionAdminController {
             "createdAt", "createdAt",
             "effectiveAt", "effectiveAt",
             "action", "action");
+    private static final Map<String, String> SPECIAL_AGREEMENT_SORTS = Map.of(
+            "createdAt", "createdAt",
+            "startsAt", "startsAt",
+            "endsAt", "endsAt",
+            "status", "status",
+            "amount", "agreedTermAmount");
 
     private final AdminSubscriptionService adminSubscriptionService;
 
@@ -302,6 +310,94 @@ public class SubscriptionAdminController {
                 CommercialProductPageRequest.of(
                         page, size, sort, direction, LIFECYCLE_HISTORY_SORTS,
                         "createdAt", Sort.Direction.DESC)));
+    }
+
+    @PostMapping("/account/{accountId}/agreements/preview")
+    public SpecialAgreementModels.Preview previewSpecialAgreement(
+            @PathVariable UUID accountId,
+            @Valid @RequestBody SpecialAgreementModels.PreviewRequest request,
+            Authentication authentication) {
+        return adminSubscriptionService.previewSpecialAgreement(
+                accountId, actorUserId(authentication), request.definition());
+    }
+
+    @PostMapping("/account/{accountId}/agreements")
+    @ResponseStatus(HttpStatus.CREATED)
+    public SpecialAgreementModels.Created createSpecialAgreement(
+            @PathVariable UUID accountId,
+            @Valid @RequestBody SpecialAgreementModels.ConfirmRequest request,
+            Authentication authentication) {
+        return adminSubscriptionService.createSpecialAgreement(
+                accountId, actorUserId(authentication), request);
+    }
+
+    @GetMapping("/account/{accountId}/agreements")
+    public PageResponse<SpecialAgreementModels.Summary> specialAgreements(
+            @PathVariable UUID accountId,
+            @RequestParam(required = false) SpecialAgreementStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction) {
+        return PageResponse.from(adminSubscriptionService.listSpecialAgreements(
+                accountId, status, CommercialProductPageRequest.of(
+                        page, size, sort, direction, SPECIAL_AGREEMENT_SORTS,
+                        "createdAt", Sort.Direction.DESC)));
+    }
+
+    @GetMapping("/account/{accountId}/agreements/{agreementId}")
+    public SpecialAgreementModels.Detail specialAgreement(
+            @PathVariable UUID accountId, @PathVariable UUID agreementId) {
+        return adminSubscriptionService.getSpecialAgreement(accountId, agreementId);
+    }
+
+    @GetMapping("/agreements")
+    public PageResponse<SpecialAgreementModels.Summary> allSpecialAgreements(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) SpecialAgreementStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction) {
+        return PageResponse.from(adminSubscriptionService.listAllSpecialAgreements(
+                search, status, CommercialProductPageRequest.of(
+                        page, size, sort, direction, SPECIAL_AGREEMENT_SORTS,
+                        "createdAt", Sort.Direction.DESC)));
+    }
+
+    @PostMapping("/account/{accountId}/agreements/{agreementId}/cancel")
+    public SpecialAgreementModels.Detail cancelSpecialAgreement(
+            @PathVariable UUID accountId,
+            @PathVariable UUID agreementId,
+            @Valid @RequestBody SpecialAgreementModels.CancelRequest request,
+            Authentication authentication) {
+        return adminSubscriptionService.cancelSpecialAgreement(
+                accountId, agreementId, actorUserId(authentication), request.reason());
+    }
+
+    @PostMapping("/account/{accountId}/agreements/{agreementId}/retry")
+    public SpecialAgreementModels.Detail retrySpecialAgreement(
+            @PathVariable UUID accountId,
+            @PathVariable UUID agreementId,
+            @Valid @RequestBody SpecialAgreementModels.RetryRequest request,
+            Authentication authentication) {
+        return adminSubscriptionService.retrySpecialAgreement(
+                accountId, agreementId, actorUserId(authentication), request.reason());
+    }
+
+    @PostMapping("/account/{accountId}/agreements/{agreementId}/resolve-manual-review")
+    public SpecialAgreementModels.Detail resolveSpecialAgreementManualReview(
+            @PathVariable UUID accountId,
+            @PathVariable UUID agreementId,
+            @Valid @RequestBody SpecialAgreementModels.RetryRequest request,
+            Authentication authentication) {
+        return adminSubscriptionService.resolveSpecialAgreementManualReview(
+                accountId, agreementId, actorUserId(authentication), request.reason());
+    }
+
+    @GetMapping("/agreements/analytics")
+    public SpecialAgreementModels.Analytics specialAgreementAnalytics() {
+        return adminSubscriptionService.specialAgreementAnalytics();
     }
 
     private UUID actorUserId(Authentication authentication) {

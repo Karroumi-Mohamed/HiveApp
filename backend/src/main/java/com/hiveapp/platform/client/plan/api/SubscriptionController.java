@@ -9,6 +9,7 @@ import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangePreviewRespo
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.dto.SpecialAgreementModels;
 import com.hiveapp.platform.client.plan.dto.BillingModels;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.shared.api.PageResponse;
@@ -54,6 +55,18 @@ public class SubscriptionController {
     public SubscriptionDto getMySubscription() {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
         return subscriptionService.getMySubscription(accountId);
+    }
+
+    @GetMapping("/agreements")
+    public PageResponse<SpecialAgreementModels.ClientView> agreements(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+        return PageResponse.from(subscriptionService.listMySpecialAgreements(
+                accountId,
+                CommercialProductPageRequest.of(
+                        page, size, "createdAt", "desc", Map.of("createdAt", "createdAt"),
+                        "createdAt", Sort.Direction.DESC)));
     }
 
     @GetMapping("/catalog")

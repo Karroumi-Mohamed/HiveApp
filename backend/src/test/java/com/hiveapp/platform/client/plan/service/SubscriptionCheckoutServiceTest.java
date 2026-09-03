@@ -40,6 +40,7 @@ class SubscriptionCheckoutServiceTest {
     @Mock private SubscriptionChangeOperationRepository operationRepository;
     @Mock private SubscriptionChangeActivationService activationService;
     @Mock private BillingLedgerService billingLedgerService;
+    @Mock private SpecialAgreementTransitionService specialAgreements;
     @Mock private Clock clock;
 
     private SubscriptionCheckoutService checkoutService;
@@ -47,7 +48,8 @@ class SubscriptionCheckoutServiceTest {
     @BeforeEach
     void setUp() {
         checkoutService = new SubscriptionCheckoutService(
-                checkoutRepository, operationRepository, activationService, billingLedgerService, clock);
+                checkoutRepository, operationRepository, activationService, billingLedgerService,
+                specialAgreements, clock);
     }
 
     @Test

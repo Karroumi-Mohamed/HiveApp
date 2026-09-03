@@ -26,6 +26,8 @@ public final class ErrorCodes {
             case StaleActivationPreviewException ignored -> ErrorCode.STALE_ACTIVATION_PREVIEW;
             case StaleSchedulePreviewException ignored -> ErrorCode.STALE_SCHEDULE_PREVIEW;
             case StaleOfferPreviewException ignored -> ErrorCode.STALE_OFFER_PREVIEW;
+            case StaleSpecialAgreementPreviewException ignored ->
+                    ErrorCode.STALE_SPECIAL_AGREEMENT_PREVIEW;
             case OfferCodeConflictException ignored -> ErrorCode.OFFER_CODE_CONFLICT;
             case OfferNotAvailableException ignored -> ErrorCode.OFFER_NOT_AVAILABLE;
             case OfferRedemptionBlockedException ignored -> ErrorCode.OFFER_REDEMPTION_BLOCKED;

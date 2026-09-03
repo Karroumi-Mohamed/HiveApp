@@ -22,6 +22,8 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionAddOnOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionQuotaPackageOverrideChoiceDto;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionLifecycleModels;
+import com.hiveapp.platform.client.plan.dto.SpecialAgreementModels;
+import com.hiveapp.platform.client.plan.domain.constant.SpecialAgreementStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -89,6 +91,22 @@ public interface AdminSubscriptionService {
     SubscriptionLifecycleModels.Mutation extendGrace(
             UUID accountId, UUID actorUserId, SubscriptionLifecycleModels.ApplyRequest request);
     Page<SubscriptionLifecycleModels.Event> lifecycleHistory(UUID accountId, Pageable pageable);
+    SpecialAgreementModels.Preview previewSpecialAgreement(
+            UUID accountId, UUID actorUserId, SpecialAgreementModels.Definition definition);
+    SpecialAgreementModels.Created createSpecialAgreement(
+            UUID accountId, UUID actorUserId, SpecialAgreementModels.ConfirmRequest request);
+    Page<SpecialAgreementModels.Summary> listSpecialAgreements(
+            UUID accountId, SpecialAgreementStatus status, Pageable pageable);
+    Page<SpecialAgreementModels.Summary> listAllSpecialAgreements(
+            String search, SpecialAgreementStatus status, Pageable pageable);
+    SpecialAgreementModels.Detail getSpecialAgreement(UUID accountId, UUID agreementId);
+    SpecialAgreementModels.Detail cancelSpecialAgreement(
+            UUID accountId, UUID agreementId, UUID actorUserId, String reason);
+    SpecialAgreementModels.Detail retrySpecialAgreement(
+            UUID accountId, UUID agreementId, UUID actorUserId, String reason);
+    SpecialAgreementModels.Detail resolveSpecialAgreementManualReview(
+            UUID accountId, UUID agreementId, UUID actorUserId, String reason);
+    SpecialAgreementModels.Analytics specialAgreementAnalytics();
     SubscriptionChangeJobModels.Preview previewChangeJob(
             UUID actorUserId, SubscriptionChangeJobModels.PreviewRequest request);
     SubscriptionChangeJobModels.Detail confirmChangeJob(

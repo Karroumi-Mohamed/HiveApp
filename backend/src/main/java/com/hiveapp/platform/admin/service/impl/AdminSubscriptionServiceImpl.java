@@ -42,6 +42,9 @@ import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobSta
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeJobService;
 import com.hiveapp.platform.client.plan.service.SubscriptionLifecycleAdminService;
 import com.hiveapp.platform.client.plan.dto.SubscriptionLifecycleModels;
+import com.hiveapp.platform.client.plan.dto.SpecialAgreementModels;
+import com.hiveapp.platform.client.plan.domain.constant.SpecialAgreementStatus;
+import com.hiveapp.platform.client.plan.service.SpecialAgreementService;
 import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import com.hiveapp.shared.exception.ResourceNotFoundException;
@@ -99,6 +102,7 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
     private final SubscriptionOverrideChoiceService subscriptionOverrideChoiceService;
     private final SubscriptionChangeJobService subscriptionChangeJobService;
     private final SubscriptionLifecycleAdminService subscriptionLifecycle;
+    private final SpecialAgreementService specialAgreements;
     private final SubscriptionLifecycleEventRepository subscriptionLifecycleEvents;
     private final AdminUserRepository adminUsers;
     private final Clock clock;
@@ -185,6 +189,82 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
                 event.getActorUserId(),
                 actorEmails.getOrDefault(event.getActorUserId(), event.getActorUserId().toString()),
                 event.getReason(), event.getCreatedAt()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "preview_special_agreement",
+            description = "Review one Account special commercial agreement")
+    public SpecialAgreementModels.Preview previewSpecialAgreement(
+            UUID accountId, UUID actorUserId, SpecialAgreementModels.Definition definition) {
+        return specialAgreements.preview(accountId, actorUserId, definition);
+    }
+
+    @Override
+    @PermissionNode(key = "create_special_agreement",
+            description = "Create one Account special commercial agreement")
+    public SpecialAgreementModels.Created createSpecialAgreement(
+            UUID accountId, UUID actorUserId, SpecialAgreementModels.ConfirmRequest request) {
+        return specialAgreements.confirm(accountId, actorUserId, request);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_special_agreements",
+            description = "Read an Account's special commercial agreements")
+    public Page<SpecialAgreementModels.Summary> listSpecialAgreements(
+            UUID accountId, SpecialAgreementStatus status, Pageable pageable) {
+        return specialAgreements.list(accountId, status, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "search_special_agreements",
+            description = "Search special commercial agreements across Accounts")
+    public Page<SpecialAgreementModels.Summary> listAllSpecialAgreements(
+            String search, SpecialAgreementStatus status, Pageable pageable) {
+        return specialAgreements.listAll(search, status, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_special_agreement",
+            description = "Read an Account's special commercial agreement")
+    public SpecialAgreementModels.Detail getSpecialAgreement(UUID accountId, UUID agreementId) {
+        return specialAgreements.get(accountId, agreementId);
+    }
+
+    @Override
+    @PermissionNode(key = "cancel_special_agreement",
+            description = "Cancel an unapplied special commercial agreement")
+    public SpecialAgreementModels.Detail cancelSpecialAgreement(
+            UUID accountId, UUID agreementId, UUID actorUserId, String reason) {
+        return specialAgreements.cancel(accountId, agreementId, actorUserId, reason);
+    }
+
+    @Override
+    @PermissionNode(key = "retry_special_agreement",
+            description = "Retry a safe special-agreement lifecycle step")
+    public SpecialAgreementModels.Detail retrySpecialAgreement(
+            UUID accountId, UUID agreementId, UUID actorUserId, String reason) {
+        return specialAgreements.retry(accountId, agreementId, actorUserId, reason);
+    }
+
+    @Override
+    @PermissionNode(key = "resolve_special_agreement_manual_review",
+            description = "Close a special agreement after a reviewed follow-up decision")
+    public SpecialAgreementModels.Detail resolveSpecialAgreementManualReview(
+            UUID accountId, UUID agreementId, UUID actorUserId, String reason) {
+        return specialAgreements.resolveManualReview(
+                accountId, agreementId, actorUserId, reason);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "read_special_agreement_analytics",
+            description = "Read special commercial agreement analytics")
+    public SpecialAgreementModels.Analytics specialAgreementAnalytics() {
+        return specialAgreements.analytics();
     }
 
     @Override

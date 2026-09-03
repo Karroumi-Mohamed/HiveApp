@@ -62,6 +62,7 @@ class BillingProviderEventServiceTest {
     @Mock private SubscriptionCheckoutRepository checkouts;
     @Mock private SubscriptionChangeOperationRepository operations;
     @Mock private SubscriptionChangeActivationService activation;
+    @Mock private SpecialAgreementTransitionService specialAgreements;
 
     private BillingOutboxTransactionService transactions;
 
@@ -69,7 +70,7 @@ class BillingProviderEventServiceTest {
     void setUp() {
         transactions = new BillingOutboxTransactionService(
                 commands, payments, events, refunds, invoices, checkouts, operations,
-                activation, Clock.fixed(NOW, ZoneOffset.UTC));
+                activation, specialAgreements, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test

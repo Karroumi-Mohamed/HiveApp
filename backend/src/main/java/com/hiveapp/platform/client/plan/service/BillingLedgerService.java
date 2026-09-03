@@ -88,6 +88,79 @@ public class BillingLedgerService {
         return payment;
     }
 
+    /** Creates a positive open Invoice for an already received/manual settlement path. */
+    @Transactional
+    public BillingInvoice invoiceForManualSettlement(
+            SubscriptionCheckout checkout,
+            SubscriptionEntitlementSnapshot snapshot,
+            Money finalTotal,
+            UUID requestedByUserId
+    ) {
+        Objects.requireNonNull(snapshot, "Accepted subscription snapshot is required");
+        if (finalTotal.amount().signum() <= 0) {
+            throw new IllegalArgumentException("A manual settlement Invoice requires a positive total");
+        }
+        if (checkout.getId() == null) throw new IllegalStateException("Checkout must be persisted first");
+        if (invoices.findByCheckoutId(checkout.getId()).isPresent()) {
+            throw new InvalidStateException("Checkout already has an Invoice.");
+        }
+        Instant now = clock.instant();
+        BillingInvoice invoice = BillingInvoice.open(
+                checkout, finalTotal, snapshot.billingCycle(), snapshot.effectiveFrom(),
+                snapshot.effectiveUntil(), requestedByUserId, now);
+        var customer = billingProfiles.snapshot(checkout.getAccount().getId());
+        var issuer = billingProperties.getIssuer();
+        invoice.snapshotDocumentParties(
+                new BillingInvoice.PartySnapshot(
+                        issuer.getName(), null, issuer.getAddress(),
+                        issuer.getCountryCode(), issuer.getTaxId()),
+                new BillingInvoice.PartySnapshot(
+                        customer.legalName(), customer.billingEmail(), customer.address(),
+                        customer.countryCode(), customer.taxId()));
+        Money catalogue = addComponentLines(invoice, snapshot);
+        catalogue.requireSameCurrency(finalTotal);
+        Money adjustment = finalTotal.subtract(catalogue);
+        if (adjustment.amount().signum() != 0) {
+            invoice.addLine(BillingInvoiceLine.adjustment(
+                    "Special agreement adjustment", adjustment));
+        }
+        return invoices.saveAndFlush(invoice);
+    }
+
+    /** Records a settled zero-total Invoice without inventing a Payment attempt. */
+    @Transactional
+    public BillingInvoice invoiceWithoutCharge(
+            SubscriptionCheckout checkout,
+            SubscriptionEntitlementSnapshot snapshot,
+            UUID requestedByUserId
+    ) {
+        Objects.requireNonNull(snapshot, "Accepted subscription snapshot is required");
+        if (checkout.money().amount().signum() != 0) {
+            throw new IllegalArgumentException("A no-charge Invoice requires a zero-total Checkout");
+        }
+        if (checkout.getId() == null) throw new IllegalStateException("Checkout must be persisted first");
+        if (invoices.findByCheckoutId(checkout.getId()).isPresent()) {
+            throw new InvalidStateException("Checkout already has an Invoice.");
+        }
+        Instant now = clock.instant();
+        BillingInvoice invoice = BillingInvoice.open(
+                checkout, checkout.money(), snapshot.billingCycle(), snapshot.effectiveFrom(),
+                snapshot.effectiveUntil(), requestedByUserId, now);
+        var customer = billingProfiles.snapshot(checkout.getAccount().getId());
+        var issuer = billingProperties.getIssuer();
+        invoice.snapshotDocumentParties(
+                new BillingInvoice.PartySnapshot(
+                        issuer.getName(), null, issuer.getAddress(),
+                        issuer.getCountryCode(), issuer.getTaxId()),
+                new BillingInvoice.PartySnapshot(
+                        customer.legalName(), customer.billingEmail(), customer.address(),
+                        customer.countryCode(), customer.taxId()));
+        Money catalogue = addComponentLines(invoice, snapshot);
+        invoice.addLine(BillingInvoiceLine.adjustment(
+                "Complimentary special agreement", catalogue.multiply(-1)));
+        return invoices.saveAndFlush(invoice);
+    }
+
     @Transactional
     public BillingPaymentAttempt recordManualSettlement(
             UUID checkoutId,

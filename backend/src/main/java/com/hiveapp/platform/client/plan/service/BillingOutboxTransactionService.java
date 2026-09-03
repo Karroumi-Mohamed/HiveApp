@@ -50,6 +50,7 @@ public class BillingOutboxTransactionService {
     private final SubscriptionCheckoutRepository checkouts;
     private final SubscriptionChangeOperationRepository operations;
     private final SubscriptionChangeActivationService activationService;
+    private final SpecialAgreementTransitionService specialAgreements;
     private final Clock clock;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -386,16 +387,15 @@ public class BillingOutboxTransactionService {
         if (operation.getStatus() != SubscriptionChangeStatus.AWAITING_CONFIRMATION) {
             throw new IllegalStateException("Checkout operation is not awaiting confirmation");
         }
-        if (operation.getTiming() == SubscriptionChangeTiming.AT_RENEWAL
-                && operation.getEffectiveAt().isAfter(now)) {
+        if (operation.getEffectiveAt().isAfter(now)) {
             operation.setStatus(SubscriptionChangeStatus.PENDING);
             operation.setAttentionReason(null);
             operations.save(operation);
+            specialAgreements.operationScheduled(operation);
         } else {
             activationService.activate(
                     operation,
-                    operation.getTiming() == SubscriptionChangeTiming.AT_RENEWAL
-                            ? operation.getEffectiveAt() : now);
+                    operation.getEffectiveAt().isAfter(now) ? operation.getEffectiveAt() : now);
         }
     }
 

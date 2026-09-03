@@ -100,8 +100,8 @@ public class SubscriptionCheckout extends BaseEntity {
     @PreUpdate
     void validateCheckout() {
         setMoney(Money.of(amount, currencyCode));
-        if (amount.signum() <= 0) {
-            throw new IllegalStateException("A checkout requires a positive amount");
+        if (amount.signum() < 0) {
+            throw new IllegalStateException("A checkout amount cannot be negative");
         }
         if (status == SubscriptionCheckoutStatus.CONFIRMED) {
             if (confirmationSource == null || confirmationReference == null
@@ -110,7 +110,9 @@ public class SubscriptionCheckout extends BaseEntity {
                     || (confirmationSource == CheckoutConfirmationSource.MANUAL_OPERATOR
                     && confirmedByUserId == null)
                     || (confirmationSource == CheckoutConfirmationSource.TRUSTED_PROVIDER
-                    && confirmedByUserId != null)) {
+                    && confirmedByUserId != null)
+                    || (confirmationSource == CheckoutConfirmationSource.NO_PAYMENT_REQUIRED
+                    && (amount.signum() != 0 || confirmedByUserId != null))) {
                 throw new IllegalStateException("A confirmed checkout requires confirmation evidence");
             }
         } else if (confirmationSource != null || confirmationReference != null

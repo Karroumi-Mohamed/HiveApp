@@ -90,6 +90,14 @@ public class GlobalExceptionHandler {
                         "Conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(StaleSpecialAgreementPreviewException.class)
+    public ResponseEntity<ApiError> handleStaleSpecialAgreementPreview(
+            StaleSpecialAgreementPreviewException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.STALE_SPECIAL_AGREEMENT_PREVIEW,
+                        "Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(OfferCodeConflictException.class)
     public ResponseEntity<ApiError> handleOfferCodeConflict(OfferCodeConflictException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)

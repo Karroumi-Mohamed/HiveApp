@@ -26,6 +26,7 @@ import com.hiveapp.platform.client.plan.domain.entity.QuotaPackage;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
 import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepository;
+import com.hiveapp.platform.client.plan.domain.repository.SpecialCommercialAgreementRepository;
 import com.hiveapp.platform.client.plan.domain.repository.SubscriptionChangeOperationRepository;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialOfferRedemptionRepository;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
@@ -38,6 +39,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.dto.SpecialAgreementModels;
 import com.hiveapp.platform.client.plan.mapper.SubscriptionMapper;
 import com.hiveapp.platform.client.plan.dto.SubscriptionEntitlementSnapshot;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOverrides;
@@ -60,6 +62,7 @@ import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotFactory;
 import com.hiveapp.platform.client.plan.service.SubscriptionSnapshotReader;
 import com.hiveapp.platform.client.plan.service.SubscriptionImpactAnalyzer;
 import com.hiveapp.platform.client.plan.service.SubscriptionPeriodCalculator;
+import com.hiveapp.platform.client.plan.service.SpecialAgreementSelectionAssessment;
 import com.hiveapp.platform.client.plan.service.SubscriptionCheckoutService;
 import com.hiveapp.platform.client.plan.service.BillingReadService;
 import com.hiveapp.platform.client.plan.service.SubscriptionChangeOperationProjectionMapper;
@@ -121,6 +124,7 @@ import java.util.stream.Collectors;
 public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService implements SubscriptionService {
 
     private final SubscriptionRepository subscriptionRepository;
+    private final SpecialCommercialAgreementRepository specialAgreementRepository;
     private final SubscriptionMapper subscriptionMapper;
     private final PlanRepository planRepository;
     private final ProductPriceRepository productPriceRepository;
@@ -284,6 +288,35 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     @PermissionNode(key = "read", description = "View my subscription")
     public SubscriptionDto getMySubscription(UUID accountId) {
         return subscriptionMapper.toDto(requireLatestSubscription(accountId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(
+            key = "read_special_agreements",
+            description = "View own Account special agreement terms")
+    public Page<SpecialAgreementModels.ClientView> listMySpecialAgreements(
+            UUID accountId, Pageable pageable) {
+        return specialAgreementRepository.findAllByAccountId(accountId, pageable)
+                .map(agreement -> new SpecialAgreementModels.ClientView(
+                        agreement.getId(), agreement.getStatus(),
+                        agreement.getTargetPlan().getCode(), agreement.getTargetPlan().getName(),
+                        agreement.getRequestedSelection(),
+                        agreement.getTermSnapshot().addOns().stream()
+                                .map(item -> new SpecialAgreementModels.SelectedAddOn(
+                                        item.code(), item.name()))
+                                .toList(),
+                        agreement.getTermSnapshot().quotaPackages().stream()
+                                .map(item -> new SpecialAgreementModels.SelectedQuotaPackage(
+                                        item.code(), item.name(), item.resource(),
+                                        item.capacityPerUnit(), item.quantity()))
+                                .toList(),
+                        clientEntitlementState(agreement.getTermSnapshot()),
+                        agreement.getStartsAt(),
+                        agreement.getEndsAt(), agreement.agreedMoney().amount(),
+                        agreement.getCurrencyCode(), agreement.getPricingMode(),
+                        agreement.getEndInstruction(), agreement.getAttentionStage(),
+                        agreement.getActivatedAt(), agreement.getCompletedAt()));
     }
 
     /**
@@ -1187,6 +1220,47 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         return assessResolvedChange(
                 accountId, current, target.plan(), targetSnapshot, selection,
                 request.effectiveTiming(), audience, terms.evaluation());
+    }
+
+    SpecialAgreementSelectionAssessment assessSpecialAgreementPreview(
+            UUID accountId,
+            SubscriptionChangeRequest request,
+            List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses,
+            Instant evaluatedAt
+    ) {
+        SubscriptionChangeAssessment assessment = assessSubscriptionChangePreview(
+                accountId, immediate(request), CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
+                evaluatedAt, quotaBonuses);
+        return specialAgreementAssessment(assessment);
+    }
+
+    SpecialAgreementSelectionAssessment assessSpecialAgreementForApply(
+            UUID accountId,
+            SubscriptionChangeRequest request,
+            List<CommercialOfferEffectSnapshot.QuotaBonus> quotaBonuses
+    ) {
+        return specialAgreementAssessment(assessSubscriptionChangeForApply(
+                accountId, immediate(request), CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR,
+                quotaBonuses));
+    }
+
+    private SpecialAgreementSelectionAssessment specialAgreementAssessment(
+            SubscriptionChangeAssessment assessment
+    ) {
+        return new SpecialAgreementSelectionAssessment(
+                assessment.current(), assessment.targetPlan(), assessment.targetSnapshot(),
+                new SubscriptionOverrides(
+                        assessment.selection().addOnCodes(), assessment.selection().quotaPackages()),
+                assessment.previewPrice(), assessment.currencyCode(),
+                assessment.currentEntitlements(), assessment.targetEntitlements(),
+                assessment.conflicts(), assessment.immediateAllowed(), assessment.fingerprint());
+    }
+
+    private SubscriptionChangeRequest immediate(SubscriptionChangeRequest request) {
+        return new SubscriptionChangeRequest(
+                request.targetPlanCode(), request.addOnCodes(), request.quotaPackages(),
+                SubscriptionChangeTiming.IMMEDIATE, request.planPriceSelection(),
+                request.addOnPriceEntryIds(), request.quotaPackagePriceEntryIds());
     }
 
     private void requireExactRequestedPrices(SubscriptionEntitlementSnapshot snapshot,

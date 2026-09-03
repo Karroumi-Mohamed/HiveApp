@@ -13,6 +13,7 @@ import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
+import com.hiveapp.platform.client.plan.dto.SpecialAgreementModels;
 import com.hiveapp.platform.client.plan.dto.SubscriptionOfferEvaluation;
 import com.hiveapp.platform.client.plan.dto.BillingModels;
 import java.util.UUID;
@@ -31,6 +32,9 @@ public interface SubscriptionService {
    * fails with open-in-view disabled.
    */
   SubscriptionDto getMySubscription(UUID accountId);
+
+  Page<SpecialAgreementModels.ClientView> listMySpecialAgreements(
+      UUID accountId, Pageable pageable);
 
   ClientPlanCatalogResponse catalog(UUID accountId);
 

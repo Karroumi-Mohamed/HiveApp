@@ -34,6 +34,7 @@ public class SubscriptionChangeActivationService {
     private final SubscriptionLifecycleManager lifecycleManager;
     private final SubscriptionPeriodCalculator periodCalculator;
     private final BillingCalculator billingCalculator;
+    private final SpecialAgreementTransitionService specialAgreements;
 
     @Transactional
     @AuditedMutation(
@@ -63,7 +64,12 @@ public class SubscriptionChangeActivationService {
                     .collect(Collectors.joining(" ")));
         }
 
-        var period = periodCalculator.recurring(operation.getTargetSnapshot().billingCycle(), startsAt);
+        var specialAgreement = specialAgreements.find(operation.getId());
+        var period = specialAgreement
+                .map(agreement -> periodCalculator.exact(
+                        agreement.getStartsAt(), agreement.getEndsAt()))
+                .orElseGet(() -> periodCalculator.recurring(
+                        operation.getTargetSnapshot().billingCycle(), startsAt));
         operation.setEffectiveAt(period.startsAt());
         operation.setTargetSnapshot(operation.getTargetSnapshot()
                 .withEffectivePeriod(period.startsAt(), period.endsAt()));
@@ -79,7 +85,12 @@ public class SubscriptionChangeActivationService {
         replacement.setPlan(operation.getTargetPlan());
         replacement.setCustomOverrides(operation.getRequestedSelection());
         replacement.setEntitlementSnapshot(operation.getTargetSnapshot());
-        replacement.setCurrentMoney(billingCalculator.calculateMoney(replacement));
+        // A fixed-term agreement's charge is the reviewed contractual total, not the catalogue's
+        // recurring-cycle price. The completion instruction installs the reviewed follow-on or
+        // restores the previous recurring amount before ordinary renewal processing runs.
+        replacement.setCurrentMoney(specialAgreement.isPresent()
+                ? specialAgreement.get().agreedMoney()
+                : billingCalculator.calculateMoney(replacement));
         lifecycleManager.initialize(replacement, SubscriptionStatus.ACTIVE, period);
         replacement = subscriptionRepository.saveAndFlush(replacement);
         lifecycleManager.recordOpenPeriod(replacement);
@@ -87,7 +98,9 @@ public class SubscriptionChangeActivationService {
         operation.setResultSubscription(replacement);
         operation.setStatus(SubscriptionChangeStatus.APPLIED);
         operation.setAttentionReason(null);
-        return operationRepository.save(operation);
+        SubscriptionChangeOperation saved = operationRepository.save(operation);
+        specialAgreements.operationApplied(saved, replacement);
+        return saved;
     }
 
     private String unavailableCommercialItem(SubscriptionChangeOperation operation) {
@@ -127,6 +140,8 @@ public class SubscriptionChangeActivationService {
     ) {
         operation.setStatus(SubscriptionChangeStatus.NEEDS_ATTENTION);
         operation.setAttentionReason(reason);
-        return operationRepository.save(operation);
+        SubscriptionChangeOperation saved = operationRepository.save(operation);
+        specialAgreements.operationNeedsAttention(saved, reason);
+        return saved;
     }
 }
