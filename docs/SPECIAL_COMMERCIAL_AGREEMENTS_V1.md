@@ -1,7 +1,7 @@
 # HiveApp Special Commercial Agreements V1
 
 **Decision date:** 2026-09-03  
-**Status:** canonical implementation target  
+**Status:** implemented and verified on 2026-09-03
 **Applies to:** one-Account administrator-negotiated subscription terms, fixed entitlement periods,
 manual settlement, complimentary access, and scheduled term completion
 
@@ -53,13 +53,12 @@ large modal.
    quota bonus.
 2. **Période** — start now or at an exact future instant; choose one month, a number of months, or
    exact start/end instants.
-3. **Prix** — use the calculated catalogue total, enter one exact custom total, or make the whole
-   term complimentary.
+3. **Prix et règlement** — use the calculated catalogue total, enter one exact custom total, or
+   make the term complimentary; for a positive amount choose provider payment or an authorized
+   manual settlement with its external reference.
 4. **Après la période** — continue on reviewed recurring terms, restore the previous terms, end
    access, or require manual review.
-5. **Règlement** — online/provider payment, payment already received manually, or no payment for a
-   complimentary agreement.
-6. **Révision** — backend-computed entitlement, quota, period, money, settlement, and completion
+5. **Révision** — backend-computed entitlement, quota, period, money, settlement, and completion
    preview; then explicit confirmation with an operator reason.
 
 The page uses the existing shared commercial selectors and Account workbench patterns. It provides
@@ -144,16 +143,21 @@ was already collected.
 Agreement lifecycle is:
 
 ```text
-SCHEDULED -> AWAITING_SETTLEMENT -> ACTIVE -> COMPLETED
-     |                 |              |          
-     +---------------> CANCELLED      +-------> NEEDS_ATTENTION
+positive amount: AWAITING_SETTLEMENT -> SCHEDULED (future) -> ACTIVE
+                                      -> ACTIVE (start now)
+zero amount:     SCHEDULED (future) -> ACTIVE
+                 ACTIVE (start now)
+
+SCHEDULED or AWAITING_SETTLEMENT -> CANCELLED
+ACTIVE -> COMPLETED or NEEDS_ATTENTION
 ```
 
 - A start-now complimentary agreement may move directly to `ACTIVE`.
 - A positive agreement is `AWAITING_SETTLEMENT` until trusted provider or manual settlement.
 - Cancellation is allowed only before settlement/application and retains immutable history.
 - Active terms are never edited in place. A correction is a new reviewed agreement/change.
-- Completion and every attention outcome remain readable from the Account commercial timeline.
+- Completion and every attention outcome remain readable from the Account agreement view and the
+  append-only Activities evidence.
 
 ## 9. API, authorization, and audit
 
@@ -179,14 +183,14 @@ settlement evidence.
 
 ## 10. Analytics
 
-Durable analytics distinguish:
+Durable analytics and their operational drill-down distinguish:
 
 - agreement count and active/completed/attention outcomes;
 - catalogue value versus agreed value by currency;
 - complimentary value separately from invoiced and collected value;
 - provider versus manual settlement;
-- private quota bonuses and selected products;
-- scheduled start/end success and attention outcomes.
+- private quota bonuses and selected products on each immutable agreement record;
+- scheduled start/end success and attention outcomes in per-agreement Activities evidence.
 
 No mixed-currency total is allowed. Operational counts drill into the bounded agreement table.
 
@@ -203,3 +207,24 @@ Implementation is incomplete until tests cover:
 - Account isolation, permission-before-existence, reason/audit redaction, and client privacy;
 - bounded/no-N+1 list/detail/history endpoints;
 - French/Arabic, LTR/RTL, mobile, keyboard, loading/error, and unsaved-change UI behavior.
+
+## 12. Delivery evidence
+
+The delivered backend provides independently permissioned preview, create, Account/global list,
+detail, cancellation, manual settlement, retry, manual-review closure, analytics, and client-safe
+read APIs. Confirmation uses short-lived signed evidence bound to the actor, Account, subscription
+version, catalogue revision, registry version, and complete agreement fingerprint. A unique live
+Account key closes concurrent double-agreement creation.
+
+Agreement content is applied through the ordinary reviewed subscription-operation engine. Positive
+provider and manual paths create an Invoice; complimentary paths create a settled zero Invoice and
+no Payment attempt. Future starts retain a scheduled operation, exact terms replace the recurring
+period only for the agreed interval, and all four end instructions execute through the lifecycle
+scheduler. Start and end attempts append system Activities evidence against the agreement.
+
+The admin UI mounts the five-step French-first workbench from the Account subscription page, plus
+Account/global tables, detail actions, settlement/retry controls, and currency-separated analytics.
+The client subscription page exposes the Account's safe effective agreement terms without operator
+identity, reason, settlement route, payment reference, or internal failure detail. Automated backend
+and frontend suites, authenticated desktop light/dark checks, and Arabic RTL layout checks were
+completed before the delivery commits.

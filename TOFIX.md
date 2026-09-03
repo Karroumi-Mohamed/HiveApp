@@ -3103,7 +3103,7 @@ Operators must request new code for each commercial exception or encode business
 
 ### SPECIAL-AGREEMENT-001 — Negotiated fixed terms are fragmented across unrelated tools
 
-**Status:** `OPEN — DECIDED 2026-09-03`
+**Status:** `IMPLEMENTED AND VERIFIED — 2026-09-03`
 
 **Problem**
 
@@ -3125,6 +3125,25 @@ Operators must request new code for each commercial exception or encode business
 - Preserve immutable Invoice/Payment evidence. There is no API that flips an Account or Invoice to
   paid without a checkout/invoice/reference/reason, and complimentary access creates no fake
   Payment or collected value.
+
+**Implementation evidence — 2026-09-03**
+
+- The backend now owns one immutable Account agreement aggregate with exact selection snapshots,
+  finite private quota bonuses, exact calendar/custom terms, catalogue/custom/complimentary totals,
+  provider/manual/no-payment settlement, and one explicit completion instruction.
+- Preview and confirmation are separated by actor/Account/subscription/catalogue/registry-bound
+  signed evidence. A unique live-Account constraint, Account locking, stale-preview handling, and
+  existing dependency/exclusion/usage vetoes close concurrent and stale application paths.
+- Positive agreements create ordinary Invoice evidence and trusted provider or referenced manual
+  settlement; complimentary agreements create a settled zero Invoice without a Payment attempt or
+  collected-value entry. Agreement detail deliberately omits protected payment references.
+- Future start, exact activation, cancellation, all four completion choices, retry/manual attention,
+  and append-only system Activities for actual start/end attempts are implemented through the
+  subscription lifecycle.
+- Admin operations include Account/global bounded lists, detail actions, manual settlement and
+  currency-separated analytics. The five-step workbench and client-safe terms view were verified in
+  authenticated light/dark and Arabic RTL layouts; the client contract excludes operator identity,
+  reason, settlement route, references, and internal failure detail.
 
 ---
 

@@ -1276,7 +1276,7 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 
 ## COMMERCIAL-FLOW-006 — One-Account special commercial agreements
 
-**Status:** `DECIDED — 2026-09-03`
+**Status:** `IMPLEMENTED — 2026-09-03`
 
 - An authorized platform administrator may create one reviewed special agreement for one Account
   without publishing a new reusable catalogue product.
@@ -1300,6 +1300,9 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - The administrator flow is **Créer un accord spécial** inside the Account subscription workbench;
   Offers and Policies remain reusable marketing/rule tools rather than hidden agreement records.
 - The complete contract is `docs/SPECIAL_COMMERCIAL_AGREEMENTS_V1.md`.
+- Delivered as independent preview/create/read/cancel/retry/manual-review/analytics permissions,
+  immutable agreement and financial evidence, scheduler-driven start/end transitions, a five-step
+  admin workbench, global and Account operations tables, and a privacy-safe client terms surface.
 
 ## ANALYTICS-FLOW-001 — Durable commercial facts and truthful analytics
 
