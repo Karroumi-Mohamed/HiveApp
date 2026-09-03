@@ -1274,6 +1274,33 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - Charge recovery never reopens a failed Payment. It creates a new Payment/outbox attempt with operator provenance; an ambiguous transport failure additionally requires recorded provider non-capture evidence before retry.
 - Automatic tax, FX, metered billing, automatic proration, and automatic refunds remain deferred and must not appear as implemented.
 
+## COMMERCIAL-FLOW-006 — One-Account special commercial agreements
+
+**Status:** `DECIDED — 2026-09-03`
+
+- An authorized platform administrator may create one reviewed special agreement for one Account
+  without publishing a new reusable catalogue product.
+- The agreement snapshots one exact Plan/Price selection, exact AddOns and capacity packages,
+  optional finite private quota bonuses, an exact entitlement start/end, and one explicit end
+  instruction.
+- Pricing is catalogue total, exact custom fixed-term total, or complimentary zero. A custom amount
+  is contractual evidence and may differ from catalogue value; it does not mutate the product's
+  Price book.
+- A positive amount is settled through either the provider flow or an authorized manual settlement
+  with unique reference and reason. Complimentary access is zero-priced and must never be recorded
+  as a succeeded Payment or collected revenue.
+- Duration may be one month, a positive number of calendar months, or exact UTC start/end instants.
+  An irregular period is never automatically prorated.
+- At the deadline the system must execute exactly one reviewed instruction: continue on captured
+  follow-on terms, restore the pre-agreement terms, end access, or require manual review. It must not
+  silently fall into ordinary renewal.
+- Future start and end execution are durable, idempotent, Account-locked, retryable where safe, and
+  auditable. Hard registry, entitlement, authorization, dependency, usage, and data-preservation
+  rules remain vetoes.
+- The administrator flow is **Créer un accord spécial** inside the Account subscription workbench;
+  Offers and Policies remain reusable marketing/rule tools rather than hidden agreement records.
+- The complete contract is `docs/SPECIAL_COMMERCIAL_AGREEMENTS_V1.md`.
+
 ## ANALYTICS-FLOW-001 — Durable commercial facts and truthful analytics
 
 **Status:** `DECIDED — 2026-08-26`

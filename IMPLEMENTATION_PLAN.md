@@ -1829,6 +1829,20 @@ mounts the bounded history independently and can perform only the intersection o
 and the operator's exact permissions. Population lifecycle jobs and reviewed trial/new-entitlement
 creation remain open.
 
+### Batch 12.2: One-Account special commercial agreements
+
+- **Prerequisites**: Phase 12 one-Account subscription lifecycle and Phase 13 billing ledger.
+- **Action**: IMPLEMENT.
+- **Description**: Deliver `SPECIAL-AGREEMENT-001` as a reviewed Account operation with exact
+  selection, finite private quota bonuses, fixed calendar/custom term, catalogue/custom/free total,
+  provider/manual/zero settlement, durable future start, explicit reviewed completion instruction,
+  safe retry/cancel/history, and Account timeline/analytics evidence.
+- **Tests**: Calendar terms, Money/currency, manual-versus-free evidence, stale review, Account and
+  permission isolation, start/end races, every completion instruction, payment recovery, usage
+  conflict, audit/privacy, bounded APIs, and realistic French/Arabic responsive UI.
+- **UI Flow**: `Créer un accord spécial` from the Account subscription workbench using a six-step
+  full-page flow: content, period, price, completion, settlement, review.
+
 # Phase 13: Invoice, payment, credit, and refund ledgers
 
 ### Batch 13.1: Complete BILLING-003
@@ -1952,6 +1966,7 @@ creation remain open.
 | **COMMERCIAL-002** | Operational product catalogues | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001 | Bounded search/filter/sort, permissions, query count, backend actions/blockers and shared table contracts |
 | **QUOTA-005** | Capacity-package revisions | IMPLEMENTED | IMPLEMENT | Phase 9 | Batch 9.3 | COMMERCIAL-001, PRICEBOOK-001 | Revision concurrency, copied policy/prices, immutable snapshots, lifecycle/history and admin revise flow |
 | **MARKETING-001** | Segments, campaigns and offers | IMPLEMENTED — OFFER BACKEND/UI AUTOMATED AND SECURITY VERIFIED; AUTHENTICATED BROWSER QA PENDING | VERIFY | Phase 11 | Batch 11.1/11.2 | COMMERCIAL-001 | Authenticated French/Arabic Offer authoring, application, discovery, acceptance, and history browser evidence |
+| **SPECIAL-AGREEMENT-001** | One-Account negotiated fixed terms | OPEN — DECIDED | IMPLEMENT | Phase 12/13 | Batch 12.2 | PLAN-011, BILLING-003 | Exact term/amount, manual-versus-free ledger truth, durable start/end instructions, privacy and guided admin flow |
 | **UI-001** | Shared section tabs lack complete keyboard and panel semantics | CONFIRMED — PHASE 15 | IMPLEMENT | Phase 15 | Consistency audit | None | Roving Arrow/Home/End focus, associated tab-panel IDs, RTL and keyboard tests |
 | **ANALYTICS-001** | Durable commercial analytics | IMPLEMENTED — FINAL AUDIT PENDING | IMPLEMENT | Phase 14 | Batch 14.1 | MARKETING-001, BILLING-003 | Time/currency-aware facts, truthful dimensions, stable history and operational drill-down tests |
 | **OPERATIONS-001** | Platform operations and observability | IMPLEMENTED AND VERIFIED | IMPLEMENT | Phase 14 | Batch 14.2 | AUDIT-001, EMAIL-001, BILLING-003 | Permission-separated Activities, Communications, correlation, health, backlog and external-log boundary |

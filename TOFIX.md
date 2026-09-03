@@ -3101,6 +3101,31 @@ Operators must request new code for each commercial exception or encode business
 - Retained historical prices/products remain honest after later catalogue changes; signed review evidence is recomputed under locks; unknown internal errors and operator/provider provenance are not leaked to clients.
 - Safe Segment targeting and the complete operational Campaign backend/admin UI are independently audited. Offer and redemption control is implemented with automated/security verification; authenticated browser QA remains the `MARKETING-001` closure gate. Selected/filtered/scheduled subscriber-job execution, free periods, renewal instructions, retry/progress/cancellation cutoff and lifecycle commands remain `PLAN-011` Phase 12 rather than hidden policy-activation side effects.
 
+### SPECIAL-AGREEMENT-001 — Negotiated fixed terms are fragmented across unrelated tools
+
+**Status:** `OPEN — DECIDED 2026-09-03`
+
+**Problem**
+
+- Manual settlement can settle an existing Invoice, Offers can discount or grant selected products,
+  and Policies can provide Account-specific price/capacity effects, but no single reviewed operation
+  expresses a negotiated fixed entitlement term.
+- Offer and Campaign end dates govern acceptance, not Account entitlement duration.
+- Subscription periods are recurring monthly/yearly periods; one month, multiple calendar months,
+  or exact custom terms with a declared completion instruction are not an operator workflow.
+- A gift, manually received payment, and custom contractual amount must remain distinct financial
+  facts instead of being approximated by a mutable `paid` flag.
+
+**Required resolution**
+
+- Implement `docs/SPECIAL_COMMERCIAL_AGREEMENTS_V1.md`: exact one-Account content/term/price,
+  private finite quota bonuses, provider/manual/zero settlement, scheduled start, explicit end
+  instruction, signed review, Account locking, durable execution, history, analytics, privacy, and
+  the guided administrator workbench flow.
+- Preserve immutable Invoice/Payment evidence. There is no API that flips an Account or Invoice to
+  paid without a checkout/invoice/reference/reason, and complimentary access creates no fake
+  Payment or collected value.
+
 ---
 
 ### MARKETING-001 — Close authenticated browser evidence for the implemented Offer control plane
