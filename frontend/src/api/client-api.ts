@@ -9,6 +9,7 @@ import type {
   BillingTimelineEntryType,
   ClientBillingInvoiceDetail,
   ClientPlanCatalog,
+  ClientSpecialAgreement,
   ClientSubscriptionChangeApplyResponse,
   ClientSubscriptionChangePreview,
   Collaboration,
@@ -203,6 +204,8 @@ export const clientApi = {
     }),
 
   subscription: () => client<Subscription>("/api/v1/subscriptions/me"),
+  specialAgreements: (query: { page?: number; size?: number } = {}) =>
+    client<PageResponse<ClientSpecialAgreement>>("/api/v1/subscriptions/agreements", { query }),
   planCatalog: () => client<ClientPlanCatalog>("/api/v1/subscriptions/catalog"),
   previewSubscriptionChange: (input: SubscriptionChangeInput) =>
     client<ClientSubscriptionChangePreview>("/api/v1/subscriptions/preview", {

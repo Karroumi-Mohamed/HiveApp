@@ -1,6 +1,6 @@
 import { ArrowRightIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
 import type { ClientPlanCatalog, SubscriptionChangeInput, SubscriptionChangePreview } from "@/api/contracts";
@@ -261,6 +261,8 @@ export function AdminSubscriptionChangeWorkbench({
   populationMode = false,
   reviewDisabled = false,
   reviewDisabledReason,
+  showTiming = true,
+  supplement,
 }: {
   accountId: string;
   catalog: ClientPlanCatalog;
@@ -273,6 +275,8 @@ export function AdminSubscriptionChangeWorkbench({
   populationMode?: boolean;
   reviewDisabled?: boolean;
   reviewDisabledReason?: string;
+  showTiming?: boolean;
+  supplement?: ReactNode;
 }) {
   const session = useAdminSession();
   const queryClient = useQueryClient();
@@ -504,7 +508,7 @@ export function AdminSubscriptionChangeWorkbench({
           {populationMode ? "Changement commun à la sélection" : "Préparer un changement"}
         </h2>
       </div>
-      <div className="grid gap-4 border-b p-4 lg:grid-cols-3">
+      <div className={`grid gap-4 border-b p-4 ${showTiming ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
         <div className="space-y-2">
           <Label htmlFor="operator-target-plan">Forfait cible</Label>
           <Select onValueChange={changePlan} value={plan?.code ?? ""}>
@@ -544,18 +548,20 @@ export function AdminSubscriptionChangeWorkbench({
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="operator-change-timing">Application</Label>
-          <Select onValueChange={(value) => setTiming(value as typeof timing)} value={timing}>
-            <SelectTrigger id="operator-change-timing">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="IMMEDIATE">Maintenant</SelectItem>
-              <SelectItem value="AT_RENEWAL">Au renouvellement</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {showTiming ? (
+          <div className="space-y-2">
+            <Label htmlFor="operator-change-timing">Application</Label>
+            <Select onValueChange={(value) => setTiming(value as typeof timing)} value={timing}>
+              <SelectTrigger id="operator-change-timing">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="IMMEDIATE">Maintenant</SelectItem>
+                <SelectItem value="AT_RENEWAL">Au renouvellement</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid lg:grid-cols-2 lg:divide-x lg:divide-x-reverse rtl:lg:divide-x-reverse">
@@ -757,6 +763,8 @@ export function AdminSubscriptionChangeWorkbench({
           </div>
         </section>
       </div>
+
+      {supplement}
 
       <div className="flex flex-col gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-end">
         {selectionIsNoOp ? <p className="text-xs text-muted-foreground">Aucun changement sélectionné.</p> : null}

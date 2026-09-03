@@ -167,6 +167,9 @@ export const adminCommercialKeys = {
   },
   subscriptions: {
     all: () => subscriptionsRoot,
+    agreementAnalytics: () => [...subscriptionsRoot, "agreements", "analytics"] as const,
+    allAgreements: (filters: Readonly<Record<string, unknown>> = {}) =>
+      [...subscriptionsRoot, "agreements", "list", filters] as const,
     accounts: (filters: Readonly<Record<string, unknown>>) => [...subscriptionsRoot, "accounts", filters] as const,
     accountOwnerLookup: (filters: Readonly<{ ownerEmail: string; page: number }>) =>
       [...subscriptionsRoot, "account-owner-lookup", filters] as const,
@@ -177,6 +180,10 @@ export const adminCommercialKeys = {
     lifecycleActions: (accountId: string) => [...subscriptionsRoot, "detail", accountId, "lifecycle-actions"] as const,
     lifecycleHistory: (accountId: string, page: number) =>
       [...subscriptionsRoot, "detail", accountId, "lifecycle-history", page] as const,
+    agreements: (accountId: string, filters: Readonly<Record<string, unknown>> = {}) =>
+      [...subscriptionsRoot, "detail", accountId, "agreements", filters] as const,
+    agreement: (accountId: string, agreementId: string) =>
+      [...subscriptionsRoot, "detail", accountId, "agreements", agreementId] as const,
     jobs: (filters: Readonly<Record<string, unknown>> = {}) => [...subscriptionsRoot, "jobs", filters] as const,
     job: (jobId: string) => [...subscriptionsRoot, "jobs", jobId] as const,
     jobResults: (jobId: string, filters: Readonly<Record<string, unknown>> = {}) =>
@@ -203,6 +210,8 @@ export const clientCommercialKeys = {
   context: (context: ClientCommercialContext) => [...clientRoot, normalizedContext(context)] as const,
   subscription: (context: ClientCommercialContext) =>
     [...clientRoot, normalizedContext(context), "subscription"] as const,
+  agreements: (context: ClientCommercialContext, filters: Readonly<Record<string, unknown>> = {}) =>
+    [...clientRoot, normalizedContext(context), "subscription", "agreements", filters] as const,
   catalog: (context: ClientCommercialContext) =>
     [...clientRoot, normalizedContext(context), "subscription", "catalog"] as const,
   changes: (context: ClientCommercialContext, filters: Readonly<Record<string, unknown>> = {}) =>

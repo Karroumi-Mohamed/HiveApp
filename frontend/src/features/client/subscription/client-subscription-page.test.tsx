@@ -740,4 +740,18 @@ describe("client subscription operations", () => {
     expect(view.queryByText("Historique financier")).toBeNull();
     expect(requests).toEqual(["/api/v1/subscriptions/billing-profile"]);
   });
+
+  test("shows an honest empty state when agreements are the only readable current surface", async () => {
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/subscriptions/agreements") return jsonResponse(pageResponse([]));
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+
+    const { view } = renderClient("/app/subscription?tab=current", [
+      clientPermissions.subscriptionReadSpecialAgreements,
+    ]);
+
+    expect(await view.findByText("Aucun accord spécial")).toBeTruthy();
+  });
 });

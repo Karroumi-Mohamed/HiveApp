@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { clientApi } from "@/api/client-api";
 import type {
   ClientPlanCatalog,
+  ClientSpecialAgreement,
   ClientSubscriptionChangePreview,
   SubscriptionChangeInput,
   SubscriptionChangeOperation,
@@ -51,6 +52,12 @@ import {
   commercialQueryEnabled,
   invalidateClientCommercial,
 } from "@/features/commercial/commercial-query";
+import {
+  specialAgreementDateTime,
+  specialAgreementEnd,
+  specialAgreementPricing,
+  specialAgreementStatus,
+} from "@/features/commercial/special-agreement-presentation";
 import { SubscriptionChangeList } from "@/features/commercial/subscription-change-list";
 import {
   clientSubscriptionOperationUrlKeys,
@@ -81,6 +88,107 @@ import {
 const money = formatExactMoney;
 const date = (value: string | null) =>
   value ? new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium" }).format(new Date(value)) : "—";
+
+function ClientSpecialAgreementRow({ agreement }: { agreement: ClientSpecialAgreement }) {
+  return (
+    <article className="py-4 first:pt-0 last:pb-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="font-semibold">{agreement.planName}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {specialAgreementDateTime(agreement.startsAt)} → {specialAgreementDateTime(agreement.endsAt)}
+          </p>
+        </div>
+        <StatusBadge dot={false} tone={specialAgreementStatus[agreement.status].tone}>
+          {specialAgreementStatus[agreement.status].label}
+        </StatusBadge>
+      </div>
+      <dl className="mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="text-xs text-muted-foreground">Conditions</dt>
+          <dd className="mt-1 font-medium">{specialAgreementPricing[agreement.pricingMode]}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Montant pour la période</dt>
+          <dd className="mt-1 font-medium">{formatExactMoney(agreement.agreedTermAmount, agreement.currencyCode)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">À l’échéance</dt>
+          <dd className="mt-1 font-medium">{specialAgreementEnd[agreement.endInstruction]}</dd>
+        </div>
+      </dl>
+      <details className="mt-4 border-t pt-3 text-sm">
+        <summary className="cursor-pointer font-medium">Voir le contenu accordé</summary>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="text-xs text-muted-foreground">Add-ons</p>
+            <p className="mt-1">{agreement.addOns.map((value) => value.name).join(", ") || "Aucun"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Packs de capacité</p>
+            <p className="mt-1">
+              {agreement.quotaPackages.map((value) => `${value.name} × ${value.quantity}`).join(", ") || "Aucun"}
+            </p>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="text-xs text-muted-foreground">Limites effectives pendant la période</p>
+            <div className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+              {agreement.termEntitlements.effectiveQuotaLimits.map((quota) => (
+                <span className="flex justify-between gap-4" key={`${quota.featureCode}:${quota.resource}`}>
+                  <span>{capacityUnitLabel(quota.resource)}</span>
+                  <strong>{quota.effectiveLimit ?? "Illimité"}</strong>
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </details>
+      {agreement.attentionStage ? (
+        <p className="mt-4 border-s-2 border-warning ps-3 text-sm">
+          Une intervention de la plateforme est requise{" "}
+          {agreement.attentionStage === "START" ? "avant le début" : "à l’échéance"}.
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+function ClientSpecialAgreements({
+  context,
+  showEmpty = false,
+}: {
+  context: { companyId: string | null; isB2B: boolean };
+  showEmpty?: boolean;
+}) {
+  const [page, setPage] = useState(0);
+  const request = { page, size: 10 };
+  const agreements = useQuery({
+    queryKey: clientCommercialKeys.agreements(context, request),
+    queryFn: () => clientApi.specialAgreements(request),
+    retry: false,
+  });
+  if (agreements.isLoading) return <LoadingState rows={2} />;
+  if (agreements.isError) return <ErrorState retry={() => void agreements.refetch()} />;
+  if (!agreements.data?.content.length) return showEmpty ? <EmptyState title="Aucun accord spécial" /> : null;
+  return (
+    <section aria-labelledby="special-agreements-title" className="border-y py-5 lg:col-span-2">
+      <h2 className="text-sm font-semibold" id="special-agreements-title">
+        Conditions spéciales du compte
+      </h2>
+      <div className="mt-4 divide-y">
+        {agreements.data.content.map((agreement) => (
+          <ClientSpecialAgreementRow agreement={agreement} key={agreement.id} />
+        ))}
+      </div>
+      <PaginationBar
+        onPageChange={setPage}
+        page={agreements.data.page}
+        totalElements={agreements.data.totalElements}
+        totalPages={agreements.data.totalPages}
+      />
+    </section>
+  );
+}
 
 function PreviewDialog({
   preview,
@@ -880,6 +988,7 @@ export function ClientSubscriptionPage() {
   const session = useClientSession();
   const [params, setParams] = useSearchParams();
   const canReadSubscription = session.can(clientPermissions.subscriptionRead);
+  const canReadSpecialAgreements = session.can(clientPermissions.subscriptionReadSpecialAgreements);
   const canReadCatalog = session.can(clientPermissions.subscriptionCatalog);
   const canReadChanges = session.can(clientPermissions.subscriptionReadChanges);
   const canReadInvoices = session.can(clientPermissions.subscriptionListInvoices);
@@ -887,7 +996,9 @@ export function ClientSubscriptionPage() {
   const canReadBillingProfile = session.can(clientPermissions.subscriptionReadBillingProfile);
   const canReadBilling = canReadInvoices || canReadTimeline || canReadBillingProfile;
   const availableTabs = [
-    ...(canReadSubscription ? [{ label: "Abonnement actuel", value: "current" as const }] : []),
+    ...(canReadSubscription || canReadSpecialAgreements
+      ? [{ label: "Abonnement actuel", value: "current" as const }]
+      : []),
     ...(canReadCatalog ? [{ label: "Changer de forfait", value: "catalog" as const }] : []),
     ...(canReadChanges ? [{ label: "Changements", value: "changes" as const }] : []),
     ...(canReadBilling ? [{ label: "Facturation", value: "invoices" as const }] : []),
@@ -973,7 +1084,9 @@ export function ClientSubscriptionPage() {
                     {subscription.data.status === "SUSPENDED"
                       ? subscription.data.suspensionCause === "COLLECTION"
                         ? `Le délai de paiement a expiré le ${date(subscription.data.graceEndsAt)}. Un paiement confirmé réactive l’abonnement.`
-                        : `L’accès a été suspendu par un opérateur de la plateforme le ${date(subscription.data.suspendedAt)}.`
+                        : subscription.data.suspensionCause === "AGREEMENT_REVIEW"
+                          ? "L’accord spécial est arrivé à échéance. La plateforme examine les prochaines conditions du compte."
+                          : `L’accès a été suspendu par un opérateur de la plateforme le ${date(subscription.data.suspendedAt)}.`
                       : `Accès maintenu jusqu’au ${date(subscription.data.graceEndsAt)} pendant le recouvrement.`}
                   </p>
                 </div>
@@ -1028,7 +1141,10 @@ export function ClientSubscriptionPage() {
               </div>
             </dl>
           </section>
+          {canReadSpecialAgreements ? <ClientSpecialAgreements context={commercialContext} /> : null}
         </div>
+      ) : tab === "current" && canReadSpecialAgreements ? (
+        <ClientSpecialAgreements context={commercialContext} showEmpty />
       ) : tab === "current" && canReadSubscription ? (
         <EmptyState title="Aucun abonnement" />
       ) : null}

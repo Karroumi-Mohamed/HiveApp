@@ -78,6 +78,8 @@ import { AdminRolesPage } from "@/features/admin/roles/admin-roles-page";
 import { AdminSubscriptionChangeJobCreatePage } from "@/features/admin/subscription-jobs/admin-subscription-change-job-create-page";
 import { AdminSubscriptionChangeJobDetailPage } from "@/features/admin/subscription-jobs/admin-subscription-change-job-detail-page";
 import { AdminSubscriptionChangeJobsPage } from "@/features/admin/subscription-jobs/admin-subscription-change-jobs-page";
+import { AdminSpecialAgreementCreatePage } from "@/features/admin/subscriptions/admin-special-agreement-create-page";
+import { AdminSpecialAgreementsPage } from "@/features/admin/subscriptions/admin-special-agreements-page";
 import { AdminSubscriptionsPage } from "@/features/admin/subscriptions/admin-subscriptions-page";
 import {
   AdminActivationPage,
@@ -196,10 +198,32 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: "subscriptions/agreements",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.subscriptionsSearchSpecialAgreements]}>
+            <AdminSpecialAgreementsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
         path: "subscriptions/:accountId",
         element: (
           <AdminReadPermissionGate anyOf={adminSubscriptionDetailSurfacePermissions}>
             <AdminSubscriptionsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "subscriptions/:accountId/agreements/new",
+        element: (
+          <AdminReadPermissionGate
+            allOf={[
+              adminPermissions.subscriptionsChooseChangeOptions,
+              adminPermissions.subscriptionsPreviewSpecialAgreement,
+              adminPermissions.subscriptionsCreateSpecialAgreement,
+            ]}
+          >
+            <AdminSpecialAgreementCreatePage />
           </AdminReadPermissionGate>
         ),
       },

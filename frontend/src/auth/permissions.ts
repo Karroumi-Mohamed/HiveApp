@@ -129,6 +129,18 @@ export const adminPermissions = {
   subscriptionsReadChangeJobResultIdentities: permission("subscriptions", "read_change_job_result_identities"),
   subscriptionsCancelChangeJob: permission("subscriptions", "cancel_change_job"),
   subscriptionsRetryChangeJob: permission("subscriptions", "retry_change_job"),
+  subscriptionsPreviewSpecialAgreement: permission("subscriptions", "preview_special_agreement"),
+  subscriptionsCreateSpecialAgreement: permission("subscriptions", "create_special_agreement"),
+  subscriptionsReadSpecialAgreements: permission("subscriptions", "read_special_agreements"),
+  subscriptionsSearchSpecialAgreements: permission("subscriptions", "search_special_agreements"),
+  subscriptionsReadSpecialAgreement: permission("subscriptions", "read_special_agreement"),
+  subscriptionsCancelSpecialAgreement: permission("subscriptions", "cancel_special_agreement"),
+  subscriptionsRetrySpecialAgreement: permission("subscriptions", "retry_special_agreement"),
+  subscriptionsResolveSpecialAgreementManualReview: permission(
+    "subscriptions",
+    "resolve_special_agreement_manual_review",
+  ),
+  subscriptionsReadSpecialAgreementAnalytics: permission("subscriptions", "read_special_agreement_analytics"),
   billingListInvoices: permission("billing", "list_invoices"),
   billingReadInvoice: permission("billing", "read_invoice"),
   billingReadInvoiceDocument: permission("billing", "read_invoice_document"),
@@ -366,6 +378,7 @@ export const clientPermissions = {
   collaborationsManageShareCode: permission("b2b", "manage_share_code"),
   collaborationsRegenerateShareCode: permission("b2b", "regenerate_share_code"),
   subscriptionRead: permission("subscription", "read"),
+  subscriptionReadSpecialAgreements: permission("subscription", "read_special_agreements"),
   subscriptionCatalog: permission("subscription", "catalog"),
   subscriptionPreview: permission("subscription", "preview"),
   subscriptionApply: permission("subscription", "apply"),
@@ -393,6 +406,7 @@ export const clientPermissions = {
  */
 export const clientSubscriptionSurfacePermissions = [
   clientPermissions.subscriptionRead,
+  clientPermissions.subscriptionReadSpecialAgreements,
   clientPermissions.subscriptionCatalog,
   clientPermissions.subscriptionReadChanges,
   clientPermissions.subscriptionListInvoices,
@@ -449,6 +463,9 @@ export const adminSubscriptionDetailSurfacePermissions = [
   adminPermissions.subscriptionsReadLifecycleHistory,
   adminPermissions.billingReadAccountTimeline,
   adminPermissions.billingReadAccountProfile,
+  adminPermissions.subscriptionsReadSpecialAgreements,
+  adminPermissions.subscriptionsReadSpecialAgreement,
+  adminPermissions.subscriptionsPreviewSpecialAgreement,
 ] as const;
 
 export const adminSubscriptionJobDetailSurfacePermissions = [

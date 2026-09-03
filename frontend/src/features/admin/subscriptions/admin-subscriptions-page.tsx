@@ -1,4 +1,10 @@
-import { ArrowLeftIcon, ArrowRightIcon, ArrowsClockwiseIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowsClockwiseIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+} from "@phosphor-icons/react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SortingState } from "@tanstack/react-table";
 import { type FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
@@ -54,6 +60,8 @@ import {
 import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
 import { formatExactMoney } from "@/lib/exact-decimal";
 import { AdminSubscriptionChangeWorkbench } from "./admin-subscription-change-workbench";
+import { SpecialAgreementAnalytics } from "./special-agreement-analytics";
+import { SpecialAgreementList } from "./special-agreement-list";
 import {
   readSubscriptionAccountListState,
   subscriptionAccountQuery,
@@ -399,7 +407,9 @@ export function SubscriptionDetail({ accountId }: { accountId: string }) {
                       {data.status === "SUSPENDED"
                         ? data.suspensionCause === "COLLECTION"
                           ? `Le délai de paiement a expiré le ${dateTime(data.graceEndsAt)}. Les données restent conservées.`
-                          : `Suspendu par un opérateur le ${dateTime(data.suspendedAt)}${data.suspensionReason ? ` · ${data.suspensionReason}` : "."}`
+                          : data.suspensionCause === "AGREEMENT_REVIEW"
+                            ? "L’accord spécial est arrivé à échéance et attend une nouvelle décision d’abonnement."
+                            : `Suspendu par un opérateur le ${dateTime(data.suspendedAt)}${data.suspensionReason ? ` · ${data.suspensionReason}` : "."}`
                         : `Échu le ${dateTime(data.pastDueAt)} · accès maintenu jusqu’au ${dateTime(data.graceEndsAt)}.`}
                     </p>
                   </div>
@@ -455,6 +465,9 @@ export function SubscriptionDetail({ accountId }: { accountId: string }) {
         ) : null
       ) : null}
       <SubscriptionLifecyclePanel accountId={accountId} />
+      {session.can(adminPermissions.subscriptionsReadSpecialAgreements) ? (
+        <SpecialAgreementList accountId={accountId} />
+      ) : null}
       <BillingProfilePanel
         canRead={session.can(adminPermissions.billingReadAccountProfile)}
         canUpdate={session.can(adminPermissions.billingUpdateAccountProfile)}
@@ -672,7 +685,21 @@ export function AdminSubscriptionsPage() {
             Abonnements
           </Link>
         </Button>
-        <PageHeader title="Abonnement du compte" />
+        <PageHeader
+          actions={
+            session.can(adminPermissions.subscriptionsChooseChangeOptions) &&
+            session.can(adminPermissions.subscriptionsPreviewSpecialAgreement) &&
+            session.can(adminPermissions.subscriptionsCreateSpecialAgreement) ? (
+              <Button asChild>
+                <Link to={`/admin/subscriptions/${accountId}/agreements/new`}>
+                  <PlusIcon />
+                  Créer un accord spécial
+                </Link>
+              </Button>
+            ) : null
+          }
+          title="Abonnement du compte"
+        />
         <SubscriptionDetail accountId={accountId} />
       </div>
     );
@@ -696,6 +723,9 @@ export function AdminSubscriptionsPage() {
         }
         title="Abonnements"
       />
+      {session.can(adminPermissions.subscriptionsReadSpecialAgreementAnalytics) ? (
+        <SpecialAgreementAnalytics canOpen={session.can(adminPermissions.subscriptionsSearchSpecialAgreements)} />
+      ) : null}
       <section className="overflow-hidden rounded-xl border bg-card">
         <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(240px,1fr)_180px_210px]">
           <div className="relative">

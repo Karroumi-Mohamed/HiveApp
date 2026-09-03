@@ -161,6 +161,13 @@ import type {
   RegistryModule,
   RegistrySyncRun,
   RoleHolder,
+  SpecialAgreementAnalytics,
+  SpecialAgreementCreated,
+  SpecialAgreementDefinition,
+  SpecialAgreementDetail,
+  SpecialAgreementPreview,
+  SpecialAgreementStatus,
+  SpecialAgreementSummary,
   SubscriptionAccountListItem,
   SubscriptionAccountOwnerLookup,
   SubscriptionChangeApplyResponse,
@@ -942,6 +949,42 @@ export const adminApi = {
     } = {},
   ) =>
     admin<PageResponse<SubscriptionLifecycleEvent>>(`/subscriptions/account/${accountId}/lifecycle-history`, { query }),
+  previewSpecialAgreement: (accountId: UUID, definition: SpecialAgreementDefinition) =>
+    admin<SpecialAgreementPreview>(`/subscriptions/account/${accountId}/agreements/preview`, {
+      method: "POST",
+      body: jsonBody({ definition }),
+    }),
+  createSpecialAgreement: (
+    accountId: UUID,
+    input: { definition: SpecialAgreementDefinition; previewToken: string; reason: string },
+  ) =>
+    admin<SpecialAgreementCreated>(`/subscriptions/account/${accountId}/agreements`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  specialAgreements: (accountId: UUID, query: { status?: SpecialAgreementStatus; page?: number; size?: number } = {}) =>
+    admin<PageResponse<SpecialAgreementSummary>>(`/subscriptions/account/${accountId}/agreements`, { query }),
+  allSpecialAgreements: (
+    query: { search?: string; status?: SpecialAgreementStatus; page?: number; size?: number } = {},
+  ) => admin<PageResponse<SpecialAgreementSummary>>("/subscriptions/agreements", { query }),
+  specialAgreement: (accountId: UUID, agreementId: UUID) =>
+    admin<SpecialAgreementDetail>(`/subscriptions/account/${accountId}/agreements/${agreementId}`),
+  specialAgreementAnalytics: () => admin<SpecialAgreementAnalytics>("/subscriptions/agreements/analytics"),
+  cancelSpecialAgreement: (accountId: UUID, agreementId: UUID, reason: string) =>
+    admin<SpecialAgreementDetail>(`/subscriptions/account/${accountId}/agreements/${agreementId}/cancel`, {
+      method: "POST",
+      body: jsonBody({ reason }),
+    }),
+  retrySpecialAgreement: (accountId: UUID, agreementId: UUID, reason: string) =>
+    admin<SpecialAgreementDetail>(`/subscriptions/account/${accountId}/agreements/${agreementId}/retry`, {
+      method: "POST",
+      body: jsonBody({ reason }),
+    }),
+  resolveSpecialAgreementManualReview: (accountId: UUID, agreementId: UUID, reason: string) =>
+    admin<SpecialAgreementDetail>(
+      `/subscriptions/account/${accountId}/agreements/${agreementId}/resolve-manual-review`,
+      { method: "POST", body: jsonBody({ reason }) },
+    ),
   billingInvoices: (
     query: {
       search?: string;

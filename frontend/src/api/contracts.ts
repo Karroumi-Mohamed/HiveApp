@@ -1497,7 +1497,7 @@ export type CommercialAvailabilityBlocker = "ARCHIVED_PRODUCT" | "NO_CHANGE";
 export type CommercialAvailabilityAction = "APPLY_PLAN_AVAILABILITY" | "APPLY_SALES_VISIBILITY";
 export type RetainedEntitlementState = "SELECTABLE" | "RETAINED_ONLY" | "HISTORICAL_ONLY";
 export type SubscriptionStatus = "TRIALING" | "ACTIVE" | "PAST_DUE" | "SUSPENDED" | "CANCELLED" | "EXPIRED";
-export type SubscriptionSuspensionCause = "COLLECTION" | "OPERATOR";
+export type SubscriptionSuspensionCause = "COLLECTION" | "OPERATOR" | "AGREEMENT_REVIEW";
 export type SubscriptionLifecycleAction =
   | "CANCEL_AT_PERIOD_END"
   | "KEEP_RENEWING"
@@ -2419,7 +2419,7 @@ export type ClientPlanCatalog = {
       mode: string;
       quotas: Array<{
         featureCode: string;
-        slot: string;
+        slot: { resource: string; type: "COUNT" | "STORAGE" | "RATE"; unit: string };
         mode: string;
         limit: number | null;
         unlimited: boolean;
@@ -2436,7 +2436,19 @@ export type ClientPlanCatalog = {
       definitionVersion: number;
       dependencyCodes: string[];
       exclusionCodes: string[];
-      features: unknown[];
+      features: Array<{
+        featureCode: string;
+        displayName: string;
+        description: string | null;
+        quotas: Array<{
+          featureCode: string;
+          slot: { resource: string; type: "COUNT" | "STORAGE" | "RATE"; unit: string };
+          mode: string;
+          limit: number | null;
+          unlimited: boolean;
+          currentUsage: number | null;
+        }>;
+      }>;
       prices: CatalogPrice[];
       selectable: boolean;
       commercialPolicyDecisions: ClientCommercialPolicyDecision[];
@@ -2820,6 +2832,185 @@ export type ClientSubscriptionChangeApplyResponse = {
 
 export type AdminSubscriptionChangeApplyInput = SubscriptionChangeApplyInput & {
   reason: string;
+};
+
+export type SpecialAgreementStatus =
+  | "SCHEDULED"
+  | "AWAITING_SETTLEMENT"
+  | "ACTIVE"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "NEEDS_ATTENTION";
+export type SpecialAgreementPricingMode = "CATALOGUE_TOTAL" | "CUSTOM_TOTAL" | "COMPLIMENTARY";
+export type SpecialAgreementSettlementMode = "PROVIDER" | "MANUAL" | "NONE";
+export type SpecialAgreementEndInstruction =
+  | "CONTINUE_REVIEWED_TERMS"
+  | "RESTORE_PREVIOUS_TERMS"
+  | "END_ACCESS"
+  | "MANUAL_REVIEW";
+
+export type SpecialAgreementDefinition = {
+  selection: SubscriptionChangeInput;
+  quotaBonuses: Array<{ featureCode: string; resource: string; quantity: number }>;
+  startsAt: Instant;
+  endsAt: Instant;
+  pricingMode: SpecialAgreementPricingMode;
+  customTotal: ExactDecimal | null;
+  currencyCode: string;
+  settlementMode: SpecialAgreementSettlementMode;
+  endInstruction: SpecialAgreementEndInstruction;
+  followOnPricingMode: SpecialAgreementPricingMode | null;
+  followOnCustomAmount: ExactDecimal | null;
+};
+
+export type ClientSubscriptionEntitlementState = {
+  planCode: string;
+  billingCycle: BillingCycle;
+  featureCodes: string[];
+  effectiveQuotaLimits: SubscriptionChangePreview["effectiveQuotaLimits"];
+  addOnCodes: string[];
+  quotaPackages: QuotaPackageSelection[];
+};
+
+export type SpecialAgreementPreview = {
+  subscriptionId: UUID;
+  expectedSubscriptionVersion: number;
+  catalogRevision: number;
+  registryVersion: string;
+  evaluatedAt: Instant;
+  expiresAt: Instant;
+  previewToken: string;
+  startsAt: Instant;
+  endsAt: Instant;
+  completeBillingCycles: number;
+  catalogueCycleAmount: ExactDecimal;
+  catalogueTermAmount: ExactDecimal | null;
+  agreedTermAmount: ExactDecimal;
+  varianceAmount: ExactDecimal | null;
+  followOnAmount: ExactDecimal | null;
+  currencyCode: string;
+  pricingMode: SpecialAgreementPricingMode;
+  settlementMode: SpecialAgreementSettlementMode;
+  endInstruction: SpecialAgreementEndInstruction;
+  currentEntitlements: ClientSubscriptionEntitlementState;
+  termEntitlements: ClientSubscriptionEntitlementState;
+  conflicts: SubscriptionChangePreview["conflicts"];
+  confirmable: boolean;
+};
+
+export type SpecialAgreementActions = {
+  cancel: boolean;
+  settleManually: boolean;
+  retryStart: boolean;
+  retryEnd: boolean;
+  resolveManualReview: boolean;
+};
+
+export type SpecialAgreementSelectedAddOn = { code: string; name: string };
+export type SpecialAgreementSelectedQuotaPackage = {
+  code: string;
+  name: string;
+  resource: string;
+  capacityPerUnit: number;
+  quantity: number;
+};
+
+export type SpecialAgreementSummary = {
+  id: UUID;
+  version: number;
+  accountId: UUID;
+  accountName: string;
+  planCode: string;
+  planName: string;
+  status: SpecialAgreementStatus;
+  pricingMode: SpecialAgreementPricingMode;
+  settlementMode: SpecialAgreementSettlementMode;
+  endInstruction: SpecialAgreementEndInstruction;
+  startsAt: Instant;
+  endsAt: Instant;
+  agreedTermAmount: ExactDecimal;
+  currencyCode: string;
+  attentionStage: "START" | "END" | null;
+  availableActions: SpecialAgreementActions;
+  createdAt: Instant;
+};
+
+export type SpecialAgreementDetail = {
+  summary: SpecialAgreementSummary;
+  selection: { schemaVersion: number; addOnCodes: string[]; quotaPackages: QuotaPackageSelection[] };
+  addOns: SpecialAgreementSelectedAddOn[];
+  quotaPackages: SpecialAgreementSelectedQuotaPackage[];
+  quotaBonuses: Array<{ featureCode: string; resource: string; quantity: number }>;
+  catalogueCycleAmount: ExactDecimal;
+  catalogueTermAmount: ExactDecimal | null;
+  followOnAmount: ExactDecimal | null;
+  previousRecurringAmount: ExactDecimal;
+  sourceSubscriptionId: UUID;
+  resultSubscriptionId: UUID | null;
+  changeOperationId: UUID;
+  checkout: SpecialAgreementCheckout | null;
+  createdByUserId: UUID;
+  reason: string;
+  attentionReason: string | null;
+  activatedAt: Instant | null;
+  completedAt: Instant | null;
+  cancelledAt: Instant | null;
+  cancelledByUserId: UUID | null;
+  cancellationReason: string | null;
+};
+
+export type SpecialAgreementCheckout = {
+  id: UUID;
+  status: "PENDING_CONFIRMATION" | "CONFIRMED" | "FAILED" | "CANCELLED";
+  amount: ExactDecimal;
+  currencyCode: string;
+  confirmationSource: "MANUAL_OPERATOR" | "TRUSTED_PROVIDER" | "NO_PAYMENT_REQUIRED" | null;
+  confirmedAt: Instant | null;
+};
+
+export type SpecialAgreementCreated = { agreement: SpecialAgreementDetail; checkout: SpecialAgreementCheckout | null };
+
+export type ClientSpecialAgreement = {
+  id: UUID;
+  status: SpecialAgreementStatus;
+  planCode: string;
+  planName: string;
+  selection: { schemaVersion: number; addOnCodes: string[]; quotaPackages: QuotaPackageSelection[] };
+  addOns: SpecialAgreementSelectedAddOn[];
+  quotaPackages: SpecialAgreementSelectedQuotaPackage[];
+  termEntitlements: ClientSubscriptionEntitlementState;
+  startsAt: Instant;
+  endsAt: Instant;
+  agreedTermAmount: ExactDecimal;
+  currencyCode: string;
+  pricingMode: SpecialAgreementPricingMode;
+  endInstruction: SpecialAgreementEndInstruction;
+  attentionStage: "START" | "END" | null;
+  activatedAt: Instant | null;
+  completedAt: Instant | null;
+};
+
+export type SpecialAgreementCurrencyAnalytics = {
+  currencyCode: string;
+  catalogueValue: ExactDecimal;
+  agreedValue: ExactDecimal;
+  complimentaryValue: ExactDecimal;
+  invoicedValue: ExactDecimal;
+  collectedValue: ExactDecimal;
+};
+
+export type SpecialAgreementAnalytics = {
+  total: number;
+  scheduled: number;
+  awaitingSettlement: number;
+  active: number;
+  completed: number;
+  cancelled: number;
+  needsAttention: number;
+  complimentary: number;
+  providerSettlement: number;
+  manualSettlement: number;
+  currencies: SpecialAgreementCurrencyAnalytics[];
 };
 
 export type ManualCheckoutConfirmationInput = {
