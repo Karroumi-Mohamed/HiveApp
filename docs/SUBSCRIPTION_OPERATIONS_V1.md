@@ -109,10 +109,11 @@ workflows. Phase 13 settlement and Phase 14 analytics remain separate.
 
 ## 9. Implementation evidence — 2026-08-31
 
-**2026-09-08 extension:** `docs/SUBSCRIPTION_REPRICING_V1.md` defines a separate price-only
-subscriber operation. It must not reuse the shared full-selection request to overwrite differing
-Account products. Existing selected-Account jobs remain unchanged; the repricing contract adds
-exact tariff audiences, exclusions, preserved per-Account terms, renewal timing, and notices.
+**2026-09-08 implemented extension:** `docs/SUBSCRIPTION_REPRICING_V1.md` delivers a separate
+price-only subscriber operation, without reusing the shared full-selection request to overwrite
+differing Account products. Existing selected-Account jobs remain unchanged. Repricing adds exact
+tariff/filtered/frozen-Segment audiences, exclusions, preserved per-Account terms, renewal timing,
+normal financial settlement, private notices, and bounded operational cancellation/retry.
 
 The first slice is implemented across backend and admin UI:
 

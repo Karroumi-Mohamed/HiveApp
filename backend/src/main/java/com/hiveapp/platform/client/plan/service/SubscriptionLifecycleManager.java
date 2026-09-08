@@ -120,7 +120,8 @@ public class SubscriptionLifecycleManager {
             subscription.setStatus(SubscriptionStatus.CANCELLED);
             closeOpenPeriod(subscription, SubscriptionPeriodStatus.CANCELLED, now);
         } else if (subscription.currentMoney() != null
-                && subscription.currentMoney().amount().signum() == 0) {
+                && subscription.currentMoney().amount().signum() == 0
+                && !billingRenewals.hasOutstandingPaidRenewal(subscription)) {
             closeOpenPeriod(subscription, SubscriptionPeriodStatus.COMPLETED, now);
             renewZeroPricedSubscription(subscription);
         } else {

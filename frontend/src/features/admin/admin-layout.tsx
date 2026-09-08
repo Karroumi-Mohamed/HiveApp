@@ -103,6 +103,12 @@ export function AdminLayout() {
           visible: session.can(adminPermissions.subscriptionsListChangeJobs),
         },
         {
+          label: "Tarifs des abonnés",
+          to: "/admin/repricing",
+          icon: CurrencyCircleDollarIcon,
+          visible: session.can(adminPermissions.repricingList),
+        },
+        {
           label: "Collaborations",
           to: "/admin/collaborations",
           icon: HandshakeIcon,

@@ -88,6 +88,36 @@ public class AdminSubscriptionServiceImpl extends PlatformControlFeatureService 
             SubscriptionStatus.SUSPENDED);
 
     private final SubscriptionService subscriptionService;
+    private final com.hiveapp.platform.client.plan.service.SubscriptionRepricingService repricing;
+    private final com.hiveapp.platform.admin.service.AdminMutationAuthorizer repricingAuthorizer;
+
+    @Override @PermissionNode(key = "preview_repricing", description = "Preview price-only changes for a subscriber audience")
+    public com.hiveapp.platform.client.plan.dto.RepricingModels.Preview previewRepricing(UUID actor, com.hiveapp.platform.client.plan.dto.RepricingModels.Request request) {
+        if (request.email() && !repricingAuthorizer.canManagePermission("platform.subscriptions.email_repricing"))
+            throw new com.hiveapp.shared.exception.ForbiddenException("Price-change email authority is required.");
+        return repricing.preview(actor, request);
+    }
+    @Override @PermissionNode(key = "confirm_repricing", description = "Confirm a reviewed subscriber price change")
+    public com.hiveapp.platform.client.plan.dto.RepricingModels.Detail confirmRepricing(UUID id, UUID actor, com.hiveapp.platform.client.plan.dto.RepricingModels.Confirm request) {
+        if (repricing.get(id).request().email() && !repricingAuthorizer.canManagePermission("platform.subscriptions.email_repricing"))
+            throw new com.hiveapp.shared.exception.ForbiddenException("Price-change email authority is required.");
+        return repricing.confirm(id, actor, request);
+    }
+    @Override @PermissionNode(key = "list_repricing", description = "List subscriber price-change operations")
+    public Page<com.hiveapp.platform.client.plan.dto.RepricingModels.Summary> listRepricing(Pageable page) { return repricing.list(page); }
+    @Override @PermissionNode(key = "read_repricing", description = "Read a subscriber price-change operation")
+    public com.hiveapp.platform.client.plan.dto.RepricingModels.Detail getRepricing(UUID id) { return repricing.get(id); }
+    @Override @PermissionNode(key = "read_repricing_results", description = "Read price-change outcomes without Account identity")
+    public Page<com.hiveapp.platform.client.plan.dto.RepricingModels.Item> repricingResults(UUID id, com.hiveapp.platform.client.plan.dto.RepricingModels.State state, Pageable page) { return repricing.results(id, state, page); }
+    @Override @PermissionNode(key = "read_repricing_identities", description = "Reveal Account identities in price-change results")
+    public List<com.hiveapp.platform.client.plan.dto.RepricingModels.Identity> repricingIdentities(UUID id, Collection<UUID> ids) { return repricing.identities(id, ids); }
+    @Override @PermissionNode(key = "cancel_repricing", description = "Cancel price changes before renewal processing")
+    public com.hiveapp.platform.client.plan.dto.RepricingModels.Detail cancelRepricing(UUID id, UUID actor, String reason, UUID onlyItem) { return repricing.cancel(id, actor, reason, onlyItem); }
+    @Override @PermissionNode(key = "email_repricing", description = "Send and retry optional price-change notice emails")
+    public com.hiveapp.platform.client.plan.dto.RepricingModels.Detail retryRepricing(UUID id, String reason) { return repricing.retryNotice(id, reason); }
+
+    @Override @PermissionNode(key = "retry_repricing", description = "Retry a failed price change without changing its reviewed terms")
+    public com.hiveapp.platform.client.plan.dto.RepricingModels.Detail retryRepricingExecution(UUID id, UUID itemId, String reason) { return repricing.retryExecution(id, itemId, reason); }
     private final SubscriptionCheckoutService subscriptionCheckoutService;
     private final SubscriptionChangeOperationProjectionMapper operationProjectionMapper;
     private final AccountDirectoryService accountDirectoryService;

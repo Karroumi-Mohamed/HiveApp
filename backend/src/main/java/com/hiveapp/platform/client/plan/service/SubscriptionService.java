@@ -32,6 +32,8 @@ public interface SubscriptionService {
    * fails with open-in-view disabled.
    */
   SubscriptionDto getMySubscription(UUID accountId);
+  Page<com.hiveapp.platform.client.plan.dto.RepricingModels.Notice> listMyPriceNotices(UUID accountId, UUID userId, Pageable pageable);
+  void markPriceNoticeRead(UUID accountId, UUID userId, UUID noticeId);
 
   Page<SpecialAgreementModels.ClientView> listMySpecialAgreements(
       UUID accountId, Pageable pageable);

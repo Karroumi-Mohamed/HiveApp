@@ -77,6 +77,7 @@ import {
 } from "@/features/commercial/subscription-quantity-control";
 import { formatExactMoney } from "@/lib/exact-decimal";
 import { ClientInvoiceHistory } from "./client-invoice-history";
+import { ClientPriceNotices } from "./client-price-notices";
 import {
   subscriptionChangeConflictText,
   subscriptionChangeFailureMessage,
@@ -988,6 +989,7 @@ export function ClientSubscriptionPage() {
   const session = useClientSession();
   const [params, setParams] = useSearchParams();
   const canReadSubscription = session.can(clientPermissions.subscriptionRead);
+  const canReadNotices = session.can(clientPermissions.subscriptionReadPriceNotices);
   const canReadSpecialAgreements = session.can(clientPermissions.subscriptionReadSpecialAgreements);
   const canReadCatalog = session.can(clientPermissions.subscriptionCatalog);
   const canReadChanges = session.can(clientPermissions.subscriptionReadChanges);
@@ -1002,10 +1004,11 @@ export function ClientSubscriptionPage() {
     ...(canReadCatalog ? [{ label: "Changer de forfait", value: "catalog" as const }] : []),
     ...(canReadChanges ? [{ label: "Changements", value: "changes" as const }] : []),
     ...(canReadBilling ? [{ label: "Facturation", value: "invoices" as const }] : []),
+    ...(canReadNotices ? [{ label: "Notifications", value: "notices" as const }] : []),
   ];
-  const requestedTab = params.get("tab") as "current" | "catalog" | "changes" | "invoices" | null;
+  const requestedTab = params.get("tab") as "current" | "catalog" | "changes" | "invoices" | "notices" | null;
   const tab = availableTabs.some((item) => item.value === requestedTab)
-    ? (requestedTab as "current" | "catalog" | "changes" | "invoices")
+    ? (requestedTab as "current" | "catalog" | "changes" | "invoices" | "notices")
     : (availableTabs[0]?.value ?? "current");
   const commercialContext = { companyId: session.selectedCompanyId, isB2B: session.isB2B };
   const [subscription, catalog] = useQueries({
@@ -1045,6 +1048,8 @@ export function ClientSubscriptionPage() {
         <Configurator catalog={catalog.data} />
       ) : tab === "changes" && canReadChanges ? (
         <ChangeHistory />
+      ) : tab === "notices" && canReadNotices ? (
+        <ClientPriceNotices />
       ) : tab === "invoices" && canReadBilling ? (
         <div className="space-y-6">
           <BillingProfilePanel

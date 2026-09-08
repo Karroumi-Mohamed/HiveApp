@@ -2984,16 +2984,18 @@ A concrete signed provider adapter and jurisdiction-specific tax calculation, fi
 
 ### REPRICING-001 — No focused price-only workflow for existing subscribers
 
-**Status:** `APPROVED FOR IMPLEMENTATION — 2026-09-08`
+**Status:** `IMPLEMENTED — 2026-09-08`
 
 - Catalogue tariff replacement already preserves current contracts, correctly. Existing selected
   jobs apply one full product selection, which is not safe for changing just one component's price
   across customers with different Add-ons and quantities.
-- Missing: exact old-tariff/filtered/Segment audiences with exclusions, preserved per-Account
-  pricing instruction, first-eligible-renewal timing, and customer-facing price-change notices.
-- Implement `docs/SUBSCRIPTION_REPRICING_V1.md` with signed evidence, protected special terms,
-  ordinary settlement, independent outcomes/delivery, cancellation/retry, privacy and regression
-  coverage. Catalogue publication must never opt current subscribers in automatically.
+- Delivered a separate price-only workflow: exact old-tariff/filtered/frozen-Segment audiences and
+  exclusions, per-Account preserved snapshots, first-eligible-renewal timing, signed review,
+  protected special terms, ordinary settlement, paginated outcomes and private client notices.
+- Admin cancellation/technical retry and independent durable email delivery are implemented.
+  Billing failure/recovery stays with the original invoice, never a duplicate repricing charge.
+- Evidence and bounds: `docs/SUBSCRIPTION_REPRICING_V1.md` completion record and
+  `IMPLEMENTATION_PLAN.md` Batch 12.3. Catalogue publication still never opts current subscribers in.
 
 ---
 

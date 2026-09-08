@@ -1,7 +1,7 @@
 # Existing-subscriber tariff changes V1
 
 **Decision date:** 2026-09-08  
-**Status:** approved implementation contract; not yet implemented
+**Status:** implemented; verification record below
 
 ## 1. Two independent operations
 
@@ -48,7 +48,7 @@ renewals may proceed; a customer/operator commercial change invalidates the affe
 
 At execution lock/recheck the Account, the accepted terms, target tariff, pending operations, and
 agreement/lifecycle state. Conflicts are visible per Account, never overwritten. Cancel before
-application; retries never repeat a completed charge or silently rebase to different customer
+renewal processing starts; retries never repeat a completed charge or silently rebase to different customer
 terms. A correction requires a new review. Cancelled/expired/non-renewing and exceptional terms
 remain protected rather than being revived by repricing.
 
@@ -102,4 +102,58 @@ authority with permission-before-existence checks. All list APIs use stable `Pag
 
 ## 8. Completion record
 
-Pending implementation and verification. Do not infer completion from this approved contract.
+Implemented 2026-09-08. Catalogue publication remains independent of subscriber repricing.
+
+### Delivered surfaces
+
+- Admin: **Clients → Tarifs des abonnés**, or **Grille tarifaire → a tariff → Appliquer aux
+  abonnés existants**. The four-step wizard stages the request, calculates a signed five-minute
+  review, and confirms only that reviewed population. Results use the shared paginated table and
+  action-cell patterns, with a separately authorized bulk identity lookup.
+- Client: **Abonnement → Notifications** shows the Account's price notices and per-user read state.
+  Cancellation and failed payment are explicit; marking a notice read never accepts a contract.
+- Admin API: `/api/admin/subscription-repricing` provides preview, confirm, paginated list/detail/
+  results, bulk identities, whole-job/per-result cancellation, technical execution retry, and
+  failed-email retry. Separate `platform.subscriptions.*_repricing` nodes guard these operations;
+  result and identity reads use `read_repricing_results` and `read_repricing_identities`.
+- Client API: `GET /api/v1/subscriptions/notices` and `POST /api/v1/subscriptions/notices/{id}/read`,
+  guarded by `workspace.subscription.read_price_notices` and `mark_price_notice_read`.
+
+### Operational boundaries
+
+- One review supports up to **500 Accounts**, with paginated results (maximum page size 100).
+  Larger audiences fail explicitly and must be split; no silent truncation. Filters currently
+  cover exact Plan revision and subscription status, plus the existing frozen Segment mechanism.
+- A persisted commercial-terms identity survives unchanged ordinary renewals but changes on
+  commercial edits, even when an amount is later changed back. Execution and settlement both
+  recheck the accepted evidence. Product/currency/cadence changes still use ordinary operations.
+- Cancellation stops only `READY`/`PENDING` results. Once an invoice/renewal has started, its
+  payment/recovery/refund controls belong to **Facturation**; repricing never erases that evidence.
+  Only technical failures before an operation was created can retry the original instruction.
+  Changed terms require a new review. Failed payment is shown independently and can recover
+  through the existing billing engine without a second repricing instruction.
+- In-app notices are durable. Email goes only to the current verified Account owner, through a
+  separately authorized option and a background dispatcher outside database transactions. Missing
+  transport/unverified email is `SUPPRESSED`, not `SENT`. Abandoned claims have bounded recovery;
+  failed delivery can be retried explicitly. Transport delivery is **at least once**: an interrupted
+  send may be delivered twice; no exactly-once email promise is made.
+- Startup backfills the indexed current-holding price IDs in bounded pages using only accepted
+  subscription snapshots. Historical rows lacking an exact accepted tariff ID are not guessed
+  from today's catalogue. This is a projection repair, not a contract or price migration.
+- The existing provider adapter, tax/fiscal, and regulatory communication deferrals remain open.
+  No live payment was collected and no load-capacity claim is made by this batch.
+
+### Verification
+
+The full-suite result is recorded in `IMPLEMENTATION_PLAN.md`, Batch 12.3. Added coverage includes
+component-only Plan/Add-on/pack copying, monthly/yearly timing, exact tariff and Segment targeting,
+exclusions, stale/tampered evidence, reverted commercial edits, protected terms, independent
+permissions, cross-Account privacy, intervening ordinary renewals, concurrent execution, cancellation,
+technical retry, zero-price activation, declined-payment recovery, and durable email claims.
+
+Mounted frontend tests cover a failed/missing/expired review, Enter/submit gating, token-only
+confirmation, and results-only authority without identity reads. A browser-build regression checks
+the configured API origin when no `process` global exists. Browser QA on isolated local data
+completed selection → preview → confirmation → client notice → mark-read → per-Account cancellation
+→ persisted cancelled notice, with admin/client visual inspection. The user's existing backend
+and its in-memory data were not restarted or modified for this walkthrough.

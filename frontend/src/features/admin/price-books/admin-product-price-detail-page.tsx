@@ -303,17 +303,26 @@ export function AdminProductPriceDetailPage() {
       </Button>
       <PageHeader
         actions={
-          data.status === "DRAFT" ? (
-            <EditProductPriceDialog
-              price={data}
-              trigger={
-                <ProductPriceActionButton action="EDIT_DRAFT" price={data} variant="ghost">
-                  <PencilSimpleIcon />
-                  Modifier
-                </ProductPriceActionButton>
-              }
-            />
-          ) : undefined
+          <>
+            {data.status !== "DRAFT" &&
+            session.can(adminPermissions.repricingPreview) &&
+            session.can(adminPermissions.repricingResults) ? (
+              <Button asChild variant="outline">
+                <Link to={`/admin/repricing/new?from=${id}`}>Appliquer aux abonnés existants</Link>
+              </Button>
+            ) : null}
+            {data.status === "DRAFT" ? (
+              <EditProductPriceDialog
+                price={data}
+                trigger={
+                  <ProductPriceActionButton action="EDIT_DRAFT" price={data} variant="ghost">
+                    <PencilSimpleIcon />
+                    Modifier
+                  </ProductPriceActionButton>
+                }
+              />
+            ) : null}
+          </>
         }
         description={
           <span className="flex flex-wrap items-center gap-2">

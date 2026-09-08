@@ -1362,7 +1362,7 @@ Additional decisions:
 
 ## SUBSCRIPTION-FLOW-005 — Explicit price-only changes for existing subscribers
 
-**Status:** `DECIDED — 2026-09-08; IMPLEMENTATION PENDING`
+**Status:** `IMPLEMENTED — 2026-09-08`
 
 - Catalogue price changes affect new purchases only; existing Accounts retain accepted renewal
   prices unless a distinct reviewed subscriber operation explicitly targets them.
@@ -1376,6 +1376,9 @@ Additional decisions:
 - Provide an Account-private in-app notice, optional durable email, per-Account outcomes,
   cancellation, safe retry, and conflict revalidation. Reading a notice is not consent.
 - The exact implementation and verification contract is `docs/SUBSCRIPTION_REPRICING_V1.md`.
+- V1 reviews are bounded to 500 Accounts. Cancellation ends at renewal processing; an issued
+  financial operation remains under billing recovery/refund controls. Changed commercial terms
+  require a new review, while a pre-operation technical failure may retry its original evidence.
 
 ## SUBSCRIPTION-FLOW-003 — Account-specific exceptions
 

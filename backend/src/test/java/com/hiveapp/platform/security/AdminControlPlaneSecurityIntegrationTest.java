@@ -71,6 +71,28 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationTestSupport {
 
+    @Test
+    void repricingPreviewConfirmationIdentityAndDeliveryAreIndependentAuthorities() throws Exception {
+        LimitedAdmin previewer = createLimitedAdmin("platform.subscriptions.preview_repricing");
+        LimitedAdmin reader = createLimitedAdmin("platform.subscriptions.read_repricing_results");
+        UUID missing = UUID.randomUUID();
+        String request = "{\"sourcePriceId\":\"" + UUID.randomUUID() + "\",\"targetPriceId\":\"" + UUID.randomUUID()
+                + "\",\"audience\":\"TARIFF_HOLDERS\",\"reason\":\"Review prices\",\"email\":false}";
+        mockMvc.perform(post("/api/admin/subscription-repricing/preview").header("Authorization", bearer(previewer.token()))
+                .contentType(MediaType.APPLICATION_JSON).content(request)).andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/admin/subscription-repricing/preview").header("Authorization", bearer(previewer.token()))
+                .contentType(MediaType.APPLICATION_JSON).content(request.replace("false", "true"))).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/subscription-repricing/{id}/confirm", missing).header("Authorization", bearer(previewer.token()))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"previewToken\":\"untrusted\"}")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/subscription-repricing/{id}/results", missing).header("Authorization", bearer(reader.token()))).andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/admin/subscription-repricing/{id}/identities", missing).header("Authorization", bearer(reader.token()))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"itemIds\":[\"" + UUID.randomUUID() + "\"]}")).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/subscription-repricing/{id}/cancel", missing).header("Authorization", bearer(reader.token()))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Not authorized\"}")).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/subscription-repricing/{id}/results/{item}/retry", missing, UUID.randomUUID()).header("Authorization", bearer(reader.token()))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Not authorized\"}")).andExpect(status().isForbidden());
+    }
+
     @Autowired
     private PermissionRepository permissionRepository;
 

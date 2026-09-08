@@ -31,6 +31,15 @@ public class SubscriptionBillingRenewalService {
     private final SubscriptionPeriodCalculator periods;
     private final SubscriptionSnapshotReader snapshots;
     private final BillingLedgerService ledger;
+    private final java.time.Clock clock;
+
+    @Transactional(readOnly = true)
+    public boolean hasOutstandingPaidRenewal(Subscription subscription) {
+        return operations.findTopByAccountIdAndStatusIn(subscription.getAccount().getId(), OUTSTANDING)
+                .filter(o -> o.getSourceSubscription().getId().equals(subscription.getId()))
+                .map(o -> o.getCheckout() != null && o.getCheckout().money().amount().signum() > 0)
+                .orElse(false);
+    }
 
     /**
      * Returns the already outstanding explicit change when one exists. Otherwise creates the
@@ -79,6 +88,42 @@ public class SubscriptionBillingRenewalService {
         operation.setCheckout(checkout);
         operations.save(operation);
         ledger.invoiceAndQueueCharge(checkout, target, amount, null);
+        return operation;
+    }
+
+    /** Called only for a locked, revalidated signed repricing instruction at its renewal boundary. */
+    @Transactional
+    public SubscriptionChangeOperation prepareRepricingCharge(
+            Subscription subscription, com.hiveapp.platform.client.plan.domain.entity.SubscriptionRepricingItem item) {
+        if (operations.existsByAccountIdAndStatusIn(subscription.getAccount().getId(), OUTSTANDING)) {
+            throw new InvalidStateException("Another subscription operation is outstanding.");
+        }
+        var period = periods.recurring(item.getTargetSnapshot().billingCycle(), subscription.getCurrentPeriodEnd());
+        var target = item.getTargetSnapshot().withEffectivePeriod(period.startsAt(), period.endsAt());
+        Money amount = Money.of(item.getNewTotal(), target.currencyCode());
+        var operation = new SubscriptionChangeOperation();
+        operation.setAccount(subscription.getAccount()); operation.setSourceSubscription(subscription);
+        operation.setTargetPlan(subscription.getPlan()); operation.setTiming(SubscriptionChangeTiming.AT_RENEWAL);
+        operation.setStatus(amount.amount().signum() == 0 ? SubscriptionChangeStatus.PENDING : SubscriptionChangeStatus.AWAITING_CONFIRMATION);
+        operation.setEffectiveAt(period.startsAt()); operation.setRequestedSelection(subscription.getCustomOverrides());
+        operation.setBeforeSnapshot(subscription.getEntitlementSnapshot()); operation.setTargetSnapshot(target);
+        operation.setRequestOrigin(SubscriptionChangeOrigin.PLATFORM_ADMIN);
+        operation.setRequestedByUserId(item.getJob().getActorUserId()); operation.setRequestReason(item.getJob().getRequest().reason());
+        operation.setRepricingItemId(item.getId()); operations.saveAndFlush(operation);
+        var checkout = new SubscriptionCheckout();
+        checkout.setAccount(subscription.getAccount()); checkout.setChangeOperation(operation);
+        checkout.setStatus(amount.amount().signum() == 0 ? SubscriptionCheckoutStatus.CONFIRMED : SubscriptionCheckoutStatus.PENDING_CONFIRMATION);
+        checkout.setMoney(amount); checkout.setRequestedByUserId(item.getJob().getActorUserId());
+        if (amount.amount().signum() == 0) {
+            checkout.setConfirmationSource(com.hiveapp.platform.client.plan.domain.constant.CheckoutConfirmationSource.NO_PAYMENT_REQUIRED);
+            checkout.setConfirmationReference("no-payment:" + operation.getId());
+            checkout.setConfirmationReason("Reviewed zero-price renewal; no payment required.");
+            checkout.setConfirmedAt(clock.instant());
+        }
+        if (amount.amount().signum() > 0) checkout.setGatewayAttemptStatus(PaymentStatus.PENDING);
+        checkouts.saveAndFlush(checkout); operation.setCheckout(checkout); operations.saveAndFlush(operation);
+        if (amount.amount().signum() > 0) ledger.invoiceAndQueueCharge(checkout, target, amount, item.getJob().getActorUserId());
+        else ledger.invoiceWithoutCharge(checkout, target, item.getJob().getActorUserId());
         return operation;
     }
 }

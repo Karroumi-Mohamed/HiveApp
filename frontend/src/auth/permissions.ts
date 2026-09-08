@@ -3,6 +3,15 @@ import type { AdminMe, MemberPermissions } from "@/api/contracts";
 const permission = (feature: string, action: string) => `platform.${feature}.${action}` as const;
 
 export const adminPermissions = {
+  repricingPreview: permission("subscriptions", "preview_repricing"),
+  repricingConfirm: permission("subscriptions", "confirm_repricing"),
+  repricingList: permission("subscriptions", "list_repricing"),
+  repricingRead: permission("subscriptions", "read_repricing"),
+  repricingResults: permission("subscriptions", "read_repricing_results"),
+  repricingIdentities: permission("subscriptions", "read_repricing_identities"),
+  repricingCancel: permission("subscriptions", "cancel_repricing"),
+  repricingRetry: permission("subscriptions", "retry_repricing"),
+  repricingEmail: permission("subscriptions", "email_repricing"),
   accessOverview: permission("admin_users", "overview"),
   usersRead: permission("admin_users", "read"),
   usersCreate: permission("admin_users", "create"),
@@ -378,6 +387,8 @@ export const clientPermissions = {
   collaborationsManageShareCode: permission("b2b", "manage_share_code"),
   collaborationsRegenerateShareCode: permission("b2b", "regenerate_share_code"),
   subscriptionRead: permission("subscription", "read"),
+  subscriptionReadPriceNotices: permission("subscription", "read_price_notices"),
+  subscriptionMarkPriceNoticeRead: permission("subscription", "mark_price_notice_read"),
   subscriptionReadSpecialAgreements: permission("subscription", "read_special_agreements"),
   subscriptionCatalog: permission("subscription", "catalog"),
   subscriptionPreview: permission("subscription", "preview"),
@@ -405,6 +416,7 @@ export const clientPermissions = {
  * for the separately authorized catalog and change-history endpoints.
  */
 export const clientSubscriptionSurfacePermissions = [
+  clientPermissions.subscriptionReadPriceNotices,
   clientPermissions.subscriptionRead,
   clientPermissions.subscriptionReadSpecialAgreements,
   clientPermissions.subscriptionCatalog,

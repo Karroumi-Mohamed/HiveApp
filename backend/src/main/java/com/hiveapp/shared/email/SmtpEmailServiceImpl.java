@@ -33,6 +33,23 @@ public class SmtpEmailServiceImpl implements EmailService {
     private String from;
 
     @Override
+    public EmailDispatchOutcome sendCommercialNotice(String to, String subject, String text) {
+        try {
+            var message = mailSender.createMimeMessage();
+            var helper = new MimeMessageHelper(message, false, "UTF-8");
+            helper.setFrom(from); helper.setTo(to); helper.setSubject(subject); helper.setText(text, false);
+            mailSender.send(message);
+            return EmailDispatchOutcome.SENT;
+        } catch (MessagingException failure) {
+            throw new EmailDeliveryException(EmailDeliveryFailureCode.MESSAGE_CONSTRUCTION_FAILED, failure);
+        } catch (MailAuthenticationException failure) {
+            throw new EmailDeliveryException(EmailDeliveryFailureCode.AUTHENTICATION_FAILED, failure);
+        } catch (MailException failure) {
+            throw new EmailDeliveryException(EmailDeliveryFailureCode.TRANSPORT_FAILED, failure);
+        }
+    }
+
+    @Override
     public EmailDispatchOutcome sendCredentialLink(
             String to,
             String memberName,

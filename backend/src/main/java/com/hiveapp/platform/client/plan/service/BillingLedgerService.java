@@ -156,8 +156,10 @@ public class BillingLedgerService {
                         customer.legalName(), customer.billingEmail(), customer.address(),
                         customer.countryCode(), customer.taxId()));
         Money catalogue = addComponentLines(invoice, snapshot);
-        invoice.addLine(BillingInvoiceLine.adjustment(
-                "Complimentary special agreement", catalogue.multiply(-1)));
+        if (catalogue.amount().signum() != 0) {
+            invoice.addLine(BillingInvoiceLine.adjustment(
+                    "Complimentary special agreement", catalogue.multiply(-1)));
+        }
         return invoices.saveAndFlush(invoice);
     }
 

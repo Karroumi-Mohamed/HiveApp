@@ -37,6 +37,15 @@ import java.util.UUID;
  * service instead of being completed by the controller.
  */
 public interface AdminSubscriptionService {
+    com.hiveapp.platform.client.plan.dto.RepricingModels.Preview previewRepricing(UUID actor, com.hiveapp.platform.client.plan.dto.RepricingModels.Request request);
+    com.hiveapp.platform.client.plan.dto.RepricingModels.Detail confirmRepricing(UUID id, UUID actor, com.hiveapp.platform.client.plan.dto.RepricingModels.Confirm request);
+    Page<com.hiveapp.platform.client.plan.dto.RepricingModels.Summary> listRepricing(Pageable page);
+    com.hiveapp.platform.client.plan.dto.RepricingModels.Detail getRepricing(UUID id);
+    Page<com.hiveapp.platform.client.plan.dto.RepricingModels.Item> repricingResults(UUID id, com.hiveapp.platform.client.plan.dto.RepricingModels.State status, Pageable page);
+    List<com.hiveapp.platform.client.plan.dto.RepricingModels.Identity> repricingIdentities(UUID id, Collection<UUID> ids);
+    com.hiveapp.platform.client.plan.dto.RepricingModels.Detail retryRepricingExecution(UUID id, UUID itemId, String reason);
+    com.hiveapp.platform.client.plan.dto.RepricingModels.Detail cancelRepricing(UUID id, UUID actor, String reason, UUID onlyItem);
+    com.hiveapp.platform.client.plan.dto.RepricingModels.Detail retryRepricing(UUID id, String reason);
     Page<SubscriptionAccountOperationalListItemDto> searchAccounts(
             String query,
             Boolean accountActive,

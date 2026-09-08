@@ -47,6 +47,7 @@ describe("session permission bypasses", () => {
 
   test("the subscription route includes every independently readable surface", () => {
     expect(clientSubscriptionSurfacePermissions).toEqual([
+      clientPermissions.subscriptionReadPriceNotices,
       clientPermissions.subscriptionRead,
       clientPermissions.subscriptionReadSpecialAgreements,
       clientPermissions.subscriptionCatalog,

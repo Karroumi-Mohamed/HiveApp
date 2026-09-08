@@ -51,6 +51,19 @@ public class SubscriptionController {
 
     private final SubscriptionService subscriptionService;
 
+    @GetMapping("/notices")
+    public PageResponse<com.hiveapp.platform.client.plan.dto.RepricingModels.Notice> notices(
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        var context = HiveAppContextHolder.getContext();
+        return PageResponse.from(subscriptionService.listMyPriceNotices(context.currentAccountId(), context.actorUserId(),
+                CommercialProductPageRequest.of(page, size, "createdAt", "desc", Map.of("createdAt", "createdAt"), "createdAt", Sort.Direction.DESC)));
+    }
+    @PostMapping("/notices/{id}/read") @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void readNotice(@PathVariable UUID id) {
+        var context = HiveAppContextHolder.getContext();
+        subscriptionService.markPriceNoticeRead(context.currentAccountId(), context.actorUserId(), id);
+    }
+
     @GetMapping("/me")
     public SubscriptionDto getMySubscription() {
         UUID accountId = HiveAppContextHolder.getContext().currentAccountId();

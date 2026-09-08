@@ -124,6 +124,14 @@ import java.util.stream.Collectors;
 public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService implements SubscriptionService {
 
     private final SubscriptionRepository subscriptionRepository;
+    private final com.hiveapp.platform.client.plan.service.SubscriptionRepricingService repricing;
+
+    @Override @PermissionNode(key = "read_price_notices", description = "Read own Account price-change notices")
+    public Page<com.hiveapp.platform.client.plan.dto.RepricingModels.Notice> listMyPriceNotices(UUID accountId, UUID userId, Pageable pageable) {
+        return repricing.notices(accountId, userId, pageable);
+    }
+    @Override @PermissionNode(key = "mark_price_notice_read", description = "Mark an own Account price-change notice as read")
+    public void markPriceNoticeRead(UUID accountId, UUID userId, UUID noticeId) { repricing.markRead(accountId, userId, noticeId); }
     private final SpecialCommercialAgreementRepository specialAgreementRepository;
     private final SubscriptionMapper subscriptionMapper;
     private final PlanRepository planRepository;

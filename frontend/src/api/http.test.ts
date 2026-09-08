@@ -1,10 +1,39 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { runInNewContext } from "node:vm";
 import { Window } from "happy-dom";
 import { ApiError, apiRequest, configureHttpAuth } from "./http";
 
 const originalFetch = globalThis.fetch;
 
 describe("HTTP boundary", () => {
+  test("a browser build uses the configured API origin without a process global", async () => {
+    const build = await Bun.build({
+      entrypoints: [`${import.meta.dir}/http.ts`],
+      target: "browser",
+      format: "cjs",
+      define: { "process.env.BUN_PUBLIC_API_URL": JSON.stringify("http://localhost:8081/") },
+    });
+    expect(build.success).toBeTrue();
+    const output = build.outputs[0];
+    if (!output) throw new Error("HTTP browser bundle was not generated");
+    let requested = "";
+    const module = { exports: {} as { apiRequest: typeof apiRequest } };
+    runInNewContext(await output.text(), {
+      module,
+      exports: module.exports,
+      window: { location: { origin: "http://localhost:5173", port: "5173" } },
+      URL,
+      Headers,
+      FormData,
+      fetch: async (url: URL) => {
+        requested = String(url);
+        return new Response("{}", { status: 200 });
+      },
+    });
+    await module.exports.apiRequest("/api/admin/me");
+    expect(requested).toBe("http://localhost:8081/api/admin/me");
+  });
+
   beforeEach(() => {
     const browser = new Window({ url: "http://localhost:3000" });
     Object.defineProperty(globalThis, "window", { configurable: true, value: browser });

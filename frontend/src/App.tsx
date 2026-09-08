@@ -73,6 +73,8 @@ import { AdminProductPriceCreatePage } from "@/features/admin/price-books/admin-
 import { AdminProductPriceDetailPage } from "@/features/admin/price-books/admin-product-price-detail-page";
 import { AdminProductPricesPage } from "@/features/admin/price-books/admin-product-prices-page";
 import { AdminFeaturesPage } from "@/features/admin/registry/admin-features-page";
+import { AdminRepricingCreatePage } from "@/features/admin/repricing/admin-repricing-create-page";
+import { AdminRepricingDetailPage, AdminRepricingListPage } from "@/features/admin/repricing/admin-repricing-pages";
 import { AdminRoleDetailPage } from "@/features/admin/roles/admin-role-detail-page";
 import { AdminRolesPage } from "@/features/admin/roles/admin-roles-page";
 import { AdminSubscriptionChangeJobCreatePage } from "@/features/admin/subscription-jobs/admin-subscription-change-job-create-page";
@@ -193,6 +195,30 @@ const router = createBrowserRouter([
         element: (
           <AdminReadPermissionGate allOf={[adminPermissions.subscriptionsListChangeJobs]}>
             <AdminSubscriptionChangeJobsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "repricing",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.repricingList]}>
+            <AdminRepricingListPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "repricing/new",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.repricingPreview, adminPermissions.repricingResults]}>
+            <AdminRepricingCreatePage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "repricing/:repricingId",
+        element: (
+          <AdminReadPermissionGate anyOf={[adminPermissions.repricingRead, adminPermissions.repricingResults]}>
+            <AdminRepricingDetailPage />
           </AdminReadPermissionGate>
         ),
       },

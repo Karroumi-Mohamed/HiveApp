@@ -82,7 +82,7 @@ Price is not a mutable field on a published product definition.
 - New subscriptions select an active entry. Existing snapshots retain the selected entry forever unless an explicit subscription-change operation selects another.
 - Disabling a price stops new selection; it never rewrites an existing snapshot.
 - Existing-subscriber repricing is a separate explicit operation, not a side effect of replacing a
-  catalogue tariff. `SUBSCRIPTION_REPRICING_V1.md` (2026-09-08) defines exact old-price targeting,
+  catalogue tariff. Implemented in `SUBSCRIPTION_REPRICING_V1.md` (2026-09-08): exact old-price targeting,
   Account exclusions, component-only changes, protected exceptions, per-Account renewal timing,
   signed preview, financial execution, and private customer notices.
 - `FOREVER`, implicit foreign exchange, automatic tax, automatic proration, metered charging, and customer-selectable unlimited pricing remain unsupported until separately decided and implemented.

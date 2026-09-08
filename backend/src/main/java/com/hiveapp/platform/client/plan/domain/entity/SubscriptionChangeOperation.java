@@ -117,6 +117,9 @@ public class SubscriptionChangeOperation extends BaseEntity {
     @Column(name = "request_reason", length = 2000)
     private String requestReason;
 
+    /** Price-only reviewed instruction, distinct from catalogue/entitlement selection changes. */
+    private UUID repricingItemId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "cancellation_origin", length = 32)
     private SubscriptionChangeOrigin cancellationOrigin;

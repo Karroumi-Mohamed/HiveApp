@@ -35,6 +35,12 @@ public class Subscription extends BaseEntity {
     @Column(nullable = false)
     private long version;
 
+    /** Stable across automatic same-terms renewals, new for any reviewed commercial replacement. */
+    @Column(name = "commercial_terms_id")
+    private UUID commercialTermsId = UUID.randomUUID();
+
+    public UUID termsIdentity() { return commercialTermsId == null ? getId() : commercialTermsId; }
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "account_id", nullable = false)
     private Account account;
@@ -131,14 +137,21 @@ public class Subscription extends BaseEntity {
     }
 
     public void setCurrentMoney(Money money) {
+        if (currentPrice != null && !java.util.Objects.equals(currentMoney(), money)) commercialTermsId = UUID.randomUUID();
         currentPrice = money != null ? money.amount() : null;
         currentPriceCurrencyCode = money != null ? money.currencyCode() : null;
     }
 
     /** Keeps the portable criteria projection synchronized with every accepted snapshot write. */
     public void setEntitlementSnapshot(SubscriptionEntitlementSnapshot snapshot) {
+        if (entitlementSnapshot != null && (snapshot == null || !entitlementSnapshot.withEffectivePeriod(null, null).equals(snapshot.withEffectivePeriod(null, null)))) commercialTermsId = UUID.randomUUID();
         this.entitlementSnapshot = snapshot;
         synchronizeCommercialProjection();
+    }
+
+    public void setCustomOverrides(SubscriptionOverrides overrides) {
+        if (getId() != null && !java.util.Objects.equals(customOverrides, overrides)) commercialTermsId = UUID.randomUUID();
+        customOverrides = overrides;
     }
 
     public List<SubscriptionCurrentHolding> getCurrentHoldings() {
@@ -219,6 +232,24 @@ public class Subscription extends BaseEntity {
                 currentHoldings.add(SubscriptionCurrentHolding.of(
                         this, type, key.substring(separator + 1)));
             }
+        }
+        synchronizeHoldingPrices();
+    }
+
+    public void synchronizeHoldingPrices() {
+        if (entitlementSnapshot == null) return;
+        for (var holding : currentHoldings) {
+            holding.setPriceEntryId(switch (holding.getProductType()) {
+                case PLAN -> entitlementSnapshot.planPriceEntryId();
+                case ADD_ON -> entitlementSnapshot.addOns().stream()
+                        .filter(a -> a.code().equalsIgnoreCase(holding.getProductCode()))
+                        .map(a -> java.util.Optional.ofNullable(a.priceEntryId())).findFirst()
+                        .flatMap(java.util.function.Function.identity()).orElse(null);
+                case QUOTA_PACKAGE -> entitlementSnapshot.quotaPackages().stream()
+                        .filter(p -> p.code().equalsIgnoreCase(holding.getProductCode()))
+                        .map(p -> java.util.Optional.ofNullable(p.priceEntryId())).findFirst()
+                        .flatMap(java.util.function.Function.identity()).orElse(null);
+            });
         }
     }
 

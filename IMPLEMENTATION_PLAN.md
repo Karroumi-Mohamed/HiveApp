@@ -1831,13 +1831,27 @@ creation remain open.
 
 ### Batch 12.3: Existing-subscriber price-only operations
 
-- **Status:** Approved 2026-09-08; implementation pending.
+- **Status:** Implemented and verified 2026-09-08.
 - **Contract:** `docs/SUBSCRIPTION_REPRICING_V1.md`, `SUBSCRIPTION-FLOW-005`, `REPRICING-001`.
 - **Scope:** Explicit tariff audience/exclusions, per-Account preserved terms, signed review,
   next/first-eligible renewal, normal settlement, private notices and optional email, operational
   results/cancel/retry, fine-grained security, reusable guided admin and client notice surfaces.
 - **Gate:** Full backend/frontend verification plus real browser workflows; update completion
   evidence only after verification. Existing broader Phase 12 deferrals are not implicitly closed.
+- **Delivered:** Bounded exact-tariff/selected/filtered/frozen-Segment reviews with exclusions;
+  per-Account price-only snapshots and terms identities; signed confirmation; renewal execution
+  through the invoice/settlement engine; private client notices and separate durable optional email;
+  paginated admin results/identity reveal, safe cancellation and original-instruction technical retry.
+- **Verification:** JDK 21 `mvn -o test`: **857 tests, 0 failures/errors/skips**. Frontend: Biome
+  **292 files**, TypeScript clean, **378 tests**, production build successful. `git diff --check`
+  clean. The checks behind `bun run verify` ran individually using the global Bun binary because
+  the pre-existing local Bun wrapper's postinstall is missing; no dependency installation occurred.
+- **Browser QA:** Isolated ports 8081/5173, disposable Account and tariffs: four-step review,
+  confirmation without charging, Account-private notice, mark-read, cancellation and persisted
+  cancelled notice; admin/client visual checks. Existing user backend on 8080 was left untouched.
+- **Bounds:** 500 Accounts per review; cancellation before financial execution only; payment
+  recovery remains in billing. Email is at-least-once and requires a working transport/verified
+  owner. Production provider/tax/fiscal deferrals and load testing remain outside this batch.
 
 ### Batch 12.2: One-Account special commercial agreements
 

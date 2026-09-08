@@ -1,6 +1,6 @@
 import { XIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { adminApi } from "@/api/admin-api";
 import type { AccountDirectoryEntry } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
@@ -23,6 +23,7 @@ export function SubscriptionJobAccountPicker({
   onChange: (ids: string[]) => void;
 }) {
   const session = useAdminSession();
+  const prefix = useId();
   const [search, setSearch] = useState("");
   const deferredSearch = useDebouncedValue(search);
   const [page, setPage] = useState(0);
@@ -78,9 +79,9 @@ export function SubscriptionJobAccountPicker({
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="flex-1 space-y-2">
-          <Label htmlFor="subscription-job-account-search">Comptes actifs</Label>
+          <Label htmlFor={`${prefix}-search`}>Comptes actifs</Label>
           <Input
-            id="subscription-job-account-search"
+            id={`${prefix}-search`}
             maxLength={180}
             onChange={(event) => {
               setSearch(event.target.value);
@@ -127,7 +128,7 @@ export function SubscriptionJobAccountPicker({
         <div className="overflow-hidden rounded-lg border">
           <ul className="divide-y">
             {choices.data.content.map((account) => {
-              const inputId = `subscription-job-account-${account.id}`;
+              const inputId = `${prefix}-${account.id}`;
               const checked = selectedIds.includes(account.id);
               return (
                 <li key={account.id}>

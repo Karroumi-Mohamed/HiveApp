@@ -25,6 +25,11 @@ import org.springframework.stereotype.Service;
         havingValue = "__never_configured__", matchIfMissing = true)
 @Profile("!prod")
 public class LoggingEmailServiceImpl implements EmailService {
+    @Override
+    public EmailDispatchOutcome sendCommercialNotice(String to, String subject, String text) {
+        log.info("[DEV] Commercial notice email suppressed; no SMTP transport configured.");
+        return EmailDispatchOutcome.SUPPRESSED;
+    }
 
     @Override
     public EmailDispatchOutcome sendCredentialLink(

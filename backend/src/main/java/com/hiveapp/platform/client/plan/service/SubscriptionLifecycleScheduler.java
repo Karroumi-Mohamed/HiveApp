@@ -14,9 +14,11 @@ public class SubscriptionLifecycleScheduler {
     private final SpecialAgreementLifecycleService specialAgreementLifecycle;
     private final SubscriptionLifecycleManager subscriptionLifecycleManager;
     private final Clock clock;
+    private final SubscriptionRepricingProcessor repricingProcessor;
 
     @Scheduled(fixedDelayString = "${hiveapp.subscriptions.lifecycle-delay-ms:60000}")
     public void processDueSubscriptions() {
+        repricingProcessor.processDue(clock.instant());
         renewalChangeProcessor.processDue(clock.instant());
         specialAgreementLifecycle.processDue(clock.instant());
         subscriptionLifecycleManager.processDueSubscriptions();

@@ -245,14 +245,21 @@ export function AdminProductPricesPage() {
     <div className="space-y-7">
       <PageHeader
         actions={
-          session.can(adminPermissions.priceBooksCreate) ? (
-            <Button asChild>
-              <Link to="/admin/price-books/new">
-                <PlusIcon />
-                Créer un tarif
-              </Link>
-            </Button>
-          ) : undefined
+          <>
+            {session.can(adminPermissions.repricingList) ? (
+              <Button asChild variant="ghost">
+                <Link to="/admin/repricing">Tarifs des abonnés</Link>
+              </Button>
+            ) : null}
+            {session.can(adminPermissions.priceBooksCreate) ? (
+              <Button asChild>
+                <Link to="/admin/price-books/new">
+                  <PlusIcon />
+                  Créer un tarif
+                </Link>
+              </Button>
+            ) : null}
+          </>
         }
         title="Grille tarifaire"
       />

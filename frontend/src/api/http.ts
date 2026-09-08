@@ -26,8 +26,15 @@ export class ApiError extends Error {
   }
 }
 
-const configuredApiOrigin =
-  typeof process !== "undefined" ? process.env.BUN_PUBLIC_API_URL?.trim().replace(/\/$/, "") : undefined;
+const configuredApiOrigin = (() => {
+  // Bun replaces the env expression at build time, but not a `typeof process` guard.
+  // Such a guard discards a configured URL in browsers where `process` does not exist.
+  try {
+    return process.env.BUN_PUBLIC_API_URL?.trim().replace(/\/$/, "") || undefined;
+  } catch {
+    return undefined;
+  }
+})();
 const apiOrigin =
   configuredApiOrigin ??
   (typeof window !== "undefined" && window.location.port === "3000" ? "http://localhost:8080" : "");

@@ -23,7 +23,8 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(name = "subscription_current_holdings", indexes = {
         @Index(name = "idx_subscription_holding_product", columnList = "product_type,product_code"),
-        @Index(name = "idx_subscription_holding_subscription", columnList = "subscription_id")
+        @Index(name = "idx_subscription_holding_subscription", columnList = "subscription_id"),
+        @Index(name = "idx_subscription_holding_price", columnList = "price_entry_id")
 }, uniqueConstraints = @UniqueConstraint(name = "uk_subscription_holding_product",
         columnNames = {"subscription_id", "product_type", "product_code"}))
 @Getter
@@ -40,6 +41,11 @@ public class SubscriptionCurrentHolding extends BaseEntity {
 
     @Column(name = "product_code", nullable = false, updatable = false, length = 100)
     private String productCode;
+
+    @Column(name = "price_entry_id")
+    private java.util.UUID priceEntryId;
+
+    void setPriceEntryId(java.util.UUID id) { priceEntryId = id; }
 
     static SubscriptionCurrentHolding of(
             Subscription subscription,

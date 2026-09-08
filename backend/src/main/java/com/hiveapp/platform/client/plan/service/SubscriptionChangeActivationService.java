@@ -35,6 +35,7 @@ public class SubscriptionChangeActivationService {
     private final SubscriptionPeriodCalculator periodCalculator;
     private final BillingCalculator billingCalculator;
     private final SpecialAgreementTransitionService specialAgreements;
+    private final com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepricingItemRepository repricingItems;
 
     @Transactional
     @AuditedMutation(
@@ -50,10 +51,28 @@ public class SubscriptionChangeActivationService {
             return markNeedsAttention(
                     operation, "The Account subscription changed after this operation was requested.");
         }
-        if (!operation.getTargetPlan().isActive()) {
+        if (operation.getRepricingItemId() != null) {
+            var instruction = repricingItems.lock(operation.getRepricingItemId()).orElse(null);
+            if (instruction == null || instruction.getOperation() == null
+                    || !instruction.getOperation().getId().equals(operation.getId())
+                    || !current.termsIdentity().equals(instruction.getTermsIdentity())
+                    || !current.getEntitlementSnapshot().withEffectivePeriod(null, null).equals(instruction.getBeforeSnapshot().withEffectivePeriod(null, null))
+                    || !java.util.Objects.equals(current.getCustomOverrides(), operation.getRequestedSelection())
+                    || current.getCurrentPrice().compareTo(instruction.getOldTotal()) != 0
+                    || !operation.getTargetSnapshot().withEffectivePeriod(null, null).equals(instruction.getTargetSnapshot().withEffectivePeriod(null, null))
+                    || !current.getAccount().isActive() || current.isCancelAtPeriodEnd()
+                    || (current.getStatus() == SubscriptionStatus.SUSPENDED
+                        && current.getSuspensionCause() != com.hiveapp.platform.client.plan.domain.constant.SubscriptionSuspensionCause.COLLECTION)) {
+                return markNeedsAttention(operation, "Reviewed price-only terms changed before activation.");
+            }
+        }
+        boolean sameTermsRenewal = operation.getRequestOrigin() == com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeOrigin.SYSTEM
+                && operation.getBeforeSnapshot().withEffectivePeriod(null, null).equals(operation.getTargetSnapshot().withEffectivePeriod(null, null));
+        boolean retainedRenewal = sameTermsRenewal || operation.getRepricingItemId() != null;
+        if (!retainedRenewal && !operation.getTargetPlan().isActive()) {
             return markNeedsAttention(operation, "The target Plan is no longer active.");
         }
-        String unavailableItem = unavailableCommercialItem(operation);
+        String unavailableItem = retainedRenewal ? null : unavailableCommercialItem(operation);
         if (unavailableItem != null) {
             return markNeedsAttention(operation, unavailableItem);
         }
@@ -82,6 +101,9 @@ public class SubscriptionChangeActivationService {
 
         Subscription replacement = new Subscription();
         replacement.setAccount(current.getAccount());
+        if (sameTermsRenewal && operation.getRepricingItemId() == null) {
+            replacement.setCommercialTermsId(current.termsIdentity());
+        }
         replacement.setPlan(operation.getTargetPlan());
         replacement.setCustomOverrides(operation.getRequestedSelection());
         replacement.setEntitlementSnapshot(operation.getTargetSnapshot());
@@ -100,6 +122,7 @@ public class SubscriptionChangeActivationService {
         operation.setAttentionReason(null);
         SubscriptionChangeOperation saved = operationRepository.save(operation);
         specialAgreements.operationApplied(saved, replacement);
+        updateRepricing(saved, com.hiveapp.platform.client.plan.dto.RepricingModels.State.APPLIED, null);
         return saved;
     }
 
@@ -142,6 +165,15 @@ public class SubscriptionChangeActivationService {
         operation.setAttentionReason(reason);
         SubscriptionChangeOperation saved = operationRepository.save(operation);
         specialAgreements.operationNeedsAttention(saved, reason);
+        updateRepricing(saved, com.hiveapp.platform.client.plan.dto.RepricingModels.State.CONFLICT, "ACTIVATION_CONFLICT");
         return saved;
+    }
+
+    private void updateRepricing(SubscriptionChangeOperation operation,
+            com.hiveapp.platform.client.plan.dto.RepricingModels.State status, String blocker) {
+        if (operation.getRepricingItemId() == null) return;
+        repricingItems.findById(operation.getRepricingItemId()).ifPresent(item -> {
+            item.setStatus(status); item.setBlocker(blocker); repricingItems.save(item);
+        });
     }
 }
