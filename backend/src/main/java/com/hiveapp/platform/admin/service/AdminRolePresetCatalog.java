@@ -523,7 +523,7 @@ public class AdminRolePresetCatalog {
         Map<String, Permission> byCode = new LinkedHashMap<>();
         permissionRepository.findAllByCodeIn(definition.permissionCodes())
                 .forEach(permission -> byCode.put(permission.getCode(), permission));
-        return definition.permissionCodes().stream()
+        List<Permission> permissions = definition.permissionCodes().stream()
                 .sorted()
                 .map(code -> {
                     Permission permission = byCode.get(code);
@@ -531,10 +531,12 @@ public class AdminRolePresetCatalog {
                         throw new IllegalStateException(
                                 "Admin role preset " + definition.code() + " references missing permission " + code);
                     }
-                    permissionGrantValidator.requirePlatformAdminRoleGrantable(code);
                     return permission;
                 })
                 .toList();
+        permissionGrantValidator.requirePlatformAdminRoleGrantablePermissions(
+                permissions.stream().map(Permission::getCode).toList());
+        return permissions;
     }
 
     private static AdminPermissionSummaryDto toSummary(Permission permission) {

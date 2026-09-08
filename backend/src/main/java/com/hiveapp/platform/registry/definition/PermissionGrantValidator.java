@@ -4,23 +4,23 @@ import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.platform.registry.domain.repository.FeatureRepository;
 import com.hiveapp.platform.registry.service.CurrentRegistrySnapshot;
 import com.hiveapp.shared.exception.InvalidPermissionGrantException;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 public class PermissionGrantValidator {
 
-    private final ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider;
     private final CurrentRegistrySnapshot currentRegistrySnapshot;
     private final FeatureRepository featureRepository;
 
     public PermissionGrantValidator(
-            ObjectProvider<FeatureDefinitionCollector> featureDefinitionCollectorProvider,
             CurrentRegistrySnapshot currentRegistrySnapshot,
             FeatureRepository featureRepository) {
-        this.featureDefinitionCollectorProvider = featureDefinitionCollectorProvider;
         this.currentRegistrySnapshot = currentRegistrySnapshot;
         this.featureRepository = featureRepository;
     }
@@ -41,14 +41,43 @@ public class PermissionGrantValidator {
         return isGrantable(permissionCode, GrantTarget.PLATFORM_ADMIN_ROLE);
     }
 
+    /** A fresh evaluation, not a cross-request cache of mutable feature controls or grants. */
+    public Set<String> platformAdminRoleGrantableCodes(Collection<String> permissionCodes) {
+        CurrentRegistrySnapshot.View snapshot = currentRegistrySnapshot.view();
+        Map<String, String> candidates = new HashMap<>();
+        for (String code : permissionCodes) {
+            FeatureDefinition definition = snapshot.definitionFor(code);
+            if (definition != null && definition.isPlatformAdminRoleGrantablePermission(code)) {
+                candidates.put(code, definition.code());
+            }
+        }
+        if (candidates.isEmpty()) return Set.of();
+
+        Set<String> availableFeatures = new HashSet<>();
+        for (var controls : featureRepository.findGrantControlsByCodeIn(new HashSet<>(candidates.values()))) {
+            if (controls.getNewGrantsEnabled() && controls.getRuntimeEnabled()) {
+                availableFeatures.add(controls.getCode());
+            }
+        }
+        Set<String> allowed = new HashSet<>();
+        candidates.forEach((code, feature) -> {
+            if (availableFeatures.contains(feature)) allowed.add(code);
+        });
+        return Set.copyOf(allowed);
+    }
+
+    public void requirePlatformAdminRoleGrantablePermissions(Collection<String> permissionCodes) {
+        Set<String> allowed = platformAdminRoleGrantableCodes(permissionCodes);
+        for (String code : permissionCodes) {
+            if (code == null || !allowed.contains(code)) throw invalidGrant(code, GrantTarget.PLATFORM_ADMIN_ROLE);
+        }
+    }
+
     public boolean isClientRoleGrantable(Permission permission) {
         return isGrantable(permission.getCode(), GrantTarget.CLIENT_ROLE);
     }
 
     public boolean isOwnerUsable(Permission permission) {
-        if (!currentRegistrySnapshot.containsAction(permission.getCode())) {
-            return false;
-        }
         FeatureDefinition definition = findDefinition(permission.getCode());
         return definition != null && definition.surface() == FeatureSurface.CLIENT_WORKSPACE
                 && featureAvailableForUse(definition.code());
@@ -64,15 +93,15 @@ public class PermissionGrantValidator {
 
     private void requireFlag(String permissionCode, GrantTarget target) {
         if (!isGrantable(permissionCode, target)) {
-            throw new InvalidPermissionGrantException(
-                    "Permission " + permissionCode + " cannot be granted to " + target.label + ".");
+            throw invalidGrant(permissionCode, target);
         }
     }
 
+    private InvalidPermissionGrantException invalidGrant(String code, GrantTarget target) {
+        return new InvalidPermissionGrantException("Permission " + code + " cannot be granted to " + target.label + ".");
+    }
+
     private boolean isGrantable(String permissionCode, GrantTarget target) {
-        if (!currentRegistrySnapshot.containsAction(permissionCode)) {
-            return false;
-        }
         FeatureDefinition definition = findDefinition(permissionCode);
         return definition != null && featureAvailableForNewGrant(definition.code()) && switch (target) {
             case CLIENT_ROLE -> definition.isClientRoleGrantablePermission(permissionCode);
@@ -94,9 +123,6 @@ public class PermissionGrantValidator {
     }
 
     private boolean isRuntimeEligible(String permissionCode, GrantTarget target) {
-        if (!currentRegistrySnapshot.containsAction(permissionCode)) {
-            return false;
-        }
         FeatureDefinition definition = findDefinition(permissionCode);
         if (definition == null || !featureAvailableForUse(definition.code())) {
             return false;
@@ -109,27 +135,7 @@ public class PermissionGrantValidator {
     }
 
     private FeatureDefinition findDefinition(String permissionCode) {
-        String featureCode = featureCode(permissionCode);
-        if (featureCode == null) {
-            return null;
-        }
-        Map<String, FeatureDefinition> definitions = featureDefinitionCollectorProvider.getObject().collectByCode();
-        FeatureDefinition definition = definitions.get(featureCode);
-        if (definition == null || !definition.ownsPermission(permissionCode)) {
-            return null;
-        }
-        return definition;
-    }
-
-    private static String featureCode(String permissionCode) {
-        if (permissionCode == null || permissionCode.isBlank()) {
-            return null;
-        }
-        int lastDot = permissionCode.lastIndexOf('.');
-        if (lastDot < 1) {
-            return null;
-        }
-        return permissionCode.substring(0, lastDot);
+        return currentRegistrySnapshot.view().definitionFor(permissionCode);
     }
 
     private enum GrantTarget {

@@ -5,7 +5,6 @@ import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.registry.definition.PermissionGrantValidator;
 import com.hiveapp.platform.registry.domain.entity.Permission;
 import com.hiveapp.platform.registry.domain.repository.PermissionRepository;
-import com.hiveapp.shared.exception.InvalidPermissionGrantException;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -29,10 +28,7 @@ public class AdminPermissionResolver {
 
     public Set<String> resolve(AdminUser admin) {
         if (admin.isSuperAdmin()) {
-            return permissionRepository.findAll().stream()
-                    .filter(permission -> isPlatformAdminGrantable(permission.getCode()))
-                    .map(Permission::getCode)
-                    .collect(Collectors.toSet());
+            return permissionGrantValidator.platformAdminRoleGrantableCodes(permissionRepository.findAllCodes());
         }
         // This is the hot session/authorization path: keep the code-only projection rather than
         // hydrating full catalogue entities merely to discard their metadata.
@@ -41,20 +37,15 @@ public class AdminPermissionResolver {
 
     public Set<Permission> resolveEntities(AdminUser admin) {
         if (admin.isSuperAdmin()) {
-            return permissionRepository.findAll().stream()
-                    .filter(permission -> isPlatformAdminGrantable(permission.getCode()))
+            var permissions = permissionRepository.findAll();
+            Set<String> allowed = permissionGrantValidator.platformAdminRoleGrantableCodes(
+                    permissions.stream().map(Permission::getCode).toList());
+            return permissions.stream()
+                    .filter(permission -> allowed.contains(permission.getCode()))
                     .collect(Collectors.toSet());
         }
         // Only active roles contribute; deactivating a role withdraws its grants immediately.
         return new HashSet<>(adminUserRepository.findAllPermissions(admin.getId()));
     }
 
-    private boolean isPlatformAdminGrantable(String permissionCode) {
-        try {
-            permissionGrantValidator.requirePlatformAdminRoleGrantable(permissionCode);
-            return true;
-        } catch (InvalidPermissionGrantException notGrantable) {
-            return false;
-        }
-    }
 }

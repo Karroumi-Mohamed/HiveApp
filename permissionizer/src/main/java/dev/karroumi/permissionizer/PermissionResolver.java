@@ -41,6 +41,7 @@ public final class PermissionResolver {
     private static final Logger LOG = Logger.getLogger(PermissionResolver.class.getName());
 
     private static final Map<Method, Result> cache = new ConcurrentHashMap<>();
+    private static final PackageAnnotationCache packageAnnotations = new PackageAnnotationCache();
 
     private PermissionResolver() {
     }
@@ -84,6 +85,7 @@ public final class PermissionResolver {
      */
     public static void clearCache() {
         cache.clear();
+        packageAnnotations.clear();
     }
 
     // ──────────────────────────────────────────────
@@ -360,13 +362,7 @@ public final class PermissionResolver {
     }
 
     private static PermissionNode getPackageAnnotation(String packageName) {
-        try {
-            ClassLoader loader = Thread.currentThread().getContextClassLoader();
-            Class<?> pkgInfo = Class.forName(packageName + ".package-info", false, loader);
-            return pkgInfo.getAnnotation(PermissionNode.class);
-        } catch (ClassNotFoundException e) {
-            return null;
-        }
+        return packageAnnotations.get(packageName, Thread.currentThread().getContextClassLoader());
     }
 
     // ──────────────────────────────────────────────

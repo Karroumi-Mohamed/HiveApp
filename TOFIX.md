@@ -3861,7 +3861,7 @@ Different screens can show different truths, high-risk actions may appear in ord
 
 ### REGISTRY-011 — Runtime permission checks repeatedly rebuild the static feature catalogue
 
-**Status:** `CONFIRMED — 2026-09-08`
+**Status:** `FIXED — 2026-09-08`
 
 **Evidence**
 
@@ -3882,7 +3882,16 @@ Static discovery work scales with permission count and request volume, delaying 
 - Cache Permissionizer's static package metadata, including missing annotations, without sharing results across incompatible class loaders or retaining retired application loaders.
 - Bulk-read mutable feature controls for a permission-set evaluation; do not retain users' effective permissions, mutable entities or operational flags across requests.
 - Test current grant/runtime flags, action removal, snapshot replacement, role revocation, concurrent reads/initialization and class-loader isolation. Assert bounded discovery/query work rather than fragile wall-clock thresholds in unit tests.
-- Run both Java suites and compare the real profile endpoint before/after. Keep this entry `CONFIRMED` until the user approves the tested implementation and requests the completion update/commit.
+- Run both Java suites and compare the real profile endpoint before/after.
+
+**Implementation evidence — 2026-09-08**
+
+- Runtime permission validation now uses the immutable definition/action index published atomically by `CurrentRegistrySnapshot`. SuperAdmin permission sets and bulk role/preset validation read live feature controls in one projection query rather than one query per permission. User permissions and mutable feature controls are not cached across requests.
+- Permissionizer caches package-annotation hits and misses per class-loader identity, using weak loader/annotation references and explicit cache reset; unexpected discovery failures still propagate.
+- Regression coverage verifies removed actions/definitions, snapshot replacement and concurrent publication, fresh grant/runtime controls, uncached role revocation, bounded query work, concurrent package lookup, and class-loader isolation.
+- Full verification: 835 backend tests and 12 Permissionizer tests, with zero failures/errors/skips. `git diff --check` passed.
+- A separate local validation server returned the same 300 admin permissions as the old server. Side-by-side profile timings were 5,395 ms before versus 7.7 ms after; other warm fixed requests took about 4–5 ms. A bounded 200-request/10-concurrent smoke test had zero failures. These local results are not a production VPS throughput guarantee.
+- The user approved committing the tested fix. The validation server was stopped without restarting the user's backend or discarding its in-memory development data.
 
 ---
 

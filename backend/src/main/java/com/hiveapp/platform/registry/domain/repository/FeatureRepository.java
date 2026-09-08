@@ -17,6 +17,16 @@ public interface FeatureRepository extends JpaRepository<Feature, UUID> {
     List<Feature> findAllByStatus(FeatureStatus status);
     List<Feature> findAllByModuleId(UUID moduleId);
 
+    @Query("select feature.code as code, feature.newGrantsEnabled as newGrantsEnabled, "
+            + "feature.runtimeEnabled as runtimeEnabled from Feature feature where feature.code in :codes")
+    List<GrantControls> findGrantControlsByCodeIn(@Param("codes") Collection<String> codes);
+
+    interface GrantControls {
+        String getCode();
+        boolean getNewGrantsEnabled();
+        boolean getRuntimeEnabled();
+    }
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select feature from Feature feature where feature.id = :id")
     Optional<Feature> findByIdForUpdate(@Param("id") UUID id);

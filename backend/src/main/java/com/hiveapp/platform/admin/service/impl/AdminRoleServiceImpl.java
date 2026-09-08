@@ -169,8 +169,9 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
                 .map(AdminRolePermission::getPermission)
                 .toList();
         AdminMutationAuthorizer.GrantCeiling ceiling = adminMutationAuthorizer.currentActorGrantCeiling();
+        permissionGrantValidator.requirePlatformAdminRoleGrantablePermissions(
+                permissions.stream().map(Permission::getCode).toList());
         permissions.forEach(permission -> {
-            permissionGrantValidator.requirePlatformAdminRoleGrantable(permission.getCode());
             adminMutationAuthorizer.requireCanManagePermission(ceiling, permission.getCode(), "copy");
         });
         return createIndependentRole(
@@ -506,17 +507,19 @@ public class AdminRoleServiceImpl extends PlatformControlFeatureService implemen
         Map<UUID, Permission> byId = permissionRepository.findAllById(uniqueIds).stream()
                 .collect(Collectors.toMap(Permission::getId, Function.identity()));
         AdminMutationAuthorizer.GrantCeiling ceiling = adminMutationAuthorizer.currentActorGrantCeiling();
-        return uniqueIds.stream()
+        List<Permission> permissions = uniqueIds.stream()
                 .map(id -> {
                     Permission permission = byId.get(id);
                     if (permission == null) {
                         throw new ResourceNotFoundException("Permission", "id", id);
                     }
-                    permissionGrantValidator.requirePlatformAdminRoleGrantable(permission.getCode());
                     adminMutationAuthorizer.requireCanManagePermission(ceiling, permission.getCode(), "grant");
                     return permission;
                 })
                 .toList();
+        permissionGrantValidator.requirePlatformAdminRoleGrantablePermissions(
+                permissions.stream().map(Permission::getCode).toList());
+        return permissions;
     }
 
     private AdminRoleImpactDto impact(
