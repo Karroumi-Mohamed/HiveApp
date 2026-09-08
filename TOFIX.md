@@ -3859,6 +3859,33 @@ Different screens can show different truths, high-risk actions may appear in ord
 
 ---
 
+### REGISTRY-011 — Runtime permission checks repeatedly rebuild the static feature catalogue
+
+**Status:** `CONFIRMED — 2026-09-08`
+
+**Evidence**
+
+- `AdminPermissionResolver` checks every registry permission for a SuperAdmin. Each call through `PermissionGrantValidator.findDefinition()` invokes `FeatureDefinitionCollector.collectByCode()`, collecting and validating the entire code-owned catalogue again.
+- Contributor-root validation calls `PermissionResolver.resolveClassPath()`. Package-annotation lookup repeatedly attempts `Class.forName(...package-info)` with the context class loader, including missing metadata; those misses repeat class-loader/filesystem work.
+- Feature runtime/new-grant flags are also read permission by permission, even when many permissions belong to the same feature.
+- Local `/api/admin/me` measurements ranged from about 4.6 seconds to 9.0 seconds; the opt-in browser skeleton timer measured about 9.3 seconds for the profile/permissions stage and 0.02 seconds for dashboard data. Direct API requests reproduced about 9 seconds with profiling disabled. The browser preflight was about 3 ms.
+- A Java Flight Recorder investigation captured 227 of 228 samples inside the profile resolver in the catalogue/package-metadata lookup path, including 208 samples resolving filesystem paths. These are sample counts, not exact invocation counts or a throughput benchmark.
+- The same grant validator is reused by role presets, role permission changes, SuperAdmin effective-permission views, and client/B2B eligibility checks. Every cold admin page also waits for the profile endpoint.
+
+**Risk**
+
+Static discovery work scales with permission count and request volume, delaying navigation and consuming server capacity even with almost no business data. Caching complete access decisions as a shortcut would instead risk stale grants, revocations or emergency feature controls.
+
+**Required fix direction and verification**
+
+- Reuse immutable validated code definitions; publish a complete replacement atomically when the installed registry snapshot changes. Preserve startup validation and fail-closed behavior for absent definitions/actions.
+- Cache Permissionizer's static package metadata, including missing annotations, without sharing results across incompatible class loaders or retaining retired application loaders.
+- Bulk-read mutable feature controls for a permission-set evaluation; do not retain users' effective permissions, mutable entities or operational flags across requests.
+- Test current grant/runtime flags, action removal, snapshot replacement, role revocation, concurrent reads/initialization and class-loader isolation. Assert bounded discovery/query work rather than fragile wall-clock thresholds in unit tests.
+- Run both Java suites and compare the real profile endpoint before/after. Keep this entry `CONFIRMED` until the user approves the tested implementation and requests the completion update/commit.
+
+---
+
 ## Permissionizer findings to verify against HiveApp integration
 
 These were observed in the standalone Permissionizer source and must later be checked against how HiveApp uses it.
