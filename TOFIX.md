@@ -3036,6 +3036,35 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 
 ---
 
+### PRICEBOOK-002 — Plan overview still presents a legacy single price as the complete offer
+
+**Status:** `OPEN — 2026-09-09`
+
+**Evidence**
+
+- The Plan detail's **Synthèse → Configuration commerciale → Prix** in
+  `frontend/src/features/admin/plans/admin-plans-page.tsx` renders `data.price`,
+  `data.currencyCode`, and `data.billingCycle`, not the authoritative Price-book options.
+- The system supports independent monthly/yearly tariffs and client selection, but this summary
+  cannot reveal additional published tariffs. During the demo, Enterprise displayed only
+  `99,99 $US / mois`, making the administrator question whether dual cycles were supported.
+- Enterprise's bootstrap data contains one USD monthly tariff; that seed choice is separate from
+  the display bug. The **Tarifs** tab is the place to inspect the actual configured entries.
+
+**Required fix direction**
+
+- Summarize the Plan's currently applicable published tariffs by explicit currency and billing
+  cycle, with a clear link to **Tarifs**. Do not present the legacy tuple as the complete offer.
+- Keep one-tariff, monthly-plus-yearly, multiple-currency, no-applicable-tariff, loading, error, and
+  permission-restricted states honest. Do not infer yearly prices, convert currencies, or leak
+  tariffs when the actor lacks the required read permission.
+- Audit equivalent Add-on/pack summaries for the same assumption before claiming they are fixed.
+  Add regression coverage for a Plan with both monthly and yearly entries.
+- Deferred at the user's request while the original demo continues. No UI or seed change in this
+  documentation-only task.
+
+---
+
 ### COMMERCIAL-002 — Product administration lists are unbounded and operationally inconsistent
 
 **Status:** `IMPLEMENTED AND INDEPENDENTLY AUDITED — 2026-08-27`
