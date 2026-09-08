@@ -2982,6 +2982,21 @@ A concrete signed provider adapter and jurisdiction-specific tax calculation, fi
 
 ---
 
+### REPRICING-001 — No focused price-only workflow for existing subscribers
+
+**Status:** `APPROVED FOR IMPLEMENTATION — 2026-09-08`
+
+- Catalogue tariff replacement already preserves current contracts, correctly. Existing selected
+  jobs apply one full product selection, which is not safe for changing just one component's price
+  across customers with different Add-ons and quantities.
+- Missing: exact old-tariff/filtered/Segment audiences with exclusions, preserved per-Account
+  pricing instruction, first-eligible-renewal timing, and customer-facing price-change notices.
+- Implement `docs/SUBSCRIPTION_REPRICING_V1.md` with signed evidence, protected special terms,
+  ordinary settlement, independent outcomes/delivery, cancellation/retry, privacy and regression
+  coverage. Catalogue publication must never opt current subscribers in automatically.
+
+---
+
 ### PRICEBOOK-001 — Commercial products support only one price and billing cycle
 
 **Status:** `IMPLEMENTED — 2026-08-26`

@@ -1829,6 +1829,16 @@ mounts the bounded history independently and can perform only the intersection o
 and the operator's exact permissions. Population lifecycle jobs and reviewed trial/new-entitlement
 creation remain open.
 
+### Batch 12.3: Existing-subscriber price-only operations
+
+- **Status:** Approved 2026-09-08; implementation pending.
+- **Contract:** `docs/SUBSCRIPTION_REPRICING_V1.md`, `SUBSCRIPTION-FLOW-005`, `REPRICING-001`.
+- **Scope:** Explicit tariff audience/exclusions, per-Account preserved terms, signed review,
+  next/first-eligible renewal, normal settlement, private notices and optional email, operational
+  results/cancel/retry, fine-grained security, reusable guided admin and client notice surfaces.
+- **Gate:** Full backend/frontend verification plus real browser workflows; update completion
+  evidence only after verification. Existing broader Phase 12 deferrals are not implicitly closed.
+
 ### Batch 12.2: One-Account special commercial agreements
 
 - **Prerequisites**: Phase 12 one-Account subscription lifecycle and Phase 13 billing ledger.

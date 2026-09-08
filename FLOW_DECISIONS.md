@@ -1360,6 +1360,23 @@ Additional decisions:
 - Authorized manual corrections are supported but require a reason, before/after detail, and complete audit.
 - Selected/filtered populations, arbitrary scheduled instants, reviewed trial/lifecycle commands, job progress, retry, cutoff cancellation, and communication state remain Phase 12.
 
+## SUBSCRIPTION-FLOW-005 — Explicit price-only changes for existing subscribers
+
+**Status:** `DECIDED — 2026-09-08; IMPLEMENTATION PENDING`
+
+- Catalogue price changes affect new purchases only; existing Accounts retain accepted renewal
+  prices unless a distinct reviewed subscriber operation explicitly targets them.
+- Select one/selected Accounts, exact old-tariff holders, filtered holders, or a frozen Segment,
+  with exclusions. Freeze the reviewed population and preserve each Account's other terms.
+- Replace only the selected Plan/Add-on/pack price, retaining quantities and entitlements. Currency,
+  cycle, and product changes remain separate operations; special agreements and accepted discount
+  terms require their own explicit review, never a blanket overwrite.
+- Apply at each Account's next renewal or first renewal on/after a date. Preserve paid periods,
+  issue normal financial evidence, and require trusted settlement for positive charges.
+- Provide an Account-private in-app notice, optional durable email, per-Account outcomes,
+  cancellation, safe retry, and conflict revalidation. Reading a notice is not consent.
+- The exact implementation and verification contract is `docs/SUBSCRIPTION_REPRICING_V1.md`.
+
 ## SUBSCRIPTION-FLOW-003 — Account-specific exceptions
 
 **Status:** `TYPED POLICY EFFECTS IMPLEMENTED — GENERAL EXCEPTIONS LATER`
