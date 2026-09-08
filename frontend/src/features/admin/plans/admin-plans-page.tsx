@@ -1336,7 +1336,7 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
             </section>
           ) : null}
         </div>
-      ) : tab ? (
+      ) : tab !== "overview" ? (
         <PermissionState />
       ) : (
         <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
@@ -1416,8 +1416,8 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
   );
 }
 
-export function AdminPlansPage() {
+export function AdminPlansPage({ tab: staticTab }: { tab?: "features" | "schema" | "subscribers" } = {}) {
   const { planId, tab } = useParams();
   if (!planId) return <ErrorState />;
-  return <PlanDetailPage id={planId} tab={tab} />;
+  return <PlanDetailPage id={planId} tab={staticTab ?? tab} />;
 }

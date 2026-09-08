@@ -68,7 +68,7 @@ import { AdminOperatorDetailPage } from "@/features/admin/operators/admin-operat
 import { AdminOperatorsPage } from "@/features/admin/operators/admin-operators-page";
 import { AdminOverviewPage } from "@/features/admin/overview/admin-overview-page";
 import { AdminPlanCreatePage } from "@/features/admin/plans/admin-plan-create-page";
-import { AdminPlansPage } from "@/features/admin/plans/admin-plans-page";
+import { adminPlanDetailRoutes } from "@/features/admin/plans/admin-plan-detail-routes";
 import { AdminProductPriceCreatePage } from "@/features/admin/price-books/admin-product-price-create-page";
 import { AdminProductPriceDetailPage } from "@/features/admin/price-books/admin-product-price-detail-page";
 import { AdminProductPricesPage } from "@/features/admin/price-books/admin-product-prices-page";
@@ -149,46 +149,7 @@ const router = createBrowserRouter([
           </AdminReadPermissionGate>
         ),
       },
-      {
-        path: "plans/:planId",
-        element: (
-          <AdminReadPermissionGate allOf={[adminPermissions.plansReadDetail]}>
-            <AdminPlansPage />
-          </AdminReadPermissionGate>
-        ),
-      },
-      {
-        path: "plans/:planId/features",
-        element: (
-          <AdminReadPermissionGate allOf={[adminPermissions.plansReadDetail, adminPermissions.plansListFeatures]}>
-            <AdminPlansPage />
-          </AdminReadPermissionGate>
-        ),
-      },
-      {
-        path: "plans/:planId/schema",
-        element: (
-          <AdminReadPermissionGate allOf={[adminPermissions.plansReadDetail, adminPermissions.plansListFeatures]}>
-            <AdminPlansPage />
-          </AdminReadPermissionGate>
-        ),
-      },
-      {
-        path: "plans/:planId/subscribers",
-        element: (
-          <AdminReadPermissionGate allOf={[adminPermissions.plansReadDetail, adminPermissions.plansListSubscribers]}>
-            <AdminPlansPage />
-          </AdminReadPermissionGate>
-        ),
-      },
-      {
-        path: "plans/:planId/:tab",
-        element: (
-          <AdminReadPermissionGate allOf={[adminPermissions.plansReadDetail]}>
-            <AdminPlansPage />
-          </AdminReadPermissionGate>
-        ),
-      },
+      ...adminPlanDetailRoutes,
       {
         path: "subscriptions",
         element: (

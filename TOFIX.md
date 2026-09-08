@@ -3191,6 +3191,25 @@ Keyboard and assistive-technology users cannot navigate or understand the tab/pa
 
 ---
 
+### UI-002 — Plan detail routes incorrectly display access denial for authorized operators
+
+**Status:** `FIXED — 2026-09-08`
+
+**Original evidence**
+
+- `PlanDetailPage` defaults its tab to `overview`, but the final truthy-tab fallback rendered `PermissionState` for that valid overview too, including for SuperAdmins.
+- The static `features`, `schema`, and `subscribers` routes did not populate `useParams().tab` and passed no explicit tab, so those URLs also resolved to the broken overview instead of their own panels.
+
+**Fix and verification**
+
+- The fallback now rejects only tabs other than `overview`. Static detail routes pass their tab explicitly; dynamic tabs still use the URL parameter.
+- The actual plan-detail route definitions are shared with rendering tests. Existing route and panel permission gates remain unchanged; no SuperAdmin bypass or broader access was introduced.
+- Thirteen regression tests cover the overview, static routes, tab navigation, dynamic prices, unknown tabs, and denied deep links without protected data requests. Six original rendering cases reproduced the defects before the fix.
+- Frontend verification: 370 tests pass, Biome checks 283 files, typecheck and production build pass. These stages were run directly because the existing local Bun wrapper prevents the aggregate `bun run verify` script from starting.
+- Browser verification on the logged-in SuperAdmin session confirms Synthèse, Fonctionnalités, Schéma, Abonnés, Tarifs, Compatibilité, Disponibilité, Historique, and Cycle de vie open their respective panels. No commercial data or backend authorization rules changed.
+
+---
+
 ### ANALYTICS-001 — Commercial dashboards have no durable fact model or operational drill-down
 
 **Status:** `IMPLEMENTED — 2026-08-31; FINAL PHASE 15 AUDIT PENDING`
