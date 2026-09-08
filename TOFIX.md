@@ -3065,6 +3065,38 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 
 ---
 
+### PRICEBOOK-003 — Tariff warnings and labels lack administrator-facing action context
+
+**Status:** `OPEN — 2026-09-09`
+
+**Evidence**
+
+- `ProductPriceAdminServiceImpl.generalBlockers` returns `ACTIVE_MUST_BE_PAUSED` for an active
+  tariff. The detail page renders it under **État opérationnel**, and the lifecycle tab under
+  **Points à traiter**, as if a healthy tariff needs corrective action.
+- The actual rule is specific: an active tariff must be paused **before archiving**. Creating a
+  revision is allowed while active. The current text, **Suspendez d’abord la vente de ce tarif**,
+  omits the operation it refers to, leaving the administrator unsure why anything must be paused.
+- The demo also exposed confusion around **révision du produit** versus **révision du tarif** and
+  generic section/action labels. The user requests a broader administrator-facing vocabulary review;
+  equivalent screens must be inspected rather than assumed to have the same defect.
+
+**Required fix direction**
+
+- Associate blockers with the action they prevent. Show the pause requirement at the archive
+  action, with wording such as **Pour archiver ce tarif, suspendez d’abord sa vente**. Do not show
+  ordinary active status as a page-level warning or block unrelated valid actions.
+- Reserve page-level warnings for genuine availability/configuration problems. Keep backend
+  enforcement and permission-specific disabled reasons intact.
+- Review commercial headings, navigation and action labels for explicit product/price scope and
+  intent; distinguish opening a product version, creating a price version, adding another billing
+  option, and managing existing tariffs without relying on explanatory paragraphs everywhere.
+- Add regression coverage proving an active, otherwise valid tariff has no misleading global
+  pause warning and retains its legitimate actions. Deferred while the demo continues; no UI or
+  lifecycle behavior is changed by this note.
+
+---
+
 ### COMMERCIAL-002 — Product administration lists are unbounded and operationally inconsistent
 
 **Status:** `IMPLEMENTED AND INDEPENDENTLY AUDITED — 2026-08-27`
