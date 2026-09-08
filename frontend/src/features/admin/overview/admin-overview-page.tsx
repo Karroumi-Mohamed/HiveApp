@@ -38,7 +38,7 @@ export function AdminOverviewPage() {
     (commercialEnabled && commercial.isLoading) ||
     (syncIsOnlySurface && sync.isLoading)
   )
-    return <LoadingState />;
+    return <LoadingState debugLabel="Données du tableau de bord" />;
   if (
     (accessEnabled && access.isError) ||
     (commercialEnabled && commercial.isError) ||

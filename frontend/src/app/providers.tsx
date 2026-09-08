@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/api/http";
 import { AdminSessionProvider, ClientSessionProvider } from "@/auth/session-provider";
 import { configureSessionCacheReset } from "@/auth/session-store";
+import { LoadingDebugPanel } from "@/components/patterns/loading-debug";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getLanguageDirection } from "./i18n";
@@ -65,6 +66,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
               <TooltipProvider delayDuration={250}>
                 {children}
                 <GlobalFeedback />
+                <LoadingDebugPanel />
               </TooltipProvider>
             </ClientSessionProvider>
           </AdminSessionProvider>

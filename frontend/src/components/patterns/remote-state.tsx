@@ -1,13 +1,15 @@
 import { ArrowClockwiseIcon, FolderOpenIcon, LockKeyIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
+import { LoadingDebugMarker } from "@/components/patterns/loading-debug";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export function LoadingState({ rows = 5 }: { rows?: number }) {
+export function LoadingState({ rows = 5, debugLabel = "Chargement de page" }: { rows?: number; debugLabel?: string }) {
   const skeletonRows = Array.from({ length: rows }, (_, index) => `skeleton-row-${index + 1}`);
 
   return (
     <div aria-label="Chargement" className="space-y-3" role="status">
+      <LoadingDebugMarker label={debugLabel} />
       {skeletonRows.map((row) => (
         <Skeleton className="h-12 w-full rounded-lg" key={row} />
       ))}

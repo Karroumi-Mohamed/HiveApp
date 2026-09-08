@@ -52,7 +52,7 @@ export function AdminLayout() {
   if (session.loading || !session.me)
     return (
       <main className="mx-auto max-w-3xl p-8" id="main-content">
-        <LoadingState />
+        <LoadingState debugLabel="Profil et permissions admin" />
       </main>
     );
   const plannedSectionsVisible = session.me.isSuperAdmin;
