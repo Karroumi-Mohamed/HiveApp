@@ -6,7 +6,6 @@ import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentBlocker
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentCreationReason;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentProductType;
-import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.shared.api.PageResponse;
@@ -28,7 +27,6 @@ public final class CommercialSegmentViews {
             String name,
             CommercialSegmentStatus status,
             CommercialSegmentKind kind,
-            CommercialSegmentSource source,
             int configuredAccountCount,
             Integer latestActivationAccountCount,
             UUID lineageId,

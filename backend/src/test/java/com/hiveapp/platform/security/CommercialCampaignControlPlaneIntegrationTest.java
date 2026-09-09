@@ -10,7 +10,6 @@ import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignAudien
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignSource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
-import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialCampaign;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialSegmentActivation;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialCampaignAudienceSnapshotRepository;
@@ -800,8 +799,7 @@ class CommercialCampaignControlPlaneIntegrationTest extends PlatformShellIntegra
     private JsonNode createSegment(String token, UUID accountId) throws Exception {
         CommercialSegmentRequests.Create request = new CommercialSegmentRequests.Create(
                 "Campaign source " + UUID.randomUUID(), null,
-                CommercialSegmentKind.EXPLICIT_ACCOUNTS, CommercialSegmentSource.MANUAL,
-                "Create Campaign source Segment",
+                CommercialSegmentKind.EXPLICIT_ACCOUNTS, "Create Campaign source Segment",
                 new CommercialSegmentRequests.Definition(Set.of(accountId), null));
         return response(mockMvc.perform(post("/api/admin/segments")
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)

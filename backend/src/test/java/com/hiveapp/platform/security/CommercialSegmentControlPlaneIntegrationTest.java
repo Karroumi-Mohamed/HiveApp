@@ -13,7 +13,6 @@ import com.hiveapp.platform.client.plan.domain.constant.CommercialPolicyTargetKi
 import com.hiveapp.platform.client.plan.domain.constant.CommercialPreviewKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentProductType;
-import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialSegment;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialPolicyActivationRepository;
@@ -135,6 +134,10 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                 "Quarterly onboarding", Set.of(first.getId(), second.getId())));
         UUID segmentId = id(draft);
 
+        assertThat(draft.at("/summary/source").isMissingNode()).isTrue();
+        assertThat(objectMapper.valueToTree(explicitRequest("No origin required", Set.of(first.getId())))
+                .has("source")).isFalse();
+
         mockMvc.perform(get("/api/admin/segments")
                         .header("Authorization", bearer(token))
                         .param("search", "quarterly")
@@ -142,6 +145,7 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].configuredAccountCount").value(2))
+                .andExpect(jsonPath("$.content[0].source").doesNotExist())
                 .andExpect(jsonPath("$.content[0].ownerEmail").doesNotExist());
 
         JsonNode preview = preview(token, segmentId);
@@ -300,7 +304,7 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
         Account account = registerAccount("segment-explicit-validation");
         CommercialSegmentRequests.Create mixed = new CommercialSegmentRequests.Create(
                 "Mixed definition", null, CommercialSegmentKind.EXPLICIT_ACCOUNTS,
-                CommercialSegmentSource.MANUAL, "Reject ambiguous definition",
+                "Reject ambiguous definition",
                 new CommercialSegmentRequests.Definition(Set.of(account.getId()),
                         new CommercialSegmentRequests.Criteria(Set.of(), Set.of(), Set.of(), Set.of(),
                                 Instant.now().minusSeconds(60), null, Set.of())));
@@ -360,8 +364,7 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
         JsonNode fresh = preview(token, segmentId);
         CommercialSegmentRequests.Update update = new CommercialSegmentRequests.Update(
                 draft.at("/summary/version").asLong(), "Edited evidence Segment", null,
-                CommercialSegmentKind.EXPLICIT_ACCOUNTS, CommercialSegmentSource.SUPPORT,
-                "Change reviewed definition", new CommercialSegmentRequests.Definition(
+                CommercialSegmentKind.EXPLICIT_ACCOUNTS, "Change reviewed definition", new CommercialSegmentRequests.Definition(
                         Set.of(account.getId()), null));
         mockMvc.perform(put("/api/admin/segments/{id}", segmentId)
                         .header("Authorization", bearer(token))
@@ -470,8 +473,7 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
                 .doesNotContain("DEFINITION");
         CommercialSegmentRequests.Update successorUpdate = new CommercialSegmentRequests.Update(
                 successor.at("/summary/version").asLong(), "Expanded policy audience", null,
-                CommercialSegmentKind.EXPLICIT_ACCOUNTS, CommercialSegmentSource.MANUAL,
-                "Add another reviewed Account", new CommercialSegmentRequests.Definition(
+                CommercialSegmentKind.EXPLICIT_ACCOUNTS, "Add another reviewed Account", new CommercialSegmentRequests.Definition(
                         Set.of(first.getId(), second.getId()), null));
         mockMvc.perform(put("/api/admin/segments/{id}", successorId)
                         .header("Authorization", bearer(token))
@@ -804,8 +806,7 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
 
     private CommercialSegmentRequests.Create explicitRequest(String name, Set<UUID> accountIds) {
         return new CommercialSegmentRequests.Create(name, "Explicit reviewed Account audience",
-                CommercialSegmentKind.EXPLICIT_ACCOUNTS, CommercialSegmentSource.MANUAL,
-                "Define an operational Segment", new CommercialSegmentRequests.Definition(
+                CommercialSegmentKind.EXPLICIT_ACCOUNTS, "Define an operational Segment", new CommercialSegmentRequests.Definition(
                         accountIds, null));
     }
 
@@ -814,8 +815,7 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
             CommercialSegmentRequests.Criteria criteria
     ) {
         return new CommercialSegmentRequests.Create(name, "Closed typed commercial criteria",
-                CommercialSegmentKind.TYPED_CRITERIA, CommercialSegmentSource.MANUAL,
-                "Define a database-resolved Segment", new CommercialSegmentRequests.Definition(
+                CommercialSegmentKind.TYPED_CRITERIA, "Define a database-resolved Segment", new CommercialSegmentRequests.Definition(
                         Set.of(), criteria));
     }
 

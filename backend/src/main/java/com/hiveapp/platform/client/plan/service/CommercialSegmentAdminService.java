@@ -2,7 +2,6 @@ package com.hiveapp.platform.client.plan.service;
 
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
-import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentStatus;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentRequests;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentViews;
@@ -18,7 +17,6 @@ public interface CommercialSegmentAdminService {
             String search,
             CommercialSegmentStatus status,
             CommercialSegmentKind kind,
-            CommercialSegmentSource source,
             boolean includeArchived,
             Pageable pageable);
 

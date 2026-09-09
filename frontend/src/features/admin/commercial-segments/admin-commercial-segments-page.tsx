@@ -10,12 +10,7 @@ import type { SortingState } from "@tanstack/react-table";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { adminApi } from "@/api/admin-api";
-import type {
-  CommercialSegmentKind,
-  CommercialSegmentSource,
-  CommercialSegmentStatus,
-  CommercialSegmentSummary,
-} from "@/api/contracts";
+import type { CommercialSegmentKind, CommercialSegmentStatus, CommercialSegmentSummary } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { createDataColumns, DataTable, SortHeader } from "@/components/patterns/data-table";
@@ -38,7 +33,7 @@ import {
   segmentListStateFromSorting,
   writeCommercialSegmentListState,
 } from "./commercial-segment-list-state";
-import { segmentKind, segmentSource, segmentStatus } from "./commercial-segment-rules";
+import { segmentKind, segmentStatus } from "./commercial-segment-rules";
 
 const column = createDataColumns<CommercialSegmentSummary>();
 
@@ -92,7 +87,6 @@ const columns = column.columns([
     cell: ({ row }) => (
       <span className="block min-w-40">
         <span className="block text-sm">{segmentKind[row.original.kind]}</span>
-        <span className="block text-xs text-muted-foreground">{segmentSource[row.original.source]}</span>
       </span>
     ),
   }),
@@ -160,10 +154,6 @@ function MobileSegments({ segments }: { segments: CommercialSegmentSummary[] }) 
             </div>
             <dl className="grid grid-cols-2 gap-3 text-xs">
               <div>
-                <dt className="text-muted-foreground">Origine</dt>
-                <dd className="mt-0.5 font-medium">{segmentSource[segment.source]}</dd>
-              </div>
-              <div>
                 <dt className="text-muted-foreground">Dernière audience</dt>
                 <dd className="mt-0.5 font-medium tabular-nums">{segment.latestActivationAccountCount ?? "—"}</dd>
               </div>
@@ -208,7 +198,6 @@ export function AdminCommercialSegmentsPage() {
         search: debouncedSearch || undefined,
         status: state.status === "ALL" ? undefined : (state.status as CommercialSegmentStatus),
         kind: state.kind === "ALL" ? undefined : (state.kind as CommercialSegmentKind),
-        source: state.source === "ALL" ? undefined : (state.source as CommercialSegmentSource),
         includeArchived: state.includeArchived,
         page: state.page,
         size: state.size,
@@ -243,7 +232,7 @@ export function AdminCommercialSegmentsPage() {
         <PermissionState />
       ) : (
         <section aria-busy={segments.isFetching} className="overflow-hidden rounded-xl border bg-card">
-          <div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_repeat(3,180px)]">
+          <div className="grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_repeat(2,200px)]">
             <div className="relative">
               <MagnifyingGlassIcon className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -275,19 +264,6 @@ export function AdminCommercialSegmentsPage() {
               <SelectContent>
                 <SelectItem value="ALL">Toutes les définitions</SelectItem>
                 {Object.entries(segmentKind).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select onValueChange={(value) => update({ source: value as typeof state.source })} value={state.source}>
-              <SelectTrigger aria-label="Origine" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Toutes les origines</SelectItem>
-                {Object.entries(segmentSource).map(([value, label]) => (
                   <SelectItem key={value} value={value}>
                     {label}
                   </SelectItem>

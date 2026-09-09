@@ -1036,7 +1036,6 @@ export type CommercialPolicyHistory = {
 
 export type CommercialSegmentStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
 export type CommercialSegmentKind = "EXPLICIT_ACCOUNTS" | "TYPED_CRITERIA";
-export type CommercialSegmentSource = "MANUAL" | "IMPORTED" | "SUPPORT";
 export type CommercialSegmentProductType = "PLAN" | "ADD_ON" | "QUOTA_PACKAGE";
 export type CommercialSegmentCreationReason = "CREATED" | "DUPLICATED" | "REVISED";
 export type CommercialSegmentAction =
@@ -1095,7 +1094,6 @@ export type CommercialSegmentSummary = {
   name: string;
   status: CommercialSegmentStatus;
   kind: CommercialSegmentKind;
-  source: CommercialSegmentSource;
   configuredAccountCount: number;
   latestActivationAccountCount: number | null;
   lineageId: UUID;
@@ -1122,7 +1120,6 @@ export type CommercialSegmentWriteInput = {
   name: string;
   description: string | null;
   kind: CommercialSegmentKind;
-  source: CommercialSegmentSource;
   reason: string;
   definition: CommercialSegmentDefinition;
 };

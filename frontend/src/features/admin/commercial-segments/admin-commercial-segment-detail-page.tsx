@@ -59,7 +59,6 @@ import {
   segmentKind,
   segmentMutationMessage,
   segmentProductType,
-  segmentSource,
   segmentStatus,
   subscriptionStatusLabel,
   validSegmentId,
@@ -547,10 +546,6 @@ function Overview({ segment }: { segment: CommercialSegmentDetail }) {
         <div>
           <dt className="text-xs text-muted-foreground">Définition</dt>
           <dd className="mt-1 font-medium">{segmentKind[segment.summary.kind]}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Origine</dt>
-          <dd className="mt-1 font-medium">{segmentSource[segment.summary.source]}</dd>
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">Révision</dt>

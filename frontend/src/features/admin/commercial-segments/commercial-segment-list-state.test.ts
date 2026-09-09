@@ -6,6 +6,16 @@ import {
 } from "./commercial-segment-list-state";
 
 describe("commercial segment list URL state", () => {
+  test("drops obsolete origin filters and origin sorting from saved links", () => {
+    const params = new URLSearchParams("source=IMPORTED&sort=source&tab=audience");
+    const state = readCommercialSegmentListState(params);
+    expect(state).not.toHaveProperty("source");
+    expect(state.sort).toBe("updatedAt");
+    const next = writeCommercialSegmentListState(params, state);
+    expect(next.has("source")).toBe(false);
+    expect(next.get("tab")).toBe("audience");
+  });
+
   test("bounds unknown filters, pagination, page size and sorting", () => {
     const state = readCommercialSegmentListState(
       new URLSearchParams(
@@ -16,7 +26,6 @@ describe("commercial segment list URL state", () => {
       search: "Renewal",
       status: "ALL",
       kind: "ALL",
-      source: "ALL",
       page: 0,
       size: 20,
       sort: "updatedAt",

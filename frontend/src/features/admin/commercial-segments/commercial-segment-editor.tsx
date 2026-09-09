@@ -39,7 +39,6 @@ import {
   segmentKind,
   segmentMutationMessage,
   segmentProductType,
-  segmentSource,
   subscriptionStatusLabel,
   toCommercialSegmentWriteInput,
   validateCommercialSegmentDraft,
@@ -532,7 +531,7 @@ function IdentityStep({
 }) {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div className="max-w-2xl">
         <div className="space-y-2">
           <Label htmlFor="segment-name">Nom</Label>
           <Input
@@ -542,24 +541,6 @@ function IdentityStep({
             value={draft.name}
           />
           <FieldError>{errors.name}</FieldError>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="segment-source">Origine</Label>
-          <Select
-            onValueChange={(value) => onChange({ ...draft, source: value as typeof draft.source })}
-            value={draft.source}
-          >
-            <SelectTrigger id="segment-source">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(segmentSource).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </div>
       <div className="space-y-2">
@@ -740,10 +721,6 @@ function ReviewStep({
         <div>
           <dt className="text-xs text-muted-foreground">Nom</dt>
           <dd className="mt-1 font-medium">{draft.name || "—"}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Origine</dt>
-          <dd className="mt-1 font-medium">{segmentSource[draft.source]}</dd>
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">Définition</dt>

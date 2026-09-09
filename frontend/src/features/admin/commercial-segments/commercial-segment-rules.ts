@@ -7,7 +7,6 @@ import type {
   CommercialSegmentPreview,
   CommercialSegmentProductHolding,
   CommercialSegmentProductType,
-  CommercialSegmentSource,
   CommercialSegmentStatus,
   CommercialSegmentWriteInput,
   SubscriptionStatus,
@@ -23,12 +22,6 @@ export const segmentStatus: Record<CommercialSegmentStatus, { label: string; ton
 export const segmentKind: Record<CommercialSegmentKind, string> = {
   EXPLICIT_ACCOUNTS: "Sélection de comptes",
   TYPED_CRITERIA: "Critères dynamiques",
-};
-
-export const segmentSource: Record<CommercialSegmentSource, string> = {
-  MANUAL: "Manuelle",
-  IMPORTED: "Importée",
-  SUPPORT: "Support",
 };
 
 export const segmentProductType: Record<CommercialSegmentProductType, string> = {
@@ -119,7 +112,6 @@ export type CommercialSegmentDraft = {
   name: string;
   description: string;
   kind: CommercialSegmentKind;
-  source: CommercialSegmentSource;
   reason: string;
   explicitAccountIds: string[];
   currentPlanRevisionIds: string[];
@@ -144,7 +136,6 @@ export function emptyCommercialSegmentDraft(): CommercialSegmentDraft {
     name: "",
     description: "",
     kind: "EXPLICIT_ACCOUNTS",
-    source: "MANUAL",
     reason: "",
     explicitAccountIds: [],
     currentPlanRevisionIds: [],
@@ -171,7 +162,6 @@ export function draftFromCommercialSegment(segment: CommercialSegmentDetail): Co
     name: segment.summary.name,
     description: segment.description ?? "",
     kind: segment.summary.kind,
-    source: segment.summary.source,
     reason: segment.reason,
     explicitAccountIds: [...segment.definition.explicitAccountIds],
     currentPlanRevisionIds: [...(criteria?.currentPlanRevisionIds ?? [])],
@@ -198,7 +188,6 @@ export function toCommercialSegmentWriteInput(draft: CommercialSegmentDraft): Co
     name: draft.name.trim(),
     description: draft.description.trim() || null,
     kind: draft.kind,
-    source: draft.source,
     reason: draft.reason.trim(),
     definition: {
       explicitAccountIds: typed ? [] : unique(draft.explicitAccountIds),

@@ -2,7 +2,6 @@ package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.client.account.dto.AccountDirectoryEntryDto;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
-import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentStatus;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentRequests;
 import com.hiveapp.platform.client.plan.dto.CommercialSegmentViews;
@@ -46,7 +45,6 @@ public class CommercialSegmentAdminController {
             "name", "name",
             "status", "status",
             "kind", "kind",
-            "source", "source",
             "revisionNumber", "revisionNumber");
 
     private final CommercialSegmentAdminService service;
@@ -56,13 +54,12 @@ public class CommercialSegmentAdminController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) CommercialSegmentStatus status,
             @RequestParam(required = false) CommercialSegmentKind kind,
-            @RequestParam(required = false) CommercialSegmentSource source,
             @RequestParam(defaultValue = "false") boolean includeArchived,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String direction) {
-        return PageResponse.from(service.list(search, status, kind, source, includeArchived,
+        return PageResponse.from(service.list(search, status, kind, includeArchived,
                 CommercialProductPageRequest.of(page, size, sort, direction, SORTABLE,
                         "createdAt", Sort.Direction.DESC)));
     }

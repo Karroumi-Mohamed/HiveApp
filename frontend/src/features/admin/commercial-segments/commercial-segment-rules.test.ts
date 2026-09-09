@@ -13,6 +13,12 @@ import {
 } from "./commercial-segment-rules";
 
 describe("commercial segment definition rules", () => {
+  test("does not ask for or send segment-wide origin metadata", () => {
+    const draft = emptyCommercialSegmentDraft();
+    expect(draft).not.toHaveProperty("source");
+    expect(toCommercialSegmentWriteInput(draft)).not.toHaveProperty("source");
+  });
+
   test("requires an audience for either definition kind", () => {
     const explicit = emptyCommercialSegmentDraft();
     explicit.name = "Comptes prioritaires";
@@ -118,7 +124,7 @@ describe("commercial segment definition rules", () => {
 
   test("round-trips a persisted typed definition without inventing explicit accounts", () => {
     const segment = {
-      summary: { name: "Renouvellements", kind: "TYPED_CRITERIA", source: "MANUAL" },
+      summary: { name: "Renouvellements", kind: "TYPED_CRITERIA" },
       description: "Audience à contacter",
       reason: "Renouvellement annuel",
       definition: {

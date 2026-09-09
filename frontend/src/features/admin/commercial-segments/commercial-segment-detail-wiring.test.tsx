@@ -102,7 +102,6 @@ function segmentDetail(name: string, version: number) {
       name,
       status: "DRAFT",
       kind: "EXPLICIT_ACCOUNTS",
-      source: "MANUAL",
       configuredAccountCount: 1,
       latestActivationAccountCount: null,
       lineageId: "922b3f0b-c4e8-4b70-b465-69dc8e08c3f8",
@@ -232,6 +231,9 @@ describe("commercial segment activation permission wiring", () => {
     expect(await view.findByText("Le brouillon a changé ailleurs")).toBeTruthy();
     await waitFor(() => expect(detailReads).toBe(2));
     expect(updateBodies[0]?.version).toBe(4);
+    expect(updateBodies[0]).not.toHaveProperty("source");
+    expect(view.queryByLabelText("Origine")).toBeNull();
+    expect(view.queryByText("Origine")).toBeNull();
     expect(view.getByRole("button", { name: "Enregistrer le brouillon" }).hasAttribute("disabled")).toBeTrue();
 
     await user.click(view.getByRole("button", { name: "Recharger et abandonner mes modifications" }));

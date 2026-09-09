@@ -100,7 +100,6 @@ import type {
   CommercialSegmentOwner,
   CommercialSegmentPreview,
   CommercialSegmentRevision,
-  CommercialSegmentSource,
   CommercialSegmentStatus,
   CommercialSegmentSummary,
   CommercialSegmentWriteInput,
@@ -821,7 +820,6 @@ export const adminApi = {
     search?: string;
     status?: CommercialSegmentStatus;
     kind?: CommercialSegmentKind;
-    source?: CommercialSegmentSource;
     includeArchived?: boolean;
     page?: number;
     size?: number;

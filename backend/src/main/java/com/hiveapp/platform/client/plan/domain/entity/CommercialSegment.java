@@ -71,6 +71,8 @@ public class CommercialSegment extends BaseEntity {
     @Column(nullable = false, length = 24)
     private CommercialSegmentKind kind;
 
+    // Retained legacy metadata, not an audience rule or trusted per-Account provenance.
+    // New API requests do not accept this field; edits preserve historical values.
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 24)
     private CommercialSegmentSource source;

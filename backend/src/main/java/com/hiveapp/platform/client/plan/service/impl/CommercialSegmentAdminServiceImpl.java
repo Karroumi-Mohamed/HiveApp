@@ -128,7 +128,6 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             String search,
             CommercialSegmentStatus status,
             CommercialSegmentKind kind,
-            CommercialSegmentSource source,
             boolean includeArchived,
             Pageable pageable
     ) {
@@ -139,7 +138,6 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
             }
             if (status != null) predicates.add(cb.equal(root.get("status"), status));
             if (kind != null) predicates.add(cb.equal(root.get("kind"), kind));
-            if (source != null) predicates.add(cb.equal(root.get("source"), source));
             if (search != null && !search.isBlank()) {
                 String pattern = "%" + escapeLike(search.trim().toLowerCase(Locale.ROOT)) + "%";
                 predicates.add(cb.or(
@@ -186,7 +184,7 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
         validateRequest(request.kind(), request.definition());
         CommercialSegment segment = CommercialSegment.draft(
                 nextCode(request.name()), request.name(), request.description(), request.kind(),
-                request.source(), request.reason(), currentOwner());
+                CommercialSegmentSource.MANUAL, request.reason(), currentOwner());
         applyDefinition(segment, request.kind(), request.definition());
         segmentRepository.saveAndFlush(segment);
         return toDetail(requireSegment(segment.getId()));
@@ -204,7 +202,7 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
         CommercialSegment segment = requireSegmentForUpdate(segmentId);
         requireVersion(segment, request.version());
         translateState(() -> segment.editDraft(request.name(), request.description(), request.kind(),
-                request.source(), request.reason(), segment.getOwner()));
+                segment.getSource(), request.reason(), segment.getOwner()));
         applyDefinition(segment, request.kind(), request.definition());
         segmentRepository.saveAndFlush(segment);
         return toDetail(requireSegment(segmentId));
@@ -714,7 +712,7 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
                 draftCampaignReferences, permissions);
         return new CommercialSegmentViews.Summary(
                 segment.getId(), segment.getCode(), segment.getName(), segment.getStatus(),
-                segment.getKind(), segment.getSource(), configuredCount, latestActivationCount,
+                segment.getKind(), configuredCount, latestActivationCount,
                 segment.getLineageId(), segment.getRevisionNumber(), segment.getCreationReason(),
                 segment.getVersion(), segment.getCreatedAt(), segment.getUpdatedAt(), actions,
                 blockedActions,
@@ -886,7 +884,6 @@ public class CommercialSegmentAdminServiceImpl extends PlatformControlFeatureSer
         changed(changed, "NAME", source.getName(), compared.getName());
         changed(changed, "DESCRIPTION", source.getDescription(), compared.getDescription());
         changed(changed, "KIND", source.getKind(), compared.getKind());
-        changed(changed, "SOURCE", source.getSource(), compared.getSource());
         changed(changed, "REASON", source.getReason(), compared.getReason());
         changed(changed, "DEFINITION", definitionSignature(source), definitionSignature(compared));
         changed(changed, "OWNER", source.getOwner().getId(), compared.getOwner().getId());

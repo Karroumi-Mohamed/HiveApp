@@ -1262,7 +1262,7 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 
 ### Amendment — Segment origin is not an administrator choice
 
-**Status:** `DECIDED — 2026-09-09; REMOVAL PENDING (MARKETING-002)`
+**Status:** `IMPLEMENTED — 2026-09-09 (MARKETING-002)`
 
 - Remove the manually assigned segment-level **Origine** (`MANUAL` / `IMPORTED` / `SUPPORT`)
   concept from normal segment authoring and management. It does not select Accounts or perform
@@ -1277,7 +1277,7 @@ Commercial policies provide reusable operator tools without hard-coding a busine
   audience snapshots remain independent and must be preserved.
 - This decision does not implement an import feature, choose its file/matching contract, or
   change the existing explicit-set versus typed-criteria audience model. Only the misleading
-  origin controls are approved for removal; implementation is deferred while the demo continues.
+  origin controls are removed; import remains a future independently designed workflow.
 
 ## MARKETING-FLOW-002 — Campaigns, offers, and redemption
 

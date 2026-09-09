@@ -3,7 +3,6 @@ package com.hiveapp.platform.client.plan.dto;
 import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentProductType;
-import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -26,7 +25,6 @@ public final class CommercialSegmentRequests {
             @NotBlank @Size(max = 180) String name,
             @Size(max = 1000) String description,
             @NotNull CommercialSegmentKind kind,
-            @NotNull CommercialSegmentSource source,
             @NotBlank @Size(max = 500) String reason,
             @NotNull @Valid Definition definition
     ) {
@@ -42,7 +40,6 @@ public final class CommercialSegmentRequests {
             @NotBlank @Size(max = 180) String name,
             @Size(max = 1000) String description,
             @NotNull CommercialSegmentKind kind,
-            @NotNull CommercialSegmentSource source,
             @NotBlank @Size(max = 500) String reason,
             @NotNull @Valid Definition definition
     ) {

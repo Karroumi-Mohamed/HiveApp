@@ -141,7 +141,6 @@ class SubscriptionRepricingIntegrationTest extends PlatformShellIntegrationTestS
             "Repricing QA segment",
             null,
             CommercialSegmentKind.EXPLICIT_ACCOUNTS,
-            CommercialSegmentSource.MANUAL,
             "Freeze a reviewed audience",
             new CommercialSegmentRequests.Definition(Set.of(f.accountId, other.accountId), null));
     var segment =

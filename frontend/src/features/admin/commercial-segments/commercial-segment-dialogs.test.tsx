@@ -56,7 +56,6 @@ const segment: CommercialSegmentDetail = {
     name: "Renouvellements prioritaires",
     status: "DRAFT",
     kind: "EXPLICIT_ACCOUNTS",
-    source: "MANUAL",
     configuredAccountCount: 1,
     latestActivationAccountCount: null,
     lineageId: "lineage-1",

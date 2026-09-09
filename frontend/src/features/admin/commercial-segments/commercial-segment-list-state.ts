@@ -1,11 +1,10 @@
 import type { SortingState } from "@tanstack/react-table";
-import type { CommercialSegmentKind, CommercialSegmentSource, CommercialSegmentStatus } from "@/api/contracts";
+import type { CommercialSegmentKind, CommercialSegmentStatus } from "@/api/contracts";
 
 export type CommercialSegmentListState = {
   search: string;
   status: CommercialSegmentStatus | "ALL";
   kind: CommercialSegmentKind | "ALL";
-  source: CommercialSegmentSource | "ALL";
   includeArchived: boolean;
   page: number;
   size: 10 | 20 | 50;
@@ -15,7 +14,6 @@ export type CommercialSegmentListState = {
 
 const statuses = new Set(["DRAFT", "ACTIVE", "ARCHIVED"]);
 const kinds = new Set(["EXPLICIT_ACCOUNTS", "TYPED_CRITERIA"]);
-const sources = new Set(["MANUAL", "IMPORTED", "SUPPORT"]);
 export const commercialSegmentSortableFields = new Set([
   "createdAt",
   "updatedAt",
@@ -23,7 +21,6 @@ export const commercialSegmentSortableFields = new Set([
   "name",
   "status",
   "kind",
-  "source",
   "revisionNumber",
 ]);
 
@@ -44,7 +41,6 @@ export function readCommercialSegmentListState(params: URLSearchParams): Commerc
     search: params.get("q")?.trim().slice(0, 180) ?? "",
     status: member(params.get("status"), statuses),
     kind: member(params.get("kind"), kinds),
-    source: member(params.get("source"), sources),
     includeArchived: params.get("archived") === "true",
     page: page(params.get("page")),
     size: ([10, 20, 50].includes(requestedSize) ? requestedSize : 20) as 10 | 20 | 50,
@@ -55,11 +51,11 @@ export function readCommercialSegmentListState(params: URLSearchParams): Commerc
 
 export function writeCommercialSegmentListState(current: URLSearchParams, state: CommercialSegmentListState) {
   const next = new URLSearchParams(current);
+  next.delete("source");
   const values: Record<string, string | null> = {
     q: state.search || null,
     status: state.status === "ALL" ? null : state.status,
     kind: state.kind === "ALL" ? null : state.kind,
-    source: state.source === "ALL" ? null : state.source,
     archived: state.includeArchived ? "true" : null,
     page: state.page ? String(state.page) : null,
     size: state.size === 20 ? null : String(state.size),

@@ -3293,7 +3293,7 @@ Without the remaining authenticated browser evidence, a mounted interaction or r
 
 ### MARKETING-002 — Segment-level origin is a misleading manual choice
 
-**Status:** `OPEN — DECISION AGREED 2026-09-09; IMPLEMENTATION DEFERRED`
+**Status:** `FIXED — 2026-09-09`
 
 **Evidence**
 
@@ -3319,8 +3319,16 @@ Without the remaining authenticated browser evidence, a mounted interaction or r
 - Verify that create/edit/review/list/detail work without the origin choice and that audience
   resolution, authorization, and historical evidence remain unchanged.
 
-Documentation only at the user's request: no code change, new import feature, or additional
-specification document. Continue the demo before implementing this fix.
+**Implementation evidence — 2026-09-09**
+
+- Removed the selector, review/detail/mobile presentation, list filter, sortable key, URL state,
+  and source fields from public create/update/summary contracts. Old saved URL filters are discarded.
+- Existing internal values are preserved as legacy metadata, never converted into per-Account
+  provenance; new administrative creation supplies its internal default automatically. No import
+  feature, audience rule, or additional specification document was added.
+- Verification: 114 backend integration tests across Segments, Campaigns, admin security, and
+  subscriber repricing; 380 frontend tests, typecheck, Biome, and production build pass. New
+  regressions cover source-free requests/responses, stale-link cleanup, and mounted edit/review.
 
 ---
 

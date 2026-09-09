@@ -40,7 +40,6 @@ import com.hiveapp.platform.client.plan.dto.CommercialOfferRequests;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignAudienceMode;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialCampaignSource;
 import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentKind;
-import com.hiveapp.platform.client.plan.domain.constant.CommercialSegmentSource;
 import com.hiveapp.platform.registry.definition.PriceBooksFeature;
 import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
@@ -1412,8 +1411,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         LimitedAdmin ownerReader = createLimitedAdmin("platform.segments.read_owner");
         CommercialSegmentRequests.Create request = new CommercialSegmentRequests.Create(
                 "Permission boundary Segment", null,
-                CommercialSegmentKind.EXPLICIT_ACCOUNTS, CommercialSegmentSource.MANUAL,
-                "Exercise independent Segment nodes", new CommercialSegmentRequests.Definition(
+                CommercialSegmentKind.EXPLICIT_ACCOUNTS, "Exercise independent Segment nodes", new CommercialSegmentRequests.Definition(
                         Set.of(UUID.randomUUID()), null));
 
         mockMvc.perform(post("/api/admin/segments")
@@ -1583,7 +1581,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 new CommercialSegmentRequests.Activation(0L, "Permission boundary", "signed-evidence"));
         String update = objectMapper.writeValueAsString(new CommercialSegmentRequests.Update(
                 0L, "Missing Segment", null, CommercialSegmentKind.EXPLICIT_ACCOUNTS,
-                CommercialSegmentSource.MANUAL, "Permission boundary",
+                "Permission boundary",
                 new CommercialSegmentRequests.Definition(Set.of(UUID.randomUUID()), null)));
         UUID ownerId = UUID.randomUUID();
         String owner = objectMapper.writeValueAsString(
