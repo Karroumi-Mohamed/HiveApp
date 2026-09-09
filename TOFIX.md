@@ -3097,6 +3097,48 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 
 ---
 
+### PRICEBOOK-004 — Replace manual tariff lifecycle coordination with continuous price changes
+
+**Status:** `OPEN — DESIGN AGREED 2026-09-09; IMPLEMENTATION PENDING`
+
+**Evidence and decision**
+
+- Overlap rejection is implemented, but it does not prevent gaps caused by separately pausing
+  the current tariff and activating another, or by ending a tariff without a replacement.
+- The existing atomic scheduled-replacement flow joins a direct successor to its current source,
+  but requires a future start. It does not deliver the agreed immediate replacement or a complete
+  change/cancel flow that restores uninterrupted coverage.
+- During the demo, the user chose a simpler current-price/replacement model over managing
+  independent validity windows. The accepted amendment is in `COMMERCIAL-FLOW-003` and
+  `docs/COMMERCIAL_CONTROL_PLANE_V1.md` section 4.1. This changes the earlier normal lifecycle flow.
+
+**Required implementation**
+
+- One current tariff and at most one confirmed future replacement per offered exact product
+  revision/currency/cycle. Keep the current tariff open-ended until a replacement is confirmed.
+- **Changer le tarif → Maintenant / À une date** performs an atomic, reviewed boundary handoff.
+  Server-authoritative time, exact amounts, owner locks, current authorization, signed evidence,
+  stale conflicts, idempotency, and before/after audit must cover every write path.
+- Changing/cancelling a future replacement atomically preserves current coverage. Refuse stale
+  cancellation once the handoff has occurred; never rewrite elapsed history or accepted snapshots.
+  Draft creation/edit/deletion alone never changes sellable coverage.
+- Show current tariff, scheduled change, and history. Remove standalone pause/end-date management
+  from the normal tariff flow; intentional sales stops belong to explicit product availability.
+  Guard or retire equivalent legacy API paths so they cannot bypass the invariant.
+- Keep monthly/yearly and currencies independent, and preserve explicit existing-subscriber
+  repricing. Do not require unoffered options to have a price.
+- Review published Offer dependencies: Offers pin exact prices and the current resolver can make
+  them unavailable when those prices cease to be selectable. Define visible impact and safe
+  handling before implementation; no automatic retargeting/repricing of Offers is approved.
+- Test immediate/future handoff, adjacency at the exact instant, failed atomic writes, concurrent
+  replacement attempts, schedule edits/cancellation races, permissions, legacy bypasses, draft
+  isolation, Offer dependencies, and unchanged subscriber terms; verify the real admin flow.
+
+Related display/vocabulary gaps `PRICEBOOK-002` and `PRICEBOOK-003` remain open. No backend or
+frontend implementation is included in this documentation change.
+
+---
+
 ### COMMERCIAL-002 — Product administration lists are unbounded and operationally inconsistent
 
 **Status:** `IMPLEMENTED AND INDEPENDENTLY AUDITED — 2026-08-27`

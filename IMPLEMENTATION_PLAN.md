@@ -1713,6 +1713,25 @@ flowchart TD
 
 **Execution status — implemented 2026-08-26:** The authoritative Price-book aggregate, bounded operational API, fine-grained Permissionizer nodes, lifecycle reasons/history, owner-lock overlap protection, exact client/admin selection, V2 immutable snapshot provenance, V1 compatibility, snapshot-safe overrides/renewals, atomic scheduled replacement, non-exponential exact-decimal API serialization, and disposable-H2 compatibility bridge are implemented. Independent backend and frontend audits are complete. The integrated backend baseline passes 529 tests; Biome, TypeScript, the production frontend build, and 136 frontend tests pass.
 
+### Batch 9.1 follow-up: Continuous tariff replacement
+
+**Status:** `DESIGN AGREED 2026-09-09 — NOT IMPLEMENTED`
+
+- **Gap:** `PRICEBOOK-004`; decision `COMMERCIAL-FLOW-003` amendment and commercial spec section 4.1.
+- **Scope:** Replace manual pause/start/end coordination with current tariff → change now/on a
+  date, at most one future replacement, and reviewed schedule edit/cancel with no coverage gap.
+- **Boundary:** Preserve exact product/currency/cycle isolation, accepted subscription snapshots,
+  explicit existing-subscriber repricing, and intentional product-level sales suspension.
+- **Order:** Review existing Offer-price dependencies first without silently retargeting them;
+  then implement authoritative transactional handoff/cancellation and legacy-path guards, followed
+  by the simplified shared price UI. Coordinate `PRICEBOOK-002`/`PRICEBOOK-003` without marking
+  those display fixes complete prematurely.
+- **Verification:** Atomicity/concurrency, immediate and future boundary instants, edit/cancel
+  races, stale evidence, least privilege, no-gap/no-overlap, independent billing options, draft
+  isolation, Offer compatibility, retained customer terms, and browser-operated admin workflows.
+- The original Batch 9.1 implementation remains delivered; this accepted workflow amendment is
+  new pending work. No implementation is part of the 2026-09-09 documentation commit.
+
 ### Batch 9.2: Extension policy and sales visibility
 
 #### [IMPLEMENT] COMMERCIAL-001 — Extension targeting and Account commercial policy are encoded as scattered special cases

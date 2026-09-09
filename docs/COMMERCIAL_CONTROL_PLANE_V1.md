@@ -80,12 +80,36 @@ Price is not a mutable field on a published product definition.
 - At most one active applicable entry exists for one product revision, currency, cycle, and instant.
 - API monetary amounts use exact plain-decimal JSON strings with a separate ISO currency code. Browser code never converts authoritative amounts through IEEE-754 `number` arithmetic.
 - New subscriptions select an active entry. Existing snapshots retain the selected entry forever unless an explicit subscription-change operation selects another.
-- Disabling a price stops new selection; it never rewrites an existing snapshot.
+- In the currently implemented lifecycle, disabling a price stops new selection; it never
+  rewrites an existing snapshot. The continuous-replacement amendment below changes the normal
+  administration flow and is not implemented yet.
 - Existing-subscriber repricing is a separate explicit operation, not a side effect of replacing a
   catalogue tariff. Implemented in `SUBSCRIPTION_REPRICING_V1.md` (2026-09-08): exact old-price targeting,
   Account exclusions, component-only changes, protected exceptions, per-Account renewal timing,
   signed preview, financial execution, and private customer notices.
 - `FOREVER`, implicit foreign exchange, automatic tax, automatic proration, metered charging, and customer-selectable unlimited pricing remain unsupported until separately decided and implemented.
+
+### 4.1 Continuous tariff replacement — accepted 2026-09-09, pending
+
+The administrator manages **the current tariff**, with **Changer le tarif → Maintenant / À une
+date**, rather than independently pausing an old entry and activating a new one. For every offered
+product-revision/currency/cycle option, one atomic operation joins the old end to the new start.
+Until replaced, the current tariff remains open-ended. Only one confirmed future replacement is
+allowed; editing or cancelling it must preserve continuous coverage without modifying elapsed
+history. Unconfirmed drafts never interrupt sales or become approved automatically.
+
+The UI shows the current tariff, any scheduled change, and history. Standalone tariff suspension
+and manually coordinated end dates leave the normal flow; intentional sales suspension belongs
+to product availability. This is an amendment to the earlier lifecycle contract, not a completed
+UI change. See `FLOW_DECISIONS.md`, `COMMERCIAL-FLOW-003`, and `TOFIX.md`, `PRICEBOOK-004` for the
+security and implementation boundary. Existing-subscriber repricing remains separate.
+
+Marketing does not edit these base tariffs. A Segment identifies Accounts, a Campaign owns an
+audience/window, and an explicitly accepted Offer can adjust the resulting subscription price.
+A coupon-like code discovers an Offer; it is not a second pricing engine. Published Offers pin
+exact tariff identities, so replacing a referenced tariff must not silently change the Offer's
+terms. Offer dependency impact is a separate integration concern to resolve before implementing
+the replacement amendment; current accepted subscriptions retain their snapshotted terms.
 
 ## 5. Commercial policies
 
@@ -98,7 +122,7 @@ Target kinds are deliberately closed rather than user-authored expressions. Thro
 - subscribers of a selected Plan revision;
 - an exact active Segment revision/activation with an immutable Account audience.
 
-A reusable typed Segment is the Phase 11.1 extension of this same target contract. It is implemented and independently audited. The Phase 11.2 Campaign backend and admin UI are also implemented and independently audited; Offers and redemption remain.
+A reusable typed Segment is the Phase 11.1 extension of this same target contract. It is implemented and independently audited. The Phase 11.2 Campaign backend and admin UI are also implemented and independently audited. Offers and redemption are implemented as recorded in section 12; their distinct contract is described in section 6.
 
 Delivered Phase 10 effects are:
 

@@ -1190,11 +1190,38 @@ Changing either policy on a published product requires a new commercial revision
 - Plan, AddOn, and capacity-package revisions no longer have only one usable price/cycle. Each may expose independently entered `MONTHLY` and `YEARLY` Price-book entries for supported currencies.
 - A yearly price is never derived automatically from monthly. Zero-price recurring entries are valid.
 - Price entries use `DRAFT`, `ACTIVE`, `INACTIVE`, and terminal `ARCHIVED`. Amount, currency, cycle, owner revision, and effective-from time are immutable after activation.
-- An active entry may be paused for new selection without changing existing subscriber snapshots. A changed amount creates a new entry/version.
+- The original lifecycle permits pausing an active entry without changing subscriber snapshots. The 2026-09-09 amendment below supersedes standalone pause as the normal administrator workflow; a changed amount still creates a new entry/version.
 - At most one entry is applicable for one product revision, currency, cycle, and instant. Activation validates overlap transactionally.
 - Every API Money amount is an exact plain-decimal JSON string with a separate ISO currency code; frontend display/input must preserve it without `number`, `parseFloat`, or implicit IEEE-754 arithmetic.
 - Subscription preview and checkout select exact compatible entries and snapshot every item. No implicit currency conversion or mixed-cycle total exists.
 - Existing subscribers change prices only through an immediate/renewal/scheduled subscription operation. A template edit never reprices them.
+
+### Amendment — Continuous tariff replacement
+
+**Status:** `DECIDED — 2026-09-09; IMPLEMENTATION PENDING (PRICEBOOK-004)`
+
+- For each offered product revision / currency / billing-cycle option, keep one currently
+  applicable tariff and at most one confirmed future replacement. Monthly and yearly options
+  remain independent; this does not require creating options that the product does not offer.
+- The normal action is **Changer le tarif**, choosing **Maintenant** or **À une date**. The
+  administrator does not manage two independent start/end dates or manually stop the old tariff.
+- Confirmation atomically ends the old applicability window exactly when the new one begins.
+  Both changes succeed or neither does: no overlap and no gap, including under concurrent writes.
+  The current tariff otherwise has no manually entered end date.
+- A draft does not affect sales and never automatically becomes approved because another tariff
+  ends. A confirmed scheduled replacement takes effect at its boundary without further approval.
+- Before that boundary, the replacement can be changed or cancelled through a reviewed operation.
+  Cancellation restores uninterrupted current-tariff coverage atomically; changing the date moves
+  both boundaries together. Elapsed history and accepted customer terms are never rewritten.
+- Present **Tarif actuel**, **Changement programmé** when present, and previous tariffs in history.
+  Remove standalone tariff pause/end-date controls from the normal flow. Stopping sales remains
+  a separate deliberate product-availability operation, not an accidental missing-price interval.
+- This explicitly revises the earlier pause-first lifecycle workflow, not merely its labels.
+  Backend write paths, legacy actions, authorization, signed preview, audit, idempotency, and stale
+  evidence handling must enforce the same coverage invariant; hiding buttons alone is insufficient.
+- Catalogue replacement does not reprice existing subscribers or retarget published Offers.
+  Existing-subscriber changes remain the explicit `SUBSCRIPTION-FLOW-005` operation. Offer-price
+  dependency handling must be reviewed before implementation; no silent Offer migration is approved.
 
 ## COMMERCIAL-FLOW-004 — Typed Account commercial policies and precedence
 
@@ -1562,6 +1589,7 @@ Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
+| 2026-09-09 | Replace manual tariff pause/date coordination with one current tariff and at most one reviewed immediate or scheduled replacement per offered product/currency/cycle, preserving continuous coverage | Prevent accidental sales gaps without another administrator workflow; cancellation must keep the current price available, while product sales stops and existing-subscriber changes remain explicit separate operations | Price-book lifecycle/API, applicability windows, replacement/cancellation, product availability, admin UX, audit and tests; implementation pending PRICEBOOK-004 |
 | 2026-08-28 | Make Offer discovery and acceptance explicit, bind limits/codes to the lineage and exact Campaign/product/price revisions, keep Phase 11 application one-Account, and choose the greater Policy-or-Offer reduction without stacking | Codes must not become credentials; revisions must not reset limits or drift with catalogue changes; one authoritative price result avoids competing truths; bulk execution and recovery need the Phase 12 job/lifecycle engine | Offer lineage/revisions/codes/capacity, Campaign relation, subscription evaluation/operations/snapshots, client/admin authorization and UI, analytics boundaries |
 | 2026-08-28 | Freeze exact targeted Campaign audiences at scheduling, keep public Campaign audiences dynamic, and release the source Segment after schedule while retaining immutable provenance | Targeted delivery must not drift after operator review, but snapshotting every Account for a public Campaign would be expensive and misleading; stored schedule evidence makes published history independent without allowing destructive provenance loss | Campaign scheduling/evidence/lifecycle, Segment archive/delete blockers, audience privacy, Offer eligibility, admin UI and tests |
 | 2026-08-27 | Let only reusable/live `DRAFT`, `ACTIVE`, or `PAUSED` policy references block Segment archive; terminal policy history keeps its frozen audience and provenance but releases the Segment | An accepted policy activation is historically independent of the later Segment lifecycle, while a policy that can still be activated or resumed must retain a valid selectable Segment | Segment lifecycle and blockers, policy Segment resolver/activation, retained audience provenance, admin actions and tests |
