@@ -897,10 +897,11 @@ public class CommercialProductOperationsServiceImpl implements CommercialProduct
                         "platform.price_books.create",
                         "platform.price_books.update_draft",
                         "platform.price_books.activate",
-                        "platform.price_books.pause",
+                        "platform.price_books.change",
                         "platform.price_books.reactivate",
                         "platform.price_books.revise",
-                        "platform.price_books.schedule_replacement",
+                        "platform.price_books.reschedule_change",
+                        "platform.price_books.cancel_change",
                         "platform.price_books.archive",
                         "platform.price_books.delete_draft")
                 .stream()

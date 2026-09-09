@@ -1,13 +1,4 @@
-import {
-  ArchiveIcon,
-  ArrowLeftIcon,
-  CalendarPlusIcon,
-  GitBranchIcon,
-  PauseIcon,
-  PencilSimpleIcon,
-  PlayIcon,
-  TrashIcon,
-} from "@phosphor-icons/react";
+import { ArchiveIcon, ArrowLeftIcon, PencilSimpleIcon, PlayIcon, TrashIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { adminApi } from "@/api/admin-api";
@@ -23,23 +14,22 @@ import { Button } from "@/components/ui/button";
 import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
 import { formatExactMoney } from "@/lib/exact-decimal";
 import { ProductPriceActionButton } from "./product-price-action-button";
+import { ProductPriceContinuityPanel } from "./product-price-continuity-panel";
 import {
   DeleteProductPriceDialog,
   EditProductPriceDialog,
   ProductPriceActivationDialog,
   ProductPriceReasonDialog,
 } from "./product-price-dialogs";
-import { ProductPriceReplacementDialog } from "./product-price-replacement-dialog";
 import {
-  isProductPriceReplacementDraft,
   productPriceAvailabilityWarnings,
   productPriceBlocker,
   productPriceCycle,
+  productPriceDisplayStatus,
   productPriceHistoryLabel,
   productPriceOwner,
   productPriceOwnerReadPermission,
   productPriceStartLabel,
-  productPriceStatus,
 } from "./product-price-rules";
 
 const money = formatExactMoney;
@@ -112,6 +102,13 @@ function Terms({ price }: { price: ProductPrice }) {
 
 function Lifecycle({ price }: { price: ProductPrice }) {
   const session = useAdminSession();
+  if (price.status === "ACTIVE")
+    return (
+      <p className="text-sm text-muted-foreground">
+        Pour arrêter les ventes du produit, utilisez sa disponibilité commerciale. Les changements tarifaires se gèrent
+        ci-dessus.
+      </p>
+    );
   return (
     <div className="space-y-5">
       {productPriceAvailabilityWarnings(price).length ? (
@@ -127,24 +124,6 @@ function Lifecycle({ price }: { price: ProductPrice }) {
       <section className="rounded-xl border bg-card p-5">
         <h2 className="text-sm font-semibold">Opérations</h2>
         <div className="mt-4 flex flex-wrap gap-2">
-          {isProductPriceReplacementDraft(price) ? (
-            <ProductPriceReplacementDialog
-              successor={price}
-              trigger={
-                <Button
-                  disabled={!session.can(adminPermissions.priceBooksPreviewReplacement)}
-                  title={
-                    session.can(adminPermissions.priceBooksPreviewReplacement)
-                      ? undefined
-                      : "Votre rôle ne permet pas de vérifier un remplacement tarifaire."
-                  }
-                >
-                  <CalendarPlusIcon />
-                  Programmer le remplacement
-                </Button>
-              }
-            />
-          ) : null}
           {price.status === "DRAFT" || price.status === "INACTIVE" ? (
             <ProductPriceActivationDialog
               price={price}
@@ -156,31 +135,7 @@ function Lifecycle({ price }: { price: ProductPrice }) {
               }
             />
           ) : null}
-          {price.status === "ACTIVE" ? (
-            <ProductPriceReasonDialog
-              action="PAUSE"
-              price={price}
-              trigger={
-                <ProductPriceActionButton action="PAUSE" price={price}>
-                  <PauseIcon />
-                  Suspendre la vente
-                </ProductPriceActionButton>
-              }
-            />
-          ) : null}
-          {price.status === "ACTIVE" || price.status === "INACTIVE" ? (
-            <ProductPriceReasonDialog
-              action="REVISE"
-              price={price}
-              trigger={
-                <ProductPriceActionButton action="REVISE" price={price}>
-                  <GitBranchIcon />
-                  Préparer un nouveau tarif
-                </ProductPriceActionButton>
-              }
-            />
-          ) : null}
-          {price.status !== "ACTIVE" && price.status !== "ARCHIVED" ? (
+          {price.status !== "ARCHIVED" ? (
             <ProductPriceReasonDialog
               action="ARCHIVE"
               price={price}
@@ -274,6 +229,7 @@ export function AdminProductPriceDetailPage() {
     queryKey: adminCommercialKeys.priceBooks.detail(id),
     queryFn: () => adminApi.productPrice(id),
     enabled: commercialQueryEnabled(session.can, adminPermissions.priceBooksRead, Boolean(id)),
+    refetchInterval: 30_000,
   });
   if (!canRead && !canReadHistory) return <PermissionState />;
   if (!canRead) {
@@ -294,7 +250,7 @@ export function AdminProductPriceDetailPage() {
   if (price.isLoading) return <LoadingState />;
   if (price.isError || !price.data) return <ErrorState retry={() => void price.refetch()} title="Tarif introuvable" />;
   const data = price.data;
-  const status = productPriceStatus[data.status];
+  const status = productPriceDisplayStatus(data);
   return (
     <div className="space-y-6">
       <Button asChild className="-ms-2" size="sm" variant="ghost">
@@ -345,6 +301,7 @@ export function AdminProductPriceDetailPage() {
             : []),
         ]}
       />
+      {tab !== "history" && <ProductPriceContinuityPanel price={data} />}
       {tab === "history" ? (
         <History priceId={id} />
       ) : tab === "terms" ? (

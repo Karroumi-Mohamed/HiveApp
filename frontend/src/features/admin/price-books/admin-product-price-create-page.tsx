@@ -187,7 +187,7 @@ export function AdminProductPriceCreatePage() {
         currencyCode: fields.currencyCode.trim().toUpperCase(),
         billingCycle: fields.billingCycle,
         effectiveFrom: instantFromLocalValue(fields.effectiveFrom),
-        effectiveUntil: fields.effectiveUntil ? instantFromLocalValue(fields.effectiveUntil) : null,
+        effectiveUntil: null,
       }),
     onSuccess: (created) => {
       completed.current = true;

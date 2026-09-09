@@ -10,6 +10,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface CommercialOfferRepository
     extends JpaRepository<CommercialOffer, UUID>, JpaSpecificationExecutor<CommercialOffer> {
+  Page<CommercialOffer> findByStatusAndEndsAtAfter(CommercialOfferStatus status,
+      java.time.Instant at, Pageable pageable);
   @Query("select o.id from CommercialOffer o where o.lineage.id = :lineageId")
   List<UUID> findIdsByLineageId(@Param("lineageId") UUID lineageId);
 

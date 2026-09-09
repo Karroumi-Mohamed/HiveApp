@@ -19,10 +19,32 @@ class ProductPriceCurrentOptionsIntegrationTest extends PlatformShellIntegration
     @Autowired PlanRepository plans;
     @Autowired ProductPriceRepository prices;
     @Autowired TransactionTemplate transactions;
+    java.util.UUID fixturePlanId;
+
+    @org.junit.jupiter.api.AfterEach
+    void cleanupFixture() {
+        if (fixturePlanId == null) return;
+        transactions.executeWithoutResult(status -> {
+            prices.deleteAllInBatch(prices.findAllByPlanId(fixturePlanId));
+            plans.deleteById(fixturePlanId);
+        });
+    }
 
     @Test
     void summarySelectsOnlyCurrentPricesAndKeepsIndependentCycles() throws Exception {
-        var plan = plans.findByCode("FREE").orElseThrow();
+        var plan = transactions.execute(status -> {
+            var owner = new com.hiveapp.platform.client.plan.domain.entity.Plan();
+            owner.setCode("OPTIONS_" + java.util.UUID.randomUUID().toString().toUpperCase(java.util.Locale.ROOT));
+            owner.setName("Isolated tariff options");
+            owner.setMoney(Money.of(java.math.BigDecimal.ZERO, "MAD"));
+            owner.setBillingCycle(BillingCycle.MONTHLY);
+            owner.setStatus(com.hiveapp.platform.client.plan.domain.constant.PlanStatus.ACTIVE);
+            plans.saveAndFlush(owner);
+            fixturePlanId = owner.getId();
+            var initial = ProductPrice.draft(owner, owner.money(), BillingCycle.MONTHLY, Instant.now().minusSeconds(60), null);
+            initial.markCompatibilityDefault(); initial.activate(); prices.saveAndFlush(initial);
+            return owner;
+        });
         var ids = transactions.execute(status -> {
             var owner = plans.findById(plan.getId()).orElseThrow();
             var now = Instant.now();

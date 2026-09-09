@@ -54,6 +54,12 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(409, ErrorCode.PRICE_ENTRY_OVERLAP, "Conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(StalePriceChangePreviewException.class)
+    public ResponseEntity<ApiError> handleStalePriceChange(StalePriceChangePreviewException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of(409, ErrorCode.STALE_PRICE_CHANGE_PREVIEW, "Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(DraftSuccessorExistsException.class)
     public ResponseEntity<ApiError> handleDraftSuccessorExists(DraftSuccessorExistsException ex) {
         return ResponseEntity

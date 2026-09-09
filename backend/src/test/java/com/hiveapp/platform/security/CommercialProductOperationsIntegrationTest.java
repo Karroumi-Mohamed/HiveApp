@@ -77,6 +77,7 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
 
     @Autowired
     private CommercialCatalogVersionService commercialCatalogVersionService;
+    @Autowired private org.springframework.transaction.support.TransactionTemplate transactions;
 
     @AfterEach
     void removeFixtures() {
@@ -1046,11 +1047,14 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
     }
 
     private JsonNode pausePrice(String token, UUID id, long version, String reason) throws Exception {
-        return responseJson(mockMvc.perform(post("/api/admin/product-prices/{id}/pause", id)
-                        .header("Authorization", bearer(token))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ProductPriceVersionRequest(
-                                version, reason))))
+        // Historical INACTIVE fixture; standalone public pause is intentionally retired.
+        transactions.executeWithoutResult(status -> {
+            var price = productPriceRepository.findById(id).orElseThrow();
+            assertThat(price.getVersion()).isEqualTo(version);
+            price.pause(); productPriceRepository.saveAndFlush(price);
+        });
+        return responseJson(mockMvc.perform(get("/api/admin/product-prices/{id}", id)
+                        .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("INACTIVE")));
     }

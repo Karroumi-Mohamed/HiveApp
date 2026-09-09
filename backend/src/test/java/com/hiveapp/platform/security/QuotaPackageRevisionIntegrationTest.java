@@ -67,6 +67,7 @@ class QuotaPackageRevisionIntegrationTest extends PlatformShellIntegrationTestSu
 
     @Autowired
     private PlanFeatureRepository planFeatureRepository;
+    @Autowired private org.springframework.transaction.support.TransactionTemplate transactions;
 
     @AfterEach
     void removePackages() {
@@ -402,30 +403,18 @@ class QuotaPackageRevisionIntegrationTest extends PlatformShellIntegrationTestSu
                 .andExpect(jsonPath("$.status").value("INACTIVE")));
 
         ProductPrice sourcePrice = onlyPrice(sourceId);
-        JsonNode paused = responseJson(mockMvc.perform(
-                        post("/api/admin/product-prices/{id}/pause", sourcePrice.getId())
-                                .header("Authorization", bearer(token))
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .content(objectMapper.writeValueAsString(new ProductPriceVersionRequest(
-                                        sourcePrice.getVersion(), "Pause source price"))))
-                .andExpect(status().isOk()));
+        long pausedVersion = legacyPausedPrice(sourcePrice.getId());
         JsonNode reactivated = responseJson(mockMvc.perform(
                         post("/api/admin/product-prices/{id}/reactivate", sourcePrice.getId())
                                 .header("Authorization", bearer(token))
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(objectMapper.writeValueAsString(new ProductPriceActivationRequest(
-                                        paused.get("version").asLong(),
+                                        pausedVersion,
                                         "Inactive owners may publish reviewed prices",
                                         fetchProductPriceActivationToken(token, sourcePrice.getId())))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE")));
-        mockMvc.perform(post("/api/admin/product-prices/{id}/pause", sourcePrice.getId())
-                        .header("Authorization", bearer(token))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ProductPriceVersionRequest(
-                                reactivated.get("version").asLong(),
-                                "Leave no sale-relevant source schedule"))))
-                .andExpect(status().isOk());
+        legacyPausedPrice(sourcePrice.getId());
 
         JsonNode revision = responseJson(mockMvc.perform(
                         post("/api/admin/quota-packages/{id}/revisions", sourceId)
@@ -511,6 +500,15 @@ class QuotaPackageRevisionIntegrationTest extends PlatformShellIntegrationTestSu
     private ProductPrice onlyPrice(UUID packageId) {
         assertThat(productPriceRepository.findAllByQuotaPackageId(packageId)).hasSize(1);
         return productPriceRepository.findAllByQuotaPackageId(packageId).getFirst();
+    }
+
+    /** Historical fixture: the public pause command must no longer create a sales gap. */
+    private long legacyPausedPrice(UUID id) {
+        return transactions.execute(status -> {
+            var price = productPriceRepository.findById(id).orElseThrow();
+            price.pause();
+            return productPriceRepository.saveAndFlush(price).getVersion();
+        });
     }
 
     private UUID id(JsonNode value) {

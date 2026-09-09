@@ -66,6 +66,9 @@ public class ProductPriceActivationAssessor {
                 && !price.getEffectiveUntil().isAfter(evaluatedAt)) {
             blockers.add(ProductPriceBlocker.EFFECTIVE_WINDOW_EXPIRED);
         }
+        if (price.getEffectiveUntil() != null) {
+            blockers.add(ProductPriceBlocker.CONTINUOUS_PRICE_REQUIRED);
+        }
         if (price.getId() != null && productPriceResolver.hasActiveOverlap(price)) {
             blockers.add(ProductPriceBlocker.ACTIVE_WINDOW_OVERLAP);
         }

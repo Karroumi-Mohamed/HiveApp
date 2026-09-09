@@ -7,6 +7,9 @@ public enum ProductPriceAction {
     PAUSE,
     REACTIVATE,
     REVISE,
+    CHANGE_PRICE,
+    RESCHEDULE_CHANGE,
+    CANCEL_CHANGE,
     ARCHIVE,
     DELETE_DRAFT
 }

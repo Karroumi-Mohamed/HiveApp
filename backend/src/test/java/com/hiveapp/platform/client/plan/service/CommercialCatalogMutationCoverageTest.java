@@ -59,6 +59,9 @@ class CommercialCatalogMutationCoverageTest {
                     "reactivate",
                     "revise",
                     "scheduleReplacement",
+                    "changePrice",
+                    "rescheduleChange",
+                    "cancelChange",
                     "archive",
                     "deleteDraft")),
             Map.entry(

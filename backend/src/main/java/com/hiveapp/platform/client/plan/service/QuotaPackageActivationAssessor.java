@@ -131,6 +131,9 @@ public class QuotaPackageActivationAssessor {
         if (hasPriceOverlap(reviewed, prices)) {
             blockers.add(QuotaPackageActivationBlocker.OVERLAPPING_PRICE_DRAFTS);
         }
+        if (draftPrices.stream().anyMatch(price -> price.getEffectiveUntil() != null)) {
+            blockers.add(QuotaPackageActivationBlocker.CONTINUOUS_PRICE_REQUIRED);
+        }
 
         if (!reviewed.isEmpty()
                 && !blockers.contains(QuotaPackageActivationBlocker.EXPIRED_PRICE_WINDOW)

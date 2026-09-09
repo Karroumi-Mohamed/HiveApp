@@ -22,6 +22,17 @@ export const productPriceStatus: Record<
   ARCHIVED: { label: "Archivé", tone: "neutral" },
 };
 
+export function productPriceDisplayStatus(
+  price: Pick<ProductPrice, "status" | "effectiveFrom" | "effectiveUntil">,
+  now = Date.now(),
+) {
+  if (price.status !== "ACTIVE") return productPriceStatus[price.status];
+  if (Date.parse(price.effectiveFrom) > now) return { label: "Programmé", tone: "info" as const };
+  if (price.effectiveUntil && Date.parse(price.effectiveUntil) <= now)
+    return { label: "Ancien tarif", tone: "neutral" as const };
+  return { label: "Tarif actuel", tone: "success" as const };
+}
+
 export const productPriceOwner: Record<ProductPriceOwnerType, string> = {
   PLAN: "Forfait",
   ADD_ON: "Add-on",
@@ -55,6 +66,8 @@ export const productPriceBlocker: Record<ProductPriceBlocker, string> = {
   WRONG_LIFECYCLE_STATE: "L’état actuel ne permet pas cette opération.",
   ACTIVE_MUST_BE_PAUSED: "Pour archiver ce tarif, suspendez d’abord sa vente.",
   ARCHIVED_TERMINAL: "Un tarif archivé est définitif.",
+  CONTINUOUS_PRICE_REQUIRED:
+    "Un tarif reste valable jusqu’à son remplacement. Retirez sa date de fin avant publication.",
 };
 
 /** Lifecycle prerequisites belong beside their action, not above a healthy price. */
@@ -89,6 +102,9 @@ const actionPermission: Record<ProductPriceAction, string> = {
   REVISE: adminPermissions.priceBooksRevise,
   ARCHIVE: adminPermissions.priceBooksArchive,
   DELETE_DRAFT: adminPermissions.priceBooksDeleteDraft,
+  CHANGE_PRICE: adminPermissions.priceBooksChange,
+  RESCHEDULE_CHANGE: adminPermissions.priceBooksRescheduleChange,
+  CANCEL_CHANGE: adminPermissions.priceBooksCancelChange,
 };
 
 export function canUseProductPriceAction(
@@ -193,6 +209,9 @@ const historyAction: Record<string, string> = {
   REACTIVATE: "Tarif remis en vente",
   REVISE: "Révision créée",
   SCHEDULE_REPLACEMENT: "Remplacement programmé",
+  CHANGE: "Tarif remplacé",
+  RESCHEDULE_CHANGE: "Changement programmé modifié",
+  CANCEL_CHANGE: "Changement programmé annulé",
   ARCHIVE: "Tarif archivé",
   DELETE: "Brouillon supprimé",
   DELETE_DRAFT: "Brouillon supprimé",

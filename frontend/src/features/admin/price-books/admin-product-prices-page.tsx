@@ -27,6 +27,7 @@ import { formatExactMoney } from "@/lib/exact-decimal";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   productPriceCycle,
+  productPriceDisplayStatus,
   productPriceOwner,
   productPriceStartLabel,
   productPriceStatus,
@@ -105,7 +106,7 @@ const columns = column.columns([
   column.accessor("status", {
     header: ({ column: current }) => <SortHeader column={current}>Statut</SortHeader>,
     cell: ({ row }) => {
-      const status = productPriceStatus[row.original.status];
+      const status = productPriceDisplayStatus(row.original);
       return <StatusBadge tone={status.tone}>{status.label}</StatusBadge>;
     },
   }),
@@ -128,7 +129,7 @@ function MobilePriceList({ prices }: { prices: ProductPrice[] }) {
   return (
     <div className="divide-y md:hidden">
       {prices.map((price) => {
-        const status = productPriceStatus[price.status];
+        const status = productPriceDisplayStatus(price);
         return (
           <article className="space-y-3 p-4" key={price.id}>
             <div className="flex items-start gap-3">

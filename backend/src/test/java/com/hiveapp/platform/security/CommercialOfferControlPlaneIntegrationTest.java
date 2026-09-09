@@ -1515,7 +1515,8 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
             lineage,
             offerName == null ? "Offer " + suffix : offerName,
             "Exact commercial terms",
-            now.minusSeconds(30),
+            planPrice.getEffectiveFrom().isAfter(now.minusSeconds(30))
+                ? planPrice.getEffectiveFrom() : now.minusSeconds(30),
             now.plusSeconds(3600),
             selection,
             new CommercialOfferEffectSnapshot(

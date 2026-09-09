@@ -1340,37 +1340,32 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
     }
 
     @Test
-    void scheduledReplacementPreviewAndExecutionUseSeparatePermissionNodes() throws Exception {
-        UUID currentId = UUID.randomUUID();
-        UUID successorId = UUID.randomUUID();
-        String previewBody = "{\"currentPriceId\":\"" + currentId
-                + "\",\"currentVersion\":0,\"successorVersion\":0}";
-        String executionBody = "{\"currentPriceId\":\"" + currentId
-                + "\",\"currentVersion\":0,\"successorVersion\":0,\"reason\":\"Scheduled change\"}";
-        LimitedAdmin previewer = createLimitedAdmin("platform.price_books.preview_replacement");
-        LimitedAdmin scheduler = createLimitedAdmin("platform.price_books.schedule_replacement");
-
-        mockMvc.perform(post("/api/admin/product-prices/{id}/replacement-preview", successorId)
+    void continuousPriceOperationsUseSeparatePermissionNodes() throws Exception {
+        UUID missing = UUID.randomUUID();
+        String change = "{\"operation\":\"CHANGE\",\"currentVersion\":0,\"timing\":\"NOW\",\"amount\":\"100\",\"reason\":\"Reviewed change\"}";
+        LimitedAdmin previewer = createLimitedAdmin("platform.price_books.preview_change");
+        mockMvc.perform(post("/api/admin/product-prices/{id}/change-preview", missing)
                         .header("Authorization", bearer(previewer.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(previewBody))
+                        .contentType(MediaType.APPLICATION_JSON).content(change))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(post("/api/admin/product-prices/{id}/schedule-replacement", successorId)
-                        .header("Authorization", bearer(previewer.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(executionBody))
-                .andExpect(status().isForbidden());
-
-        mockMvc.perform(post("/api/admin/product-prices/{id}/replacement-preview", successorId)
-                        .header("Authorization", bearer(scheduler.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(previewBody))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/admin/product-prices/{id}/schedule-replacement", successorId)
-                        .header("Authorization", bearer(scheduler.token()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(executionBody))
-                .andExpect(status().isNotFound());
+        for (var operation : java.util.Map.of(
+                "CHANGE", "change", "RESCHEDULE", "reschedule-change", "CANCEL", "cancel-change").entrySet()) {
+            String body = "{\"change\":" + change.replace("\"CHANGE\"", "\"" + operation.getKey() + "\"")
+                    + ",\"previewToken\":\"untrusted\",\"idempotencyKey\":\"" + UUID.randomUUID() + "\"}";
+            mockMvc.perform(post("/api/admin/product-prices/{id}/" + operation.getValue(), missing)
+                            .header("Authorization", bearer(previewer.token()))
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isForbidden());
+            LimitedAdmin operator = createLimitedAdmin("platform.price_books." + operation.getValue().replace('-', '_'));
+            mockMvc.perform(post("/api/admin/product-prices/{id}/" + operation.getValue(), missing)
+                            .header("Authorization", bearer(operator.token()))
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(post("/api/admin/product-prices/{id}/change-preview", missing)
+                            .header("Authorization", bearer(operator.token()))
+                            .contentType(MediaType.APPLICATION_JSON).content(change))
+                    .andExpect(status().isForbidden());
+        }
     }
 
     @Test

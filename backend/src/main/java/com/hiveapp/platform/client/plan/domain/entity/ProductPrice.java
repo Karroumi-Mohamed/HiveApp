@@ -204,8 +204,8 @@ public class ProductPrice extends BaseEntity {
 
     /**
      * Atomically closes new-sale applicability for a published price at the exact start of its
-     * successor. This is the only supported mutation of a published effective window; it may
-     * shorten, but never extend, the historical window.
+     * successor. This initial handoff only shortens the window. A still-future handoff may be
+     * moved or cancelled through replaceFutureBoundary; elapsed history is never extended.
      */
     public void endForReplacementAt(Instant cutoff) {
         requireStatus(ProductPriceStatus.ACTIVE,
@@ -223,6 +223,36 @@ public class ProductPrice extends BaseEntity {
     public void markCompatibilityDefault() {
         requireStatus(ProductPriceStatus.DRAFT, "Compatibility metadata can only be set on a draft.");
         compatibilityDefault = true;
+    }
+
+    /** Only the reviewed replacement service supplies the next lineage revision under owner lock. */
+    public ProductPrice replacement(Money nextMoney, Instant from, int nextRevision) {
+        requireStatus(ProductPriceStatus.ACTIVE, "Only an active price can be replaced.");
+        if (nextRevision <= revisionNumber) throw new IllegalStateException("Successor revision must advance.");
+        if (!currencyCode.equals(nextMoney.currencyCode())) throw new IllegalStateException("Replacement currency cannot change.");
+        ProductPrice next = owner(ownerType, plan, addOn, quotaPackage);
+        next.initializeTerms(nextMoney, billingCycle, from, null);
+        next.lineageId = lineageId;
+        next.revisionNumber = nextRevision;
+        next.sourcePrice = this;
+        return next;
+    }
+
+    /** May only move a boundary that has not happened; elapsed history is immutable. */
+    public void replaceFutureBoundary(Instant expectedBoundary, Instant nextBoundary, Instant now) {
+        requireStatus(ProductPriceStatus.ACTIVE, "The current price must remain active.");
+        if (!Objects.equals(effectiveUntil, expectedBoundary) || expectedBoundary == null
+                || !expectedBoundary.isAfter(now) || effectiveFrom.isAfter(now)
+                || (nextBoundary != null && (nextBoundary.isBefore(now) || !nextBoundary.isAfter(effectiveFrom)))) {
+            throw new IllegalStateException("The reviewed future boundary is no longer changeable.");
+        }
+        effectiveUntil = nextBoundary;
+    }
+
+    public void cancelBeforeStart(Instant now) {
+        requireStatus(ProductPriceStatus.ACTIVE, "Only a confirmed future price can be cancelled.");
+        if (!effectiveFrom.isAfter(now)) throw new IllegalStateException("This tariff has already started.");
+        status = ProductPriceStatus.ARCHIVED;
     }
 
     public UUID ownerId() {

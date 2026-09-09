@@ -613,6 +613,7 @@ export const adminApi = {
     ownerId?: UUID;
     ownerIds?: string;
     currentOnly?: boolean;
+    sourcePriceId?: UUID;
     status?: ProductPriceStatus;
     currencyCode?: string;
     billingCycle?: ProductPriceBillingCycle;
@@ -622,6 +623,23 @@ export const adminApi = {
     direction?: string;
   }) => admin<PageResponse<ProductPrice>>("/product-prices", { query }),
   productPrice: (id: UUID) => admin<ProductPrice>(`/product-prices/${id}`),
+  previewProductPriceChange: (id: UUID, input: import("./contracts").ProductPriceChangeRequest) =>
+    admin<import("./contracts").ProductPriceChangePreview>(`/product-prices/${id}/change-preview`, {
+      method: "POST",
+      body: jsonBody(input),
+    }),
+  confirmProductPriceChange: (
+    id: UUID,
+    input: { change: import("./contracts").ProductPriceChangeRequest; previewToken: string; idempotencyKey: UUID },
+  ) => {
+    const endpoint = { CHANGE: "change", RESCHEDULE: "reschedule-change", CANCEL: "cancel-change" }[
+      input.change.operation
+    ];
+    return admin<import("./contracts").ProductPriceChangeResult>(`/product-prices/${id}/${endpoint}`, {
+      method: "POST",
+      body: jsonBody(input),
+    });
+  },
   productPriceHistory: (id: UUID, page = 0, size = 20) =>
     admin<PageResponse<ProductPriceHistoryEntry>>(`/product-prices/${id}/history`, { query: { page, size } }),
   createProductPrice: (ownerType: ProductPriceOwnerType, ownerId: UUID, input: ProductPriceInput) =>

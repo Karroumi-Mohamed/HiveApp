@@ -1198,7 +1198,7 @@ Changing either policy on a published product requires a new commercial revision
 
 ### Amendment — Continuous tariff replacement
 
-**Status:** `DECIDED — 2026-09-09; IMPLEMENTATION PENDING (PRICEBOOK-004)`
+**Status:** `IMPLEMENTED AND VERIFIED — 2026-09-10 (PRICEBOOK-004)`
 
 - For each offered product revision / currency / billing-cycle option, keep one currently
   applicable tariff and at most one confirmed future replacement. Monthly and yearly options
@@ -1221,7 +1221,28 @@ Changing either policy on a published product requires a new commercial revision
   evidence handling must enforce the same coverage invariant; hiding buttons alone is insufficient.
 - Catalogue replacement does not reprice existing subscribers or retarget published Offers.
   Existing-subscriber changes remain the explicit `SUBSCRIPTION-FLOW-005` operation. Offer-price
-  dependency handling must be reviewed before implementation; no silent Offer migration is approved.
+  dependencies block a change if a published Offer pins the current price beyond the new cutoff,
+  or pins a scheduled price being replaced/cancelled. Review shows the affected count; operators
+  retire/revise those Offers through their separate authorized flow. No automatic retargeting is approved.
+- The API separates `preview_change`, `change`, `reschedule_change`, and `cancel_change` permissions.
+  Confirmation binds the actor, exact request, current/scheduled versions, registry/catalogue
+  evidence and an idempotency key. A receipt replays the original result after response loss;
+  reusing its key for a different actor or intent is rejected. Audit and receipt failures roll
+  back the boundary handoff. The commercial-role preset includes the new controls; existing
+  manually configured roles are not silently granted new permissions.
+- Legacy standalone pause and unsigned replacement commands reject with a conflict. First-price
+  activation also rejects an independently entered finite end, including composite capacity-pack
+  publication. Historical finite windows and imported/copied draft terms are not silently rewritten:
+  drafts must be reviewed into a valid continuous option before publication. No background data
+  migration or automatic publication of a copied schedule is implied by this amendment.
+
+**Verification — 2026-09-10:** full backend suite (874 tests), frontend suite (398 tests),
+typecheck, Biome and production build pass. Isolated authenticated browser checks cover immediate
+change, scheduling, amount/date rescheduling and cancellation restoring an open-ended current
+tariff. Dark/desktop and narrow-dialog checks preserve visible review/confirmation controls.
+Existing subscriber snapshots, Offer dependencies, concurrent writes, rollback, authorization,
+stale evidence and same-key retry behavior have regression coverage. No demo/production data
+migration is included.
 
 **Catalogue presentation clarification — 2026-09-09:** Plans use spacious comparison cards for
 the expected small catalogue, restoring the earlier design. Keep server-side filtering and
@@ -1613,8 +1634,8 @@ Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
-| 2026-09-09 | Remove manually assigned segment origin; any future import records Account-inclusion provenance through the actual operation | A segment can mix imported-list and manual selections, while selecting an origin label currently performs no import and mixes creation method with support intent | Segment authoring/list/detail/review, API metadata, membership provenance and audit; removal pending MARKETING-002, no import implementation approved |
-| 2026-09-09 | Replace manual tariff pause/date coordination with one current tariff and at most one reviewed immediate or scheduled replacement per offered product/currency/cycle, preserving continuous coverage | Prevent accidental sales gaps without another administrator workflow; cancellation must keep the current price available, while product sales stops and existing-subscriber changes remain explicit separate operations | Price-book lifecycle/API, applicability windows, replacement/cancellation, product availability, admin UX, audit and tests; implementation pending PRICEBOOK-004 |
+| 2026-09-09 | Remove manually assigned segment origin; any future import records Account-inclusion provenance through the actual operation | A segment can mix imported-list and manual selections, while selecting an origin label currently performs no import and mixes creation method with support intent | Segment authoring/list/detail/review and public API metadata; MARKETING-002 implemented and verified, no import implementation approved |
+| 2026-09-09 | Replace manual tariff pause/date coordination with one current tariff and at most one reviewed immediate or scheduled replacement per offered product/currency/cycle, preserving continuous coverage | Prevent accidental sales gaps without another administrator workflow; cancellation must keep the current price available, while product sales stops and existing-subscriber changes remain explicit separate operations | Price-book lifecycle/API, applicability windows, replacement/cancellation, product availability, admin UX, audit and tests; PRICEBOOK-004 implemented and verified 2026-09-10 |
 | 2026-08-28 | Make Offer discovery and acceptance explicit, bind limits/codes to the lineage and exact Campaign/product/price revisions, keep Phase 11 application one-Account, and choose the greater Policy-or-Offer reduction without stacking | Codes must not become credentials; revisions must not reset limits or drift with catalogue changes; one authoritative price result avoids competing truths; bulk execution and recovery need the Phase 12 job/lifecycle engine | Offer lineage/revisions/codes/capacity, Campaign relation, subscription evaluation/operations/snapshots, client/admin authorization and UI, analytics boundaries |
 | 2026-08-28 | Freeze exact targeted Campaign audiences at scheduling, keep public Campaign audiences dynamic, and release the source Segment after schedule while retaining immutable provenance | Targeted delivery must not drift after operator review, but snapshotting every Account for a public Campaign would be expensive and misleading; stored schedule evidence makes published history independent without allowing destructive provenance loss | Campaign scheduling/evidence/lifecycle, Segment archive/delete blockers, audience privacy, Offer eligibility, admin UI and tests |
 | 2026-08-27 | Let only reusable/live `DRAFT`, `ACTIVE`, or `PAUSED` policy references block Segment archive; terminal policy history keeps its frozen audience and provenance but releases the Segment | An accepted policy activation is historically independent of the later Segment lifecycle, while a policy that can still be activated or resumed must retain a valid selectable Segment | Segment lifecycle and blockers, policy Segment resolver/activation, retained audience provenance, admin actions and tests |

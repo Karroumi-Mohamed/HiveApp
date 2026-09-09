@@ -21,6 +21,10 @@ import org.springframework.data.repository.query.Param;
 public interface ProductPriceRepository
     extends JpaRepository<ProductPrice, UUID>, JpaSpecificationExecutor<ProductPrice> {
 
+  @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
+  List<ProductPrice> findBySourcePrice_IdAndStatus(UUID sourceId,
+      com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus status);
+
   @Override
   @EntityGraph(attributePaths = {"plan", "addOn", "quotaPackage"})
   Optional<ProductPrice> findById(UUID id);

@@ -3108,13 +3108,15 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
   a draft does not change sales or existing subscriptions.
 - Typecheck and 23 focused tariff tests pass, including healthy active/archived presentation,
   action-specific blocker selection, permissions, and signed activation evidence. The separate
-  continuous-replacement lifecycle change remains tracked by `PRICEBOOK-004`.
+  continuous-replacement lifecycle change is delivered in `PRICEBOOK-004`: **Changer le tarif**
+  now supersedes the intermediate draft/pause-first actions described above. Contextual reasons
+  and the distinction between product and tariff remain; standalone tariff pause is retired.
 
 ---
 
 ### PRICEBOOK-004 — Replace manual tariff lifecycle coordination with continuous price changes
 
-**Status:** `OPEN — DESIGN AGREED 2026-09-09; IMPLEMENTATION PENDING`
+**Status:** `FIXED — 2026-09-10`
 
 **Evidence and decision**
 
@@ -3124,8 +3126,8 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
   but requires a future start. It does not deliver the agreed immediate replacement or a complete
   change/cancel flow that restores uninterrupted coverage.
 - During the demo, the user chose a simpler current-price/replacement model over managing
-  independent validity windows. The accepted amendment is in `COMMERCIAL-FLOW-003` and
-  `docs/COMMERCIAL_CONTROL_PLANE_V1.md` section 4.1. This changes the earlier normal lifecycle flow.
+  independent validity windows. The authoritative amendment is in `FLOW_DECISIONS.md`,
+  `COMMERCIAL-FLOW-003`. It supersedes the earlier normal lifecycle flow described in older specs.
 
 **Required implementation**
 
@@ -3149,8 +3151,44 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
   replacement attempts, schedule edits/cancellation races, permissions, legacy bypasses, draft
   isolation, Offer dependencies, and unchanged subscriber terms; verify the real admin flow.
 
-Related display/vocabulary gaps `PRICEBOOK-002` and `PRICEBOOK-003` remain open. No backend or
-frontend implementation is included in this documentation change.
+**Implementation evidence — 2026-09-09**
+
+- Added signed current-price preview and separate change/reschedule/cancel APIs, actor-specific
+  permissions, locked recomputation, exact boundary writes, immutable replay receipts and audit.
+- A scheduled change uses a fresh immutable successor. Rescheduling archives the unstarted old
+  successor; cancelling restores the current price's open-ended coverage. Neither edits accepted
+  subscription snapshots nor automatically changes a published Offer's pinned price.
+- Published Offer dependencies are explicit blockers: current price needed after the cutoff, or
+  future price needed by an Offer being changed/cancelled. The preview exposes a count, not
+  otherwise unauthorized Offer details. Operators must resolve these through the Offer workflow.
+- Retired the legacy standalone pause and unsigned scheduling paths. Independent finite-ended
+  draft publication is rejected, including capacity-pack composite publication. Existing finite
+  history/copy drafts are retained and require explicit review, not an automatic migration.
+- UI exposes **Changer le tarif**, **Maintenant / À une date**, **Modifier le changement** and
+  **Annuler le changement**, with current/scheduled/history labels, live evidence expiry,
+  disabled confirmation until reviewed, stale-review recovery and same-key network retries.
+  Current prices remain visible even when many recent draft/history entries exist. All actions
+  remain gated by backend availability and their exact permissions.
+- Related `PRICEBOOK-002`, `PRICEBOOK-003`, `PRICEBOOK-005`, `MARKETING-002` and `UI-003` are fixed
+  in separate commits. No new specification document was created.
+
+**Final verification — 2026-09-10**
+
+- Full backend suite: **874 tests, zero failures/errors**. Includes 15 dedicated continuous-change
+  integration tests for exact boundaries/money, unchanged subscriber terms, immutable history,
+  Offer blockers, concurrent operations, audit-failure rollback and receipt retries. Separate
+  security tests pin the new permissions and retired legacy bypasses.
+- Full frontend suite: **398 tests, zero failures**, plus typecheck, Biome and production build.
+  Mounted regressions cover fresh review, edited-field invalidation, exact local-date/decimal input,
+  cancellation copy, denied permissions, failed successor loading and same-key network recovery.
+- Isolated authenticated browser flow: 99.99 → 100.25 immediately; schedule 120; revise that
+  schedule to 125.50 with a new date; cancel and verify 100.25 continues with no end date. Both
+  rescheduling boundaries move together. Only disposable QA data was changed.
+- Review repeats current/new amounts and the actual cancellation effect; on small screens only
+  the dialog body scrolls, leaving the title/actions visible. Immediate success opens the new
+  current tariff. Verified dark/desktop and narrow layouts; no horizontal page overflow.
+- Rechecked restored Plan cards against the changed current tariff and confirmed Segment list
+  and creation have no origin control. User demo servers/data were not restarted or modified.
 
 ---
 

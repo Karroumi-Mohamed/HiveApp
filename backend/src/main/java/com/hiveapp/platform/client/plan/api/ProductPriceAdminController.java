@@ -15,6 +15,10 @@ import com.hiveapp.platform.client.plan.dto.ProductPriceReplacementResult;
 import com.hiveapp.platform.client.plan.dto.ProductPriceVersionRequest;
 import com.hiveapp.platform.client.plan.dto.UpdateProductPriceRequest;
 import com.hiveapp.platform.client.plan.service.ProductPriceAdminService;
+import com.hiveapp.platform.client.plan.dto.ProductPriceChangeRequest;
+import com.hiveapp.platform.client.plan.dto.ProductPriceChangeConfirmation;
+import com.hiveapp.platform.client.plan.dto.ProductPriceChangePreview;
+import com.hiveapp.platform.client.plan.dto.ProductPriceChangeResult;
 import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.shared.exception.InvalidRequestException;
 import jakarta.validation.Valid;
@@ -54,6 +58,30 @@ public class ProductPriceAdminController {
 
     private final ProductPriceAdminService productPriceAdminService;
 
+    @PostMapping("/{priceId}/change-preview")
+    public ProductPriceChangePreview previewChange(@PathVariable UUID priceId,
+            @Valid @RequestBody ProductPriceChangeRequest request) {
+        return productPriceAdminService.previewChange(priceId, request);
+    }
+
+    @PostMapping("/{priceId}/change")
+    public ProductPriceChangeResult change(@PathVariable UUID priceId,
+            @Valid @RequestBody ProductPriceChangeConfirmation request) {
+        return productPriceAdminService.changePrice(priceId, request);
+    }
+
+    @PostMapping("/{priceId}/reschedule-change")
+    public ProductPriceChangeResult rescheduleChange(@PathVariable UUID priceId,
+            @Valid @RequestBody ProductPriceChangeConfirmation request) {
+        return productPriceAdminService.rescheduleChange(priceId, request);
+    }
+
+    @PostMapping("/{priceId}/cancel-change")
+    public ProductPriceChangeResult cancelChange(@PathVariable UUID priceId,
+            @Valid @RequestBody ProductPriceChangeConfirmation request) {
+        return productPriceAdminService.cancelChange(priceId, request);
+    }
+
     @GetMapping
     public PageResponse<ProductPriceDto> list(
             @RequestParam(required = false) String search,
@@ -64,12 +92,13 @@ public class ProductPriceAdminController {
             @RequestParam(required = false) BillingCycle billingCycle,
             @RequestParam(required = false) java.util.Set<UUID> ownerIds,
             @RequestParam(defaultValue = "false") boolean currentOnly,
+            @RequestParam(required = false) UUID sourcePriceId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String direction) {
         return PageResponse.from(productPriceAdminService.list(search, ownerType, ownerId, status,
-                currencyCode, billingCycle, ownerIds, currentOnly, pageRequest(page, size, sort, direction)));
+                currencyCode, billingCycle, ownerIds, currentOnly, sourcePriceId, pageRequest(page, size, sort, direction)));
     }
 
     @GetMapping("/{priceId}")

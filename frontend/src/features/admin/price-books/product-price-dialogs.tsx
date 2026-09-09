@@ -78,7 +78,7 @@ export function EditProductPriceDialog({ price, trigger }: { price: ProductPrice
     currencyCode: price.currencyCode,
     billingCycle: price.billingCycle,
     effectiveFrom: localDateTimeValue(price.effectiveFrom),
-    effectiveUntil: localDateTimeValue(price.effectiveUntil),
+    effectiveUntil: "",
   });
   const [errors, setErrors] = useState<ProductPriceDraftErrors>({});
   useEffect(() => {
@@ -88,7 +88,7 @@ export function EditProductPriceDialog({ price, trigger }: { price: ProductPrice
       currencyCode: price.currencyCode,
       billingCycle: price.billingCycle,
       effectiveFrom: localDateTimeValue(price.effectiveFrom),
-      effectiveUntil: localDateTimeValue(price.effectiveUntil),
+      effectiveUntil: "",
     });
     setErrors({});
   }, [open, price]);
@@ -100,7 +100,7 @@ export function EditProductPriceDialog({ price, trigger }: { price: ProductPrice
         currencyCode: fields.currencyCode.trim().toUpperCase(),
         billingCycle: fields.billingCycle,
         effectiveFrom: instantFromLocalValue(fields.effectiveFrom),
-        effectiveUntil: fields.effectiveUntil ? instantFromLocalValue(fields.effectiveUntil) : null,
+        effectiveUntil: null,
         version: price.version,
       }),
     onSuccess: async () => {

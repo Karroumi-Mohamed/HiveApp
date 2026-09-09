@@ -674,7 +674,10 @@ export type ProductPriceAction =
   | "REACTIVATE"
   | "REVISE"
   | "ARCHIVE"
-  | "DELETE_DRAFT";
+  | "DELETE_DRAFT"
+  | "CHANGE_PRICE"
+  | "RESCHEDULE_CHANGE"
+  | "CANCEL_CHANGE";
 export type ProductPriceBlocker =
   | "OWNER_NOT_ACTIVE"
   | "EFFECTIVE_WINDOW_EXPIRED"
@@ -682,7 +685,8 @@ export type ProductPriceBlocker =
   | "SUCCESSOR_ALREADY_EXISTS"
   | "WRONG_LIFECYCLE_STATE"
   | "ACTIVE_MUST_BE_PAUSED"
-  | "ARCHIVED_TERMINAL";
+  | "ARCHIVED_TERMINAL"
+  | "CONTINUOUS_PRICE_REQUIRED";
 export type ProductPriceReplacementBlocker =
   | "CURRENT_NOT_ACTIVE"
   | "SUCCESSOR_NOT_DRAFT"
@@ -722,6 +726,35 @@ export type ProductPriceInput = {
   billingCycle: ProductPriceBillingCycle;
   effectiveFrom: Instant;
   effectiveUntil: Instant | null;
+};
+
+export type ProductPriceChangeRequest = {
+  operation: "CHANGE" | "RESCHEDULE" | "CANCEL";
+  currentVersion: number;
+  scheduledPriceId?: UUID | null;
+  scheduledVersion?: number | null;
+  timing: "NOW" | "SCHEDULED" | null;
+  amount: ExactDecimal | null;
+  effectiveFrom: Instant | null;
+  reason: string;
+};
+export type ProductPriceChangePreview = {
+  change: ProductPriceChangeRequest;
+  currentPrice: ProductPrice;
+  scheduledPrice: ProductPrice | null;
+  evaluatedAt: Instant;
+  cutoff: Instant | null;
+  expiresAt: Instant;
+  previewToken: string;
+  blockingOfferCount: number;
+  blockers: string[];
+  allowed: boolean;
+};
+export type ProductPriceChangeResult = {
+  previousPrice: ProductPrice;
+  successorPrice: ProductPrice | null;
+  cutoff: Instant | null;
+  existingResult: boolean;
 };
 
 export type ProductPriceActivationPreview = {

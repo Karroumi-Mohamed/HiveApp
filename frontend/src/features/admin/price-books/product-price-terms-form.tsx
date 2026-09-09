@@ -87,21 +87,10 @@ export function ProductPriceTermsForm({
           <FieldError message={errors.effectiveFrom} />
         </div>
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="price-book-effective-until">Valide jusqu’au</Label>
-        <Input
-          aria-describedby={errors.effectiveUntil ? "price-book-effective-until-error" : undefined}
-          aria-invalid={Boolean(errors.effectiveUntil)}
-          id="price-book-effective-until"
-          onChange={(event) => set("effectiveUntil", event.target.value)}
-          type="datetime-local"
-          value={fields.effectiveUntil}
-        />
-        <p className="text-xs text-muted-foreground">Laissez vide si aucune fin n’est prévue.</p>
-        <div id="price-book-effective-until-error">
-          <FieldError message={errors.effectiveUntil} />
-        </div>
-      </div>
+      <p className="self-center text-sm text-muted-foreground">
+        Ce tarif restera valable jusqu’à son remplacement. Pour remplacer un tarif existant, utilisez « Changer le tarif
+        » sur celui-ci.
+      </p>
     </fieldset>
   );
 }

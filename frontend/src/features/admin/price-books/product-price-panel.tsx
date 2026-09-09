@@ -10,38 +10,54 @@ import { StatusText } from "@/components/patterns/status-text";
 import { Button } from "@/components/ui/button";
 import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
 import { formatExactMoney } from "@/lib/exact-decimal";
-import { productPriceCycle, productPriceStatus } from "./product-price-rules";
+import { productPriceCycle, productPriceDisplayStatus } from "./product-price-rules";
+import { useCurrentProductPrices } from "./product-price-summary";
 
 const money = formatExactMoney;
 
 export function ProductPricePanel({ ownerType, ownerId }: { ownerType: ProductPriceOwnerType; ownerId: string }) {
   const session = useAdminSession();
+  const currentPrices = useCurrentProductPrices(ownerType, [ownerId]);
   const prices = useQuery({
     queryKey: adminCommercialKeys.priceBooks.owner(ownerType, ownerId),
     queryFn: () =>
       adminApi.productPrices({ ownerType, ownerId, page: 0, size: 6, sort: "createdAt", direction: "desc" }),
     enabled: commercialQueryEnabled(session.can, adminPermissions.priceBooksList),
+    refetchInterval: 30_000,
   });
   if (!session.can(adminPermissions.priceBooksList)) {
     return <PermissionState description="Votre rôle ne permet pas de consulter les tarifs de ce produit." />;
   }
-  if (prices.isLoading) return <LoadingState rows={3} />;
-  if (prices.isError) return <ErrorState retry={() => void prices.refetch()} />;
-  const entries = prices.data?.content ?? [];
+  if (prices.isLoading || currentPrices.isLoading) return <LoadingState rows={3} />;
+  if (prices.isError || currentPrices.isError)
+    return (
+      <ErrorState
+        retry={() => {
+          void prices.refetch();
+          void currentPrices.refetch();
+        }}
+      />
+    );
+  const current = currentPrices.data?.content ?? [];
+  const currentIds = new Set(current.map((price) => price.id));
+  const entries = [...current, ...(prices.data?.content ?? []).filter((price) => !currentIds.has(price.id))];
   const total = prices.data?.totalElements ?? 0;
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
       <header className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold">Tarifs</h2>
-          <p className="mt-1 text-xs text-muted-foreground">Conditions mensuelles et annuelles de cette révision.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Tarifs actuels en premier, puis changements, brouillons et historique récents. Ouvrez un tarif actuel pour
+            le changer.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {session.can(adminPermissions.priceBooksCreate) ? (
             <Button asChild size="sm" variant="outline">
               <Link to={`/admin/price-books/new?ownerType=${ownerType}&ownerId=${ownerId}`}>
                 <PlusIcon />
-                Ajouter
+                Ajouter une option tarifaire
               </Link>
             </Button>
           ) : null}
@@ -58,7 +74,7 @@ export function ProductPricePanel({ ownerType, ownerId }: { ownerType: ProductPr
       ) : (
         <div className="divide-y">
           {entries.map((price) => {
-            const status = productPriceStatus[price.status];
+            const status = productPriceDisplayStatus(price);
             const content = (
               <>
                 <span>
@@ -88,6 +104,11 @@ export function ProductPricePanel({ ownerType, ownerId }: { ownerType: ProductPr
             );
           })}
         </div>
+      )}
+      {total > entries.length && (
+        <p className="border-t px-4 py-3 text-xs text-muted-foreground">
+          Aperçu de {entries.length} tarifs sur {total}. La grille complète conserve toutes les versions.
+        </p>
       )}
     </section>
   );
