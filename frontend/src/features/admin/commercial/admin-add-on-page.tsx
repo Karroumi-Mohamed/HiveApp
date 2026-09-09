@@ -4,7 +4,7 @@ import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { AddOn, BillingCycle, CommercialProductAction, ExactDecimal, QuotaLimit } from "@/api/contracts";
+import type { AddOn, BillingCycle, CommercialProductAction, QuotaLimit } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -32,20 +32,19 @@ import {
 } from "@/features/admin/commercial/commercial-detail-panels";
 import { CommercialLifecycleDialog } from "@/features/admin/commercial/commercial-lifecycle-dialog";
 import { ProductPricePanel } from "@/features/admin/price-books/product-price-panel";
+import { ProductPriceSummary } from "@/features/admin/price-books/product-price-summary";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
-import { commercialAmount, formatExactMoney, isCommercialAmount } from "@/lib/exact-decimal";
+import { commercialAmount, isCommercialAmount } from "@/lib/exact-decimal";
 import { addOnLifecycleActions, addOnStatusLabel } from "./add-on-lifecycle";
 import {
   commercialChoiceDescription,
   isCommercialChoiceDisabled,
   mergeCommercialChoices,
 } from "./commercial-choice-rules";
-
-const price = (value: ExactDecimal, currency: string) => formatExactMoney(value, currency);
 
 import {
   ChoiceList,
@@ -653,10 +652,12 @@ export function AdminAddOnsPage() {
             <section className="rounded-xl border bg-card p-5">
               <h2 className="text-sm font-semibold">Configuration</h2>
               <dl className="mt-5 space-y-4 text-sm">
-                <Pair
-                  label="Prix"
-                  value={`${price(selected.price, selected.currencyCode)} / ${selected.billingCycle}`}
-                />
+                <div>
+                  <dt className="mb-3 text-muted-foreground">Tarifs actuels</dt>
+                  <dd>
+                    <ProductPriceSummary ownerType="ADD_ON" ownerId={selected.id} />
+                  </dd>
+                </div>
                 <Pair label="Révision" value={`R${selected.revisionNumber}`} />
                 <Pair label="Fonctionnalités" value={selected.features.length} />
               </dl>

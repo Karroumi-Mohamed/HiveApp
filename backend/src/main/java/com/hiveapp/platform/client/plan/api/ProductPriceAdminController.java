@@ -62,12 +62,14 @@ public class ProductPriceAdminController {
             @RequestParam(required = false) ProductPriceStatus status,
             @RequestParam(required = false) String currencyCode,
             @RequestParam(required = false) BillingCycle billingCycle,
+            @RequestParam(required = false) java.util.Set<UUID> ownerIds,
+            @RequestParam(defaultValue = "false") boolean currentOnly,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String direction) {
         return PageResponse.from(productPriceAdminService.list(search, ownerType, ownerId, status,
-                currencyCode, billingCycle, pageRequest(page, size, sort, direction)));
+                currencyCode, billingCycle, ownerIds, currentOnly, pageRequest(page, size, sort, direction)));
     }
 
     @GetMapping("/{priceId}")

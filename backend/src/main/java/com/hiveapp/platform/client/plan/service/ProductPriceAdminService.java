@@ -21,7 +21,7 @@ import java.util.UUID;
 public interface ProductPriceAdminService {
     Page<ProductPriceDto> list(String search, ProductPriceOwnerType ownerType, UUID ownerId,
                                ProductPriceStatus status, String currencyCode, BillingCycle billingCycle,
-                               Pageable pageable);
+                               java.util.Set<UUID> ownerIds, boolean currentOnly, Pageable pageable);
     ProductPriceDto get(UUID priceId);
     Page<ProductPriceHistoryEntryDto> history(UUID priceId, Pageable pageable);
     ProductPriceDto createDraft(ProductPriceOwnerType ownerType, UUID ownerId,

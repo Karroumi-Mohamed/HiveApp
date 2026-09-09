@@ -62,7 +62,6 @@ import { CommercialLifecycleDialog } from "@/features/admin/commercial/commercia
 import { PlanSchema } from "@/features/admin/plans/admin-plan-schema";
 import {
   addOnAvailabilityLabel,
-  cycleText,
   featureModePresentation,
   money,
   planTone,
@@ -75,6 +74,7 @@ import {
   writePlanSubscriberListState,
 } from "@/features/admin/plans/plan-subscriber-list-state";
 import { ProductPricePanel } from "@/features/admin/price-books/product-price-panel";
+import { ProductPriceSummary } from "@/features/admin/price-books/product-price-summary";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
@@ -1343,11 +1343,10 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
           <section className="rounded-xl border bg-card p-5">
             <h2 className="text-sm font-semibold">Configuration commerciale</h2>
             <dl className="mt-5 grid gap-5 sm:grid-cols-2">
-              <div>
-                <dt className="text-xs text-muted-foreground">Prix</dt>
-                <dd className="mt-1 text-xl font-semibold">
-                  {money(data.price, data.currencyCode)}{" "}
-                  <span className="text-sm font-normal text-muted-foreground">/ {cycleText[data.billingCycle]}</span>
+              <div className="sm:col-span-2">
+                <dt className="mb-3 text-sm text-muted-foreground">Tarifs actuels</dt>
+                <dd>
+                  <ProductPriceSummary ownerType="PLAN" ownerId={data.id} />
                 </dd>
               </div>
               <div>
@@ -1368,11 +1367,8 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
                 <dd className="mt-1 font-medium">{data.featureCount}</dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">Avec quota de base</dt>
-                <dd className="mt-1 font-medium">
-                  {data.quotaConfiguredFeatureCount}
-                  <span className="ms-2 text-xs font-normal text-muted-foreground">· les autres sont illimitées</span>
-                </dd>
+                <dt className="text-xs text-muted-foreground">Avec limites configurées</dt>
+                <dd className="mt-1 font-medium">{data.quotaConfiguredFeatureCount}</dd>
               </div>
             </dl>
             <p className="mt-5 border-t pt-4 text-xs leading-5 text-muted-foreground">

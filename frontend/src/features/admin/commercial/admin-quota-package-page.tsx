@@ -4,7 +4,7 @@ import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
-import type { BillingCycle, CommercialProductAction, ExactDecimal, QuotaPackage } from "@/api/contracts";
+import type { BillingCycle, CommercialProductAction, QuotaPackage } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -29,23 +29,21 @@ import {
 } from "@/features/admin/commercial/commercial-detail-panels";
 import { CommercialLifecycleDialog } from "@/features/admin/commercial/commercial-lifecycle-dialog";
 import { ProductPricePanel } from "@/features/admin/price-books/product-price-panel";
+import { ProductPriceSummary } from "@/features/admin/price-books/product-price-summary";
 import {
   adminCommercialKeys,
   commercialQueryEnabled,
   invalidateAdminCommercial,
 } from "@/features/commercial/commercial-query";
-import { commercialAmount, formatExactMoney, isCommercialAmount } from "@/lib/exact-decimal";
+import { commercialAmount, isCommercialAmount } from "@/lib/exact-decimal";
 import { addOnStatusLabel } from "./add-on-lifecycle";
 import {
   commercialChoiceDescription,
   isCommercialChoiceDisabled,
   mergeCommercialChoices,
 } from "./commercial-choice-rules";
-import { QuotaHistoryPanel, QuotaRevisionPanel } from "./quota-revision-panels";
-
-const price = (value: ExactDecimal, currency: string) => formatExactMoney(value, currency);
-
 import { ChoiceList, ChoiceLoadState, DeleteDraftDialog, Field, Pair } from "./commercial-form-primitives";
+import { QuotaHistoryPanel, QuotaRevisionPanel } from "./quota-revision-panels";
 
 export function QuotaForm({ item, trigger }: { item?: QuotaPackage; trigger: React.ReactNode }) {
   const session = useAdminSession();
@@ -477,8 +475,12 @@ export function AdminQuotaPackagesPage() {
             <section className="rounded-xl border bg-card p-5">
               <h2 className="text-sm font-semibold">Commercial</h2>
               <dl className="mt-5 space-y-4 text-sm">
-                <Pair label="Prix" value={price(selected.price, selected.currencyCode)} />
-                <Pair label="Cycle" value={selected.billingCycle} />
+                <div>
+                  <dt className="mb-3 text-muted-foreground">Tarifs par unité</dt>
+                  <dd>
+                    <ProductPriceSummary ownerType="QUOTA_PACKAGE" ownerId={selected.id} />
+                  </dd>
+                </div>
                 <Pair label="Répétable" value={selected.repeatable ? "Oui" : "Non"} />
                 <Pair label="Version" value={selected.definitionVersion} />
               </dl>

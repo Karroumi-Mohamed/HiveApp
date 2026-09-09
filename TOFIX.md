@@ -3038,7 +3038,7 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 
 ### PRICEBOOK-002 — Plan overview still presents a legacy single price as the complete offer
 
-**Status:** `OPEN — 2026-09-09`
+**Status:** `FIXED — 2026-09-09`
 
 **Evidence**
 
@@ -3060,8 +3060,12 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
   tariffs when the actor lacks the required read permission.
 - Audit equivalent Add-on/pack summaries for the same assumption before claiming they are fixed.
   Add regression coverage for a Plan with both monthly and yearly entries.
-- Deferred at the user's request while the original demo continues. No UI or seed change in this
-  documentation-only task.
+- Implemented a shared current-tariff summary on Plan, Add-on and capacity-pack details. The
+  server filters applicability at its own clock; a bounded bulk owner filter also supports cards
+  without per-card requests. Currency/cycle options remain independent and exact.
+- Loading, error/retry, missing permission, empty and truncated results are explicit. No legacy
+  amount fallback, currency conversion or inferred annual price is used. Two backend integration
+  tests and four mounted UI regressions pass; full frontend verification passes (386 tests).
 
 ---
 

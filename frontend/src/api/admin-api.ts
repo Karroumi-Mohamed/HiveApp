@@ -611,6 +611,8 @@ export const adminApi = {
     search?: string;
     ownerType?: ProductPriceOwnerType;
     ownerId?: UUID;
+    ownerIds?: string;
+    currentOnly?: boolean;
     status?: ProductPriceStatus;
     currencyCode?: string;
     billingCycle?: ProductPriceBillingCycle;

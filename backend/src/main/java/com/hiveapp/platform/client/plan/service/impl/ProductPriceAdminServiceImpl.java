@@ -74,6 +74,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.UUID;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -108,8 +109,13 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
     @PermissionNode(key = "list", description = "List and filter product price entries")
     public Page<ProductPriceDto> list(String search, ProductPriceOwnerType ownerType, UUID ownerId,
                                       ProductPriceStatus status, String currencyCode,
-                                      BillingCycle billingCycle, Pageable pageable) {
+                                      BillingCycle billingCycle, Set<UUID> ownerIds, boolean currentOnly,
+                                      Pageable pageable) {
         validateCycle(billingCycle);
+        if (ownerIds != null && (ownerIds.isEmpty() || ownerIds.size() > 100 || ownerType == null)) {
+            throw new InvalidRequestException("ownerIds requires ownerType and between 1 and 100 identities.");
+        }
+        var evaluatedAt = clock.instant();
         String currency = normalizeOptionalCurrency(currencyCode);
         Specification<ProductPrice> specification = (root, query, cb) -> {
             var predicates = new ArrayList<jakarta.persistence.criteria.Predicate>();
@@ -129,6 +135,20 @@ public class ProductPriceAdminServiceImpl extends PlatformControlFeatureService
             }
             if (status != null) {
                 predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (ownerIds != null) {
+                String relationship = switch (ownerType) {
+                    case PLAN -> "plan";
+                    case ADD_ON -> "addOn";
+                    case QUOTA_PACKAGE -> "quotaPackage";
+                };
+                predicates.add(root.get(relationship).get("id").in(ownerIds));
+            }
+            if (currentOnly) {
+                predicates.add(cb.equal(root.get("status"), ProductPriceStatus.ACTIVE));
+                predicates.add(cb.lessThanOrEqualTo(root.get("effectiveFrom"), evaluatedAt));
+                predicates.add(cb.or(cb.isNull(root.get("effectiveUntil")),
+                        cb.greaterThan(root.get("effectiveUntil"), evaluatedAt)));
             }
             if (currency != null) {
                 predicates.add(cb.equal(root.get("currencyCode"), currency));
