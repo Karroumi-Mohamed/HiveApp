@@ -1260,6 +1260,25 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 - Delivered operations include bounded list/search, an explicit-or-criteria builder, preview/count, separately authorized identity resolution, signed activation, immutable revisions, compare/history, owner transfer, and lifecycle control. Commercial Policies may target an exact active Segment activation through a dedicated executable reference chooser.
 - Archiving excludes a Segment from new selection. It is blocked by `DRAFT`, `ACTIVE`, or `PAUSED` policy references, but not by `ENDED` or `ARCHIVED` policy history, whose accepted activation already preserves its own frozen audience and Segment provenance.
 
+### Amendment — Segment origin is not an administrator choice
+
+**Status:** `DECIDED — 2026-09-09; REMOVAL PENDING (MARKETING-002)`
+
+- Remove the manually assigned segment-level **Origine** (`MANUAL` / `IMPORTED` / `SUPPORT`)
+  concept from normal segment authoring and management. It does not select Accounts or perform
+  an import, and a segment need not have one uniform membership source.
+- If importing an Account list is implemented later, it must be a real Account-selection flow.
+  Imported entries and manually selected entries may coexist in the same explicit Account set.
+  Record how an Account was added on the membership/addition event, automatically from that
+  operation, not as a label on the entire segment or on the Account globally. Preserve provenance
+  when the same Account is encountered through more than one operation; never infer it from a
+  legacy segment label.
+- Support-related intent belongs in the business reason. Actor/audit evidence and immutable
+  audience snapshots remain independent and must be preserved.
+- This decision does not implement an import feature, choose its file/matching contract, or
+  change the existing explicit-set versus typed-criteria audience model. Only the misleading
+  origin controls are approved for removal; implementation is deferred while the demo continues.
+
 ## MARKETING-FLOW-002 — Campaigns, offers, and redemption
 
 **Status:** `IMPLEMENTED — CAMPAIGNS AUDITED 2026-08-28; OFFER BACKEND AND ADMIN/CLIENT UI VERIFIED 2026-08-31; AUTHENTICATED BROWSER QA PENDING`
@@ -1589,6 +1608,7 @@ Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
+| 2026-09-09 | Remove manually assigned segment origin; any future import records Account-inclusion provenance through the actual operation | A segment can mix imported-list and manual selections, while selecting an origin label currently performs no import and mixes creation method with support intent | Segment authoring/list/detail/review, API metadata, membership provenance and audit; removal pending MARKETING-002, no import implementation approved |
 | 2026-09-09 | Replace manual tariff pause/date coordination with one current tariff and at most one reviewed immediate or scheduled replacement per offered product/currency/cycle, preserving continuous coverage | Prevent accidental sales gaps without another administrator workflow; cancellation must keep the current price available, while product sales stops and existing-subscriber changes remain explicit separate operations | Price-book lifecycle/API, applicability windows, replacement/cancellation, product availability, admin UX, audit and tests; implementation pending PRICEBOOK-004 |
 | 2026-08-28 | Make Offer discovery and acceptance explicit, bind limits/codes to the lineage and exact Campaign/product/price revisions, keep Phase 11 application one-Account, and choose the greater Policy-or-Offer reduction without stacking | Codes must not become credentials; revisions must not reset limits or drift with catalogue changes; one authoritative price result avoids competing truths; bulk execution and recovery need the Phase 12 job/lifecycle engine | Offer lineage/revisions/codes/capacity, Campaign relation, subscription evaluation/operations/snapshots, client/admin authorization and UI, analytics boundaries |
 | 2026-08-28 | Freeze exact targeted Campaign audiences at scheduling, keep public Campaign audiences dynamic, and release the source Segment after schedule while retaining immutable provenance | Targeted delivery must not drift after operator review, but snapshotting every Account for a public Campaign would be expensive and misleading; stored schedule evidence makes published history independent without allowing destructive provenance loss | Campaign scheduling/evidence/lifecycle, Segment archive/delete blockers, audience privacy, Offer eligibility, admin UI and tests |

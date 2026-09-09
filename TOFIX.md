@@ -3291,6 +3291,39 @@ Without the remaining authenticated browser evidence, a mounted interaction or r
 
 ---
 
+### MARKETING-002 — Segment-level origin is a misleading manual choice
+
+**Status:** `OPEN — DECISION AGREED 2026-09-09; IMPLEMENTATION DEFERRED`
+
+**Evidence**
+
+- The segment editor asks the administrator to choose **Origine**: **Manuelle**, **Importée**,
+  or **Support**. The choice is stored as `CommercialSegmentSource`; it does not import a list
+  or determine audience membership. List filters, summaries, and detail/review surfaces repeat it.
+- The values mix a creation method with a business reason. A segment could contain both manually
+  selected Accounts and Accounts selected through a future list-import flow, so one segment-wide
+  label cannot honestly describe how every Account was added.
+
+**Required fix direction**
+
+- Follow the amendment to `MARKETING-FLOW-001` in `FLOW_DECISIONS.md`. Remove the origin selector
+  and misleading segment-origin filters/presentation across editor, review, list/mobile, and
+  detail surfaces. Review the write/read contract and legacy metadata rather than leaving an
+  unexplained required field that new API consumers must invent.
+- Preserve actor/history evidence, business reasons, existing membership, and frozen audience
+  snapshots. Do not reinterpret old segment labels as trustworthy per-Account provenance.
+- If a real import flow is designed later, capture its provenance automatically per Account
+  inclusion/addition event; allow an explicit segment to mix imported and manual selections.
+  Import formats/matching, mixed criteria/set selection, and implementation of import itself
+  are outside this fix and are not being claimed as existing functionality.
+- Verify that create/edit/review/list/detail work without the origin choice and that audience
+  resolution, authorization, and historical evidence remain unchanged.
+
+Documentation only at the user's request: no code change, new import feature, or additional
+specification document. Continue the demo before implementing this fix.
+
+---
+
 ### UI-001 — Shared section tabs lack complete keyboard and panel semantics
 
 **Status:** `CONFIRMED — DEFERRED TO PHASE 15 CONSISTENCY PASS`
