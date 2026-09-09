@@ -3067,7 +3067,7 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 
 ### PRICEBOOK-003 — Tariff warnings and labels lack administrator-facing action context
 
-**Status:** `OPEN — 2026-09-09`
+**Status:** `FIXED — 2026-09-09`
 
 **Evidence**
 
@@ -3094,6 +3094,17 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 - Add regression coverage proving an active, otherwise valid tariff has no misleading global
   pause warning and retains its legitimate actions. Deferred while the demo continues; no UI or
   lifecycle behavior is changed by this note.
+
+**Implementation evidence — 2026-09-09**
+
+- Shared presentation now separates availability warnings from per-action lifecycle prerequisites;
+  the archive-only pause reason cannot appear as a global warning or disable unrelated actions.
+- Tariff detail labels distinguish **Voir le produit**, **Version du tarif**, **Conditions et
+  actions**, and **Préparer un nouveau tarif**. Replacement confirmation explains that preparing
+  a draft does not change sales or existing subscriptions.
+- Typecheck and 23 focused tariff tests pass, including healthy active/archived presentation,
+  action-specific blocker selection, permissions, and signed activation evidence. The separate
+  continuous-replacement lifecycle change remains tracked by `PRICEBOOK-004`.
 
 ---
 

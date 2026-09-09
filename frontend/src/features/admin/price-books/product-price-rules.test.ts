@@ -18,6 +18,7 @@ import {
   productPriceActionReason,
   productPriceActivationReady,
   productPriceActivationReviewReady,
+  productPriceAvailabilityWarnings,
   productPriceHistoryLabel,
   productPriceOwnerReadPermission,
   resolveSortingUpdate,
@@ -72,6 +73,22 @@ describe("retained commercial selections", () => {
 });
 
 describe("product price lifecycle actions", () => {
+  test("keeps lifecycle prerequisites contextual instead of warning on a healthy active tariff", () => {
+    const active = {
+      status: "ACTIVE" as const,
+      availableActions: ["REVISE" as const],
+      blockers: ["ACTIVE_MUST_BE_PAUSED" as const],
+    };
+    expect(productPriceAvailabilityWarnings(active)).toEqual([]);
+    expect(productPriceActionReason(active, "ARCHIVE", () => true)).toContain("Pour archiver");
+    expect(productPriceActionReason(active, "REVISE", () => true)).toBeUndefined();
+    expect(productPriceActionReason(active, "EDIT_DRAFT", () => true)).not.toContain("suspendez");
+    expect(
+      productPriceAvailabilityWarnings({ status: "DRAFT", blockers: ["OWNER_NOT_ACTIVE", "SUCCESSOR_ALREADY_EXISTS"] }),
+    ).toEqual(["OWNER_NOT_ACTIVE"]);
+    expect(productPriceAvailabilityWarnings({ status: "ARCHIVED", blockers: ["ARCHIVED_TERMINAL"] })).toEqual([]);
+  });
+
   const draft = {
     availableActions: ["EDIT_DRAFT", "PREVIEW_ACTIVATION", "ACTIVATE"],
     blockers: [],

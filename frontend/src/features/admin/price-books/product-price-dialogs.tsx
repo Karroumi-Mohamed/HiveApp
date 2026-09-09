@@ -154,10 +154,10 @@ const reasonActionCopy: Record<
     confirm: "Suspendre la vente",
   },
   REVISE: {
-    title: "Créer une nouvelle révision ?",
+    title: "Préparer le tarif suivant ?",
     description:
-      "Un nouveau brouillon copiera ces conditions. Cette révision et les abonnements existants resteront inchangés.",
-    confirm: "Créer la révision",
+      "Un brouillon copiera ce tarif pour préparer son remplacement. Le tarif en vente et les abonnements existants ne changent pas à cette étape.",
+    confirm: "Créer le brouillon",
   },
   ARCHIVE: {
     title: "Archiver définitivement ce tarif ?",
@@ -192,7 +192,7 @@ export function ProductPriceReasonDialog({
       await invalidateAdminCommercial(queryClient, adminCommercialKeys.priceBooks.all());
       setOpen(false);
       setReason("");
-      toast.success(action === "REVISE" ? "Révision créée en brouillon" : "Cycle de vie mis à jour");
+      toast.success(action === "REVISE" ? "Nouveau tarif préparé en brouillon" : "Statut du tarif mis à jour");
       if (action === "REVISE") navigate(`/admin/price-books/${result.id}`);
     },
     onError: async (error) => {

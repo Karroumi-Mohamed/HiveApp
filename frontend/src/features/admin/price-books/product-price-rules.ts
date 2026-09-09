@@ -45,9 +45,17 @@ export const productPriceBlocker: Record<ProductPriceBlocker, string> = {
   ACTIVE_WINDOW_OVERLAP: "Un tarif actif couvre déjà cette devise, ce cycle et cette période.",
   SUCCESSOR_ALREADY_EXISTS: "Une révision plus récente existe déjà.",
   WRONG_LIFECYCLE_STATE: "L’état actuel ne permet pas cette opération.",
-  ACTIVE_MUST_BE_PAUSED: "Suspendez d’abord la vente de ce tarif.",
+  ACTIVE_MUST_BE_PAUSED: "Pour archiver ce tarif, suspendez d’abord sa vente.",
   ARCHIVED_TERMINAL: "Un tarif archivé est définitif.",
 };
+
+/** Lifecycle prerequisites belong beside their action, not above a healthy price. */
+export function productPriceAvailabilityWarnings(price: Pick<ProductPrice, "status" | "blockers">) {
+  if (price.status === "ARCHIVED") return [];
+  return price.blockers.filter((blocker) =>
+    ["OWNER_NOT_ACTIVE", "EFFECTIVE_WINDOW_EXPIRED", "ACTIVE_WINDOW_OVERLAP"].includes(blocker),
+  );
+}
 
 export const productPriceReplacementBlocker: Record<ProductPriceReplacementBlocker, string> = {
   CURRENT_NOT_ACTIVE: "Le tarif actuel n’est plus en vente.",
@@ -121,9 +129,13 @@ export function productPriceActionReason(
 ) {
   if (!can(actionPermission[action])) return "Votre rôle n’autorise pas cette opération.";
   if (!price.availableActions.includes(action)) {
-    return price.blockers[0]
-      ? productPriceBlocker[price.blockers[0]]
-      : "Cette opération n’est pas disponible dans cet état.";
+    const relevant = price.blockers.find((blocker) => {
+      if (blocker === "ARCHIVED_TERMINAL") return true;
+      if (blocker === "ACTIVE_MUST_BE_PAUSED") return action === "ARCHIVE";
+      if (blocker === "SUCCESSOR_ALREADY_EXISTS") return action === "REVISE";
+      return action === "ACTIVATE" || action === "REACTIVATE" || action === "PREVIEW_ACTIVATION";
+    });
+    return relevant ? productPriceBlocker[relevant] : "Cette opération n’est pas disponible dans cet état.";
   }
   return undefined;
 }

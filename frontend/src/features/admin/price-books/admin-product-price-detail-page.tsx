@@ -32,6 +32,7 @@ import {
 import { ProductPriceReplacementDialog } from "./product-price-replacement-dialog";
 import {
   isProductPriceReplacementDraft,
+  productPriceAvailabilityWarnings,
   productPriceBlocker,
   productPriceCycle,
   productPriceHistoryLabel,
@@ -79,10 +80,10 @@ function Terms({ price }: { price: ProductPrice }) {
         </dl>
       </section>
       <section className="rounded-xl border bg-card p-5">
-        <h2 className="text-sm font-semibold">Identité tarifaire</h2>
+        <h2 className="text-sm font-semibold">Informations du tarif</h2>
         <dl className="mt-5 space-y-4 text-sm">
           <div className="flex justify-between gap-4">
-            <dt className="text-muted-foreground">Révision</dt>
+            <dt className="text-muted-foreground">Version du tarif</dt>
             <dd className="font-medium tabular-nums">R{price.revisionNumber}</dd>
           </div>
           <div className="flex justify-between gap-4">
@@ -112,11 +113,11 @@ function Lifecycle({ price }: { price: ProductPrice }) {
   const session = useAdminSession();
   return (
     <div className="space-y-5">
-      {price.blockers.length ? (
+      {productPriceAvailabilityWarnings(price).length ? (
         <section className="rounded-xl border border-warning/30 bg-warning/5 p-5">
-          <h2 className="text-sm font-semibold">Points à traiter</h2>
+          <h2 className="text-sm font-semibold">Disponibilité du tarif</h2>
           <ul className="mt-3 list-disc space-y-1 ps-5 text-sm text-muted-foreground">
-            {price.blockers.map((blocker) => (
+            {productPriceAvailabilityWarnings(price).map((blocker) => (
               <li key={blocker}>{productPriceBlocker[blocker]}</li>
             ))}
           </ul>
@@ -173,7 +174,7 @@ function Lifecycle({ price }: { price: ProductPrice }) {
               trigger={
                 <ProductPriceActionButton action="REVISE" price={price}>
                   <GitBranchIcon />
-                  Créer une révision
+                  Préparer un nouveau tarif
                 </ProductPriceActionButton>
               }
             />
@@ -337,7 +338,7 @@ export function AdminProductPriceDetailPage() {
         ariaLabel="Sections du tarif"
         tabs={[
           { label: "Synthèse", to: `/admin/price-books/${id}`, end: true },
-          { label: "Conditions et cycle de vie", to: `/admin/price-books/${id}/terms` },
+          { label: "Conditions et actions", to: `/admin/price-books/${id}/terms` },
           ...(session.can(adminPermissions.priceBooksReadHistory)
             ? [{ label: "Historique", to: `/admin/price-books/${id}/history` }]
             : []),
@@ -375,15 +376,15 @@ export function AdminProductPriceDetailPage() {
             <p className="mt-1 text-sm text-muted-foreground">{productPriceOwner[data.productType]}</p>
             {session.can(productPriceOwnerReadPermission(data.productType)) ? (
               <Button asChild className="mt-5" size="sm" variant="outline">
-                <Link to={productLink(data)}>Ouvrir la révision du produit</Link>
+                <Link to={productLink(data)}>Voir le produit</Link>
               </Button>
             ) : null}
           </section>
-          {data.blockers.length ? (
+          {productPriceAvailabilityWarnings(data).length ? (
             <section className="rounded-xl border border-warning/30 bg-warning/5 p-5 lg:col-span-2">
-              <h2 className="text-sm font-semibold">État opérationnel</h2>
+              <h2 className="text-sm font-semibold">Disponibilité du tarif</h2>
               <ul className="mt-2 list-disc space-y-1 ps-5 text-sm text-muted-foreground">
-                {data.blockers.map((blocker) => (
+                {productPriceAvailabilityWarnings(data).map((blocker) => (
                   <li key={blocker}>{productPriceBlocker[blocker]}</li>
                 ))}
               </ul>
