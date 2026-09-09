@@ -3150,6 +3150,20 @@ frontend implementation is included in this documentation change.
 
 ---
 
+### PRICEBOOK-005 — Bootstrap tariffs display 1970 as a commercial start date
+
+**Status:** `FIXED — 2026-09-09`
+
+- The compatibility backfill used `Instant.EPOCH`, which the list and detail rendered as
+  1 January 1970. This was a technical sentinel, not an administrator-selected sales date.
+- New bootstrap tariffs use the injected server clock when created. Existing rows are never
+  rewritten or reactivated by the backfill. Legacy compatibility entries with the epoch display
+  **Date historique non renseignée**, not a fabricated date; real dated entries retain their date.
+- Verified by the 13-test Price-book integration class (including bootstrap timestamps and
+  idempotency) and 24 frontend tariff tests, including epoch-versus-real-date presentation.
+
+---
+
 ### COMMERCIAL-002 — Product administration lists are unbounded and operationally inconsistent
 
 **Status:** `IMPLEMENTED AND INDEPENDENTLY AUDITED — 2026-08-27`

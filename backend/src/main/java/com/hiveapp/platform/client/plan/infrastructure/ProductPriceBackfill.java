@@ -22,7 +22,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.time.Clock;
 
 /** Disposable-H2 compatibility bridge. It never rewrites or reactivates an existing price row. */
 @Component
@@ -34,6 +34,7 @@ public class ProductPriceBackfill {
     private final AddOnRepository addOnRepository;
     private final QuotaPackageRepository quotaPackageRepository;
     private final ProductPriceRepository productPriceRepository;
+    private final Clock clock;
 
     @EventListener(ApplicationReadyEvent.class)
     @Order(5)
@@ -61,7 +62,7 @@ public class ProductPriceBackfill {
             return 0;
         }
         ProductPrice price = ProductPrice.draft(
-                plan, plan.money(), plan.getBillingCycle(), Instant.EPOCH, null);
+                plan, plan.money(), plan.getBillingCycle(), clock.instant(), null);
         publishCompatibility(price);
         return 1;
     }
@@ -74,7 +75,7 @@ public class ProductPriceBackfill {
             return 0;
         }
         ProductPrice price = ProductPrice.draft(
-                addOn, addOn.money(), addOn.getBillingCycle(), Instant.EPOCH, null);
+                addOn, addOn.money(), addOn.getBillingCycle(), clock.instant(), null);
         publishCompatibility(price);
         return 1;
     }
@@ -88,7 +89,7 @@ public class ProductPriceBackfill {
             return 0;
         }
         ProductPrice price = ProductPrice.draft(
-                item, item.money(), item.getBillingCycle(), Instant.EPOCH, null);
+                item, item.money(), item.getBillingCycle(), clock.instant(), null);
         publishCompatibility(price);
         return 1;
     }

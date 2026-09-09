@@ -25,7 +25,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
 import { formatExactMoney } from "@/lib/exact-decimal";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { productPriceCycle, productPriceOwner, productPriceStatus, resolveSortingUpdate } from "./product-price-rules";
+import {
+  productPriceCycle,
+  productPriceOwner,
+  productPriceStartLabel,
+  productPriceStatus,
+  resolveSortingUpdate,
+} from "./product-price-rules";
 
 const PAGE_SIZE = 20;
 const column = createDataColumns<ProductPrice>();
@@ -89,8 +95,10 @@ const columns = column.columns([
     header: ({ column: current }) => <SortHeader column={current}>Validité</SortHeader>,
     cell: ({ row }) => (
       <span className="text-sm">
-        <span className="block">{date(row.original.effectiveFrom)}</span>
-        <span className="block text-xs text-muted-foreground">jusqu’au {date(row.original.effectiveUntil)}</span>
+        <span className="block">{productPriceStartLabel(row.original)}</span>
+        <span className="block text-xs text-muted-foreground">
+          {row.original.effectiveUntil ? `Jusqu’au ${date(row.original.effectiveUntil)}` : "Sans date de fin"}
+        </span>
       </span>
     ),
   }),

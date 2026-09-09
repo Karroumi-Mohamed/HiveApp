@@ -38,6 +38,7 @@ import {
   productPriceHistoryLabel,
   productPriceOwner,
   productPriceOwnerReadPermission,
+  productPriceStartLabel,
   productPriceStatus,
 } from "./product-price-rules";
 
@@ -71,7 +72,7 @@ function Terms({ price }: { price: ProductPrice }) {
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">Valide à partir du</dt>
-            <dd className="mt-1 text-sm font-medium">{dateTime(price.effectiveFrom)}</dd>
+            <dd className="mt-1 text-sm font-medium">{productPriceStartLabel(price)}</dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">Valide jusqu’au</dt>
@@ -362,7 +363,7 @@ export function AdminProductPriceDetailPage() {
             <dl className="mt-6 space-y-4 border-t pt-4 text-sm">
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Début</dt>
-                <dd className="text-end font-medium">{dateTime(data.effectiveFrom)}</dd>
+                <dd className="text-end font-medium">{productPriceStartLabel(data)}</dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Fin</dt>

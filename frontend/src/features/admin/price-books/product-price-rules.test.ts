@@ -21,6 +21,7 @@ import {
   productPriceAvailabilityWarnings,
   productPriceHistoryLabel,
   productPriceOwnerReadPermission,
+  productPriceStartLabel,
   resolveSortingUpdate,
   validateProductPriceDraft,
 } from "./product-price-rules";
@@ -73,6 +74,18 @@ describe("retained commercial selections", () => {
 });
 
 describe("product price lifecycle actions", () => {
+  test("does not present the legacy compatibility epoch as a real commercial start date", () => {
+    expect(productPriceStartLabel({ effectiveFrom: "1970-01-01T00:00:00Z", compatibilityDefault: true })).toBe(
+      "Date historique non renseignée",
+    );
+    expect(productPriceStartLabel({ effectiveFrom: "2026-09-09T12:00:00Z", compatibilityDefault: true })).toContain(
+      "2026",
+    );
+    expect(productPriceStartLabel({ effectiveFrom: "1970-01-01T00:00:00Z", compatibilityDefault: false })).toContain(
+      "1970",
+    );
+  });
+
   test("keeps lifecycle prerequisites contextual instead of warning on a healthy active tariff", () => {
     const active = {
       status: "ACTIVE" as const,

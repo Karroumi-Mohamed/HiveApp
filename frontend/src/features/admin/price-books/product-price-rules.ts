@@ -39,6 +39,14 @@ export const productPriceCycle: Record<ProductPriceBillingCycle, string> = {
   YEARLY: "Annuel",
 };
 
+export function productPriceStartLabel(price: Pick<ProductPrice, "effectiveFrom" | "compatibilityDefault">) {
+  const instant = Date.parse(price.effectiveFrom);
+  if (!Number.isFinite(instant) || (price.compatibilityDefault && instant === 0)) {
+    return "Date historique non renseignée";
+  }
+  return new Intl.DateTimeFormat("fr-MA", { dateStyle: "medium", timeStyle: "short" }).format(instant);
+}
+
 export const productPriceBlocker: Record<ProductPriceBlocker, string> = {
   OWNER_NOT_ACTIVE: "Le produit doit être actif avant que ce tarif puisse être mis en vente.",
   EFFECTIVE_WINDOW_EXPIRED: "La période de validité de ce tarif est terminée.",

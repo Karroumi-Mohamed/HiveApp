@@ -43,6 +43,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import java.util.Base64;
 import java.util.List;
 import java.util.Set;
@@ -79,6 +80,9 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         long before = productPriceRepository.count();
         productPriceBackfill.backfill();
         assertThat(productPriceRepository.count()).isEqualTo(before);
+        productPriceRepository.findAll().stream().filter(ProductPrice::isCompatibilityDefault)
+                .forEach(price -> assertThat(price.getEffectiveFrom())
+                        .isBetween(price.getCreatedAt().minusSeconds(5), price.getCreatedAt()));
 
         var free = planRepository.findByCode("FREE").orElseThrow();
         var addOn = addOnRepository.findByCode("ORGANIZATION_TOOLS").orElseThrow();
