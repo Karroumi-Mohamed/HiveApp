@@ -21,6 +21,7 @@ import { TableActionsCell, tableActionsColumnMeta } from "@/components/patterns/
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PlanCatalogueCards } from "@/features/admin/plans/plan-catalogue-cards";
 import { adminCommercialKeys } from "@/features/commercial/commercial-query";
 import { AddOnForm, QuotaForm } from "./admin-commercial-pages";
 import {
@@ -290,7 +291,13 @@ function CommercialCatalogPage({ kind }: { kind: Kind }) {
     <div className="space-y-7">
       <PageHeader actions={createAction} title={config.title} />
       <section className="overflow-hidden rounded-xl border bg-card">
-        <div className="grid gap-3 border-b p-4 md:grid-cols-[minmax(220px,1fr)_180px_190px]">
+        <div
+          className={
+            kind === "plan"
+              ? "grid gap-3 border-b p-4 sm:grid-cols-2 xl:grid-cols-[minmax(200px,1fr)_170px_190px_180px]"
+              : "grid gap-3 border-b p-4 md:grid-cols-[minmax(220px,1fr)_180px_190px]"
+          }
+        >
           <div className="relative">
             <MagnifyingGlassIcon
               aria-hidden="true"
@@ -326,6 +333,30 @@ function CommercialCatalogPage({ kind }: { kind: Kind }) {
               <SelectItem value="DIRECT_ONLY">Attribution directe</SelectItem>
             </SelectContent>
           </Select>
+          {kind === "plan" && (
+            <Select
+              value={`${state.sort}:${state.direction}`}
+              onValueChange={(value) => {
+                const [sort, direction] = value.split(":");
+                setState({
+                  ...state,
+                  sort: sort ?? "updatedAt",
+                  direction: direction === "asc" ? "asc" : "desc",
+                  page: 0,
+                });
+              }}
+            >
+              <SelectTrigger aria-label="Trier les forfaits">
+                <SelectValue placeholder="Trier les forfaits" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="updatedAt:desc">Modifiés récemment</SelectItem>
+                <SelectItem value="name:asc">Nom : A à Z</SelectItem>
+                <SelectItem value="name:desc">Nom : Z à A</SelectItem>
+                <SelectItem value="status:asc">État du forfait</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
         </div>
         {query.isLoading ? (
           <div className="p-5">
@@ -333,6 +364,18 @@ function CommercialCatalogPage({ kind }: { kind: Kind }) {
           </div>
         ) : query.isError ? (
           <ErrorState retry={() => void query.refetch()} />
+        ) : kind === "plan" ? (
+          <>
+            <PlanCatalogueCards plans={(data?.content ?? []).filter(isPlan)} />
+            {(data?.totalPages ?? 0) > 1 && (
+              <PaginationBar
+                onPageChange={(page) => setState({ ...state, page })}
+                page={data?.page ?? 0}
+                totalElements={data?.totalElements ?? 0}
+                totalPages={data?.totalPages ?? 0}
+              />
+            )}
+          </>
         ) : (
           <>
             <div className="hidden md:block">

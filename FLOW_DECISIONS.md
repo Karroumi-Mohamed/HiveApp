@@ -1223,6 +1223,11 @@ Changing either policy on a published product requires a new commercial revision
   Existing-subscriber changes remain the explicit `SUBSCRIPTION-FLOW-005` operation. Offer-price
   dependency handling must be reviewed before implementation; no silent Offer migration is approved.
 
+**Catalogue presentation clarification — 2026-09-09:** Plans use spacious comparison cards for
+the expected small catalogue, restoring the earlier design. Keep server-side filtering and
+pagination, shared actions and authoritative price options. Add-on/package and high-volume
+operational lists retain reusable tables; consistent controls do not require identical layouts.
+
 ## COMMERCIAL-FLOW-004 — Typed Account commercial policies and precedence
 
 **Status:** `IMPLEMENTED THROUGH PHASE 10 — INDEPENDENTLY AUDITED 2026-08-27`

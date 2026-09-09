@@ -3361,6 +3361,21 @@ Without the remaining authenticated browser evidence, a mounted interaction or r
 
 ---
 
+### UI-003 — Restore spacious Plan catalogue cards
+
+**Status:** `FIXED — 2026-09-09`
+
+- Restored the earlier catalogue-card structure for Plans, which normally number only a handful.
+  Add-on/package catalogues retain the shared table pattern; consistency does not require every
+  product surface to have identical density.
+- Cards show independent authoritative current tariffs, included Feature and subscription counts,
+  lifecycle/availability, version and explained actions. No technical codes or whole-card click
+  target. One bulk price request serves the visible page, with explicit denied/loading/error and
+  partial-result states. Server-side search/filter/sort/pagination remain intact.
+- Three rendered-component regressions cover facts/navigation, permissions and draft revision
+  eligibility. Browser checked in light/dark themes, desktop and narrow widths, filtering and
+  opening a Plan. No horizontal overflow at the narrow viewport.
+
 ### UI-001 — Shared section tabs lack complete keyboard and panel semantics
 
 **Status:** `CONFIRMED — DEFERRED TO PHASE 15 CONSISTENCY PASS`
