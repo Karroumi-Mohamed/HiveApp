@@ -39,10 +39,10 @@ export function ProductPriceOptions({
 }) {
   if (variant === "catalogue") {
     return (
-      <ul aria-label="Tarifs actuels" className="space-y-4">
+      <ul aria-label="Tarifs actuels" className="space-y-3">
         {prices.map((price) => (
-          <li key={price.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <span dir="ltr" className="min-w-0 break-all text-4xl font-semibold tracking-tight tabular-nums">
+          <li key={price.id} className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+            <span dir="ltr" className="min-w-0 break-all text-3xl font-semibold tracking-tight tabular-nums">
               {formatExactMoneyParts(price.amount, price.currencyCode)
                 .filter((part) => part.type !== "currency")
                 .map((part) => part.value)

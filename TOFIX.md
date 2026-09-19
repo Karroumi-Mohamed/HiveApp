@@ -3416,14 +3416,18 @@ Without the remaining authenticated browser evidence, a mounted interaction or r
 
 **Readability follow-up — 2026-09-19**
 
-- Simplified card hierarchy: prominent exact price with a smaller currency/cycle, compact counts,
-  and one labelled opening action. Removed repeated tariff headings, routine readiness text and
+- Applied the visually approved compact card: moderate exact price without an inner panel, compact
+  icon-assisted counts and a separated footer with labelled Dupliquer/Réviser/Ouvrir actions.
+  The grid adapts to available content width rather than squeezing cards at viewport breakpoints.
+  Removed repeated tariff headings, routine readiness text and
   secondary metadata; meaningful missing-price/composition warnings remain visible. Mutation
   permissions and backend action gates are unchanged.
 - Currency appears once per catalogue price. Multiple cycles/currencies and exact decimal
-  precision have regression coverage. Full frontend verification: **401 tests, zero failures**,
+  precision have regression coverage; neither prices nor configured currencies were changed.
+  Mounted regressions verify labelled navigation, keyboard-accessible denial explanations and
+  unavailable draft revisions. Full frontend verification: **404 tests, zero failures**,
   typecheck, Biome and production build pass.
-- Browser checked light/dark themes, RTL and a 390px narrow viewport, with no card/page horizontal
+- Browser checked light/dark themes, RTL and a 375px narrow viewport, with no card/page horizontal
   overflow and successful Plan navigation. Existing demo servers/data were not restarted or changed.
 
 ### UI-001 — Shared section tabs lack complete keyboard and panel semantics
