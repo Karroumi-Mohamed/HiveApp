@@ -3,6 +3,7 @@ import {
   commercialAmount,
   compareExactDecimals,
   formatExactMoney,
+  formatExactMoneyParts,
   isCommercialAmount,
   subtractExactDecimals,
   sumExactDecimals,
@@ -35,5 +36,18 @@ describe("exact commercial decimals", () => {
     const formatted = formatExactMoney("123456789012345.6789", "MAD");
     expect(formatted).toContain("6789");
     expect(formatted).toContain("123");
+  });
+
+  test("price typography can separate currency without losing exact decimal digits", () => {
+    const parts = formatExactMoneyParts("123456789012345.6789", "MAD");
+    expect(
+      parts
+        .filter((part) => part.type === "integer")
+        .map((part) => part.value)
+        .join(""),
+    ).toBe("123456789012345");
+    expect(parts.find((part) => part.type === "fraction")?.value).toBe("6789");
+    expect(parts.filter((part) => part.type === "currency")).toHaveLength(1);
+    expect(parts.map((part) => part.value).join("")).toBe(formatExactMoney("123456789012345.6789", "MAD"));
   });
 });

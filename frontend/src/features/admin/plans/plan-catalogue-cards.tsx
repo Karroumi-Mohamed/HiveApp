@@ -1,7 +1,7 @@
 import { ArrowRightIcon, CopyIcon, GitBranchIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import type { PlanOperationalItem } from "@/api/contracts";
+import type { CommercialProductBlocker, PlanOperationalItem } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { EmptyState } from "@/components/patterns/remote-state";
@@ -11,8 +11,16 @@ import {
   canOpenCommercialProduct,
   canReviseCommercialProduct,
 } from "@/features/admin/commercial/commercial-permission-rules";
-import { availabilityLabel, BlockerSummary, LifecycleText } from "@/features/admin/commercial/commercial-presentation";
+import { BlockerSummary, LifecycleText } from "@/features/admin/commercial/commercial-presentation";
 import { ProductPriceOptions, useCurrentProductPrices } from "@/features/admin/price-books/product-price-summary";
+
+// Routine lifecycle/delete prerequisites belong in the detail page, not the catalogue summary.
+const cardWarningBlockers = new Set<CommercialProductBlocker>([
+  "NO_ACTIVE_PRICE",
+  "NO_PRICE_STARTING_POINT",
+  "NO_FEATURES",
+  "NO_INCLUDED_FEATURES",
+]);
 
 export function PlanCatalogueCard({
   plan,
@@ -29,6 +37,7 @@ export function PlanCatalogueCard({
 }) {
   const path = `/admin/plans/${plan.id}`;
   const revise = canRevise && plan.availableActions.includes("REVISE");
+  const warnings = plan.blockers.filter((blocker) => cardWarningBlockers.has(blocker));
   return (
     <article
       aria-label={`Forfait ${plan.name}`}
@@ -38,33 +47,26 @@ export function PlanCatalogueCard({
         <h2 className="min-w-0 break-words text-xl font-semibold tracking-tight">{plan.name}</h2>
         <LifecycleText status={plan.status} />
       </div>
-      <p className="mt-2 text-sm text-muted-foreground">
-        {availabilityLabel[plan.salesVisibility]} · Version {plan.revisionNumber}
-      </p>
-      <div className="my-6 min-h-20 border-y py-4">
-        <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Tarifs actuels</h3>
-        {pricing}
-      </div>
-      <dl className="grid grid-cols-2 gap-4 text-sm">
-        <div>
-          <dt className="text-muted-foreground">Fonctionnalités incluses</dt>
-          <dd className="mt-1 text-lg font-semibold tabular-nums">{plan.includedFeatureCount}</dd>
+      <div className="my-6 min-h-24 rounded-lg bg-muted/40 p-4">{pricing}</div>
+      <dl className="flex flex-wrap gap-x-5 gap-y-2">
+        <div className="flex items-baseline gap-1.5">
+          <dt className="order-2 text-xs text-muted-foreground">
+            fonctionnalités<span className="sr-only"> incluses</span>
+          </dt>
+          <dd className="order-1 text-base font-semibold tabular-nums">{plan.includedFeatureCount}</dd>
         </div>
-        <div>
-          <dt className="text-muted-foreground">Abonnements actuels</dt>
-          <dd className="mt-1 text-lg font-semibold tabular-nums">{plan.currentSubscriberCount}</dd>
+        <div className="flex items-baseline gap-1.5">
+          <dt className="order-2 text-xs text-muted-foreground">abonnés</dt>
+          <dd className="order-1 text-base font-semibold tabular-nums">{plan.currentSubscriberCount}</dd>
         </div>
       </dl>
-      {plan.featureCount > plan.includedFeatureCount && (
-        <p className="mt-3 text-sm text-muted-foreground">
-          {plan.featureCount - plan.includedFeatureCount} autres fonctionnalités configurées
-        </p>
+      {warnings.length > 0 && (
+        <div className="mt-4">
+          <BlockerSummary blockers={warnings} />
+        </div>
       )}
-      <div className="mt-4">
-        <BlockerSummary blockers={plan.blockers} />
-      </div>
       <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-6">
-        <fieldset className="flex gap-1" aria-label={`Actions pour ${plan.name}`}>
+        <fieldset className="flex gap-1 [&_a]:size-11 [&_button]:size-11" aria-label={`Actions pour ${plan.name}`}>
           <RowAction
             icon={<CopyIcon />}
             label="Dupliquer le forfait"
@@ -81,9 +83,9 @@ export function PlanCatalogueCard({
           />
         </fieldset>
         {canOpen ? (
-          <Button asChild variant="outline">
-            <Link to={path}>
-              Ouvrir le forfait
+          <Button asChild variant="outline" className="min-h-11 text-primary hover:text-primary">
+            <Link to={path} aria-label={`Ouvrir le forfait ${plan.name}`}>
+              Ouvrir
               <ArrowRightIcon className="rtl:rotate-180" />
             </Link>
           </Button>
@@ -135,7 +137,7 @@ export function PlanCatalogueCards({ plans }: { plans: PlanOperationalItem[] }) 
               ) : (
                 <div className="space-y-2">
                   {prices.length ? (
-                    <ProductPriceOptions prices={prices} />
+                    <ProductPriceOptions prices={prices} variant="catalogue" />
                   ) : (
                     <p className="text-sm text-muted-foreground">
                       {truncated ? "Aperçu des tarifs incomplet." : "Aucun tarif applicable actuellement."}

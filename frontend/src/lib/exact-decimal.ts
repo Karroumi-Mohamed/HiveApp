@@ -57,3 +57,14 @@ export function formatExactMoney(amount: ExactDecimal, currency: string): string
   const exactFormat = formatter.format as unknown as (value: string) => string;
   return exactFormat(amount);
 }
+
+/** Separate visual amount/unit styling without converting the exact decimal to a number. */
+export function formatExactMoneyParts(amount: ExactDecimal, currency: string): Intl.NumberFormatPart[] {
+  const formatter = new Intl.NumberFormat("fr-MA", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 4,
+  });
+  const exactParts = formatter.formatToParts.bind(formatter) as unknown as (value: string) => Intl.NumberFormatPart[];
+  return exactParts(amount);
+}

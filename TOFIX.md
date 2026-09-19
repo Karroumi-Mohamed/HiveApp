@@ -3407,12 +3407,24 @@ Without the remaining authenticated browser evidence, a mounted interaction or r
   Add-on/package catalogues retain the shared table pattern; consistency does not require every
   product surface to have identical density.
 - Cards show independent authoritative current tariffs, included Feature and subscription counts,
-  lifecycle/availability, version and explained actions. No technical codes or whole-card click
+  lifecycle and explained actions. Availability/version remain in the detail page. No technical codes or whole-card click
   target. One bulk price request serves the visible page, with explicit denied/loading/error and
   partial-result states. Server-side search/filter/sort/pagination remain intact.
 - Three rendered-component regressions cover facts/navigation, permissions and draft revision
   eligibility. Browser checked in light/dark themes, desktop and narrow widths, filtering and
   opening a Plan. No horizontal overflow at the narrow viewport.
+
+**Readability follow-up — 2026-09-19**
+
+- Simplified card hierarchy: prominent exact price with a smaller currency/cycle, compact counts,
+  and one labelled opening action. Removed repeated tariff headings, routine readiness text and
+  secondary metadata; meaningful missing-price/composition warnings remain visible. Mutation
+  permissions and backend action gates are unchanged.
+- Currency appears once per catalogue price. Multiple cycles/currencies and exact decimal
+  precision have regression coverage. Full frontend verification: **401 tests, zero failures**,
+  typecheck, Biome and production build pass.
+- Browser checked light/dark themes, RTL and a 390px narrow viewport, with no card/page horizontal
+  overflow and successful Plan navigation. Existing demo servers/data were not restarted or changed.
 
 ### UI-001 — Shared section tabs lack complete keyboard and panel semantics
 

@@ -6,7 +6,7 @@ import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { Button } from "@/components/ui/button";
 import { adminCommercialKeys } from "@/features/commercial/commercial-query";
-import { formatExactMoney } from "@/lib/exact-decimal";
+import { formatExactMoney, formatExactMoneyParts } from "@/lib/exact-decimal";
 import { productPriceCycle } from "./product-price-rules";
 
 /** One bounded request for the visible product set, never one request per card. */
@@ -30,7 +30,38 @@ export function useCurrentProductPrices(ownerType: ProductPriceOwnerType, ownerI
   });
 }
 
-export function ProductPriceOptions({ prices }: { prices: ProductPrice[] }) {
+export function ProductPriceOptions({
+  prices,
+  variant = "summary",
+}: {
+  prices: ProductPrice[];
+  variant?: "summary" | "catalogue";
+}) {
+  if (variant === "catalogue") {
+    return (
+      <ul aria-label="Tarifs actuels" className="space-y-4">
+        {prices.map((price) => (
+          <li key={price.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span dir="ltr" className="min-w-0 break-all text-4xl font-semibold tracking-tight tabular-nums">
+              {formatExactMoneyParts(price.amount, price.currencyCode)
+                .filter((part) => part.type !== "currency")
+                .map((part) => part.value)
+                .join("")
+                .trim()}
+            </span>
+            <span className="whitespace-nowrap text-sm text-muted-foreground">
+              {price.currencyCode}{" "}
+              {price.billingCycle === "MONTHLY"
+                ? "/ mois"
+                : price.billingCycle === "YEARLY"
+                  ? "/ an"
+                  : `· ${productPriceCycle[price.billingCycle]}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
     <ul className="space-y-2">
       {prices.map((price) => (
