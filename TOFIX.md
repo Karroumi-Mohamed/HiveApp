@@ -579,9 +579,9 @@ Admins can expose unfinished plans, edit something intended as immutable history
 
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
 
-**Status:** `PARTIALLY RESOLVED — IMMUTABLE REVISION FOUNDATION IMPLEMENTED 2026-08-10`
+**Status:** `PARTIALLY RESOLVED — VERSION APPLICATION DESIGN REOPENED 2026-09-21`
 
-**Evidence**
+**Original evidence — before the immutable revision foundation**
 
 - `updatePlan()`, `assignFeature()`, `updateFeature()`, and `removeFeature()` mutate a Plan/PlanFeature directly without checking lifecycle or creating a commercial revision.
 - Existing subscription snapshots remain unchanged, but the backend has no revision lineage explaining that new and old customers now received different terms from the same mutable template identity.
@@ -610,6 +610,15 @@ Admins can change what Plan X means for future customers without a durable revis
 - Every Plan has a durable lineage UUID, unique revision number, optional source Plan, and creation reason. `revise` continues the source lineage; `duplicate` starts an independent lineage; both copy only Plan-owned feature modes and quota configuration into a new draft.
 - Generic creation is now explicitly empty rather than silently inheriting FREE. Subscription snapshots store the Plan revision number as their definition version, so accepted terms identify the exact published revision.
 - Selected/filtered bulk subscriber changes, scheduled execution jobs, renewal policy, reusable communications, and audit remain later operational work. Current subscribers continue changing only through the existing one-Account previewed operation.
+
+**Current gap and reopened discussion — 2026-09-21**
+
+- The 2026-08-10 implementation note above is historical: selected-Account scheduled change jobs have since shipped under `PLAN-011`. They do not yet provide a content-only Plan-version rollout that preserves the paid period and existing agreed financial terms without another checkout.
+- Reopen the remaining subscriber-effect design under `PLAN-FLOW-005`, not the delivered immutable version foundation. Its new proposed rules are explicitly open, not approved implementation requirements yet.
+- Settle retained pricing/financial provenance versus new entitlement version, full-subscription add-on/pack compatibility, accepted Offer/policy terms and private agreements, usage conflicts, pending-operation concurrency, audience selection and timing. Publication must remain separate from changing subscribers and from stopping previous-version sales.
+- Implement Plan-owned composition/base-limit changes first, including compatibility checks against purchased extensions. Do not silently widen this phase into editing add-on or capacity-package definitions.
+- Required regression coverage after approval: all three timings, paid-period preservation, no implicit checkout, unchanged price/promotion evidence, duplicate paid features, missing quota owners, finite/unlimited and below-usage transitions, dependency/exclusion failures, active private agreements, stale previews, concurrent renewal/repricing, cancellation, idempotent retry and mixed per-Account outcomes. Verify authorization remains enforced after both entitlement gain and loss.
+- Delivery order after design approval: backend, backend tests, then frontend workflow/tests/browser verification. Keep this issue partially resolved until the operational flow is actually delivered and verified.
 
 ---
 
@@ -1106,6 +1115,7 @@ Documentation only. No application/API/schema rename, versions page or navigatio
 - One-Account immediate and at-renewal changes and explicit selected-Account jobs now use the reviewed operation engine, but filtered/Plan-subscriber populations and lifecycle command kinds are not implemented.
 - Reviewed trial creation, cancel-at-period-end, immediate cancellation, suspension, expiry, restoration, correction, and communications are not yet first-class operator commands. Progress, partial results, cancellation, and safe retry are implemented for selected-Account `CHANGE_SELECTION` jobs.
 - General negotiated/grace/restricted-state exceptions remain later than the delivered typed commercial-policy effects.
+- A dedicated apply-Plan-version operation preserving existing financial terms and the paid period is still missing. Its interactions with retained add-ons/packs, accepted marketing terms and private agreements are reopened under `PLAN-007` / `PLAN-FLOW-005` (2026-09-21); the selected-Account job foundation alone does not close this gap.
 
 **Risk**
 

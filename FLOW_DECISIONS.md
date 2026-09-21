@@ -972,6 +972,34 @@ Creation should be guided rather than one large form:
 - Settle the canonical administrator-facing **Version / Créer une version** versus **Révision / Réviser** wording before synchronizing backend business names, API contracts and frontend copy. Preserve the separate meanings of product versions, price versions and concurrency counters; this naming work must not change purchase, publication or subscriber-effect rules.
 - Page scope, comparison behavior, permissions and the API/storage compatibility strategy remain to be planned and discussed before implementation. Reuse existing product-lineage and capacity-package revision capabilities rather than introducing a second versioning model.
 
+### Applying Plan versions to existing subscribers — reopened discussion (2026-09-21)
+
+**Status:** `OPEN — PROPOSED RULES, NOT YET APPROVED OR IMPLEMENTED`
+
+The immutable-version and explicit-subscriber-effect decisions above remain in force. This discussion settles the missing operational contract, not a replacement for those decisions. Track implementation in `PLAN-007` and `PLAN-011`; do not create another specification document.
+
+**Current implementation boundary**
+
+- Immediate/renewal changes and scheduled selected-Account jobs exist, with immutable snapshots, impact checks and per-Account outcomes. They are not yet a dedicated content-version rollout preserving the current financial agreement: the generic positive-price change requests payment confirmation, and an immediate selection change starts a new period.
+- Existing price-only repricing deliberately requires the same exact product revision. It cannot be reused unchanged to alter Plan composition or to pretend a price belonging to V1 belongs to V2.
+
+**Proposed answers for discussion**
+
+- A Plan version changes the commercial selection of code-owned capabilities: included/optional/blocked feature modes and Plan-owned base limits. It does not redefine a technical Feature, Permission or quota resource, bypass user authorization, or change another product's definition.
+- Keep publication and subscriber application separate. Publishing V2 must neither move current subscribers nor silently stop V1 sales. Any replacement of V1 in the new-sale catalogue is an explicit choice.
+- Add a reviewed **Apply this version to subscribers** operation for one, selected, or all eligible current subscribers, with a frozen audience and immediate, individual next-renewal, or scheduled timing. Define whether selection covers one source version or the product family; never infer that scope. A shared scheduled time is an execution cutoff, not a promise of one atomic transaction across Accounts.
+- Default a content-only rollout to retaining the customer's agreed financial terms: price, currency, billing cycle and paid-period boundary, with no extra checkout, fabricated settlement, implicit refund or period reset. Preserve financial provenance independently from the new entitlement version; do not relabel an old tariff as a tariff of the new version. Changing the price or resolving a paid extension removal requires a separate explicit financial decision. This separation needs backend design and tests before it can be promised by the UI.
+- Assess the complete resulting subscription, not just the Plan diff: retained add-ons and their dependencies/exclusions, capacity packs and quantities, applicable restrictions, accepted offer/policy terms, private agreements, usage, pending operations and authorization. Preserve valid purchased terms; do not silently buy, remove, reprice or partially rewrite an add-on/package to make a rollout pass.
+- Examples that require explicit resolution: V2 includes a feature already sold in a retained add-on; V2 blocks/omits a feature supplied by a retained add-on; removing a feature leaves its capacity pack without an entitled owner; an unlimited base makes a finite capacity pack inapplicable; a reduced effective limit is below current usage. Changing `INCLUDED` to `OPTIONAL_ADD_ON` never automatically purchases that add-on.
+- Campaigns, Offers and policy definitions do not automatically retarget to V2. Preserve historical acceptance and source provenance; recheck hard restrictions and explicitly review any eligibility/benefit change rather than opportunistically recalculating an unrelated promotion. Flag private agreements whose restoration/end instructions would conflict; initially require their own amendment before including them in the rollout.
+- Initial conflict behavior: block the affected Account, explain the reason, and let the operator exclude it or resolve the conflict and re-preview. Unaffected Accounts may proceed only within the explicitly confirmed scope. Never delete data or invent a grace/read-only behavior. Previously decided feature-specific remediation/grace capabilities remain open work, not a generic override of a safety check.
+- Serialize against renewal, repricing, other subscriber changes and private agreements; recheck stale previews at execution. Preserve before/after evidence, reasons, effective dates, cancellation cutoffs and idempotent per-Account results. Show notification requirements/delivery state without claiming a message was sent by a scheduler alone.
+- Complete the Plan workflow first. Separate add-on-definition changes and capacity-package-definition changes remain subsequent discussions; Plan-owned base-limit changes and compatibility with already purchased extensions are in scope now.
+
+**Implementation gate and order**
+
+Confirm the financial-term preservation, conflict handling and private-agreement boundaries before implementation. Then implement backend contracts/enforcement, backend regression/security/concurrency tests, and finally the administrator workflow with frontend tests and browser verification. Do not label these proposals `DECIDED` or the gaps resolved merely because this discussion is recorded.
+
 ---
 
 ## PLAN-FLOW-006 — Feature composition and add-ons
