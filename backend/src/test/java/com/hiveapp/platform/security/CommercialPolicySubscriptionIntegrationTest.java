@@ -495,7 +495,7 @@ class CommercialPolicySubscriptionIntegrationTest extends PlatformShellIntegrati
         Account account = registerAccount("policy-query-count");
         JsonNode baselineDraft = createPolicy(token, policyRequest(
                 "Policy query baseline", account.getId(), 1,
-                List.of(fixedDiscount("1.00", "USD"))));
+                List.of(fixedDiscount("1.00", "MAD"))));
         activate(token, UUID.fromString(baselineDraft.at("/summary/id").asText()), "Baseline");
 
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
@@ -506,7 +506,7 @@ class CommercialPolicySubscriptionIntegrationTest extends PlatformShellIntegrati
         for (int index = 0; index < 5; index++) {
             JsonNode draft = createPolicy(token, policyRequest(
                     "Policy query growth " + index, account.getId(), index + 2,
-                    List.of(fixedDiscount(index + ".50", "USD"))));
+                    List.of(fixedDiscount(index + ".50", "MAD"))));
             activate(token, UUID.fromString(draft.at("/summary/id").asText()), "Grow policy set");
         }
         statistics.clear();

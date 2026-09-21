@@ -125,9 +125,9 @@ class SpecialCommercialAgreementIntegrationTest extends PlatformShellIntegration
                         .header("Authorization", bearer(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.manualSettlement").isNumber())
-                .andExpect(jsonPath("$.currencies[?(@.currencyCode == 'USD')].invoicedValue")
+                .andExpect(jsonPath("$.currencies[?(@.currencyCode == 'MAD')].invoicedValue")
                         .exists())
-                .andExpect(jsonPath("$.currencies[?(@.currencyCode == 'USD')].collectedValue")
+                .andExpect(jsonPath("$.currencies[?(@.currencyCode == 'MAD')].collectedValue")
                         .exists());
     }
 
@@ -400,7 +400,7 @@ class SpecialCommercialAgreementIntegrationTest extends PlatformShellIntegration
         var definition = new SpecialAgreementModels.Definition(
                 new SubscriptionChangeRequest("FREE", Set.of(), List.of()),
                 List.of(), start, end, SpecialAgreementPricingMode.COMPLIMENTARY,
-                null, "USD", SpecialAgreementSettlementMode.NONE,
+                null, "MAD", SpecialAgreementSettlementMode.NONE,
                 SpecialAgreementEndInstruction.CONTINUE_REVIEWED_TERMS,
                 SpecialAgreementPricingMode.CUSTOM_TOTAL, new BigDecimal("4.00"));
         String previewBody = preview(admin, accountId, definition)
@@ -484,7 +484,7 @@ class SpecialCommercialAgreementIntegrationTest extends PlatformShellIntegration
             SpecialAgreementEndInstruction endInstruction) {
         return new SpecialAgreementModels.Definition(
                 new SubscriptionChangeRequest("FREE", Set.of(), List.of()),
-                List.of(), start, end, pricing, total, "USD", settlement,
+                List.of(), start, end, pricing, total, "MAD", settlement,
                 endInstruction, null, null);
     }
 

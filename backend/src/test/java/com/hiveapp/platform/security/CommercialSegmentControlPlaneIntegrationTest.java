@@ -236,7 +236,7 @@ class CommercialSegmentControlPlaneIntegrationTest extends PlatformShellIntegrat
         replaceHoldings(otherProduct.getId(), "ORGANIZATION_TOOLS", "COMPANY_1");
 
         CommercialSegmentRequests.Criteria criteria = new CommercialSegmentRequests.Criteria(
-                Set.of(planId), Set.of(SubscriptionStatus.ACTIVE), Set.of("usd"),
+                Set.of(planId), Set.of(SubscriptionStatus.ACTIVE), Set.of("mad"),
                 Set.of(BillingCycle.MONTHLY), Instant.now().minusSeconds(3600),
                 Instant.now().plusSeconds(3600), Set.of(
                         holding(CommercialSegmentProductType.ADD_ON, "CUSTOM_ROLES"),

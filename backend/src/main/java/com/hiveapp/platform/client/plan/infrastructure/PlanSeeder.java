@@ -50,7 +50,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class PlanSeeder {
 
-    public static final String DEFAULT_CURRENCY = "USD";
+    public static final String DEFAULT_CURRENCY = "MAD";
     static final List<String> BASELINE_FEATURE_CODES = List.of(
             WorkspaceFeature.CODE,
             CompanyFeature.CODE,

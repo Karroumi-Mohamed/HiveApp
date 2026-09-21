@@ -129,7 +129,7 @@ public class CommercialCatalogSeeder {
             Feature feature = billingConfigurationValidator.validateAddOnFeature(
                     specification.featureCode(), List.of(), PlanSeeder.DEFAULT_CURRENCY);
             for (String planCode : specification.allowedPlanCodes()) {
-                Plan plan = requireActiveMonthlyUsdPlan(planCode);
+                Plan plan = requireActiveMonthlySeedPlan(planCode);
                 var planFeature = planFeatureRepository
                         .findByPlanIdAndFeature_Code(plan.getId(), specification.featureCode())
                         .orElseThrow(() -> new IllegalStateException(
@@ -171,7 +171,7 @@ public class CommercialCatalogSeeder {
             Feature feature = billingConfigurationValidator.validateQuotaPackageDefinition(
                     specification.featureCode(), specification.resource());
             for (String planCode : specification.allowedPlanCodes()) {
-                Plan plan = requireActiveMonthlyUsdPlan(planCode);
+                Plan plan = requireActiveMonthlySeedPlan(planCode);
                 var planFeature = planFeatureRepository
                         .findByPlanIdAndFeature_Code(plan.getId(), specification.featureCode())
                         .orElseThrow(() -> new IllegalStateException(
@@ -209,13 +209,14 @@ public class CommercialCatalogSeeder {
         return created;
     }
 
-    private Plan requireActiveMonthlyUsdPlan(String code) {
+    private Plan requireActiveMonthlySeedPlan(String code) {
         Plan plan = planRepository.findByCode(code)
                 .orElseThrow(() -> new IllegalStateException("Required bootstrap Plan is missing: " + code));
         if (!plan.isActive()
                 || plan.getBillingCycle() != BillingCycle.MONTHLY
                 || !PlanSeeder.DEFAULT_CURRENCY.equals(plan.getCurrencyCode())) {
-            throw new IllegalStateException("Bootstrap Plan is not active monthly USD: " + code);
+            throw new IllegalStateException(
+                    "Bootstrap Plan is not active monthly " + PlanSeeder.DEFAULT_CURRENCY + ": " + code);
         }
         return plan;
     }

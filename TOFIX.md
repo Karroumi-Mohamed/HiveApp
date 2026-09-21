@@ -2967,7 +2967,7 @@ The current commercial document is intentionally not a tax Invoice: it identifie
 - Added an immutable ISO-currency `Money` value type with exact minor-unit validation, normalized currency codes, same-currency arithmetic, and explicit rejection of implicit FX.
 - Plan base prices, PlanFeature add-on prices, quota-unit prices, Subscription current prices, entitlement snapshots, previews, catalogs, admin/client DTOs, and `PaymentRequest` now carry explicit currency.
 - Entity lifecycle validation and billing configuration validation reject missing/invalid currencies and mixed Plan/add-on/quota/subscription amounts. Plan currency cannot change after monetary composition or subscription history exists; unpriced composition may safely be reused across currencies.
-- `BillingCalculator` now returns `Money` for persistence and rejects mixed-currency calculations. Seeded prices are explicitly USD, and focused plus integration tests cover arithmetic, precision, persistence/API exposure, mixed-currency rejection, and safe plan-currency changes.
+- `BillingCalculator` now returns `Money` for persistence and rejects mixed-currency calculations. Seeded prices carry explicit ISO currency (initially USD; MAD from 2026-09-21), and focused plus integration tests cover arithmetic, precision, persistence/API exposure, mixed-currency rejection, and safe plan-currency changes.
 - Phase 9 completed independently entered immutable monthly/yearly Price-book entries, exact-decimal APIs, overlap-safe activation, current-selection pause, and exact accepted-price snapshot identity for Plans, AddOns, and capacity packages.
 - On 2026-08-31, Phase 13 added immutable itemized Invoices, provider/manual Payment evidence, Credits, concurrency-capped Refund intents, replay-safe provider commands outside database transactions, and atomic pre-dispatch cancellation. The full backend suite passed with 774 tests.
 - The next Phase 13 slice mounted bounded/filterable admin Billing APIs and own-Account client Invoice history/detail; added permission-before-existence, nested privacy, cross-surface, cross-Account, and provider-versus-manual Refund tests; and fixed nested Spring access denials to return the stable `PERMISSION_DENIED` 403 contract rather than 500.
@@ -2975,6 +2975,20 @@ The current commercial document is intentionally not a tax Invoice: it identifie
 - The frontend now replaces the Billing placeholder with permission-separated admin Invoice, payment/adjustment, reconciliation-command, and provider-event workflows plus client Invoice history/detail. Route/query tests prove Invoice-list, reconciliation-only, Payment-only, and Account-identity boundaries independently, and exact monetary values remain strings through the UI.
 - Account financial timeline APIs now project Invoice, Payment, Credit, and Refund facts directly from their authoritative tables with bounded filters and separate admin/client permissions. Account billing profiles are editable, while issued Invoices retain immutable Account and issuer identity snapshots. Admin and client UIs mount the timeline/profile independently and render a printable jurisdiction-neutral commercial document with explicit fiscal-completeness warnings.
 - No Flyway history was added because the application is unpublished and currently uses a disposable generated H2 schema, per the agreed pre-production database policy.
+
+**Bootstrap currency follow-up — 2026-09-21**
+
+- The six demo Plans, three Add-ons, six capacity packs, and their authoritative compatibility
+  tariffs now seed in MAD. Numeric demo amounts and monthly cycles are unchanged; this is not FX
+  conversion or an update to existing purchases. Multicurrency support remains available.
+- Seeders continue to preserve existing records. The change applies when bootstrapping a fresh
+  database; no migration or running development-server restart is part of this change.
+- Regression coverage checks all seeded product/tariff currencies and amounts. Seed-dependent
+  integration fixtures now use MAD; independent USD and mixed-currency tests remain intact.
+- Verification ran in an isolated copy to avoid a concurrent development build replacing test
+  classes. The 875-test run passed except for one catalogue assertion that incorrectly required
+  independent USD fixtures to use MAD too. After scoping that assertion to each product's actual
+  currency, all 15 client self-service tests passed on rerun; the other 860 tests had passed.
 
 **Remaining scope**
 
@@ -3048,8 +3062,9 @@ Operators cannot model ordinary monthly/yearly choices, scheduled price changes,
 - The system supports independent monthly/yearly tariffs and client selection, but this summary
   cannot reveal additional published tariffs. During the demo, Enterprise displayed only
   `99,99 $US / mois`, making the administrator question whether dual cycles were supported.
-- Enterprise's bootstrap data contains one USD monthly tariff; that seed choice is separate from
-  the display bug. The **Tarifs** tab is the place to inspect the actual configured entries.
+- At the demo, Enterprise's bootstrap data contained one USD monthly tariff (bootstrap currency
+  changed to MAD on 2026-09-21); that seed choice is separate from the display bug. The **Tarifs**
+  tab is the place to inspect the actual configured entries.
 
 **Required fix direction**
 

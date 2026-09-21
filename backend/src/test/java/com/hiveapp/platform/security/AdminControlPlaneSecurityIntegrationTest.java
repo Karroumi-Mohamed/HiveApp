@@ -1057,7 +1057,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         String chooserBody = mockMvc.perform(get("/api/admin/subscriptions/assignable-plan-prices")
                         .header("Authorization", bearer(chooser.token()))
                         .param("search", "free")
-                        .param("currencyCode", "usd")
+                        .param("currencyCode", "mad")
                         .param("billingCycle", "MONTHLY")
                         .param("page", "0")
                         .param("size", "1")
@@ -1068,7 +1068,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(jsonPath("$.content[0].planCode").value("FREE"))
                 .andExpect(jsonPath("$.content[0].planRevisionNumber").isNumber())
                 .andExpect(jsonPath("$.content[0].priceEntryId").isNotEmpty())
-                .andExpect(jsonPath("$.content[0].currencyCode").value("USD"))
+                .andExpect(jsonPath("$.content[0].currencyCode").value("MAD"))
                 .andExpect(jsonPath("$.content[0].billingCycle").value("MONTHLY"))
                 .andExpect(jsonPath("$.page").value(0))
                 .andExpect(jsonPath("$.size").value(1))
@@ -2259,7 +2259,7 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         CreateQuotaPackageRequest request = new CreateQuotaPackageRequest(
                 "Composite activation " + suffix, null, "platform.staff", "members", 1,
-                new BigDecimal("4.2500"), "USD", BillingCycle.MONTHLY,
+                new BigDecimal("4.2500"), "MAD", BillingCycle.MONTHLY,
                 true, 3, java.util.Set.of("FLEX"), java.util.Set.of(),
                 ProductSalesVisibility.PUBLIC);
         JsonNode created = objectMapper.readTree(mockMvc.perform(post("/api/admin/quota-packages")

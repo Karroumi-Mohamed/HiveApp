@@ -208,7 +208,7 @@ class CommercialCatalogResolverIntegrationTest {
         addOnOwned.setFeature(organizationFeature);
         addOnOwned.setResource("structures");
         addOnOwned.setCapacityPerUnit(5);
-        addOnOwned.setMoney(Money.of(new BigDecimal("2.00"), "USD"));
+        addOnOwned.setMoney(Money.of(new BigDecimal("2.00"), "MAD"));
         addOnOwned.setBillingCycle(BillingCycle.MONTHLY);
         addOnOwned.setRepeatable(true);
         addOnOwned.setMaximumQuantity(5);
@@ -216,7 +216,7 @@ class CommercialCatalogResolverIntegrationTest {
         addOnOwned.setAllowedAddOnCodes(Set.of("ORGANIZATION_TOOLS"));
         addOnOwned.setStatus(QuotaPackageStatus.ACTIVE);
         quotaPackageRepository.save(addOnOwned);
-        activePrice(addOnOwned, new BigDecimal("2.00"), "USD", BillingCycle.MONTHLY);
+        activePrice(addOnOwned, new BigDecimal("2.00"), "MAD", BillingCycle.MONTHLY);
         flushAndClear();
 
         var reached = quota("FLEX", "STRUCTURES_5_TEST");
@@ -362,7 +362,7 @@ class CommercialCatalogResolverIntegrationTest {
             AddOn item = new AddOn();
             item.setCode("QUERY_COUNT_ADD_ON_" + index);
             item.setName("Query count " + index);
-            item.setMoney(Money.of(BigDecimal.ONE, "USD"));
+            item.setMoney(Money.of(BigDecimal.ONE, "MAD"));
             item.setBillingCycle(BillingCycle.MONTHLY);
             item.setStatus(AddOnStatus.ACTIVE);
             item.setAllowedPlanCodes(Set.of("FLEX"));
@@ -372,7 +372,7 @@ class CommercialCatalogResolverIntegrationTest {
             assignment.setFeature(feature);
             assignment.setQuotaConfigs(List.of());
             addOnFeatureRepository.save(assignment);
-            activePrice(item, BigDecimal.ONE, "USD", BillingCycle.MONTHLY);
+            activePrice(item, BigDecimal.ONE, "MAD", BillingCycle.MONTHLY);
         }
         flushAndClear();
 

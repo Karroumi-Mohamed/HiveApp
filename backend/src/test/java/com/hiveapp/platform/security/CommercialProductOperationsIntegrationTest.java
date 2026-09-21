@@ -778,7 +778,7 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
         String sourceCode = activeSource.get("code").asText();
 
         CreateAddOnRequest dependentRequest = new CreateAddOnRequest(
-                marker + " Excluding dependent", null, BigDecimal.ONE, "USD",
+                marker + " Excluding dependent", null, BigDecimal.ONE, "MAD",
                 BillingCycle.MONTHLY, Set.of("FLEX"), Set.of(), Set.of(),
                 Set.of(sourceCode), ProductSalesVisibility.PUBLIC);
         JsonNode dependent = responseJson(mockMvc.perform(post("/api/admin/add-ons")
@@ -956,7 +956,7 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
     void addOnActivationPreviewPinsCompatibilityAndChangedDependencies() throws Exception {
         String token = loginAdminAndGetToken();
         CreateAddOnRequest request = new CreateAddOnRequest(
-                marker + " Dependency review", null, new BigDecimal("6.7800"), "USD",
+                marker + " Dependency review", null, new BigDecimal("6.7800"), "MAD",
                 BillingCycle.MONTHLY, Set.of("FLEX"), Set.of(), Set.of("CUSTOM_ROLES"),
                 Set.of(), ProductSalesVisibility.PUBLIC);
         JsonNode created = responseJson(mockMvc.perform(post("/api/admin/add-ons")
@@ -1224,7 +1224,7 @@ class CommercialProductOperationsIntegrationTest extends PlatformShellIntegratio
 
     private JsonNode createAddOn(String token, String name) throws Exception {
         CreateAddOnRequest request = new CreateAddOnRequest(
-                name, null, new BigDecimal("3.0000"), "USD", BillingCycle.MONTHLY,
+                name, null, new BigDecimal("3.0000"), "MAD", BillingCycle.MONTHLY,
                 Set.of("FLEX"), Set.of(), Set.of(), Set.of(), ProductSalesVisibility.PUBLIC);
         return responseJson(mockMvc.perform(post("/api/admin/add-ons")
                         .header("Authorization", bearer(token))

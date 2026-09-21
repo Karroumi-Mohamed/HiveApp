@@ -63,6 +63,8 @@ class PlanSeederTest {
         verify(planRepository, times(PLAN_CODES.size())).save(plans.capture());
         assertThat(plans.getAllValues()).extracting(Plan::getCode)
                 .containsExactlyElementsOf(PLAN_CODES);
+        assertThat(plans.getAllValues()).extracting(Plan::getCurrencyCode)
+                .containsOnly("MAD");
 
         ArgumentCaptor<PlanFeature> mappings = ArgumentCaptor.forClass(PlanFeature.class);
         verify(planFeatureRepository, times(PLAN_CODES.size() * PlanSeeder.BASELINE_FEATURE_CODES.size()))

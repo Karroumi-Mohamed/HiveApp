@@ -271,7 +271,7 @@ class QuotaEnforcementIntegrationTest extends PlatformShellIntegrationTestSuppor
     private String createCompanyQuotaPackage(String adminToken) throws Exception {
         var request = new CreateQuotaPackageRequest(
                 "One additional company", null, CompanyFeature.CODE, CompanyFeature.COMPANIES,
-                1, new java.math.BigDecimal("5.00"), "USD", BillingCycle.MONTHLY,
+                1, new java.math.BigDecimal("5.00"), "MAD", BillingCycle.MONTHLY,
                 false, 1, java.util.Set.of("PRO"), java.util.Set.of());
         String response = mockMvc.perform(post("/api/admin/quota-packages")
                         .header("Authorization", bearer(adminToken))

@@ -91,11 +91,11 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 .forEach(price -> assertThat(price.getEffectiveFrom())
                         .isBetween(price.getCreatedAt().minusSeconds(5), price.getCreatedAt()));
         assertThat(productPriceRepository.countCompatibilityPrice(
-                ProductPriceOwnerType.PLAN, free.getId(), "USD", BillingCycle.MONTHLY)).isEqualTo(1);
+                ProductPriceOwnerType.PLAN, free.getId(), "MAD", BillingCycle.MONTHLY)).isEqualTo(1);
         assertThat(productPriceRepository.countCompatibilityPrice(
-                ProductPriceOwnerType.ADD_ON, addOn.getId(), "USD", BillingCycle.MONTHLY)).isEqualTo(1);
+                ProductPriceOwnerType.ADD_ON, addOn.getId(), "MAD", BillingCycle.MONTHLY)).isEqualTo(1);
         assertThat(productPriceRepository.countCompatibilityPrice(
-                ProductPriceOwnerType.QUOTA_PACKAGE, quotaPackage.getId(), "USD", BillingCycle.MONTHLY)).isEqualTo(1);
+                ProductPriceOwnerType.QUOTA_PACKAGE, quotaPackage.getId(), "MAD", BillingCycle.MONTHLY)).isEqualTo(1);
     }
 
     @Test
@@ -110,7 +110,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(new CreatePlanRequest(
                                     "Archived backfill Plan " + UUID.randomUUID(), null,
-                                    BigDecimal.ONE, "USD", BillingCycle.MONTHLY))))
+                                    BigDecimal.ONE, "MAD", BillingCycle.MONTHLY))))
                     .andExpect(status().isCreated()));
             planId = UUID.fromString(plan.get("id").asText());
             JsonNode addOn = responseJson(mockMvc.perform(post("/api/admin/add-ons")
@@ -118,7 +118,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(new CreateAddOnRequest(
                                     "Archived backfill AddOn " + UUID.randomUUID(), null,
-                                    BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                                    BigDecimal.ONE, "MAD", BillingCycle.MONTHLY,
                                     Set.of("FLEX"), Set.of(), Set.of(), Set.of(),
                                     ProductSalesVisibility.PUBLIC))))
                     .andExpect(status().isCreated()));
@@ -129,7 +129,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                             .content(objectMapper.writeValueAsString(new CreateQuotaPackageRequest(
                                     "Archived backfill package " + UUID.randomUUID(), null,
                                     "platform.staff", "members", 1, BigDecimal.ONE,
-                                    "USD", BillingCycle.MONTHLY, true, 5, Set.of("FLEX"),
+                                    "MAD", BillingCycle.MONTHLY, true, 5, Set.of("FLEX"),
                                     Set.of(), ProductSalesVisibility.PUBLIC))))
                     .andExpect(status().isCreated()));
             packageId = UUID.fromString(quota.get("id").asText());
@@ -188,7 +188,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .param("ownerId", planId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreateProductPriceRequest(
-                                BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                                BigDecimal.ONE, "MAD", BillingCycle.MONTHLY,
                                 starts.plusSeconds(1), null))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATE"));
@@ -197,7 +197,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new UpdateProductPriceRequest(
-                                new BigDecimal("121.00"), "USD", BillingCycle.YEARLY,
+                                new BigDecimal("121.00"), "MAD", BillingCycle.YEARLY,
                                 starts, null, editableDraft.get("version").asLong()))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATE"));
@@ -222,7 +222,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .param("ownerId", planId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreateProductPriceRequest(
-                                BigDecimal.ZERO, "USD", BillingCycle.YEARLY, starts, null))))
+                                BigDecimal.ZERO, "MAD", BillingCycle.YEARLY, starts, null))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
@@ -278,7 +278,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"amount":99,"currencyCode":"USD","billingCycle":"YEARLY",
+                                {"amount":99,"currencyCode":"MAD","billingCycle":"YEARLY",
                                  "effectiveFrom":"2026-01-01T00:00:00Z","version":99}
                                 """))
                 .andExpect(status().isConflict())
@@ -302,7 +302,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"amount":121,"currencyCode":"USD","billingCycle":"YEARLY",
+                                {"amount":121,"currencyCode":"MAD","billingCycle":"YEARLY",
                                  "effectiveFrom":"2026-01-01T00:00:00Z","version":1}
                                 """))
                 .andExpect(status().isConflict())
@@ -340,7 +340,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isNoContent());
 
         var monthly = productPriceRepository.findApplicable(
-                ProductPriceOwnerType.PLAN, planId, "USD", BillingCycle.MONTHLY, Instant.now());
+                ProductPriceOwnerType.PLAN, planId, "MAD", BillingCycle.MONTHLY, Instant.now());
         assertThat(monthly).singleElement().satisfies(price -> {
             assertThat(price.isCompatibilityDefault()).isTrue();
             assertThat(price.getAmount()).isZero();
@@ -516,7 +516,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 List.of(new QuotaPackageSelection(quotaPackage.getCode(), 1)),
                 SubscriptionChangeTiming.IMMEDIATE,
                 new ProductPriceSelectionRequest(
-                        planPrice.getId(), "USD", BillingCycle.YEARLY));
+                        planPrice.getId(), "MAD", BillingCycle.YEARLY));
 
         applySubscriptionChange(clientToken, request)
                 .andExpect(status().isCreated())
@@ -589,14 +589,14 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         String clientToken = registerClientAndGetToken();
         UUID accountId = currentAccountId(clientToken);
         var monthlyPlanPrice = productPriceRepository.findApplicable(
-                ProductPriceOwnerType.PLAN, free.getId(), "USD", BillingCycle.MONTHLY, Instant.now())
+                ProductPriceOwnerType.PLAN, free.getId(), "MAD", BillingCycle.MONTHLY, Instant.now())
                 .getFirst();
         applyReviewedAdminSubscriptionChange(adminToken, accountId, new SubscriptionChangeRequest(
                 free.getCode(), Set.of(addOn.getCode()),
                 List.of(new QuotaPackageSelection(quotaPackage.getCode(), 1)),
                 SubscriptionChangeTiming.IMMEDIATE,
                 new ProductPriceSelectionRequest(
-                        monthlyPlanPrice.getId(), "USD", BillingCycle.MONTHLY)));
+                        monthlyPlanPrice.getId(), "MAD", BillingCycle.MONTHLY)));
         var before = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow();
         var monthlySnapshot = before.getEntitlementSnapshot();
         assertThat(monthlySnapshot.billingCycle()).isEqualTo(BillingCycle.MONTHLY);
@@ -606,7 +606,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 List.of(new QuotaPackageSelection(quotaPackage.getCode(), 2)),
                 SubscriptionChangeTiming.IMMEDIATE,
                 new ProductPriceSelectionRequest(
-                        annualPrice.getId(), "USD", BillingCycle.YEARLY));
+                        annualPrice.getId(), "MAD", BillingCycle.YEARLY));
 
         applySubscriptionChange(clientToken, request)
                 .andExpect(status().isCreated())
@@ -647,9 +647,9 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         var pro = planRepository.findByCode("PRO").orElseThrow();
         Instant starts = Instant.now().minusSeconds(30);
         JsonNode proAnnual = activateNewPrice(adminToken, ProductPriceOwnerType.PLAN, pro.getId(),
-                new BigDecimal("240.00"), "USD", BillingCycle.YEARLY, starts);
+                new BigDecimal("240.00"), "MAD", BillingCycle.YEARLY, starts);
         ProductPriceSelectionRequest proSelection = new ProductPriceSelectionRequest(
-                UUID.fromString(proAnnual.get("id").asText()), "USD", BillingCycle.YEARLY);
+                UUID.fromString(proAnnual.get("id").asText()), "MAD", BillingCycle.YEARLY);
 
         String subscriberToken = registerClientAndGetToken();
         UUID subscriberAccountId = currentAccountId(subscriberToken);
@@ -683,7 +683,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 .isEqualTo(proSelection.priceEntryId());
         assertThat(annualSubscription.getEntitlementSnapshot().billingCycle())
                 .isEqualTo(BillingCycle.YEARLY);
-        assertThat(annualSubscription.getCurrentPriceCurrencyCode()).isEqualTo("USD");
+        assertThat(annualSubscription.getCurrentPriceCurrencyCode()).isEqualTo("MAD");
     }
 
     @Test
@@ -712,7 +712,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         assertThat(results.stream().filter(result -> result.status() == 409).findFirst().orElseThrow().body())
                 .contains("STALE_ACTIVATION_PREVIEW");
         assertThat(productPriceRepository.findApplicable(
-                ProductPriceOwnerType.PLAN, planId, "USD", BillingCycle.YEARLY, Instant.now()))
+                ProductPriceOwnerType.PLAN, planId, "MAD", BillingCycle.YEARLY, Instant.now()))
                 .hasSize(1);
     }
 
@@ -761,7 +761,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         String token = loginAdminAndGetToken();
         var free = planRepository.findByCode("FREE").orElseThrow();
         var current = productPriceRepository.findApplicable(
-                ProductPriceOwnerType.PLAN, free.getId(), "USD", BillingCycle.MONTHLY, Instant.now()).getFirst();
+                ProductPriceOwnerType.PLAN, free.getId(), "MAD", BillingCycle.MONTHLY, Instant.now()).getFirst();
         String clientToken = registerClientAndGetToken();
         UUID accountId = currentAccountId(clientToken);
         var before = subscriptionRepository.findActiveByAccountId(accountId).orElseThrow();
@@ -804,11 +804,11 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         UUID sourceId = createActivePlan(adminToken);
         var source = planRepository.findById(sourceId).orElseThrow();
         UUID sourcePriceId = productPriceRepository.findApplicable(
-                        ProductPriceOwnerType.PLAN, sourceId, "USD", BillingCycle.MONTHLY, Instant.now())
+                        ProductPriceOwnerType.PLAN, sourceId, "MAD", BillingCycle.MONTHLY, Instant.now())
                 .getFirst().getId();
 
         PlanBranchRequest branch = new PlanBranchRequest(
-                "Exact revision " + UUID.randomUUID(), null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
+                "Exact revision " + UUID.randomUUID(), null, BigDecimal.ZERO, "MAD", BillingCycle.MONTHLY);
         String revisionResponse = mockMvc.perform(post("/api/admin/plans/{id}/revisions", sourceId)
                         .param("expectedVersion", String.valueOf(source.getVersion()))
                         .header("Authorization", bearer(adminToken))
@@ -829,13 +829,13 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
         var revision = planRepository.findById(revisionId).orElseThrow();
         assertThat(revision.getLineageId()).isEqualTo(source.getLineageId());
         assertThat(productPriceRepository.findApplicable(
-                ProductPriceOwnerType.PLAN, revisionId, "USD", BillingCycle.MONTHLY, Instant.now()))
+                ProductPriceOwnerType.PLAN, revisionId, "MAD", BillingCycle.MONTHLY, Instant.now()))
                 .singleElement().satisfies(price -> assertThat(price.getId()).isNotEqualTo(sourcePriceId));
 
         String clientToken = registerClientAndGetToken();
         SubscriptionChangeRequest request = new SubscriptionChangeRequest(
                 revision.getCode(), Set.of(), List.of(), SubscriptionChangeTiming.IMMEDIATE,
-                new ProductPriceSelectionRequest(sourcePriceId, "USD", BillingCycle.MONTHLY));
+                new ProductPriceSelectionRequest(sourcePriceId, "MAD", BillingCycle.MONTHLY));
         mockMvc.perform(post("/api/v1/subscriptions/preview")
                         .header("Authorization", bearer(clientToken))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -869,7 +869,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     private UUID createActivePlan(String token) throws Exception {
         var source = planRepository.findByCode("FREE").orElseThrow();
         PlanBranchRequest request = new PlanBranchRequest(
-                "Price fixture " + UUID.randomUUID(), null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY);
+                "Price fixture " + UUID.randomUUID(), null, BigDecimal.ZERO, "MAD", BillingCycle.MONTHLY);
         String response = mockMvc.perform(post("/api/admin/plans/{id}/duplicate", source.getId())
                         .param("expectedVersion", String.valueOf(source.getVersion()))
                         .header("Authorization", bearer(token))
@@ -901,7 +901,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
 
     private JsonNode activateNewPrice(String token, ProductPriceOwnerType type, UUID ownerId,
                                       BigDecimal amount, BillingCycle cycle, Instant starts) throws Exception {
-        return activateNewPrice(token, type, ownerId, amount, "USD", cycle, starts);
+        return activateNewPrice(token, type, ownerId, amount, "MAD", cycle, starts);
     }
 
     private com.hiveapp.platform.client.plan.domain.entity.ProductPrice ensureActivePrice(
@@ -913,7 +913,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
             Instant starts
     ) throws Exception {
         var existing = productPriceRepository.findApplicable(
-                type, ownerId, "USD", cycle, Instant.now());
+                type, ownerId, "MAD", cycle, Instant.now());
         if (!existing.isEmpty()) return existing.getFirst();
         JsonNode activated = activateNewPrice(token, type, ownerId, amount, cycle, starts);
         return productPriceRepository.findById(
@@ -930,7 +930,7 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
     private JsonNode createPrice(String token, ProductPriceOwnerType type, UUID ownerId,
                                  BigDecimal amount, BillingCycle cycle, Instant starts,
                                  Instant until) throws Exception {
-        return createPrice(token, type, ownerId, amount, "USD", cycle, starts, until);
+        return createPrice(token, type, ownerId, amount, "MAD", cycle, starts, until);
     }
 
     private JsonNode createPrice(String token, ProductPriceOwnerType type, UUID ownerId,

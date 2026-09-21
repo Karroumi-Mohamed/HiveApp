@@ -41,7 +41,6 @@ import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -108,8 +107,8 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.currentSubscription.planCode").value("FREE"))
-                .andExpect(jsonPath("$.currentSubscription.currentPriceCurrencyCode").value("USD"))
-                .andExpect(jsonPath("$.plans[*].currencyCode", everyItem(org.hamcrest.Matchers.is("USD"))))
+                .andExpect(jsonPath("$.currentSubscription.currentPriceCurrencyCode").value("MAD"))
+                .andExpect(jsonPath("$.plans[?(@.code == 'PRO')].currencyCode", hasItem("MAD")))
                 .andExpect(jsonPath(
                         "$.plans[?(@.code == 'PRO')].features[?(@.featureCode == 'platform.staff')]"
                                 + ".quotas[?(@.slot.resource == 'members')].mode",
@@ -125,6 +124,8 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         JsonNode catalog = objectMapper.readTree(response);
         assertThat(catalog.path("currentSubscription").path("currentPrice").isTextual()).isTrue();
         catalog.path("plans").forEach(plan -> {
+            assertThat(plan.path("currencyCode").asText()).isEqualTo(planRepository
+                    .findByCode(plan.path("code").asText()).orElseThrow().getCurrencyCode());
             assertThat(plan.path("basePrice").isTextual()).isTrue();
             plan.path("prices").forEach(price ->
                     assertThat(price.path("amount").isTextual()).isTrue());
@@ -357,7 +358,7 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
         String applyResponse = apply(token, new SubscriptionChangeRequest("PRO", Set.of(), List.of()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.subscription.plan.code").value("FREE"))
-                .andExpect(jsonPath("$.preview.currencyCode").value("USD"))
+                .andExpect(jsonPath("$.preview.currencyCode").value("MAD"))
                 .andExpect(jsonPath("$.preview.immediateAllowed").value(true))
                 .andExpect(jsonPath("$.operation.status").value("AWAITING_CONFIRMATION"))
                 .andExpect(jsonPath("$.operation.checkout.status").value("PENDING_CONFIRMATION"))
@@ -516,7 +517,7 @@ class ClientSubscriptionSelfServiceIntegrationTest extends PlatformShellIntegrat
                         "Manual settlements cannot use provider Refund transport."));
         var manualRefund = Map.of(
                 "amount", "1.00",
-                "currencyCode", "USD",
+                "currencyCode", "MAD",
                 "reason", "Customer overpayment returned by bank transfer",
                 "externalReference", "refund-bank-" + invoice.getId());
         mockMvc.perform(post("/api/admin/billing/payments/{paymentId}/manual-refunds", manualPayment.getId())

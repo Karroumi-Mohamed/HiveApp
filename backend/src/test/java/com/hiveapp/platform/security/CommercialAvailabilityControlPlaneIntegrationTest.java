@@ -59,7 +59,7 @@ class CommercialAvailabilityControlPlaneIntegrationTest
                             .param("search", "custom")
                             .param("type", "ADD_ON")
                             .param("available", "true")
-                            .param("currencyCode", "USD")
+                            .param("currencyCode", "MAD")
                             .param("billingCycle", "MONTHLY")
                             .param("page", "0")
                             .param("size", "1")
@@ -272,13 +272,13 @@ class CommercialAvailabilityControlPlaneIntegrationTest
                             clientToken, new SubscriptionChangeRequest("UNKNOWN_PLAN", Set.of(), List.of())));
 
             var exactPrice = productPriceRepository.findApplicable(
-                    ProductPriceOwnerType.PLAN, flex.getId(), "USD", BillingCycle.MONTHLY,
+                    ProductPriceOwnerType.PLAN, flex.getId(), "MAD", BillingCycle.MONTHLY,
                     Instant.now()).getFirst();
             applyReviewedAdminSubscriptionChange(adminToken, accountId,
                     new SubscriptionChangeRequest(
                             "FLEX", Set.of(), List.of(), SubscriptionChangeTiming.IMMEDIATE,
                             new ProductPriceSelectionRequest(
-                                    exactPrice.getId(), "USD", BillingCycle.MONTHLY)));
+                                    exactPrice.getId(), "MAD", BillingCycle.MONTHLY)));
 
             applyReviewedAdminSubscriptionChange(adminToken, accountId, new SubscriptionChangeRequest(
                     "FLEX", Set.of("CUSTOM_ROLES"),
@@ -494,7 +494,7 @@ class CommercialAvailabilityControlPlaneIntegrationTest
         String token = loginAdminAndGetToken();
         var addOn = addOnRepository.findByCode("CUSTOM_ROLES").orElseThrow();
         var original = productPriceRepository.findApplicable(
-                ProductPriceOwnerType.ADD_ON, addOn.getId(), "USD", BillingCycle.MONTHLY,
+                ProductPriceOwnerType.ADD_ON, addOn.getId(), "MAD", BillingCycle.MONTHLY,
                 Instant.now()).getFirst();
         String previewBody = mockMvc.perform(post(
                                 "/api/admin/add-ons/{id}/sales-visibility/preview", addOn.getId())

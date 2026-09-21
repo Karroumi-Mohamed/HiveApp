@@ -549,7 +549,7 @@ class CommercialPolicyControlPlaneIntegrationTest extends PlatformShellIntegrati
     private CommercialPolicyRequests.Effect fixedDiscount() {
         return new CommercialPolicyRequests.Effect(
                 CommercialPolicyEffectType.FIXED_DISCOUNT, null, null, null, null, null,
-                new BigDecimal("5.00"), "USD", null, null, null, null);
+                new BigDecimal("5.00"), "MAD", null, null, null, null);
     }
 
     private CommercialPolicyRequests.Effect blockFeature(String code) {

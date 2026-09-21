@@ -357,9 +357,9 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(jsonPath("$.customOverrides.addOnCodes").isEmpty())
                 .andExpect(jsonPath("$.customOverrides.quotaPackages[0].packageCode").value(packageCode))
                 .andExpect(jsonPath("$.customOverrides.quotaPackages[0].quantity").value(1))
-                .andExpect(jsonPath("$.currentPriceCurrencyCode").value("USD"))
+                .andExpect(jsonPath("$.currentPriceCurrencyCode").value("MAD"))
                 .andExpect(jsonPath("$.entitlementSnapshot.planCode").value("FREE"))
-                .andExpect(jsonPath("$.entitlementSnapshot.currencyCode").value("USD"))
+                .andExpect(jsonPath("$.entitlementSnapshot.currencyCode").value("MAD"))
                 .andExpect(jsonPath("$.entitlementSnapshot.quotaPackages[0].code").value(packageCode))
                 .andExpect(jsonPath("$.entitlementSnapshot.features[*].featureCode", hasItem("platform.workspace")));
     }
@@ -377,8 +377,8 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("FREE"))
-                .andExpect(jsonPath("$.currencyCode").value("USD"))
-                .andExpect(jsonPath("$.configuredRecurringPriceCurrencyCode").value("USD"))
+                .andExpect(jsonPath("$.currencyCode").value("MAD"))
+                .andExpect(jsonPath("$.configuredRecurringPriceCurrencyCode").value("MAD"))
                 .andExpect(jsonPath("$.currentSubscriberCount", greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.warnings", hasItem("HAS_CURRENT_SUBSCRIBERS")))
                 .andExpect(jsonPath("$.warnings", hasItem(
@@ -389,7 +389,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[*].accountId", hasItem(accountId.toString())))
                 .andExpect(jsonPath("$.content[*].planCode", hasItem("FREE")))
-                .andExpect(jsonPath("$.content[*].configuredRecurringPriceCurrencyCode", hasItem("USD")));
+                .andExpect(jsonPath("$.content[*].configuredRecurringPriceCurrencyCode", hasItem("MAD")));
 
         mockMvc.perform(get("/api/admin/plans/{planId}/subscribers", freePlanId)
                         .param("search", accountName)
@@ -417,7 +417,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new UpdatePlanRequest(
-                                "Unsafe live edit", null, BigDecimal.ZERO, "USD", BillingCycle.MONTHLY,
+                                "Unsafe live edit", null, BigDecimal.ZERO, "MAD", BillingCycle.MONTHLY,
                                 planRepository.findById(freePlanId).orElseThrow().getVersion()))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message", containsString("create a draft revision")));
@@ -571,7 +571,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
         UUID freePlanId = planRepository.findByCode("FREE").orElseThrow().getId();
         UUID planId = duplicatePlan(adminToken, freePlanId, new PlanBranchRequest(
-                "AddOn-ready plan " + suffix, null, BigDecimal.ZERO, "USD",
+                "AddOn-ready plan " + suffix, null, BigDecimal.ZERO, "MAD",
                 BillingCycle.MONTHLY));
         String planCode = planRepository.findById(planId).orElseThrow().getCode();
         UUID companyPlanFeatureId = planFeatureRepository
@@ -598,7 +598,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
                         .header("Authorization", bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreateAddOnRequest(
-                                "Reporting " + suffix, "Reporting module", BigDecimal.TEN, "USD",
+                                "Reporting " + suffix, "Reporting module", BigDecimal.TEN, "MAD",
                                 BillingCycle.MONTHLY, Set.of(planCode), Set.of(), Set.of(), Set.of()))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
@@ -710,7 +710,7 @@ class PlanBillingConfigurationIntegrationTest extends PlatformShellIntegrationTe
     ) throws Exception {
         var request = new CreateQuotaPackageRequest(
                 name, null, StaffFeature.CODE, StaffFeature.MEMBERS,
-                2, BigDecimal.ONE, "USD", BillingCycle.MONTHLY,
+                2, BigDecimal.ONE, "MAD", BillingCycle.MONTHLY,
                 false, 1, Set.of(planCode), Set.of());
         return mockMvc.perform(post("/api/admin/quota-packages")
                 .header("Authorization", bearer(adminToken))

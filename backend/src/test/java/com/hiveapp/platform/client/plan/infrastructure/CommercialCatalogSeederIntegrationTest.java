@@ -1,12 +1,16 @@
 package com.hiveapp.platform.client.plan.infrastructure;
 
 import com.hiveapp.platform.client.plan.domain.constant.AddOnStatus;
+import com.hiveapp.platform.client.plan.domain.constant.BillingCycle;
 import com.hiveapp.platform.client.plan.domain.constant.PlanFeatureMode;
+import com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus;
 import com.hiveapp.platform.client.plan.domain.constant.QuotaPackageStatus;
+import com.hiveapp.platform.client.plan.domain.entity.ProductPrice;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.AddOnRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanFeatureRepository;
 import com.hiveapp.platform.client.plan.domain.repository.PlanRepository;
+import com.hiveapp.platform.client.plan.domain.repository.ProductPriceRepository;
 import com.hiveapp.platform.client.plan.domain.repository.QuotaPackageRepository;
 import com.hiveapp.platform.registry.definition.B2bFeature;
 import com.hiveapp.platform.registry.definition.CompanyFeature;
@@ -21,6 +25,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,6 +42,42 @@ class CommercialCatalogSeederIntegrationTest {
     @Autowired private AddOnRepository addOnRepository;
     @Autowired private AddOnFeatureRepository addOnFeatureRepository;
     @Autowired private QuotaPackageRepository quotaPackageRepository;
+    @Autowired private ProductPriceRepository productPriceRepository;
+
+    @Test
+    void seedsAllProductPricesInMadWithoutChangingDemoAmounts() {
+        var planAmounts = Map.of(
+                "FREE", "0", "FLEX", "9.99", "PRO", "29.99",
+                "BUSINESS", "59.99", "SCALE", "79.99", "ENTERPRISE", "99.99");
+        planAmounts.forEach((code, amount) -> {
+            var plan = planRepository.findByCode(code).orElseThrow();
+            assertThat(plan.getCurrencyCode()).isEqualTo("MAD");
+            assertThat(plan.getPrice()).isEqualByComparingTo(amount);
+            assertSeededMadPrice(productPriceRepository.findAllByPlanId(plan.getId()), new BigDecimal(amount));
+        });
+        for (var specification : CommercialCatalogSeeder.BOOTSTRAP_ADD_ONS) {
+            var addOn = addOnRepository.findByCode(specification.code()).orElseThrow();
+            assertThat(addOn.getCurrencyCode()).isEqualTo("MAD");
+            assertThat(addOn.getPrice()).isEqualByComparingTo(specification.price());
+            assertSeededMadPrice(productPriceRepository.findAllByAddOnId(addOn.getId()), specification.price());
+        }
+        for (var specification : CommercialCatalogSeeder.BOOTSTRAP_QUOTA_PACKAGES) {
+            var item = quotaPackageRepository.findByCode(specification.code()).orElseThrow();
+            assertThat(item.getCurrencyCode()).isEqualTo("MAD");
+            assertThat(item.getPrice()).isEqualByComparingTo(specification.price());
+            assertSeededMadPrice(productPriceRepository.findAllByQuotaPackageId(item.getId()), specification.price());
+        }
+    }
+
+    private void assertSeededMadPrice(List<ProductPrice> prices, BigDecimal amount) {
+        assertThat(prices).singleElement().satisfies(price -> {
+            assertThat(price.getCurrencyCode()).isEqualTo("MAD");
+            assertThat(price.getAmount()).isEqualByComparingTo(amount);
+            assertThat(price.getBillingCycle()).isEqualTo(BillingCycle.MONTHLY);
+            assertThat(price.getStatus()).isEqualTo(ProductPriceStatus.ACTIVE);
+            assertThat(price.isCompatibilityDefault()).isTrue();
+        });
+    }
 
     @Test
     void seedsSixPlansWithExplicitQuotaAndOptionalFeatureComposition() {

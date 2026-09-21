@@ -446,7 +446,7 @@ class QuotaPackageRevisionIntegrationTest extends PlatformShellIntegrationTestSu
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
         CreateQuotaPackageRequest request = new CreateQuotaPackageRequest(
                 "Revision fixture " + suffix, "Immutable source fixture",
-                "platform.staff", "members", 2, new BigDecimal("8.12"), "USD",
+                "platform.staff", "members", 2, new BigDecimal("8.12"), "MAD",
                 BillingCycle.MONTHLY, true, 4, allowedPlans, allowedAddOns,
                 ProductSalesVisibility.PUBLIC);
         JsonNode created = responseJson(mockMvc.perform(post("/api/admin/quota-packages")

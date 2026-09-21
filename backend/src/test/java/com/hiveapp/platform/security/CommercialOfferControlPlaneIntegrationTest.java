@@ -372,7 +372,7 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.replayed").value(false))
                 .andExpect(jsonPath("$.acceptedTerms.finalPrice").isString())
-                .andExpect(jsonPath("$.acceptedTerms.currencyCode").value("USD"))
+                .andExpect(jsonPath("$.acceptedTerms.currencyCode").value("MAD"))
                 .andExpect(jsonPath("$.operation.requestOrigin").doesNotExist())
                 .andExpect(jsonPath("$.operation.requestReason").doesNotExist())
                 .andExpect(jsonPath("$.operation.checkout.gatewayReference").doesNotExist())
