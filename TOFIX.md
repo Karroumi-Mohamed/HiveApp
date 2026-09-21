@@ -613,6 +613,7 @@ Admins can change what Plan X means for future customers without a durable revis
 
 **Current gap and reopened discussion — 2026-09-21**
 
+- A consolidated implementation proposal now lives in `PLAN-FLOW-005` of `FLOW_DECISIONS.md`, covering `PLAN-013`, this issue and `PLAN-011`. It includes family/version coexistence, explicit public-version selection, preserved financial terms, grouped conflict resolution, simpler admin views, backend/test/frontend delivery slices and verification gates. This records a plan, not completed implementation or blanket approval of the proposed commercial choices.
 - The 2026-08-10 implementation note above is historical: selected-Account scheduled change jobs have since shipped under `PLAN-011`. They do not yet provide a content-only Plan-version rollout that preserves the paid period and existing agreed financial terms without another checkout.
 - Reopen the remaining subscriber-effect design under `PLAN-FLOW-005`, not the delivered immutable version foundation. Its new proposed rules are explicitly open, not approved implementation requirements yet.
 - Settle retained pricing/financial provenance versus new entitlement version, full-subscription add-on/pack compatibility, accepted Offer/policy terms and private agreements, usage conflicts, pending-operation concurrency, audience selection and timing. Publication must remain separate from changing subscribers and from stopping previous-version sales.
@@ -1083,7 +1084,7 @@ A copied plan can become sellable before review, admins cannot understand its or
 
 ### PLAN-013 — Product version terminology and Plan version navigation are incomplete
 
-**Status:** `OPEN — TO BE PLANNED AND DISCUSSED (2026-09-21)`
+**Status:** `OPEN — CONSOLIDATED IMPLEMENTATION PLAN PREPARED (2026-09-21)`
 
 **Evidence**
 
@@ -1102,7 +1103,7 @@ A copied plan can become sellable before review, admins cannot understand its or
 
 **Scope of this note**
 
-Documentation only. No application/API/schema rename, versions page or navigation link is implemented by this entry. See the open-design subsection of `PLAN-FLOW-005` in `FLOW_DECISIONS.md`.
+Documentation only. No application/API/schema rename, versions page or navigation link is implemented by this entry. The consolidated proposal in `PLAN-FLOW-005` now recommends **Version / Créer une version**, explicit product-versus-concurrency naming, a family Versions destination with comparison and subscriber counts, and exact-version deep links. Carry API/storage/evidence compatibility through the backend-first implementation and verify the frontend before closing this issue.
 
 ---
 
@@ -1116,6 +1117,7 @@ Documentation only. No application/API/schema rename, versions page or navigatio
 - Reviewed trial creation, cancel-at-period-end, immediate cancellation, suspension, expiry, restoration, correction, and communications are not yet first-class operator commands. Progress, partial results, cancellation, and safe retry are implemented for selected-Account `CHANGE_SELECTION` jobs.
 - General negotiated/grace/restricted-state exceptions remain later than the delivered typed commercial-policy effects.
 - A dedicated apply-Plan-version operation preserving existing financial terms and the paid period is still missing. Its interactions with retained add-ons/packs, accepted marketing terms and private agreements are reopened under `PLAN-007` / `PLAN-FLOW-005` (2026-09-21); the selected-Account job foundation alone does not close this gap.
+- The consolidated `PLAN-FLOW-005` proposal adds grouped actionable conflicts, frozen filtered/family audiences, version-aware preset views, operational APIs, notice reuse and bounded background processing. Verify current lifecycle implementations before relying on this entry's older Phase 12 inventory; do not rebuild capabilities already delivered elsewhere.
 
 **Risk**
 

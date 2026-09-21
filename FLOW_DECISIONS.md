@@ -1000,6 +1000,97 @@ The immutable-version and explicit-subscriber-effect decisions above remain in f
 
 Confirm the financial-term preservation, conflict handling and private-agreement boundaries before implementation. Then implement backend contracts/enforcement, backend regression/security/concurrency tests, and finally the administrator workflow with frontend tests and browser verification. Do not label these proposals `DECIDED` or the gaps resolved merely because this discussion is recorded.
 
+### Consolidated Plan implementation proposal (2026-09-21)
+
+**Status:** `PLAN PREPARED FOR REVIEW — APPLICATION CHANGES NOT IMPLEMENTED`
+
+This is the implementation plan for the two open discussions above, including the original `PLAN-013` naming/versions-page gap and the `PLAN-007` / `PLAN-011` subscriber-effect work. It does not reopen already accepted immutability or grandfathering rules. Keep decisions here and delivery evidence in `TOFIX.md`; do not add another planning document. OpenMeter's [Plan model](https://openmeter.io/docs/product-catalog/plan/overview), Autumn's [version workflow](https://docs.useautumn.com/documentation/customers/versioning), and Kill Bill's [catalogue examples](https://docs.killbill.io/0.24/catalog-examples) are design references, not dependencies or authority over HiveApp decisions.
+
+#### A. Product model and administrator vocabulary
+
+- Use **Version**, **Créer une version**, **Comparer** and **Appliquer aux abonnés**. Use **Dupliquer** only for a new independent plan family. The first open discussion is included in this proposal, not left as a disconnected navigation task.
+- One family such as Flex contains V1, V2 and a possible next draft. Subscribers may remain on different published versions indefinitely. A version retained by existing subscribers is not necessarily available to new customers; show those facts separately.
+- Keep `lineageId` as the stable family identity. Introduce a family-level read model and an explicit public-version selection record where needed; do not infer the public offer from the largest version number or overload the provisioning-default Plan.
+- Recommend one default public version per family. Publishing asks whether to make it the public choice; keeping the previous public choice is allowed. Older versions remain visible to operators and existing subscribers, and exact-version Offers remain independently validated. Switching the public choice must not silently archive, rewrite attached commercial products, or move subscribers.
+- Keep the existing one-open-draft rule and support **Continuer le brouillon**. Compare any two versions in the same family; comparison is read-only. Reverting subscribers is a new reviewed operation toward an eligible version, never rewriting historical snapshots or pretending executed changes were undone.
+- Distinguish `productVersionNumber` from the JPA optimistic-lock counter (`version` / wire `rowVersion` where already used) and the snapshot schema version. Align Java business method names, new DTOs and frontend vocabulary. Preserve existing DB column mappings and old serialized evidence; use compatibility aliases/readers for old API fields/routes until consumers and contract tests are migrated. Do not rename persisted permission codes or rewrite historical audit payloads solely for display wording.
+
+#### B. Separate content, money and lifecycle
+
+- **Content version:** included/optional/blocked features, Plan-owned base limits and extension policy. **Financial agreement:** accepted component amounts, currency, cycle, tariff provenance and accepted adjustments. **Subscription state:** current paid period, renewal/cancellation/suspension state and pending operations. Changes must identify which dimension they intentionally affect.
+- The initial dedicated version-application operation stays within one family and retains financial terms and current period boundaries. Cross-family changes, currency/cycle changes and accepting different financial terms stay explicit commercial changes; do not hide them behind the version button.
+- Store new immutable effective entitlement evidence with `effectiveFrom`, source operation and prior evidence identity while preserving the financial agreement and billing-period identity. Existing invoices, settlements and previously consumed usage must not be rewritten or reset. Extend snapshot readers compatibly and verify future renewal/invoice construction, not just the immediate access result.
+- Preserve each Account's own compatible add-ons, packs/quantities and accepted benefits. A heterogeneous audience must not be replaced by one browser-supplied common subscription selection. A changed or unrepresentable contract becomes a visible conflict, not a silently recomputed discount.
+- Correct the existing Plan lifecycle discrepancies: make backend action discovery and command enforcement agree on archive prerequisites; proposed normal path is suspend sales, then archive. Expose audited display-name/description editing for non-archived published versions without reopening commercial composition. Retain terminal archive, protected provisioning default and unused-draft-only deletion.
+- Keep status separate from actual sellability: published/active is not a guarantee that a valid current price, public visibility and eligibility all exist. Show a concise reason when sales are unavailable. Monthly/yearly prices remain choices of the product, not lifecycle states; no implicit currency conversion or legacy-FOREVER conversion is permitted by a version rollout.
+
+#### C. One operational workflow with reusable conflict resolution
+
+1. Choose an exact target published version, then one source version or explicit family population. Select one, selected, filtered or all eligible current subscribers; separately include/exclude trials and unusual states. Freeze the affected set before confirmation. New subscribers after the freeze are not silently added.
+2. Choose **Maintenant**, **À chaque renouvellement**, or **À une date précise**. Display timezone and individual renewal dates. Define fixed-date execution as not-before eligibility followed by observable processing, not atomic simultaneous access revocation across every Account. Persist planned and actual effective timestamps.
+3. Generate a server-side comparison and per-Account assessment. Group outcomes as ready, needs a decision, excluded and already on target. Show financial treatment, before/after effective capacities, access losses and retained purchases before confirmation.
+4. Resolve a group with one rule where safe, but revalidate every Account. Core resolutions are **Keep this Account on its current version**, **Exclude from this operation**, and **Resolve the related purchase/agreement, then review again**. A group rule is not a bypass and must not silently apply to newly discovered Accounts.
+5. Link to separately authorized add-on/pack/financial or private-agreement operations when needed, preserving the return path and invalidating the old preview after changes. Never auto-cancel a multi-feature add-on, split its definition, grant a paid item, double-charge, issue a refund, or remove a purchased pack merely to satisfy V2.
+6. Where an already-supported typed, finite Account exception can safely preserve capacity, offer its separate reviewed operation and show its provenance/expiry. General grace/read-only/remediation must have a feature-specific contract, expiry action and fresh final assessment before it becomes an offered resolution. Until then, retain the old version; unsupported options must not appear as functional buttons.
+7. Confirm final scope, exclusions, timing, reason and notification policy with short-lived actor-bound evidence. No generic Apply permission grants price modification, exceptions, private-agreement amendment or access to hidden customer identities.
+8. Execute asynchronously in bounded per-Account transactions, with durable progress and statuses for queued, scheduled, applied, skipped/conflicted, cancelled and technical failure. Pending changes can be cancelled before their cutoff; a technical retry is idempotent, while altered customer terms require a fresh review.
+9. A future conflict leaves the Account on valid current terms and raises attention; it does not bypass payment, cancel the current subscription or delete data. Renewal-payment failure follows existing billing recovery rules, not a second checkout created solely by the content rollout.
+10. Reuse the existing Account-private commercial notices and durable delivery infrastructure. Clearly distinguish scheduled, dispatched, failed, read and cancelled notices. Required-notice conditions must be part of the execution assessment; opening a notice is not consent. No legal notice duration is invented by this feature.
+
+#### D. Admin views and navigation
+
+| Surface | Purpose and primary information | Main actions |
+| --- | --- | --- |
+| Plan catalogue | One compact card per family, public version, actual monthly/yearly prices when configured, subscribers across versions, exceptional attention state | Open family; continue existing draft; create plan |
+| Exact-version detail | Vertically centered header with name, icon-bearing status tag and clickable version tag; compact content/pricing summaries | Edit draft or create/continue next version; publish when valid; duplicate secondary |
+| **Forfait** | Readable feature/limit composition; table and schema as alternate views of the same data, not separate top-level destinations | Edit draft composition; inspect extensions |
+| **Abonnés** | Reusable paginated table with version, status, current terms and pending change; preset views for all, older versions, scheduled and needs attention | Select/filter population; apply target version; open one Account |
+| **Vente** | Current/future prices, visibility and eligibility, public-version choice and sales lifecycle together | Manage price; change visibility; suspend/resume sales; archive through explicit confirmation |
+| **Historique** | Actual change history with actor/date/type filters, excluding unrelated logs and distinguishing availability events from version creation | Open source event or associated operation |
+| Family **Versions** destination | Current public version, next draft, all historical versions, lifecycle, permitted subscriber counts and scheduled movement | Open exact version; compare two; continue/create draft; apply to subscribers |
+| Version comparison | Show changes first: features added/removed/mode changes, base limits, extension policy and independently identified pricing changes | Include unchanged details on demand; start a reviewed subscriber operation |
+| Change-operation detail | Scope, progress, effective dates, grouped conflicts, per-Account outcome, notice delivery and audit | Cancel pending; retry technical failures; review changed/conflicted items |
+
+- Retain **four primary detail sections**: Forfait, Abonnés, Vente, Historique. Reach family Versions from the header tag; do not add another peer tab merely to expose a backend entity. Preserve old deep links through redirects and keep version/filter/scroll context on return.
+- Keep capacity packs in their dedicated table column. Availability is **Incluse** (green pill, no dot) or **Via [Add-on name +N]** with a clearly clickable, non-arrow button. Expanded rows stay consistently add-ons-left/packs-right, full-width with visible but restrained contrast and no duplicate borders. Do not regress these agreed interactions during the redesign.
+- Reuse the existing DataTable, filters, pagination, selection, page header, confirmation and state components. Use cards for the small family catalogue; use tables for versions, customers, conflicts and execution results. Preset views are filter configurations, not duplicated pages or a new report builder.
+- Use concise labels and numbers, a clear type hierarchy and one primary action per context. Move long explanations to the relevant decision step. Render unavailable authorized actions with a specific reason where useful; never display a permission error merely because optional secondary data is hidden.
+- Provide keyboard/screen-reader support, accessible contrast in both themes, French/Arabic/RTL, localized units/dates and single currency formatting. No hover-only critical information, inaccessible graph-only content or clipped sticky-footer content.
+
+#### E. Backend/API and performance plan
+
+- Reuse Plan lineage, the authoritative commercial resolver, impact contributors, signed preview infrastructure, Account lock order, subscription jobs, price-only operations and durable notices. Extend these through an explicit operation kind; do not overload repricing or build a second general scheduler.
+- Add bounded family/version summaries, exact-version comparisons, family-scoped subscriber queries, backend capability/blocker reads, population assessment, conflict-group results, confirmation, progress, cancellation and safe retry. Return stable reason codes and applicable resolution kinds with translated UI labels, not only free-text errors.
+- Separate read, composition/publication, subscriber application, identity visibility, financial change, exception and agreement permissions. Reauthorize confirmation and execution according to a documented policy for revoked actors; signed preview evidence is never authorization. Tenant/Account scoping also applies to notices and job-result lookup.
+- Build family/version subscriber counts with grouped queries; avoid one request/query per card or row. Paginate and whitelist sorts/filters, index family/version/current-subscription/status/due-job keys, and resolve visible names in bounded batches.
+- Keep normal detail reads independent of population-wide impact analysis. Lazy-load heavy comparisons/schema/secondary sections. Cache immutable version metadata separately from live subscriber/usage/authorization state; never share user-specific permission decisions through an unscoped cache.
+- Large population assessment runs as a background task with progress and bounded result pages. Extend the current 500-Account review ceiling deliberately; do not send an unbounded Account-ID array or hold all subscribers/locks in one request. Use persisted selection cutoffs, deduplication and stable pagination, and disclose any operational limit before selection/confirmation.
+- Workers use bounded batches, leases/claims, consistent lock ordering and crash-safe idempotency; external delivery uses a durable outbox. Observe queue lag, assessment duration, application latency, conflict rate and duplicate-execution prevention. Measure representative 100-, 1,000- and 10,000-Account runs and interactive read latency; do not claim a VPS request-rate capacity without benchmarks.
+
+#### F. Verification matrix and delivery order
+
+Required behavior tests include:
+
+- V1/V2 coexistence, public default versus retained versions, no automatic subscriber movement, single-draft races, same-family comparison and cross-family rejection, metadata-only edit, all lifecycle paths and protected provisioning defaults.
+- Features added/removed/optional/blocked, mandatory dependencies, in-use data, unknown impact, registry/runtime vetoes and authorization cache invalidation. Plan entitlement gain never bypasses a user's role permissions.
+- Finite limits increased/reduced/zero/unlimited, usage exactly at and above the limit, concurrent resource creation, retained packs and quantities, owner loss, unlimited-plus-pack incompatibility, overlapping add-on features, dependency cycles/exclusions and paused retained products.
+- Original financial terms, current paid-period identity, recurring renewal amount, usage counters, invoice/settlement history, accepted discounts and provenance preserved across content-only changes; no accidental invoice, checkout, refund, second renewal charge or billing-anchor reset.
+- Campaign/public/private eligibility, plan/segment policies, coupon/Offer redemptions, finite exceptions with expiry, private agreements and their end/restoration actions. Frozen audiences remain stable while hard restrictions are freshly checked.
+- Immediate, individual renewal and fixed-date timing; monthly/yearly/trial/no-renewal cases; UTC/timezone/DST boundaries; payment due/past due/suspended/cancelled states; cancellation at period end; target archived or changed eligibility before execution; delayed worker behavior without retroactive fabrication.
+- Concurrent renewal, price change, self-service change, special agreement and two operators; permission revocation; stale/expired/tampered previews; cross-Account reads; insufficient rights for count/identity/financial data; partial batch failure, crash/restart, cancellation races and safe retry.
+- Snapshot backward compatibility, existing audit/permission identities, API rename aliases, pagination/query budgets/load; frontend navigation/filter preservation, empty/error/partial-permission states, light/dark, RTL, keyboard and real browser end-to-end usage.
+
+Delivery slices, each separately verified and committed (never pushed):
+
+1. **Contract and vocabulary:** reconcile this reviewed proposal with existing technical contracts, map current implementation versus stale backlog evidence, settle enum/state/snapshot/API compatibility and update decision status without marking delivery complete.
+2. **Version/catalogue backend:** family/version reads, comparison and counts, explicit public choice, rename compatibility, metadata/lifecycle parity; backend contract/security/concurrency tests before dependent UI work.
+3. **Subscriber backend:** immutable content evidence separate from financial terms, timing/renewal integration, full-subscription impact and typed conflict resolutions; regression tests for money, usage and retained purchases.
+4. **Operational backend:** frozen audiences, grouped assessment, scalable execution, cancellation/retry, notices, read-only client projection and observability; isolation/race/recovery/load tests. Reuse existing supported resolution operations; implement only the missing adapters needed for Plans.
+5. **Frontend foundation:** family cards, centered version header, dedicated Versions/comparison views, four-section detail structure and consistent components. Browser-check the agreed visual design before layering the bulk workflow on it.
+6. **Frontend operations:** guided application flow, version-aware subscribers/preset views, grouped resolution and progress/notices. Test complete administrator journeys, not only render snapshots or list/create happy paths.
+7. **Final audit and docs:** run backend/frontend suites and build, real browser scenarios for ordinary and restricted admins, read-only client visibility, failure/retry and supported languages/themes; update TOFIX only with observed verification evidence and list any residual limitations. No subagents unless the user re-enables them.
+8. **Later product-specific extension work:** separately design and implement changing add-on definitions and capacity-package definitions using the same reviewed-operation foundations. Their incompatibilities with Plan changes are covered in slices 3–4, not postponed until this later work.
+
 ---
 
 ## PLAN-FLOW-006 — Feature composition and add-ons
