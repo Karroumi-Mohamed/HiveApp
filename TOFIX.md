@@ -579,7 +579,7 @@ Admins can expose unfinished plans, edit something intended as immutable history
 
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
 
-**Status:** `PARTIALLY RESOLVED — VERSION APPLICATION DESIGN REOPENED 2026-09-21`
+**Status:** `PARTIALLY RESOLVED — ACCEPTED VERSION APPLICATION PLAN IN PROGRESS 2026-09-21`
 
 **Original evidence — before the immutable revision foundation**
 
@@ -1084,7 +1084,7 @@ A copied plan can become sellable before review, admins cannot understand its or
 
 ### PLAN-013 — Product version terminology and Plan version navigation are incomplete
 
-**Status:** `OPEN — CONSOLIDATED IMPLEMENTATION PLAN PREPARED (2026-09-21)`
+**Status:** `OPEN — ACCEPTED IMPLEMENTATION PLAN IN PROGRESS (2026-09-21)`
 
 **Evidence**
 

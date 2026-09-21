@@ -964,17 +964,17 @@ Creation should be guided rather than one large form:
 - Scheduled renewal actions require affected-Account/usage preview, notification tooling, cancellation before cutoff, grace or temporary override for approved conflicts, execution progress, idempotent retry, per-Account result, and audit.
 - The same reusable change engine supports an authorized immediate plan replacement when operators deliberately choose it; renewal is not the only allowed effective time.
 
-### Product version terminology and navigation — open design (2026-09-21)
+### Product version terminology and navigation — accepted design (2026-09-21)
 
 - The existing numbered product `revisionNumber` represents a business version within a stable product lineage. Creating its successor produces a separate draft; it does not move existing subscribers or rewrite their purchased terms. This is not the optimistic-concurrency `version`/`rowVersion` counter, which changes when the same stored record is edited.
 - The requested header interaction is a clickable product-version tag leading to the versions of that same product family. A commercial-availability audit log is not a substitute for this destination.
 - Plans currently have successor creation and a lineage-filtered list API, but no dedicated product-versions page. Record this as open design work (`PLAN-013`), not as an implemented destination or a reason to make the preview tag navigate to an unrelated screen.
-- Settle the canonical administrator-facing **Version / Créer une version** versus **Révision / Réviser** wording before synchronizing backend business names, API contracts and frontend copy. Preserve the separate meanings of product versions, price versions and concurrency counters; this naming work must not change purchase, publication or subscriber-effect rules.
-- Page scope, comparison behavior, permissions and the API/storage compatibility strategy remain to be planned and discussed before implementation. Reuse existing product-lineage and capacity-package revision capabilities rather than introducing a second versioning model.
+- Use canonical administrator-facing **Version / Créer une version**, with backend business names, API contracts and frontend copy aligned through compatibility-safe changes. Preserve the separate meanings of product versions, price versions and concurrency counters; this naming work must not change purchase, publication or subscriber-effect rules.
+- The consolidated implementation plan below is accepted. Reuse existing product-lineage and capacity-package revision capabilities rather than introducing a second versioning model.
 
 ### Applying Plan versions to existing subscribers — reopened discussion (2026-09-21)
 
-**Status:** `OPEN — PROPOSED RULES, NOT YET APPROVED OR IMPLEMENTED`
+**Status:** `DECIDED — IMPLEMENTATION IN PROGRESS (2026-09-21)`
 
 The immutable-version and explicit-subscriber-effect decisions above remain in force. This discussion settles the missing operational contract, not a replacement for those decisions. Track implementation in `PLAN-007` and `PLAN-011`; do not create another specification document.
 
@@ -983,7 +983,7 @@ The immutable-version and explicit-subscriber-effect decisions above remain in f
 - Immediate/renewal changes and scheduled selected-Account jobs exist, with immutable snapshots, impact checks and per-Account outcomes. They are not yet a dedicated content-version rollout preserving the current financial agreement: the generic positive-price change requests payment confirmation, and an immediate selection change starts a new period.
 - Existing price-only repricing deliberately requires the same exact product revision. It cannot be reused unchanged to alter Plan composition or to pretend a price belonging to V1 belongs to V2.
 
-**Proposed answers for discussion**
+**Accepted rules**
 
 - A Plan version changes the commercial selection of code-owned capabilities: included/optional/blocked feature modes and Plan-owned base limits. It does not redefine a technical Feature, Permission or quota resource, bypass user authorization, or change another product's definition.
 - Keep publication and subscriber application separate. Publishing V2 must neither move current subscribers nor silently stop V1 sales. Any replacement of V1 in the new-sale catalogue is an explicit choice.
@@ -998,11 +998,11 @@ The immutable-version and explicit-subscriber-effect decisions above remain in f
 
 **Implementation gate and order**
 
-Confirm the financial-term preservation, conflict handling and private-agreement boundaries before implementation. Then implement backend contracts/enforcement, backend regression/security/concurrency tests, and finally the administrator workflow with frontend tests and browser verification. Do not label these proposals `DECIDED` or the gaps resolved merely because this discussion is recorded.
+The user approved the consolidated plan and authorized implementation on 2026-09-21. Implement backend contracts/enforcement, backend regression/security/concurrency tests, and finally the administrator workflow with frontend tests and browser verification. Approval does not mark the implementation gaps resolved; record verified delivery in TOFIX.
 
-### Consolidated Plan implementation proposal (2026-09-21)
+### Consolidated Plan implementation plan (2026-09-21)
 
-**Status:** `PLAN PREPARED FOR REVIEW — APPLICATION CHANGES NOT IMPLEMENTED`
+**Status:** `ACCEPTED — IMPLEMENTATION IN PROGRESS`
 
 This is the implementation plan for the two open discussions above, including the original `PLAN-013` naming/versions-page gap and the `PLAN-007` / `PLAN-011` subscriber-effect work. It does not reopen already accepted immutability or grandfathering rules. Keep decisions here and delivery evidence in `TOFIX.md`; do not add another planning document. OpenMeter's [Plan model](https://openmeter.io/docs/product-catalog/plan/overview), Autumn's [version workflow](https://docs.useautumn.com/documentation/customers/versioning), and Kill Bill's [catalogue examples](https://docs.killbill.io/0.24/catalog-examples) are design references, not dependencies or authority over HiveApp decisions.
 
