@@ -1072,6 +1072,31 @@ A copied plan can become sellable before review, admins cannot understand its or
 
 ---
 
+### PLAN-013 — Product version terminology and Plan version navigation are incomplete
+
+**Status:** `OPEN — TO BE PLANNED AND DISCUSSED (2026-09-21)`
+
+**Evidence**
+
+- `Plan.revisionNumber` is the numbered business version within `lineageId`; `sourcePlan` and `creationReason` retain provenance. `revisePlan` creates the next draft in that lineage; duplication starts a separate lineage. The separate JPA `version` counter protects edits against stale writes.
+- Plan API/frontend vocabulary uses `revisions`, `revisePlan`, **Révision** and **Réviser**, while the proposed administrator header uses **Version**. Canonical wording and backend/frontend naming need an explicit aligned decision, not a blind replacement of every technical `version` or `revision` reference.
+- The Plan list API supports `lineageId` filtering and `revisionNumber` sorting, but the Plan detail page has no dedicated versions destination. Its **Historique** tab renders `CommercialAvailabilityHistory`, which lists availability changes rather than product versions.
+- Capacity packages already have a revision panel with lineage pagination and comparison. The product family concept therefore exists, but its navigation is not consistently exposed across products.
+
+**Requested direction**
+
+- Make the header's product-version tag an accessible link to the versions of that same product family once that destination exists. Until then, do not disguise an inert tag as a link or route it to an unrelated availability log.
+- Discuss and settle administrator terminology, then align backend business identifiers/API contracts and frontend labels without conflating product version numbers, independent tariff versions, audit events or optimistic-concurrency counters. Assess stored column names, serialized audit/evidence data, permissions, routes and consumers before deciding any rename/migration strategy.
+- Design the versions page around the existing lineage: identify the version currently being viewed, show the other versions and their lifecycle states, and allow opening an exact version. Discuss comparison, successor creation/resumption, subscriber-count visibility and permissions before treating them as committed page scope.
+- Preserve existing semantics: drafts remain editable; a published version's successor is a separate draft; duplication starts an independent product family; existing subscriber terms do not change automatically.
+- Plan regression coverage for same-family navigation, unrelated product exclusion, version ordering/pagination, draft versus published states, least-privilege access and the distinction between business-version numbers and concurrency counters.
+
+**Scope of this note**
+
+Documentation only. No application/API/schema rename, versions page or navigation link is implemented by this entry. See the open-design subsection of `PLAN-FLOW-005` in `FLOW_DECISIONS.md`.
+
+---
+
 ### PLAN-011 — Admin subscriber management is a collection of single-record endpoints, not the decided operational flow
 
 **Status:** `PARTIALLY RESOLVED — SELECTED-ACCOUNT CHANGE JOBS IMPLEMENTED 2026-08-31`

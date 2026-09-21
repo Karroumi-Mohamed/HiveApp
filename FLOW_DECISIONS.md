@@ -964,6 +964,14 @@ Creation should be guided rather than one large form:
 - Scheduled renewal actions require affected-Account/usage preview, notification tooling, cancellation before cutoff, grace or temporary override for approved conflicts, execution progress, idempotent retry, per-Account result, and audit.
 - The same reusable change engine supports an authorized immediate plan replacement when operators deliberately choose it; renewal is not the only allowed effective time.
 
+### Product version terminology and navigation — open design (2026-09-21)
+
+- The existing numbered product `revisionNumber` represents a business version within a stable product lineage. Creating its successor produces a separate draft; it does not move existing subscribers or rewrite their purchased terms. This is not the optimistic-concurrency `version`/`rowVersion` counter, which changes when the same stored record is edited.
+- The requested header interaction is a clickable product-version tag leading to the versions of that same product family. A commercial-availability audit log is not a substitute for this destination.
+- Plans currently have successor creation and a lineage-filtered list API, but no dedicated product-versions page. Record this as open design work (`PLAN-013`), not as an implemented destination or a reason to make the preview tag navigate to an unrelated screen.
+- Settle the canonical administrator-facing **Version / Créer une version** versus **Révision / Réviser** wording before synchronizing backend business names, API contracts and frontend copy. Preserve the separate meanings of product versions, price versions and concurrency counters; this naming work must not change purchase, publication or subscriber-effect rules.
+- Page scope, comparison behavior, permissions and the API/storage compatibility strategy remain to be planned and discussed before implementation. Reuse existing product-lineage and capacity-package revision capabilities rather than introducing a second versioning model.
+
 ---
 
 ## PLAN-FLOW-006 — Feature composition and add-ons
