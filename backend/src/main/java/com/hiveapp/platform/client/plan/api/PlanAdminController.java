@@ -55,6 +55,42 @@ public class PlanAdminController {
 
     private final PlanAdminService planAdminService;
 
+    @GetMapping("/families")
+    public PageResponse<com.hiveapp.platform.client.plan.dto.PlanVersionModels.Family> families(
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        return PageResponse.from(planAdminService.listPlanFamilies(search,
+                CommercialProductPageRequest.of(page, size, "name", "ASC", PRODUCT_SORTS,
+                        "name", Sort.Direction.ASC)));
+    }
+
+    @GetMapping("/{planId}/versions")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionModels.Versions versions(
+            @PathVariable UUID planId,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        return planAdminService.listPlanVersions(planId,
+                CommercialProductPageRequest.of(page, size, "revisionNumber", "DESC", PRODUCT_SORTS,
+                        "revisionNumber", Sort.Direction.DESC));
+    }
+
+    @GetMapping("/{planId}/compare/{targetId}")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionModels.Comparison compare(
+            @PathVariable UUID planId, @PathVariable UUID targetId) {
+        return planAdminService.comparePlanVersions(planId, targetId);
+    }
+
+    @PostMapping("/{planId}/public-version")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionModels.Version selectPublic(@PathVariable UUID planId,
+            @Valid @RequestBody com.hiveapp.platform.client.plan.dto.PlanVersionModels.SelectPublic request) {
+        return planAdminService.selectPublicVersion(planId, request);
+    }
+
+    @PatchMapping("/{planId}/metadata")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionModels.Version metadata(@PathVariable UUID planId,
+            @Valid @RequestBody com.hiveapp.platform.client.plan.dto.PlanVersionModels.Metadata request) {
+        return planAdminService.updatePlanMetadata(planId, request);
+    }
+
     @GetMapping("/overview")
     public CommercialOverviewDto overview() {
         return planAdminService.getCommercialOverview();
@@ -128,14 +164,15 @@ public class PlanAdminController {
         return planAdminService.duplicatePlan(sourcePlanId, expectedVersion, request);
     }
 
-    @PostMapping("/{sourcePlanId}/revisions")
+    @PostMapping({"/{sourcePlanId}/versions", "/{sourcePlanId}/revisions"})
     @ResponseStatus(HttpStatus.CREATED)
-    public PlanDto revisePlan(
+    public PlanDto createPlanVersion(
             @PathVariable UUID sourcePlanId,
             @RequestParam long expectedVersion,
             @Valid @RequestBody PlanBranchRequest request
     ) {
-        return planAdminService.revisePlan(sourcePlanId, expectedVersion, request);
+        // Keep the persisted permission identity and invoke its guarded service boundary.
+        return planAdminService.createPlanVersion(sourcePlanId, expectedVersion, request);
     }
 
     @PutMapping("/{planId}")

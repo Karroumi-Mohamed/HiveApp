@@ -10,12 +10,27 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
+import org.springframework.data.domain.Page;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.Optional;
 public interface PlanRepository extends JpaRepository<Plan, UUID>, JpaSpecificationExecutor<Plan> {
     Optional<Plan> findByCode(String code);
+
+    @Query("select plan from Plan plan where plan.revisionNumber = 1 "
+            + "and (:search = '' or exists (select candidate.id from Plan candidate "
+            + "where candidate.lineageId = plan.lineageId "
+            + "and lower(candidate.name) like concat('%', :search, '%')))")
+    Page<Plan> findFamilyRoots(@Param("search") String search, Pageable pageable);
+
+    Optional<Plan> findByLineageIdAndRevisionNumber(UUID lineageId, int revisionNumber);
+
+    List<Plan> findAllByLineageIdInAndStatus(Collection<UUID> lineageIds, PlanStatus status);
+
+    @Query("select plan.lineageId, count(plan.id) from Plan plan "
+            + "where plan.lineageId in :ids group by plan.lineageId")
+    List<Object[]> countVersionsByLineageIds(@Param("ids") Collection<UUID> ids);
 
     @Query("select plan.code from Plan plan where plan.code in :codes")
     List<String> findCodesByCodeIn(@Param("codes") Collection<String> codes);

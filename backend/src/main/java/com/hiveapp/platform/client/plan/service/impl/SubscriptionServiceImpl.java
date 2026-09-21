@@ -152,6 +152,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final SubscriptionChangeActivationService subscriptionChangeActivationService;
     private final ProductPriceResolver productPriceResolver;
     private final CommercialCatalogResolver commercialCatalogResolver;
+    private final com.hiveapp.platform.client.plan.service.PlanPublicSelection planPublicSelection;
     private final CommercialSelectionFinalizer commercialSelectionFinalizer;
     private final CommercialPolicyEvaluator commercialPolicyEvaluator;
     private final CommercialPolicySelectionPlanner commercialPolicySelectionPlanner;
@@ -383,11 +384,18 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         UUID currentPlanId = current.getPlan().getId();
         CommercialCatalogResolver.CatalogResolution catalog = commercialCatalogResolver
                 .resolveCatalog(audience);
+        var publicChoices = planPublicSelection.choices(catalog.plans().stream()
+                .map(CommercialCatalogResolver.PlanResolution::plan).toList());
         CommercialCatalogResolver.PlanResolution currentResolution = catalog.plans().stream()
                 .filter(result -> result.plan().getId().equals(currentPlanId))
                 .findFirst().orElseThrow(() -> new InvalidStateException(
                         "The current Plan revision is missing from the commercial catalogue."));
         var plans = catalog.plans().stream()
+                .filter(result -> audience == CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR
+                        || result.plan().getId().equals(currentPlanId)
+                        || policyEvaluation.allowsDirectSelection(CommercialPolicyProductType.PLAN, result.plan().getId())
+                        || (publicChoices.containsKey(result.plan().getLineageId())
+                            && publicChoices.get(result.plan().getLineageId()).getId().equals(result.plan().getId())))
                 // A held direct-only or retired exact revision remains readable as the
                 // Account's current product, but is never exposed to another Account and
                 // cannot be selected again through self service.
@@ -1644,6 +1652,12 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
                 .findFirst()
                 .orElseThrow(() -> unavailableSelection(audience));
         ProductPrice retainedPrice = retainedPlanPrice(current, resolution.plan(), requestedPrice);
+        if (audience == CommercialCatalogResolver.Audience.CLIENT_CATALOG
+                && !current.getPlan().getId().equals(resolution.plan().getId())
+                && !policyEvaluation.allowsDirectSelection(CommercialPolicyProductType.PLAN, resolution.plan().getId())
+                && !planPublicSelection.isPublicChoice(resolution.plan())) {
+            throw unavailableSelection(audience);
+        }
         if (!CommercialPolicySelectionRules.planSelectable(
                         resolution, audience, policyEvaluation)
                 && !retainedPlanPriceSelectable(

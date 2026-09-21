@@ -144,6 +144,12 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
             @Param("planIds") Collection<UUID> planIds,
             @Param("statuses") Collection<SubscriptionStatus> statuses);
 
+    @Query("select subscription.plan.lineageId, count(subscription) from Subscription subscription "
+            + "where subscription.plan.lineageId in :ids and subscription.status in :statuses "
+            + "group by subscription.plan.lineageId")
+    List<Object[]> countCurrentByPlanFamilyIds(@Param("ids") Collection<UUID> ids,
+            @Param("statuses") Collection<SubscriptionStatus> statuses);
+
     @Query("""
             select subscription.plan.id, count(subscription)
             from Subscription subscription

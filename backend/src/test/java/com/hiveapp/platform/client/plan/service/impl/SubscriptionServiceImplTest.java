@@ -121,6 +121,7 @@ class SubscriptionServiceImplTest {
     @Mock private SubscriptionChangeActivationService subscriptionChangeActivationService;
     @Mock private com.hiveapp.platform.client.plan.service.ProductPriceResolver productPriceResolver;
     @Mock private CommercialCatalogResolver commercialCatalogResolver;
+    @Mock private com.hiveapp.platform.client.plan.service.PlanPublicSelection planPublicSelection;
     @Mock private CommercialSelectionFinalizer commercialSelectionFinalizer;
     @Mock private CommercialPolicyEvaluator commercialPolicyEvaluator;
     @Mock private CommercialPolicySelectionPlanner commercialPolicySelectionPlanner;
@@ -135,6 +136,12 @@ class SubscriptionServiceImplTest {
 
     @BeforeEach
     void defaultPriceResolution() {
+        lenient().when(planPublicSelection.isPublicChoice(any())).thenReturn(true);
+        lenient().when(planPublicSelection.choices(any())).thenAnswer(invocation -> {
+            java.util.Collection<Plan> plans = invocation.getArgument(0);
+            return plans.stream().collect(java.util.stream.Collectors.toMap(
+                    Plan::getLineageId, plan -> plan, (a, b) -> a));
+        });
         lenient().when(registryCatalogVersionService.currentVersion()).thenReturn("registry:1");
         lenient().when(commercialCatalogVersionService.currentRevision()).thenReturn(1L);
         lenient().when(commercialCatalogVersionService.readConsistently(
@@ -703,6 +710,7 @@ class SubscriptionServiceImplTest {
 
     private Plan plan(String code, boolean active) {
         Plan plan = new Plan();
+        ReflectionTestUtils.setField(plan, "id", UUID.randomUUID());
         plan.setCode(code);
         plan.setName(code);
         plan.setStatus(active ? PlanStatus.ACTIVE : PlanStatus.INACTIVE);

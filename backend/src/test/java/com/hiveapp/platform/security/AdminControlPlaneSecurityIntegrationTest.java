@@ -71,6 +71,30 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationTestSupport {
 
     @Test
+    void planVersionReadComparisonMetadataAndPublicChoiceAreSeparateAuthorities() throws Exception {
+        var free = planRepository.findByCode("FREE").orElseThrow();
+        LimitedAdmin reader = createLimitedAdmin("platform.plans.list_families", "platform.plans.list_versions");
+        mockMvc.perform(get("/api/admin/plans/families").header("Authorization", bearer(reader.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].currentSubscriberCount").isEmpty())
+                .andExpect(jsonPath("$.content[0].pricesVisible").value(false))
+                .andExpect(jsonPath("$.content[0].publicVersion.price").doesNotExist())
+                .andExpect(jsonPath("$.content[0].currentPrices").isEmpty());
+        mockMvc.perform(get("/api/admin/plans/{id}/versions", free.getId())
+                        .header("Authorization", bearer(reader.token()))).andExpect(status().isOk());
+        mockMvc.perform(get("/api/admin/plans/{id}/compare/{target}", free.getId(), free.getId())
+                        .header("Authorization", bearer(reader.token()))).andExpect(status().isForbidden());
+        mockMvc.perform(patch("/api/admin/plans/{id}/metadata", free.getId())
+                        .header("Authorization", bearer(reader.token())).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0,\"name\":\"No rights\",\"reason\":\"Test\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/admin/plans/{id}/public-version", free.getId())
+                        .header("Authorization", bearer(reader.token())).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0,\"expectedCatalogRevision\":0,\"reason\":\"Test\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void repricingPreviewConfirmationIdentityAndDeliveryAreIndependentAuthorities() throws Exception {
         LimitedAdmin previewer = createLimitedAdmin("platform.subscriptions.preview_repricing");
         LimitedAdmin reader = createLimitedAdmin("platform.subscriptions.read_repricing_results");

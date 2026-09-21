@@ -29,7 +29,7 @@ class CommercialCatalogMutationCoverageTest {
                 List.of(
                     "createPlan",
                     "duplicatePlan",
-                    "revisePlan",
+                    "createPlanVersion", "selectPublicVersion", "updatePlanMetadata",
                     "updatePlan",
                     "transitionStatus",
                     "deletePlan",

@@ -613,9 +613,9 @@ Admins can change what Plan X means for future customers without a durable revis
 
 **Current gap and reopened discussion — 2026-09-21**
 
-- A consolidated implementation proposal now lives in `PLAN-FLOW-005` of `FLOW_DECISIONS.md`, covering `PLAN-013`, this issue and `PLAN-011`. It includes family/version coexistence, explicit public-version selection, preserved financial terms, grouped conflict resolution, simpler admin views, backend/test/frontend delivery slices and verification gates. This records a plan, not completed implementation or blanket approval of the proposed commercial choices.
+- The accepted implementation plan lives in `PLAN-FLOW-005` of `FLOW_DECISIONS.md`, covering `PLAN-013`, this issue and `PLAN-011`. It includes family/version coexistence, explicit public-version selection, preserved financial terms, grouped conflict resolution, simpler admin views, backend/test/frontend delivery slices and verification gates. Acceptance on 2026-09-21 authorizes implementation, not a claim of completed delivery.
 - The 2026-08-10 implementation note above is historical: selected-Account scheduled change jobs have since shipped under `PLAN-011`. They do not yet provide a content-only Plan-version rollout that preserves the paid period and existing agreed financial terms without another checkout.
-- Reopen the remaining subscriber-effect design under `PLAN-FLOW-005`, not the delivered immutable version foundation. Its new proposed rules are explicitly open, not approved implementation requirements yet.
+- The remaining subscriber-effect rules under `PLAN-FLOW-005` were accepted on 2026-09-21. The delivered immutable version foundation remains unchanged; content-only subscriber application is still an implementation gap.
 - Settle retained pricing/financial provenance versus new entitlement version, full-subscription add-on/pack compatibility, accepted Offer/policy terms and private agreements, usage conflicts, pending-operation concurrency, audience selection and timing. Publication must remain separate from changing subscribers and from stopping previous-version sales.
 - Implement Plan-owned composition/base-limit changes first, including compatibility checks against purchased extensions. Do not silently widen this phase into editing add-on or capacity-package definitions.
 - Required regression coverage after approval: all three timings, paid-period preservation, no implicit checkout, unchanged price/promotion evidence, duplicate paid features, missing quota owners, finite/unlimited and below-usage transitions, dependency/exclusion failures, active private agreements, stale previews, concurrent renewal/repricing, cancellation, idempotent retry and mixed per-Account outcomes. Verify authorization remains enforced after both entitlement gain and loss.
@@ -1084,7 +1084,7 @@ A copied plan can become sellable before review, admins cannot understand its or
 
 ### PLAN-013 — Product version terminology and Plan version navigation are incomplete
 
-**Status:** `OPEN — ACCEPTED IMPLEMENTATION PLAN IN PROGRESS (2026-09-21)`
+**Status:** `PARTIALLY RESOLVED — VERSION BACKEND DELIVERED; FRONTEND IN PROGRESS`
 
 **Evidence**
 
@@ -1101,9 +1101,14 @@ A copied plan can become sellable before review, admins cannot understand its or
 - Preserve existing semantics: drafts remain editable; a published version's successor is a separate draft; duplication starts an independent product family; existing subscriber terms do not change automatically.
 - Plan regression coverage for same-family navigation, unrelated product exclusion, version ordering/pagination, draft versus published states, least-privilege access and the distinction between business-version numbers and concurrency counters.
 
-**Scope of this note**
+**Implementation evidence — version-management backend**
 
-Documentation only. No application/API/schema rename, versions page or navigation link is implemented by this entry. The consolidated proposal in `PLAN-FLOW-005` now recommends **Version / Créer une version**, explicit product-versus-concurrency naming, a family Versions destination with comparison and subscriber counts, and exact-version deep links. Carry API/storage/evidence compatibility through the backend-first implementation and verify the frontend before closing this issue.
+- Added bounded family cards with grouped version/subscriber counts and current tariff reads, paginated same-family versions, composition comparison, audited metadata-only edits and explicit public-version selection. Public selection uses a separate persisted record and the commercial-catalogue lock/version fence; legacy families retain V1 until an operator explicitly selects another version.
+- Ordinary client discovery/selection respects that public choice. Existing holdings, exact-product policy paths and authorized Offer operations retain their independent validation; choosing V2 neither changes subscribers nor archives V1. Pausing the selected version never silently promotes another version.
+- New DTOs distinguish `productVersionNumber` and `rowVersion`. The Java command is `createPlanVersion`; `/versions` is available while `/revisions`, stored `revision_number`, existing response `revisionNumber` and the persisted `platform.plans.revise` permission remain compatible.
+- Read, compare, public-choice and metadata permissions are independent. Family counts and actual price schedules require their secondary read permissions. Active-to-archived Plan commands now enforce the same suspend-sales prerequisite as action discovery.
+- Verification: 134 tests passed across the initial Plan/catalogue/subscription/admin-security selection. After compatibility/security refinements, 108 tests passed across `PlanVersionManagementIntegrationTest` (9), `CommercialCatalogMutationCoverageTest` (2), `PlanAdminServiceImplTest` (26), and `AdminControlPlaneSecurityIntegrationTest` (71). Coverage includes public choice/staleness, inactive/direct-only/unpriced rejection, family grouping, diffs, metadata-only invariants, lifecycle parity, client discovery/isolation, restricted secondary data and route compatibility.
+- The dedicated Versions/comparison UI and the four-section detail redesign are not yet delivered. `PLAN-007` / `PLAN-011` content-only subscriber operations remain open; this backend slice does not close those tasks.
 
 ---
 

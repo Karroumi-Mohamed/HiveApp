@@ -148,6 +148,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private static final String QUOTA_AUDIT_RESOURCE_TYPE = "PLAN_ADMIN";
 
     private final PlanRepository planRepository;
+    private final com.hiveapp.platform.client.plan.service.PlanVersionOperations planVersions;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
     private final PlanAdminReadModels readModels;
     private final PlanFeatureRepository planFeatureRepository;
@@ -172,6 +173,43 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final PlanActivationAssessor planActivationAssessor;
     private final AddOnActivationAssessor addOnActivationAssessor;
     private final QuotaPackageActivationAssessor quotaPackageActivationAssessor;
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "list_families", description = "List Plan families and their public versions")
+    public Page<com.hiveapp.platform.client.plan.dto.PlanVersionModels.Family> listPlanFamilies(String search, Pageable pageable) {
+        return commercialCatalogVersionService.readConsistently(ignored -> planVersions.families(search, pageable));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "list_versions", description = "Read Plan version history and public selection")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionModels.Versions listPlanVersions(UUID planId, Pageable pageable) {
+        return commercialCatalogVersionService.readConsistently(ignored -> planVersions.versions(planId, pageable));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "compare_versions", description = "Compare the composition of two Plan versions")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionModels.Comparison comparePlanVersions(UUID sourceId, UUID targetId) {
+        return commercialCatalogVersionService.readConsistently(ignored -> planVersions.compare(sourceId, targetId));
+    }
+
+    @Override
+    @Transactional
+    @CommercialCatalogMutation
+    @PermissionNode(key = "select_public_version", description = "Choose a Plan family's public version without moving subscribers")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionModels.Version selectPublicVersion(UUID planId, com.hiveapp.platform.client.plan.dto.PlanVersionModels.SelectPublic request) {
+        return planVersions.selectPublic(planId, request);
+    }
+
+    @Override
+    @Transactional
+    @CommercialCatalogMutation
+    @PermissionNode(key = "update_metadata", description = "Edit a Plan version's display name and description only")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionModels.Version updatePlanMetadata(UUID planId, com.hiveapp.platform.client.plan.dto.PlanVersionModels.Metadata request) {
+        return planVersions.metadata(planId, request);
+    }
 
     @Override
     @PermissionNode(key = "overview", description = "View commercial operations overview")
@@ -369,7 +407,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     @CommercialCatalogMutation
     @PermissionNode(key = "revise",
             description = "Create a Plan successor with reviewable copies of active price schedules")
-    public PlanDto revisePlan(UUID sourcePlanId, long expectedVersion, PlanBranchRequest request) {
+    public PlanDto createPlanVersion(UUID sourcePlanId, long expectedVersion, PlanBranchRequest request) {
         requirePriceBookPermission(
                 "create", "Revising a Plan and copying its reviewable price schedules");
         Plan hint = planRepository.findById(sourcePlanId)
@@ -466,6 +504,9 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         }
         if (targetStatus == PlanStatus.ARCHIVED) {
             requireReason(reason, "Plan archival");
+            if (plan.getStatus() == PlanStatus.ACTIVE) {
+                throw new InvalidStateException("Suspend Plan sales before archiving the version.");
+            }
         }
         if (plan.getStatus() == PlanStatus.DRAFT && targetStatus == PlanStatus.INACTIVE) {
             throw new BusinessException("A draft Plan must be activated or archived.");

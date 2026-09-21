@@ -197,6 +197,14 @@ order by price.ownerType, price.currencyCode, price.billingCycle, price.revision
 """)
   List<ProductPrice> findAllApplicable(@Param("at") Instant at);
 
+  @EntityGraph(attributePaths = "plan")
+  @Query("select price from ProductPrice price where price.plan.id in :ids "
+      + "and price.status = com.hiveapp.platform.client.plan.domain.constant.ProductPriceStatus.ACTIVE "
+      + "and price.effectiveFrom <= :at and (price.effectiveUntil is null or price.effectiveUntil > :at) "
+      + "order by price.currencyCode, price.billingCycle, price.id")
+  List<ProductPrice> findCurrentByPlanIds(@Param("ids") Collection<UUID> ids,
+      @Param("at") Instant at, Pageable pageable);
+
   @EntityGraph(attributePaths = {"plan"})
   @Query(
       value =

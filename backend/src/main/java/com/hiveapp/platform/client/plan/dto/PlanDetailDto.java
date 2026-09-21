@@ -38,6 +38,9 @@ public record PlanDetailDto(
         ProductSalesVisibility salesVisibility,
         long version
 ) {
+    @com.fasterxml.jackson.annotation.JsonProperty("productVersionNumber")
+    public int productVersionNumber() { return revisionNumber; }
+
     public PlanDetailDto(
             UUID id, String code, String name, String description, BigDecimal price,
             String currencyCode, BillingCycle billingCycle, PlanStatus status,

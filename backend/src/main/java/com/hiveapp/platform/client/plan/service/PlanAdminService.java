@@ -51,6 +51,16 @@ import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 
 public interface PlanAdminService {
 
+    Page<com.hiveapp.platform.client.plan.dto.PlanVersionModels.Family> listPlanFamilies(String search, Pageable pageable);
+
+    com.hiveapp.platform.client.plan.dto.PlanVersionModels.Versions listPlanVersions(UUID planId, Pageable pageable);
+
+    com.hiveapp.platform.client.plan.dto.PlanVersionModels.Comparison comparePlanVersions(UUID sourceId, UUID targetId);
+
+    com.hiveapp.platform.client.plan.dto.PlanVersionModels.Version selectPublicVersion(UUID planId, com.hiveapp.platform.client.plan.dto.PlanVersionModels.SelectPublic request);
+
+    com.hiveapp.platform.client.plan.dto.PlanVersionModels.Version updatePlanMetadata(UUID planId, com.hiveapp.platform.client.plan.dto.PlanVersionModels.Metadata request);
+
     CommercialOverviewDto getCommercialOverview();
 
     Page<PlanOperationalListItemDto> listPlans(
@@ -72,7 +82,7 @@ public interface PlanAdminService {
 
     PlanDto duplicatePlan(UUID sourcePlanId, long expectedVersion, PlanBranchRequest request);
 
-    PlanDto revisePlan(UUID sourcePlanId, long expectedVersion, PlanBranchRequest request);
+    PlanDto createPlanVersion(UUID sourcePlanId, long expectedVersion, PlanBranchRequest request);
 
     PlanDto updatePlan(UUID planId, UpdatePlanRequest request);
 

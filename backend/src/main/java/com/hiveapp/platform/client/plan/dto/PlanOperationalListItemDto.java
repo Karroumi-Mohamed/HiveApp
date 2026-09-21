@@ -35,6 +35,9 @@ public record PlanOperationalListItemDto(
         List<CommercialProductAction> availableActions,
         List<CommercialProductBlocker> blockers
 ) {
+    @com.fasterxml.jackson.annotation.JsonProperty("productVersionNumber")
+    public int productVersionNumber() { return revisionNumber; }
+
     public PlanOperationalListItemDto {
         availableActions = List.copyOf(availableActions);
         blockers = List.copyOf(blockers);

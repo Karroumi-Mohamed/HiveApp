@@ -265,7 +265,7 @@ class PlanAdminServiceImplTest {
         when(productPriceRepository.findAllByPlanIdForUpdate(sourcePlanId))
                 .thenReturn(List.of(activePrice(sourcePlan)));
 
-        PlanDto created = planAdminService.revisePlan(sourcePlanId, 0L, new PlanBranchRequest(
+        PlanDto created = planAdminService.createPlanVersion(sourcePlanId, 0L, new PlanBranchRequest(
                 "Europe", null, BigDecimal.TEN, "EUR", BillingCycle.MONTHLY));
 
         assertThat(created.currencyCode()).isEqualTo("EUR");
