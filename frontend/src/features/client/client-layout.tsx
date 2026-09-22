@@ -1,4 +1,5 @@
 import {
+  BellIcon,
   BuildingsIcon,
   CreditCardIcon,
   GaugeIcon,
@@ -19,8 +20,10 @@ import { useClientSession } from "@/auth/session-provider";
 import { type ProductNavigationGroup, ProductShell } from "@/components/patterns/product-shell";
 import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useCommunicationCopy } from "@/features/communications/communication-copy";
 
 export function ClientLayout() {
+  const communicationCopy = useCommunicationCopy();
   const session = useClientSession();
   const location = useLocation();
   const navigate = useNavigate();
@@ -88,6 +91,12 @@ export function ClientLayout() {
           visible: clientOfferSurfacePermissions.some(session.can),
         },
         { label: "Mon accès", to: "/app/me", icon: UserCircleIcon },
+        {
+          label: communicationCopy("title"),
+          to: "/app/communications",
+          icon: BellIcon,
+          visible: !session.isB2B && session.can(clientPermissions.communicationsRead),
+        },
       ],
     },
   ];

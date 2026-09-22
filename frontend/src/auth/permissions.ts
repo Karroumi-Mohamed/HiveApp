@@ -3,6 +3,18 @@ import type { AdminMe, MemberPermissions } from "@/api/contracts";
 const permission = (feature: string, action: string) => `platform.${feature}.${action}` as const;
 
 export const adminPermissions = {
+  customerCommunicationsRead: permission("customer_communications", "read"),
+  customerCommunicationsChoose: permission("customer_communications", "choose_recipients"),
+  customerCommunicationsCreate: permission("customer_communications", "create"),
+  customerCommunicationsEdit: permission("customer_communications", "edit"),
+  customerCommunicationsPublish: permission("customer_communications", "publish"),
+  customerCommunicationsMarketing: permission("customer_communications", "publish_marketing"),
+  customerCommunicationsCancel: permission("customer_communications", "cancel"),
+  customerCommunicationsResults: permission("customer_communications", "read_results"),
+  customerCommunicationsRetry: permission("customer_communications", "retry_email"),
+  customerCommunicationsReadReplies: permission("customer_communications", "read_replies"),
+  customerCommunicationsReply: permission("customer_communications", "reply"),
+  customerCommunicationsClose: permission("customer_communications", "close_thread"),
   repricingPreview: permission("subscriptions", "preview_repricing"),
   repricingConfirm: permission("subscriptions", "confirm_repricing"),
   repricingList: permission("subscriptions", "list_repricing"),
@@ -337,6 +349,12 @@ export const adminPermissions = {
 } as const;
 
 export const clientPermissions = {
+  communicationsRead: permission("workspace", "read_communications"),
+  communicationsMarkRead: permission("workspace", "mark_communication_read"),
+  communicationsAcknowledge: permission("workspace", "acknowledge_warning"),
+  communicationsArchive: permission("workspace", "archive_communication"),
+  communicationsReply: permission("workspace", "reply_communication"),
+  communicationsPreferences: permission("workspace", "communication_preferences"),
   workspaceRead: permission("workspace", "read"),
   workspaceDelete: permission("workspace", "delete"),
   companiesRead: permission("company", "read_all"),
@@ -470,7 +488,10 @@ export const adminAnalyticsSurfacePermissions = [
 export const adminActivitiesSurfacePermissions = [adminPermissions.activitiesRead] as const;
 
 // Recipient and failure evidence follow the same conjunctive contract as activity enrichments.
-export const adminCommunicationsSurfacePermissions = [adminPermissions.communicationsRead] as const;
+export const adminCommunicationsSurfacePermissions = [
+  adminPermissions.communicationsRead,
+  adminPermissions.customerCommunicationsRead,
+] as const;
 
 export const adminObservabilitySurfacePermissions = [
   adminPermissions.observabilityReadHealth,

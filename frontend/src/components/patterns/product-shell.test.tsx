@@ -34,7 +34,7 @@ Object.defineProperty(globalThis, "cancelAnimationFrame", {
   value: (id: number) => clearTimeout(id),
 });
 
-const { cleanup, render, screen } = await import("@testing-library/react");
+const { cleanup, render } = await import("@testing-library/react");
 const userEvent = (await import("@testing-library/user-event")).default;
 const { I18nextProvider } = await import("react-i18next");
 const { MemoryRouter } = await import("react-router");
@@ -80,7 +80,7 @@ afterEach(() => cleanup());
 
 describe("product shell navigation", () => {
   test("group disclosure exposes its state and hides its links when collapsed", async () => {
-    renderShell();
+    const screen = renderShell();
     const user = userEvent.setup({ document: browser.document as unknown as Document });
     const disclosure = screen.getByRole("button", { name: "Commercial" });
 
@@ -95,7 +95,7 @@ describe("product shell navigation", () => {
   });
 
   test("compact mode keeps named links, one expand control, and no boxed active state", async () => {
-    renderShell();
+    const screen = renderShell();
     const user = userEvent.setup({ document: browser.document as unknown as Document });
 
     await user.click(screen.getByRole("button", { name: "Réduire la navigation" }));
@@ -110,7 +110,7 @@ describe("product shell navigation", () => {
 
   test("shell controls follow the Arabic locale", async () => {
     await i18n.changeLanguage("ar");
-    renderShell();
+    const screen = renderShell();
     const user = userEvent.setup({ document: browser.document as unknown as Document });
 
     expect(screen.getByRole("button", { name: "طيّ قائمة التنقل" })).toBeTruthy();

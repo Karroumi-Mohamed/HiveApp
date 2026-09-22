@@ -77,7 +77,10 @@ describe("session permission bypasses", () => {
 
   test("operations routes require their base metadata permission", () => {
     expect(adminActivitiesSurfacePermissions).toEqual([adminPermissions.activitiesRead]);
-    expect(adminCommunicationsSurfacePermissions).toEqual([adminPermissions.communicationsRead]);
+    expect(adminCommunicationsSurfacePermissions).toEqual([
+      adminPermissions.communicationsRead,
+      adminPermissions.customerCommunicationsRead,
+    ]);
   });
 
   test("observability preserves every independently readable surface", () => {

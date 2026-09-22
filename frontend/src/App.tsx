@@ -62,7 +62,6 @@ import {
 } from "@/features/admin/commercial-segments/commercial-segment-editor";
 import { AdminMePage } from "@/features/admin/me/admin-me-page";
 import { AdminActivitiesPage } from "@/features/admin/operations/admin-activities-page";
-import { AdminCommunicationsPage } from "@/features/admin/operations/admin-communications-page";
 import { AdminObservabilityPage } from "@/features/admin/operations/admin-observability-page";
 import { AdminOperatorDetailPage } from "@/features/admin/operators/admin-operator-detail-page";
 import { AdminOperatorsPage } from "@/features/admin/operators/admin-operators-page";
@@ -106,6 +105,9 @@ import { ClientOverviewPage } from "@/features/client/overview/client-overview-p
 import { ClientRolesPage } from "@/features/client/roles/client-roles-page";
 import { ClientBillingDocumentPage } from "@/features/client/subscription/client-billing-document-page";
 import { ClientSubscriptionPage } from "@/features/client/subscription/client-subscription-page";
+import { CommunicationAdminDetail, CommunicationAdminHub } from "@/features/communications/admin-communication-pages";
+import { ClientCommunicationsPage } from "@/features/communications/client-communications-page";
+import { CommunicationComposer } from "@/features/communications/communication-composer";
 import { DesignSystemPreview } from "@/features/design-system/design-system-preview";
 
 const router = createBrowserRouter([
@@ -489,7 +491,31 @@ const router = createBrowserRouter([
         path: "communications",
         element: (
           <AdminReadPermissionGate anyOf={adminCommunicationsSurfacePermissions}>
-            <AdminCommunicationsPage />
+            <CommunicationAdminHub />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "communications/new",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.customerCommunicationsRead]}>
+            <CommunicationComposer />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "communications/:communicationId/edit",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.customerCommunicationsRead]}>
+            <CommunicationComposer />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "communications/:communicationId",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.customerCommunicationsRead]}>
+            <CommunicationAdminDetail />
           </AdminReadPermissionGate>
         ),
       },
@@ -531,6 +557,14 @@ const router = createBrowserRouter([
       { path: "roles/:roleId", element: <ClientRolesPage /> },
       { path: "collaborations", element: <ClientCollaborationsPage /> },
       { path: "collaborations/:collaborationId", element: <ClientCollaborationsPage /> },
+      {
+        path: "communications",
+        element: (
+          <ClientReadPermissionGate allOf={[clientPermissions.communicationsRead]}>
+            <ClientCommunicationsPage />
+          </ClientReadPermissionGate>
+        ),
+      },
       {
         path: "subscription",
         element: (
