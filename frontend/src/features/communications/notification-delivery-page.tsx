@@ -81,11 +81,45 @@ function NotificationDeliveryTable({ email }: { email: boolean }) {
   if (!allowed) return <PermissionState />;
   const table = columns.columns([
     columns.accessor("type", { header: c("event"), cell: ({ getValue }) => c(getValue()) }),
-    columns.accessor("state", { header: c("status"), cell: ({ getValue }) => c(getValue()) }),
+    columns.accessor("state", {
+      header: c("status"),
+      cell: ({ row }) => (
+        <div>
+          {c(row.original.state)}
+          {row.original.failureCode && (
+            <p className="mt-1 text-xs text-muted-foreground">{c(row.original.failureCode)}</p>
+          )}
+        </div>
+      ),
+    }),
     columns.accessor("attempts", { header: c("attempts") }),
     columns.accessor("nextAttemptAt", {
       header: c("nextAttempt"),
       cell: ({ row }) => (row.original.state === "PENDING" ? communicationDate(row.original.nextAttemptAt) : "—"),
+    }),
+    columns.display({
+      id: "context",
+      header: c("details"),
+      cell: ({ row }) => (
+        <details>
+          <summary className="cursor-pointer text-primary">{c("details")}</summary>
+          <dl className="mt-2 space-y-2 text-xs">
+            <dt>{c("correlation")}</dt>
+            <dd className="break-all font-mono">
+              {"eventId" in row.original ? row.original.eventId : row.original.id}
+            </dd>
+            <dt>{c("createdAt")}</dt>
+            <dd>{communicationDate(row.original.createdAt ?? null)}</dd>
+            <dt>{c("updatedAt")}</dt>
+            <dd>{communicationDate(row.original.updatedAt ?? null)}</dd>
+          </dl>
+          {row.original.sourcePath?.startsWith("/admin/") && (
+            <Link className="mt-3 block text-sm text-primary underline" to={row.original.sourcePath}>
+              {c("source")}
+            </Link>
+          )}
+        </details>
+      ),
     }),
     columns.display({
       id: "actions",

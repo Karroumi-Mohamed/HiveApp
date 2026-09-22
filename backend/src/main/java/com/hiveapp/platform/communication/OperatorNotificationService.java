@@ -29,7 +29,7 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
       int attempts,
       Instant nextAttemptAt,
       String failureCode,
-      long version) {}
+      long version, Instant createdAt, Instant updatedAt, String sourcePath, boolean canRetry) {}
 
   public record EmailResult(
       UUID id,
@@ -38,7 +38,7 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
       int attempts,
       Instant nextAttemptAt,
       long version,
-      boolean canRetry) {}
+      boolean canRetry, String failureCode, Instant createdAt, Instant updatedAt, UUID eventId, String sourcePath) {}
 
   private final CommunicationService communications;
   private final NotificationEventRepository events;
@@ -115,7 +115,7 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
                     e.getAttempts(),
                     e.getNextAttemptAt(),
                     e.getFailureCode(),
-                    e.getVersion()));
+                    e.getVersion(), e.getCreatedAt(), e.getUpdatedAt(), sourcePath(e.getDefinitionKey(), e.getResourceId()), eventRetryable(e)));
   }
 
   @PermissionNode(key = "retry_delivery", description = "Retry a failed notification event")
@@ -127,8 +127,7 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
             .orElseThrow(() -> new ResourceNotFoundException("Notification event", "id", id));
     if (e.getVersion() != command.version())
       throw new StaleResourceVersionException("Reload the notification event.");
-    if (e.getState() != NotificationEvent.State.FAILED
-        || (e.getExpiresAt() != null && !e.getExpiresAt().isAfter(clock.instant())))
+    if (!eventRetryable(e))
       throw new InvalidStateException("Only unexpired failed events can retry.");
     e.setState(NotificationEvent.State.PENDING);
     e.setAttempts(0);
@@ -159,7 +158,7 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
                     e.getDelivery().getAttempts(),
                     e.getNextEmailAttemptAt(),
                     e.getVersion(),
-                    emailRetryable(e)));
+                    emailRetryable(e), e.getEmailFailureCode(), e.getCreatedAt(), e.getUpdatedAt(), e.getEventId(), sourcePath(e.getEventType(), e.getResourceId())));
   }
 
   @PermissionNode(key = "internal_retry_email", guard = PermissionNode.Guard.OFF)
@@ -191,6 +190,19 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
         && (e.getExpiresAt() == null || e.getExpiresAt().isAfter(clock.instant()))
         && !(e.getResolvedAt() != null
             && (e.getKind() == Kind.WARNING || e.getKind() == Kind.ACTION));
+  }
+
+  private String sourcePath(String type, UUID resource) {
+    if (type != null && resource != null && java.util.Set.of(CoreNotification.PAYMENT_FAILED.key(), CoreNotification.PAYMENT_RECEIVED.key(),
+        CoreNotification.BILLING_ATTENTION.key()).contains(type)
+        && PermissionGuard.has(PlatformPermissions.Billing.Read_invoice.permission()))
+      return "/admin/billing/invoices/" + resource;
+    return null;
+  }
+
+  private boolean eventRetryable(NotificationEvent event) {
+    return event.getState() == NotificationEvent.State.FAILED && !event.isCancelled() && event.getResolvedAt() == null
+        && (event.getExpiresAt() == null || event.getExpiresAt().isAfter(clock.instant()));
   }
 
   private void requireDelivery(Permission permission) {

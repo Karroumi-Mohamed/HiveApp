@@ -38,7 +38,8 @@ public class NotificationWorker {
                           if (e.getState() != NotificationEvent.State.PENDING) return;
                           int attempts = e.getAttempts() + 1;
                           e.setAttempts(attempts);
-                          e.setFailureCode("DELIVERY_FAILED");
+                          e.setFailureCode(failure instanceof IllegalArgumentException || failure instanceof IllegalStateException
+                              ? "CONTRACT_INVALID" : "DELIVERY_FAILED");
                           e.setNextAttemptAt(
                               clock
                                   .instant()

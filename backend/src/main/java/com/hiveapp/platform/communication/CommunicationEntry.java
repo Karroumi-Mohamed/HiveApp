@@ -38,6 +38,7 @@ import lombok.*;
             + " recipient_user_id is not null and company_id is null)")
 public class CommunicationEntry extends BaseEntity {
   @Column(length = 255) private String senderName;
+  @Column(length = 80) private String emailFailureCode;
   @Version private long version;
 
   @Column(name = "account_id", updatable = false)

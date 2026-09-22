@@ -177,6 +177,7 @@ test("automatic email recovery uses the email endpoint and requires a reviewed r
                 nextAttemptAt: null,
                 version: 4,
                 canRetry: true,
+                failureCode: "TRANSPORT_FAILED",
               },
             ]
           : [],
@@ -192,6 +193,7 @@ test("automatic email recovery uses the email endpoint and requires a reviewed r
   const user = userEvent.setup({ document: browser.document as unknown as Document });
   await user.click(view.getByRole("button", { name: "Emails automatiques" }));
   await waitFor(() => expect(view.getByText("Paiement non abouti")).toBeTruthy());
+  expect(view.getByText("Échec du service email")).toBeTruthy();
   await user.click(view.getByRole("button", { name: "Relancer" }));
   expect((view.getByRole("button", { name: "Confirmer" }) as HTMLButtonElement).disabled).toBe(true);
   await user.type(view.getByLabelText("Motif"), "Transport rétabli");

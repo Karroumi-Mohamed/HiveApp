@@ -29,11 +29,16 @@ export type NotificationEvent = {
   nextAttemptAt: string;
   failureCode: string | null;
   version: number;
+  createdAt?: string;
+  updatedAt?: string;
+  sourcePath?: string | null;
+  canRetry?: boolean;
 };
-export type NotificationEmail = Omit<NotificationEvent, "state" | "nextAttemptAt" | "failureCode"> & {
+export type NotificationEmail = Omit<NotificationEvent, "state" | "nextAttemptAt"> & {
   state: "PENDING" | "SENDING" | "SENT" | "SUPPRESSED" | "FAILED" | "CANCELLED";
   nextAttemptAt: string | null;
   canRetry: boolean;
+  eventId?: string;
 };
 export type CommunicationPurpose = "SERVICE" | "MARKETING";
 export type CommunicationDraft = {
