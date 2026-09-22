@@ -1,0 +1,572 @@
+package com.hiveapp.platform.security;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+import com.hiveapp.identity.domain.repository.UserRepository;
+import com.hiveapp.identity.dto.RegisterRequest;
+import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
+import com.hiveapp.platform.client.plan.domain.constant.*;
+import com.hiveapp.platform.client.plan.domain.entity.*;
+import com.hiveapp.platform.client.plan.domain.repository.*;
+import com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Timing;
+import com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.*;
+import com.hiveapp.platform.client.plan.service.*;
+import com.hiveapp.shared.money.Money;
+import com.hiveapp.testsupport.PlatformShellIntegrationTestSupport;
+import java.math.BigDecimal;
+import java.time.*;
+import java.util.*;
+import org.junit.jupiter.api.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+@TestPropertySource(
+    properties = "spring.datasource.url=jdbc:h2:mem:plan-rollouts;DB_CLOSE_DELAY=-1")
+@Import(PlanVersionApplicationIntegrationTest.TimeConfiguration.class)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupport {
+  @Autowired PlanRepository plans;
+  @Autowired PlanFeatureRepository features;
+  @Autowired ProductPriceRepository prices;
+  @Autowired SubscriptionRepository subscriptions;
+  @Autowired SubscriptionPeriodRepository periods;
+  @Autowired SubscriptionContentEvidenceRepository evidence;
+  @Autowired SubscriptionChangeJobRepository jobs;
+  @Autowired SubscriptionChangeJobItemRepository items;
+  @Autowired BillingInvoiceRepository invoices;
+  @Autowired AccountRepository accounts;
+  @Autowired UserRepository users;
+  @Autowired com.hiveapp.platform.admin.domain.repository.AdminUserRepository admins;
+  @Autowired SubscriptionSnapshotFactory snapshots;
+  @Autowired SubscriptionChangeJobProcessor processor;
+  @Autowired SubscriptionChangeJobTransitionService transitions;
+  @Autowired PlanVersionRolloutWorker worker;
+  @Autowired SubscriptionChangeJobService legacyJobs;
+  @Autowired CommercialCatalogVersionService catalogue;
+  @Autowired PlatformTransactionManager transactionManager;
+  @Autowired jakarta.persistence.EntityManager entityManager;
+  @Autowired PlanVersionApplicationIntegrationTest.MutableClock clock;
+  TransactionTemplate tx;
+  String admin;
+  static final String BASE = "/api/admin/plan-version-applications";
+
+  @BeforeEach
+  void setup() throws Exception {
+    tx = new TransactionTemplate(transactionManager);
+    clock.set(Instant.now());
+    admin = loginAdminAndGetToken();
+  }
+
+  @Test
+  void audienceIsAssessedBeforeConfirmationAndAppliesWithoutNewBilling() throws Exception {
+    var f = fixture(1);
+    long invoicesBefore = invoices.count();
+    var before = subscriptions.findCurrentByAccountId(f.accounts.getFirst()).orElseThrow();
+    var created = create(f, request(f, Audience.SELECTED, Timing.NOW, List.of()));
+    assertThat(created.summary().status()).isEqualTo(SubscriptionChangeJobStatus.ASSESSING);
+    assertThat(created.previewToken()).isNull();
+    assertThat(
+            subscriptions
+                .findCurrentByAccountId(f.accounts.getFirst())
+                .orElseThrow()
+                .getPlan()
+                .getId())
+        .isEqualTo(f.source);
+    processor.processDue(clock.instant());
+    var review = detail(created.summary().id());
+    assertThat(review.summary().status()).isEqualTo(SubscriptionChangeJobStatus.PREVIEWED);
+    assertThat(review.summary().counts()).containsEntry(SubscriptionChangeJobItemStatus.READY, 1L);
+    confirm(review, false, 200);
+    processor.processDue(clock.instant());
+    var result = detail(review.summary().id());
+    assertThat(result.summary().status()).isEqualTo(SubscriptionChangeJobStatus.COMPLETED);
+    assertThat(result.summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.APPLIED, 1L);
+    var current = subscriptions.findCurrentByAccountId(f.accounts.getFirst()).orElseThrow();
+    assertThat(current.getId()).isEqualTo(before.getId());
+    assertThat(current.getPlan().getId()).isEqualTo(f.target);
+    assertThat(current.getCurrentPrice()).isEqualByComparingTo(before.getCurrentPrice());
+    assertThat(current.getCurrentPeriodEnd()).isEqualTo(before.getCurrentPeriodEnd());
+    assertThat(current.termsIdentity()).isEqualTo(before.termsIdentity());
+    assertThat(invoices.count()).isEqualTo(invoicesBefore);
+    processor.processDue(clock.instant());
+    assertThat(
+            items
+                .findAllByJobId(
+                    result.summary().id(), org.springframework.data.domain.PageRequest.of(0, 10))
+                .getContent())
+        .allMatch(item -> item.getAttempts() == 1);
+  }
+
+  @Test
+  void mixedAudienceRequiresExplicitPartialConfirmationAndExcludesLaterArrivals() throws Exception {
+    var f = fixture(3);
+    tx.executeWithoutResult(
+        ignored -> {
+          var conflict = subscriptions.findCurrentByAccountId(f.accounts.get(1)).orElseThrow();
+          conflict.setCancelAtPeriodEnd(true);
+          subscriptions.saveAndFlush(conflict);
+        });
+    var created = create(f, request(f, Audience.ALL, Timing.NOW, List.of(f.accounts.get(2))));
+    UUID later = addAccount(f.source);
+    processor.processDue(clock.instant());
+    var review = detail(created.summary().id());
+    assertThat(review.summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.READY, 1L)
+        .containsEntry(SubscriptionChangeJobItemStatus.CONFLICT, 1L)
+        .containsEntry(SubscriptionChangeJobItemStatus.EXCLUDED, 1L);
+    confirm(review, false, 400);
+    confirm(review, true, 200);
+    processor.processDue(clock.instant());
+    assertThat(detail(created.summary().id()).summary().status())
+        .isEqualTo(SubscriptionChangeJobStatus.COMPLETED_WITH_ERRORS);
+    assertThat(
+            subscriptions.findCurrentByAccountId(f.accounts.get(0)).orElseThrow().getPlan().getId())
+        .isEqualTo(f.target);
+    for (UUID account : List.of(f.accounts.get(1), f.accounts.get(2), later))
+      assertThat(subscriptions.findCurrentByAccountId(account).orElseThrow().getPlan().getId())
+          .isEqualTo(f.source);
+    mockMvc
+        .perform(
+            post(BASE + "/" + created.summary().id() + "/retry")
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Try conflicts again\"}"))
+        .andExpect(status().isConflict());
+  }
+
+  @Test
+  void cancellationKeepsAppliedAccountsAndCancelsOnlyRemainingWork() throws Exception {
+    var f = fixture(2);
+    var created = create(f, request(f, Audience.SELECTED, Timing.NOW, List.of()));
+    processor.processDue(clock.instant());
+    var review = detail(created.summary().id());
+    confirm(review, false, 200);
+    transitions.claimOrResume(review.summary().id(), clock.instant());
+    var rows =
+        items.findAllByJobId(
+            review.summary().id(), org.springframework.data.domain.PageRequest.of(0, 10));
+    worker.execute(review.summary().id(), rows.getContent().getFirst().getId());
+    mockMvc
+        .perform(
+            post(BASE + "/" + review.summary().id() + "/cancel")
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Stop the remaining Accounts\"}"))
+        .andExpect(status().isOk());
+    processor.processDue(clock.instant());
+    var stopped = detail(review.summary().id());
+    assertThat(stopped.summary().status()).isEqualTo(SubscriptionChangeJobStatus.CANCELLED);
+    assertThat(stopped.summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.APPLIED, 1L)
+        .containsEntry(SubscriptionChangeJobItemStatus.CANCELLED, 1L);
+  }
+
+  @Test
+  void renewalWaitsWithoutPaymentSlotAndCanBeCancelled() throws Exception {
+    var f = fixture(1);
+    var created = create(f, request(f, Audience.SELECTED, Timing.AT_RENEWAL, List.of()));
+    processor.processDue(clock.instant());
+    confirm(detail(created.summary().id()), false, 200);
+    processor.processDue(clock.instant());
+    var waiting = detail(created.summary().id());
+    assertThat(waiting.summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.WAITING, 1L);
+    assertThat(waiting.summary().executeAt()).isAfter(clock.instant());
+    tx.executeWithoutResult(
+        ignored ->
+            assertThat(items.countOtherPendingContent(f.accounts.getFirst(), null)).isEqualTo(1));
+    mockMvc
+        .perform(
+            post(BASE + "/" + created.summary().id() + "/cancel")
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Cancel pending content\"}"))
+        .andExpect(status().isOk());
+    assertThat(items.countOtherPendingContent(f.accounts.getFirst(), null)).isZero();
+  }
+
+  @Test
+  void technicalRetryRetainsReviewAndAppliesExactlyOnce() throws Exception {
+    var f = fixture(1);
+    var created = create(f, request(f, Audience.SELECTED, Timing.NOW, List.of()));
+    processor.processDue(clock.instant());
+    confirm(detail(created.summary().id()), false, 200);
+    transitions.claimOrResume(created.summary().id(), clock.instant());
+    UUID item =
+        items
+            .findAllByJobId(
+                created.summary().id(), org.springframework.data.domain.PageRequest.of(0, 10))
+            .getContent()
+            .getFirst()
+            .getId();
+    worker.failed(
+        created.summary().id(), item, new RuntimeException("Simulated transaction failure"));
+    worker.finishExecution(created.summary().id());
+    mockMvc
+        .perform(
+            post(BASE + "/" + created.summary().id() + "/retry")
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Retry after recovery\"}"))
+        .andExpect(status().isOk());
+    processor.processDue(clock.instant());
+    assertThat(detail(created.summary().id()).summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.APPLIED, 1L);
+    assertThat(evidence.findByCommandId(item)).isPresent();
+    worker.failed(created.summary().id(), item, new RuntimeException("Late response lost"));
+    assertThat(items.findById(item).orElseThrow().getStatus())
+        .isEqualTo(SubscriptionChangeJobItemStatus.APPLIED);
+  }
+
+  @Test
+  void staleReviewAndClientRequestsCannotConfirmAndLegacyJobsCannotReadContent() throws Exception {
+    var f = fixture(1);
+    var created = create(f, request(f, Audience.SELECTED, Timing.NOW, List.of()));
+    processor.processDue(clock.instant());
+    var review = detail(created.summary().id());
+    assertThatThrownBy(() -> legacyJobs.get(created.summary().id()))
+        .isInstanceOf(com.hiveapp.shared.exception.ResourceNotFoundException.class);
+    assertThat(
+            legacyJobs
+                .list(null, org.springframework.data.domain.PageRequest.of(0, 100))
+                .getContent())
+        .noneMatch(job -> job.id().equals(created.summary().id()));
+    String client = registerClientAndGetToken();
+    mockMvc
+        .perform(get(BASE + "/" + created.summary().id()).header("Authorization", bearer(client)))
+        .andExpect(status().isForbidden());
+    tx.executeWithoutResult(ignored -> catalogue.bump(catalogue.lockForMutation().getId()));
+    confirm(review, false, 409);
+    assertThat(detail(created.summary().id()).reviewInvalidated()).isTrue();
+  }
+
+  @Test
+  void fixedDateDoesNotRunEarlyAndCompetingConfirmationIsBlocked() throws Exception {
+    var f = fixture(1);
+    var request = request(f, Audience.SELECTED, Timing.AT_DATE, List.of());
+    var first = create(f, request);
+    var second = create(f, request);
+    processor.processDue(clock.instant());
+    var reviewedFirst = detail(first.summary().id());
+    var reviewedSecond = detail(second.summary().id());
+    confirm(reviewedFirst, false, 200);
+    confirm(reviewedSecond, false, 409);
+    processor.processDue(clock.instant());
+    assertThat(detail(first.summary().id()).summary().status())
+        .isEqualTo(SubscriptionChangeJobStatus.SCHEDULED);
+    clock.set(request.application().notBefore().plusSeconds(1));
+    processor.processDue(clock.instant());
+    assertThat(detail(first.summary().id()).summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.APPLIED, 1L);
+  }
+
+  @Test
+  void revokedActorIsAConflictNotAnAutomaticallyRetryableFailure() throws Exception {
+    var f = fixture(1);
+    var created = create(f, request(f, Audience.SELECTED, Timing.NOW, List.of()));
+    processor.processDue(clock.instant());
+    confirm(detail(created.summary().id()), false, 200);
+    tx.executeWithoutResult(
+        ignored -> {
+          var actor = admins.findByUser_Email(ADMIN_EMAIL).orElseThrow();
+          actor.setActive(false);
+          admins.saveAndFlush(actor);
+        });
+    try {
+      processor.processDue(clock.instant());
+    } finally {
+      tx.executeWithoutResult(
+          ignored -> {
+            var actor = admins.findByUser_Email(ADMIN_EMAIL).orElseThrow();
+            actor.setActive(true);
+            admins.saveAndFlush(actor);
+          });
+    }
+    assertThat(detail(created.summary().id()).summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.CONFLICT, 1L);
+    assertThat(
+            items
+                .findAllByJobId(
+                    created.summary().id(), org.springframework.data.domain.PageRequest.of(0, 10))
+                .getContent())
+        .allMatch(item -> "ACTOR_NO_LONGER_AUTHORIZED".equals(item.getOutcomeCode()));
+  }
+
+  @Test
+  void concurrentWorkersApplyTheSameInstructionOnlyOnce() throws Exception {
+    var f = fixture(1);
+    var created = create(f, request(f, Audience.SELECTED, Timing.NOW, List.of()));
+    processor.processDue(clock.instant());
+    confirm(detail(created.summary().id()), false, 200);
+    transitions.claimOrResume(created.summary().id(), clock.instant());
+    UUID item =
+        items
+            .findAllByJobId(
+                created.summary().id(), org.springframework.data.domain.PageRequest.of(0, 10))
+            .getContent()
+            .getFirst()
+            .getId();
+    var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+    var start = new java.util.concurrent.CountDownLatch(1);
+    try {
+      var one =
+          executor.submit(
+              () -> {
+                start.await();
+                worker.execute(created.summary().id(), item);
+                return true;
+              });
+      var two =
+          executor.submit(
+              () -> {
+                start.await();
+                worker.execute(created.summary().id(), item);
+                return true;
+              });
+      start.countDown();
+      assertThat(one.get(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+      assertThat(two.get(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+    } finally {
+      executor.shutdownNow();
+    }
+    assertThat(items.findById(item).orElseThrow().getAttempts()).isEqualTo(1);
+    assertThat(evidence.findByCommandId(item)).isPresent();
+  }
+
+  @Test
+  void assessmentIsBatchedAndPublicResultsDoNotExposeInternalBillingSnapshots() throws Exception {
+    var f = fixture(PlanVersionRolloutProcessor.ITEM_BATCH_SIZE + 1);
+    var excluded = bulkAccounts(f.source, 200);
+    var combined = new ArrayList<>(f.accounts);
+    combined.addAll(excluded);
+    f = new Fixture(f.source, f.target, combined);
+    var created = create(f, request(f, Audience.SELECTED, Timing.NOW, excluded));
+    processor.processDue(clock.instant());
+    var partial = detail(created.summary().id());
+    assertThat(partial.summary().status()).isEqualTo(SubscriptionChangeJobStatus.ASSESSING);
+    assertThat(partial.summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.ASSESSING, 1L)
+        .containsEntry(
+            SubscriptionChangeJobItemStatus.READY,
+            (long) PlanVersionRolloutProcessor.ITEM_BATCH_SIZE)
+        .containsEntry(SubscriptionChangeJobItemStatus.EXCLUDED, 200L);
+    processor.processDue(clock.instant());
+    assertThat(detail(created.summary().id()).summary().status())
+        .isEqualTo(SubscriptionChangeJobStatus.PREVIEWED);
+    mockMvc
+        .perform(
+            get(BASE + "/" + created.summary().id() + "/results")
+                .param("size", "1")
+                .param("status", "READY")
+                .header("Authorization", bearer(admin)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("content[0].impact.retainedTotal").value("100.0000"))
+        .andExpect(jsonPath("content[0].assessment").doesNotExist())
+        .andExpect(jsonPath("content[0].impact.reviewed").doesNotExist());
+  }
+
+  /** Cheap synthetic audience; authentication and actual mutation use registered Accounts above. */
+  private List<UUID> bulkAccounts(UUID planId, int count) {
+    return tx.execute(
+        ignored -> {
+          var source = plans.findById(planId).orElseThrow();
+          Instant start = clock.instant().minusSeconds(86400),
+              end = clock.instant().plusSeconds(2592000);
+          var snapshot = snapshots.fromPlan(source).withEffectivePeriod(start, end);
+          var session = entityManager.unwrap(org.hibernate.Session.class);
+          session.setJdbcBatchSize(50);
+          List<UUID> result = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            String code = UUID.randomUUID().toString();
+            var owner =
+                users.save(
+                    com.hiveapp.identity.domain.entity.User.builder()
+                        .email("load-" + code + "@example.com")
+                        .username(code)
+                        .firstName("Load")
+                        .lastName("Owner")
+                        .build());
+            var account =
+                accounts.save(
+                    com.hiveapp.platform.client.account.domain.entity.Account.builder()
+                        .owner(owner)
+                        .name("Load " + code)
+                        .slug(code)
+                        .build());
+            var subscription = new Subscription();
+            subscription.setAccount(account);
+            subscription.setPlan(source);
+            subscription.setStatus(SubscriptionStatus.ACTIVE);
+            subscription.setCurrentPeriodStart(start);
+            subscription.setCurrentPeriodEnd(end);
+            subscription.setEntitlementSnapshot(snapshot);
+            subscription.setCurrentMoney(source.money());
+            subscriptions.save(subscription);
+            var period = new SubscriptionPeriod();
+            period.setSubscription(subscription);
+            period.setStartsAt(start);
+            period.setEndsAt(end);
+            period.setEntitlementSnapshot(snapshot);
+            periods.save(period);
+            result.add(account.getId());
+            if (i % 250 == 249) {
+              entityManager.flush();
+              entityManager.clear();
+            }
+          }
+          entityManager.flush();
+          return result;
+        });
+  }
+
+  private Request request(Fixture f, Audience audience, Timing timing, List<UUID> excluded) {
+    return new Request(
+        f.source,
+        Scope.FAMILY,
+        audience,
+        audience == Audience.SELECTED ? f.accounts : List.of(),
+        excluded,
+        Set.of(SubscriptionStatus.ACTIVE),
+        null,
+        null,
+        null,
+        new com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Request(
+            timing,
+            timing == Timing.AT_DATE ? clock.instant().plusSeconds(3600) : null,
+            "Reviewed content only"));
+  }
+
+  private Detail create(Fixture f, Request request) throws Exception {
+    return objectMapper.readValue(
+        mockMvc
+            .perform(
+                post(BASE)
+                    .param("targetPlanId", f.target.toString())
+                    .header("Authorization", bearer(admin))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString(),
+        Detail.class);
+  }
+
+  private Detail detail(UUID id) throws Exception {
+    return objectMapper.readValue(
+        mockMvc
+            .perform(get(BASE + "/" + id).header("Authorization", bearer(admin)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString(),
+        Detail.class);
+  }
+
+  private void confirm(Detail detail, boolean partial, int status) throws Exception {
+    mockMvc
+        .perform(
+            post(BASE + "/" + detail.summary().id() + "/confirm")
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(new Confirm(detail.previewToken(), partial))))
+        .andExpect(status().is(status));
+  }
+
+  private Fixture fixture(int count) throws Exception {
+    var ids =
+        tx.execute(
+            ignored -> {
+              Plan source = plan(null);
+              Plan free = plans.findByCode("FREE").orElseThrow();
+              copyFeatures(free, source);
+              Plan target = plan(source);
+              copyFeatures(source, target);
+              var price =
+                  ProductPrice.draft(
+                      source, source.money(), BillingCycle.MONTHLY, Instant.EPOCH, null);
+              price.activate();
+              prices.saveAndFlush(price);
+              return List.of(source.getId(), target.getId());
+            });
+    List<UUID> accounts = new ArrayList<>();
+    for (int i = 0; i < count; i++) accounts.add(addAccount(ids.getFirst()));
+    return new Fixture(ids.get(0), ids.get(1), accounts);
+  }
+
+  private UUID addAccount(UUID planId) throws Exception {
+    String email = "rollout-" + UUID.randomUUID() + "@example.com";
+    mockMvc
+        .perform(
+            post("/api/v1/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new RegisterRequest(email, CLIENT_PASSWORD, "Rollout", "Owner", null))))
+        .andExpect(status().isCreated());
+    return tx.execute(
+        ignored -> {
+          UUID account =
+              accounts
+                  .findByOwner_Id(users.findByEmail(email).orElseThrow().getId())
+                  .orElseThrow()
+                  .getId();
+          var current = subscriptions.findCurrentByAccountId(account).orElseThrow();
+          var source = plans.findById(planId).orElseThrow();
+          current.setPlan(source);
+          current.setStatus(SubscriptionStatus.ACTIVE);
+          current.setEntitlementSnapshot(
+              snapshots
+                  .fromPlan(source)
+                  .withEffectivePeriod(
+                      current.getCurrentPeriodStart(), current.getCurrentPeriodEnd()));
+          current.setCurrentMoney(source.money());
+          subscriptions.saveAndFlush(current);
+          var period =
+              periods
+                  .findBySubscriptionIdAndStatus(current.getId(), SubscriptionPeriodStatus.OPEN)
+                  .orElseThrow();
+          period.setEntitlementSnapshot(current.getEntitlementSnapshot());
+          periods.saveAndFlush(period);
+          return account;
+        });
+  }
+
+  private Plan plan(Plan source) {
+    var plan = new Plan();
+    plan.setCode("ROLLOUT_" + UUID.randomUUID().toString().replace("-", ""));
+    plan.setName("Rollout test");
+    plan.setMoney(Money.of(new BigDecimal("100"), "MAD"));
+    plan.setBillingCycle(BillingCycle.MONTHLY);
+    plan.setStatus(PlanStatus.ACTIVE);
+    if (source != null) {
+      plan.setLineageId(source.getLineageId());
+      plan.setRevisionNumber(2);
+      plan.setSourcePlan(source);
+    }
+    return plans.saveAndFlush(plan);
+  }
+
+  private void copyFeatures(Plan source, Plan target) {
+    for (var row : features.findAllByPlanId(source.getId())) {
+      var copy = new PlanFeature();
+      copy.setPlan(target);
+      copy.setFeature(row.getFeature());
+      copy.setMode(row.getMode());
+      copy.setQuotaConfigs(row.getQuotaConfigs());
+      features.save(copy);
+    }
+    features.flush();
+  }
+
+  private record Fixture(UUID source, UUID target, List<UUID> accounts) {}
+}

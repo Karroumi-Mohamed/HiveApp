@@ -1,8 +1,12 @@
 package com.hiveapp.platform.client.plan.domain.constant;
 
 public enum SubscriptionChangeJobItemStatus {
+  ASSESSING,
   READY,
+  WAITING,
   APPLIED,
+  UNCHANGED,
+  EXCLUDED,
   PENDING_RENEWAL,
   AWAITING_PAYMENT,
   CONFLICT,
@@ -10,7 +14,7 @@ public enum SubscriptionChangeJobItemStatus {
   CANCELLED;
 
   public boolean terminal() {
-    return this != READY;
+    return this != READY && this != ASSESSING && this != WAITING;
   }
 
   public boolean retryable() {

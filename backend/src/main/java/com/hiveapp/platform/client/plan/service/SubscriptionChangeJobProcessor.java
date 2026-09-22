@@ -22,9 +22,10 @@ public class SubscriptionChangeJobProcessor {
   private final SubscriptionChangeJobRepository jobs;
   private final SubscriptionChangeJobTransitionService transitions;
   private final SubscriptionChangeJobItemExecutor executor;
+  private final PlanVersionRolloutProcessor contentRollouts;
   private final Clock clock;
 
-  @Scheduled(fixedDelayString = "${hiveapp.subscriptions.change-job-delay-ms:30000}")
+  @Scheduled(fixedDelayString = "${hiveapp.subscriptions.change-job-delay-ms:1000}")
   public void processDue() {
     processDue(clock.instant());
   }
@@ -33,6 +34,7 @@ public class SubscriptionChangeJobProcessor {
     List<UUID> due =
         jobs.findDueIds(
             List.of(
+                SubscriptionChangeJobStatus.ASSESSING,
                 SubscriptionChangeJobStatus.QUEUED,
                 SubscriptionChangeJobStatus.SCHEDULED,
                 SubscriptionChangeJobStatus.RUNNING),
@@ -48,6 +50,7 @@ public class SubscriptionChangeJobProcessor {
   }
 
   void processOne(UUID jobId, Instant cutoff) {
+    if (contentRollouts.processIfContent(jobId, cutoff)) return;
     if (!transitions.claimOrResume(jobId, cutoff)) return;
     for (UUID itemId : transitions.readyItemIds(jobId)) {
       try {

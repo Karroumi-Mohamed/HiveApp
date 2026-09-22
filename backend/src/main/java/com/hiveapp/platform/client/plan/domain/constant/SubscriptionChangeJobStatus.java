@@ -1,6 +1,7 @@
 package com.hiveapp.platform.client.plan.domain.constant;
 
 public enum SubscriptionChangeJobStatus {
+  ASSESSING,
   PREVIEWED,
   QUEUED,
   SCHEDULED,

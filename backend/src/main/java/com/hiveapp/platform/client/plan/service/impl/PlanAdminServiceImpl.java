@@ -150,6 +150,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final PlanRepository planRepository;
     private final com.hiveapp.platform.client.plan.service.PlanVersionOperations planVersions;
     private final com.hiveapp.platform.client.plan.service.PlanVersionApplicationOperations versionApplications;
+    private final com.hiveapp.platform.client.plan.service.PlanVersionRolloutOperations versionRollouts;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
     private final PlanAdminReadModels readModels;
     private final PlanFeatureRepository planFeatureRepository;
@@ -174,6 +175,55 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final PlanActivationAssessor planActivationAssessor;
     private final AddOnActivationAssessor addOnActivationAssessor;
     private final QuotaPackageActivationAssessor quotaPackageActivationAssessor;
+
+    @Override
+    @PermissionNode(key = "create_version_rollout", description = "Freeze and assess an explicit subscriber audience for a Plan version")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail createVersionRollout(UUID targetId, com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Request request) {
+        crossFeatureCommercialAuthorizer.require("platform.plans.preview_version_application", "Reviewing a Plan version audience");
+        return versionRollouts.create(targetId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "list_version_rollouts", description = "List content-version applications for a Plan family")
+    public Page<com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Summary> listVersionRollouts(UUID planId, Pageable pageable) {
+        return versionRollouts.list(planId, pageable);
+    }
+
+    @Override
+    @PermissionNode(key = "get_version_rollout", description = "Read a content-version application's frozen audience and progress")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail getVersionRollout(UUID jobId) {
+        return versionRollouts.get(jobId);
+    }
+
+    @Override
+    @PermissionNode(key = "list_version_rollout_results", description = "Read per-subscriber content-version impact and outcomes")
+    public Page<com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Item> versionRolloutResults(UUID jobId, com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobItemStatus status, Pageable pageable) {
+        return versionRollouts.results(jobId, status, pageable);
+    }
+
+    @Override
+    @PermissionNode(key = "confirm_version_rollout", description = "Confirm a reviewed content-version audience")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail confirmVersionRollout(UUID jobId, com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Confirm request) {
+        return versionRollouts.confirm(jobId, request);
+    }
+
+    @Override
+    @PermissionNode(key = "cancel_version_application", description = "Cancel unapplied subscribers in a Plan version application")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail cancelVersionRollout(UUID jobId, String reason) {
+        return versionRollouts.cancel(jobId, reason);
+    }
+
+    @Override
+    @PermissionNode(key = "retry_version_application", description = "Retry technical failures without changing a reviewed content instruction")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail retryVersionRollout(UUID jobId, String reason) {
+        return versionRollouts.retry(jobId, reason);
+    }
+
+    @Override
+    @PermissionNode(key = "resolve_version_rollout_identities", description = "Resolve Account identities for content-version application results")
+    public List<com.hiveapp.platform.client.plan.dto.SubscriptionChangeJobModels.Identity> versionRolloutIdentities(UUID jobId, List<UUID> resultIds) {
+        return versionRollouts.identities(jobId, resultIds);
+    }
 
     @Override
     @Transactional(readOnly = true)

@@ -149,7 +149,7 @@ public class PlanVersionApplicationOperations {
           "PAID_PERIOD_CHANGED",
           "The paid period changed before immediate application; review again.");
     var target = plan(reviewed.targetPlanId());
-    var fresh = assessor.assess(current, target, reviewed.request(), now);
+    var fresh = assessor.assess(current, target, reviewed.request(), now, commandId);
     if (!fresh.conflicts().isEmpty())
       return new Result(Outcome.CONFLICT, null, null, null, fresh.conflicts());
     if (!fresh

@@ -50,6 +50,14 @@ import com.hiveapp.platform.client.plan.dto.AddOnDto;
 import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 
 public interface PlanAdminService {
+    com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail createVersionRollout(UUID targetId, com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Request request);
+    org.springframework.data.domain.Page<com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Summary> listVersionRollouts(UUID planId, org.springframework.data.domain.Pageable pageable);
+    com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail getVersionRollout(UUID jobId);
+    org.springframework.data.domain.Page<com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Item> versionRolloutResults(UUID jobId, com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobItemStatus status, org.springframework.data.domain.Pageable pageable);
+    com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail confirmVersionRollout(UUID jobId, com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Confirm request);
+    com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail cancelVersionRollout(UUID jobId, String reason);
+    com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail retryVersionRollout(UUID jobId, String reason);
+    java.util.List<com.hiveapp.platform.client.plan.dto.SubscriptionChangeJobModels.Identity> versionRolloutIdentities(UUID jobId, java.util.List<UUID> resultIds);
 
     com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Preview previewVersionApplication(
             UUID targetId, UUID accountId, com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Request request);

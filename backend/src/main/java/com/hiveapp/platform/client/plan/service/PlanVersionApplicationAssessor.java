@@ -25,6 +25,7 @@ public class PlanVersionApplicationAssessor {
   private final SpecialCommercialAgreementRepository agreements;
   private final SubscriptionChangeOperationRepository operations;
   private final SubscriptionRepricingItemRepository repricing;
+  private final SubscriptionChangeJobItemRepository contentJobs;
 
   public record Assessment(
       Reviewed reviewed,
@@ -38,9 +39,15 @@ public class PlanVersionApplicationAssessor {
   }
 
   public Assessment assess(Subscription current, Plan target, Request request, Instant now) {
+    return assess(current, target, request, now, null);
+  }
+
+  public Assessment assess(Subscription current, Plan target, Request request, Instant now, UUID ignoredContentCommandId) {
     List<SubscriptionChangeConflict> conflicts = new ArrayList<>();
     var before = current.getEntitlementSnapshot();
     UUID accountId = current.getAccount().getId();
+    if (contentJobs.countOtherPendingContent(accountId, ignoredContentCommandId) > 0)
+      add(conflicts, "CONTENT_CHANGE_PENDING", "Another confirmed content change targets this Account.");
     if (!current.getAccount().isActive())
       add(conflicts, "ACCOUNT_INACTIVE", "The Account is inactive.");
     if (current.getStatus() != SubscriptionStatus.ACTIVE

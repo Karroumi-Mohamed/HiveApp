@@ -154,8 +154,8 @@ public class SubscriptionChangeJobServiceImpl implements SubscriptionChangeJobSe
   public Page<SubscriptionChangeJobModels.Summary> list(
       SubscriptionChangeJobStatus status, Pageable pageable) {
     Page<SubscriptionChangeJob> result = status == null
-        ? jobs.findAll(pageable)
-        : jobs.findAllByStatus(status, pageable);
+        ? jobs.findAllByPlanLineageIdIsNull(pageable)
+        : jobs.findAllByPlanLineageIdIsNullAndStatus(status, pageable);
     Map<UUID, EnumMap<SubscriptionChangeJobItemStatus, Integer>> counts =
         statusCounts(result.getContent().stream().map(SubscriptionChangeJob::getId).toList());
     return result.map(job -> toSummary(job, counts.getOrDefault(job.getId(), emptyCounts())));
@@ -315,17 +315,17 @@ public class SubscriptionChangeJobServiceImpl implements SubscriptionChangeJobSe
   }
 
   private SubscriptionChangeJob find(UUID jobId) {
-    return jobs.findWithItemsById(jobId)
+    return jobs.findById(jobId).filter(job -> !job.isContentVersion())
         .orElseThrow(() -> new ResourceNotFoundException("SubscriptionChangeJob", "id", jobId));
   }
 
   private SubscriptionChangeJob lock(UUID jobId) {
-    return jobs.lockById(jobId)
+    return jobs.lockById(jobId).filter(job -> !job.isContentVersion())
         .orElseThrow(() -> new ResourceNotFoundException("SubscriptionChangeJob", "id", jobId));
   }
 
   private void requireExists(UUID jobId) {
-    if (!jobs.existsById(jobId)) {
+    if (!jobs.existsByIdAndPlanLineageIdIsNull(jobId)) {
       throw new ResourceNotFoundException("SubscriptionChangeJob", "id", jobId);
     }
   }

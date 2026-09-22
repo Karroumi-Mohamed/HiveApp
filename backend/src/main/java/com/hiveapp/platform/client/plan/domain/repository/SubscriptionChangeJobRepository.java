@@ -17,6 +17,11 @@ import org.springframework.data.repository.query.Param;
 
 public interface SubscriptionChangeJobRepository extends JpaRepository<SubscriptionChangeJob, UUID> {
 
+  Page<SubscriptionChangeJob> findAllByPlanLineageIdIsNull(Pageable pageable);
+  Page<SubscriptionChangeJob> findAllByPlanLineageIdIsNullAndStatus(SubscriptionChangeJobStatus status, Pageable pageable);
+  Page<SubscriptionChangeJob> findAllByPlanLineageId(UUID lineageId, Pageable pageable);
+  boolean existsByIdAndPlanLineageIdIsNull(UUID id);
+
   Page<SubscriptionChangeJob> findAllByStatus(
       SubscriptionChangeJobStatus status, Pageable pageable);
 
