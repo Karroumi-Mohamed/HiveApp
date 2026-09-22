@@ -9,6 +9,7 @@ import com.hiveapp.shared.exception.*;
 import dev.karroumi.permissionizer.*;
 import java.time.*;
 import java.util.UUID;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
@@ -138,7 +139,7 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
   @PermissionNode(key = "internal_email_results", guard = PermissionNode.Guard.OFF)
   @Transactional(readOnly = true)
   public Page<EmailResult> emailResults(Delivery state, Pageable page) {
-    requireDelivery("read_delivery");
+    requireDelivery(PlatformPermissions.Notifications.Read_delivery.permission());
     return entries
         .findAll(
             (r, q, b) ->
@@ -164,7 +165,7 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
   @PermissionNode(key = "internal_retry_email", guard = PermissionNode.Guard.OFF)
   @Transactional
   public void retryEmail(UUID id, Command command) {
-    requireDelivery("retry_delivery");
+    requireDelivery(PlatformPermissions.Notifications.Retry_delivery.permission());
     var e =
         entries
             .lock(id)
@@ -176,7 +177,7 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
       throw new InvalidStateException("This notification email cannot retry.");
     if (e.getPurpose() == Purpose.MARKETING
         && !PermissionGuard.has(
-            new Permission("platform.customer_communications.publish_marketing")))
+            PlatformPermissions.Customer_communications.Publish_marketing.permission()))
       throw new ForbiddenException("Marketing publication requires its own permission.");
     e.getDelivery().retry();
     e.setNextEmailAttemptAt(clock.instant());
@@ -192,13 +193,13 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
             && (e.getKind() == Kind.WARNING || e.getKind() == Kind.ACTION));
   }
 
-  private void requireDelivery(String action) {
-    if (!PermissionGuard.has(new Permission("platform.notifications." + action)))
+  private void requireDelivery(Permission permission) {
+    if (!PermissionGuard.has(permission))
       throw new ForbiddenException("Notification delivery permission required.");
   }
 
   private void requireRead() {
-    if (!PermissionGuard.has(new Permission("platform.notifications.read")))
+    if (!PermissionGuard.has(PlatformPermissions.Notifications.Read.permission()))
       throw new ForbiddenException("Notification read permission required.");
   }
 }

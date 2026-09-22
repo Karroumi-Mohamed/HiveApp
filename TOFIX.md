@@ -613,7 +613,7 @@ Admins can expose unfinished plans, edit something intended as immutable history
 
 The final read audit found gaps beyond the locally verified happy paths in COMMUNICATION-002. Fix each item in a separate tested commit, in dependency order; preserve tenant/source authorization and existing commercial consent boundaries.
 
-- [ ] **AUTH-1 — Typed permission references:** replace handwritten notification permission paths and concatenated guards with generated Permissionizer references; retain paths only at persistence/API boundaries.
+- [x] **AUTH-1 — Typed permission references:** notification definitions/guards use generated Permissionizer references; strings remain at persistence/API boundaries. Generated large-map type arguments are explicit to avoid javac inference stalls when consuming the generated tree. Verified 29 notification/publication tests, the Permissionizer suite and a 150-action same-compilation regression.
 - [ ] **AUTH-2 — Explicit manual enforcement:** standardize methods that reuse an existing permission with automatic guarding disabled, and test every exposed notification operation's enforcement.
 - [ ] **AUTH-3 — Registry validation:** reject notification definitions with unknown/unregistered required permissions instead of silently hiding every resulting item.
 - [ ] **AUTH-4 — Mandatory policy ordering:** pin real fail-closed restriction-before-grant behavior; Permissionizer is first-decision-wins, not global deny-overrides. Keep runtime/plan restrictions and recipient-specific context intact.

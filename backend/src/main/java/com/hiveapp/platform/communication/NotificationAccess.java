@@ -11,6 +11,7 @@ import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.security.context.*;
 import dev.karroumi.permissionizer.*;
 import java.util.*;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -108,9 +109,9 @@ public class NotificationAccess {
     var context =
         new HiveAppPermissionContext(
             user.getId(), account, account, entry.getCompanyId(), null, false);
-    String read =
-        account == null ? "platform.notifications.read" : "platform.workspace.read_communications";
-    if (!PermissionGuard.has(new Permission(read), context)
+    Permission read =
+        account == null ? PlatformPermissions.Notifications.Read.permission() : PlatformPermissions.Workspace.Read_communications.permission();
+    if (!PermissionGuard.has(read, context)
         || (entry.getRequiredPermission() != null
             && !PermissionGuard.has(new Permission(entry.getRequiredPermission()), context)))
       return Optional.empty();

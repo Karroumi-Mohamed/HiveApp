@@ -8,6 +8,17 @@ import org.junit.jupiter.api.Test;
 
 class NotificationCatalogTest {
   @Test
+  void coreNotificationsUseGeneratedPermissionReferences() {
+    var declared = java.util.Arrays.stream(
+            com.hiveapp.platform.generated.PlatformPermissions.all())
+        .map(dev.karroumi.permissionizer.Permission::path).toList();
+    for (var definition : CoreNotification.values()) {
+      if (definition.requiredPermission() != null)
+        assertThat(declared).contains(definition.requiredPermission().path());
+    }
+  }
+
+  @Test
   void futureTaskProducerCanRegisterWithoutInventingAChatOrTaskStore() {
     var task =
         new NotificationDefinition() {
@@ -23,8 +34,8 @@ class NotificationCatalogTest {
             return Kind.ACTION;
           }
 
-          public String requiredPermission() {
-            return "business.tasks.read";
+          public dev.karroumi.permissionizer.Permission requiredPermission() {
+            return new dev.karroumi.permissionizer.Permission("business.tasks.read");
           }
         };
     assertThat(new NotificationCatalog(List.of(task)).require("tasks.assigned")).isSameAs(task);
@@ -52,8 +63,8 @@ class NotificationCatalogTest {
             return true;
           }
 
-          public String requiredPermission() {
-            return "business.tasks.read";
+          public dev.karroumi.permissionizer.Permission requiredPermission() {
+            return new dev.karroumi.permissionizer.Permission("business.tasks.read");
           }
         };
     assertThatThrownBy(() -> new NotificationCatalog(List.of(unsafe)))

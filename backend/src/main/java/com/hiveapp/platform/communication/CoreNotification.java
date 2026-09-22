@@ -3,62 +3,64 @@ package com.hiveapp.platform.communication;
 import static com.hiveapp.platform.communication.CommunicationModels.*;
 
 import java.util.UUID;
+import com.hiveapp.platform.generated.PlatformPermissions;
+import dev.karroumi.permissionizer.Permission;
 
 /** Presentation and permission requirements are fixed by the business event, never its sender. */
 public enum CoreNotification implements NotificationDefinition {
   INTERNAL_INFORMATION("account.information", Topic.ACCOUNT, Kind.NOTICE, null, null),
   MEMBER_CREATED(
-      "account.member_created", Topic.ACCOUNT, Kind.NOTICE, "platform.staff.read", "/app/members"),
+      "account.member_created", Topic.ACCOUNT, Kind.NOTICE, PlatformPermissions.Staff.Read.permission(), "/app/members"),
   MEMBER_ACCESS_CHANGED(
       "account.member_access_changed",
       Topic.ACCOUNT,
       Kind.NOTICE,
-      "platform.staff.read",
+      PlatformPermissions.Staff.Read.permission(),
       "/app/members"),
   B2B_REQUEST(
       "collaboration.requested",
       Topic.COLLABORATION,
       Kind.ACTION,
-      "platform.b2b.read_detail",
+      PlatformPermissions.B2b.Read_detail.permission(),
       "/app/collaborations/"),
   B2B_CHANGED(
       "collaboration.changed",
       Topic.COLLABORATION,
       Kind.NOTICE,
-      "platform.b2b.read_detail",
+      PlatformPermissions.B2b.Read_detail.permission(),
       "/app/collaborations/"),
   PAYMENT_RECEIVED(
       "billing.payment_received",
       Topic.BILLING,
       Kind.NOTICE,
-      "platform.subscription.read_invoice_document",
+      PlatformPermissions.Subscription.Read_invoice_document.permission(),
       "/app/subscription/invoices/"),
   PAYMENT_FAILED(
       "billing.payment_failed",
       Topic.BILLING,
       Kind.WARNING,
-      "platform.subscription.read_invoice_document",
+      PlatformPermissions.Subscription.Read_invoice_document.permission(),
       "/app/subscription/invoices/"),
   BILLING_ATTENTION(
       "operations.billing_attention",
       Topic.OPERATIONS,
       Kind.WARNING,
-      "platform.billing.read_invoice",
+      PlatformPermissions.Billing.Read_invoice.permission(),
       "/admin/billing/invoices/"),
   OFFER_AVAILABLE(
       "commercial.offer_available",
       Topic.COMMERCIAL,
       Kind.OFFER,
-      "platform.subscription.offer_detail",
+      PlatformPermissions.Subscription.Offer_detail.permission(),
       "/app/offers/");
 
   private final String key;
   private final Topic topic;
   private final Kind kind;
-  private final String permission;
+  private final Permission permission;
   private final String path;
 
-  CoreNotification(String key, Topic topic, Kind kind, String permission, String path) {
+  CoreNotification(String key, Topic topic, Kind kind, Permission permission, String path) {
     this.key = key;
     this.topic = topic;
     this.kind = kind;
@@ -78,7 +80,7 @@ public enum CoreNotification implements NotificationDefinition {
     return kind;
   }
 
-  public String requiredPermission() {
+  public Permission requiredPermission() {
     return permission;
   }
 

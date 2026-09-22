@@ -408,7 +408,7 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
             return Kind.ACTION;
           }
 
-          public String requiredPermission() {
+          public dev.karroumi.permissionizer.Permission requiredPermission() {
             return null;
           }
         };

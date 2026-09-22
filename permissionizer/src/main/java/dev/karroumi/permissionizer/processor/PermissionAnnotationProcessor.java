@@ -850,13 +850,15 @@ public class PermissionAnnotationProcessor extends AbstractProcessor {
             out.println();
             out.println(indent + "    );");
         } else {
-            out.println(indent + "    return Map.ofEntries(");
+            // Explicit type arguments keep javac inference bounded for large catalogues,
+            // including when application sources reference the generated tree in this round.
+            out.println(indent + "    return Map.<String, String>ofEntries(");
             boolean first = true;
             for (var entry : descriptions.entrySet()) {
                 if (!first) {
                     out.println(",");
                 }
-                out.print(indent + "        Map.entry(\"" + entry.getKey()
+                out.print(indent + "        Map.<String, String>entry(\"" + entry.getKey()
                         + "\", \"" + escapeJava(entry.getValue()) + "\")");
                 first = false;
             }

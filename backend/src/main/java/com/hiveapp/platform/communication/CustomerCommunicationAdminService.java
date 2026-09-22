@@ -3,6 +3,7 @@ package com.hiveapp.platform.communication;
 import static com.hiveapp.platform.communication.CommunicationModels.*;
 
 import com.hiveapp.platform.registry.definition.*;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
 import dev.karroumi.permissionizer.PermissionNode;
 import java.util.*;
@@ -36,7 +37,7 @@ public class CustomerCommunicationAdminService extends PlatformControlFeatureSer
   @PermissionNode(key = "internal_detail", guard = PermissionNode.Guard.OFF)
   public Publication detail(UUID id) {
     if (!dev.karroumi.permissionizer.PermissionGuard.has(
-        new dev.karroumi.permissionizer.Permission("platform.customer_communications.read")))
+        PlatformPermissions.Customer_communications.Read.permission()))
       throw new com.hiveapp.shared.exception.ForbiddenException(
           "Communication read permission is required.");
     return service.publication(id);
@@ -52,8 +53,7 @@ public class CustomerCommunicationAdminService extends PlatformControlFeatureSer
   @PermissionNode(key = "internal_selected_recipients", guard = PermissionNode.Guard.OFF)
   public List<AccountChoice> selectedRecipients(UUID id) {
     if (!dev.karroumi.permissionizer.PermissionGuard.has(
-        new dev.karroumi.permissionizer.Permission(
-            "platform.customer_communications.choose_recipients")))
+        PlatformPermissions.Customer_communications.Choose_recipients.permission()))
       throw new com.hiveapp.shared.exception.ForbiddenException(
           "Recipient selection permission is required.");
     return service.selectedRecipients(id);

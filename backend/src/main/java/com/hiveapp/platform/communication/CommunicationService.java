@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialNoticeRead;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialNoticeReadRepository;
 import com.hiveapp.shared.exception.*;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import dev.karroumi.permissionizer.*;
 import jakarta.persistence.criteria.Predicate;
@@ -54,7 +55,7 @@ public class CommunicationService {
   private void marketing(Purpose purpose) {
     if (purpose == Purpose.MARKETING
         && !PermissionGuard.has(
-            new Permission("platform.customer_communications.publish_marketing")))
+            PlatformPermissions.Customer_communications.Publish_marketing.permission()))
       throw new ForbiddenException("Marketing publication requires its own permission.");
   }
 
@@ -76,7 +77,7 @@ public class CommunicationService {
   }
 
   private void assign(CommunicationPublication p, Draft d) {
-    if (!PermissionGuard.has(new Permission("platform.customer_communications.choose_recipients")))
+    if (!PermissionGuard.has(PlatformPermissions.Customer_communications.Choose_recipients.permission()))
       throw new ForbiddenException("Recipient selection permission is required.");
     if (d.kind() == Kind.WARNING && d.purpose() == Purpose.MARKETING)
       throw new InvalidRequestException("Marketing cannot be a warning.");
@@ -140,7 +141,7 @@ public class CommunicationService {
         e.setTopic(Topic.COMMERCIAL);
         e.setEventType(CoreNotification.OFFER_AVAILABLE.key());
         e.setResourceId(p.getOfferId());
-        e.setRequiredPermission(CoreNotification.OFFER_AVAILABLE.requiredPermission());
+        e.setRequiredPermission(CoreNotification.OFFER_AVAILABLE.requiredPermission().path());
         e.setActionPath(CoreNotification.OFFER_AVAILABLE.actionPath(p.getOfferId()));
       }
       e.getDelivery().publish(clock.instant(), p.isEmail());
@@ -601,7 +602,7 @@ public class CommunicationService {
 
   private void validateOffer(CommunicationPublication p) {
     if (p.getOfferId() == null) return;
-    if (!PermissionGuard.has(new Permission("platform.offers.read")))
+    if (!PermissionGuard.has(PlatformPermissions.Offers.Read.permission()))
       throw new ForbiddenException("Offer read permission is required.");
     if (p.getAccountIds().size() > 100)
       throw new InvalidRequestException(

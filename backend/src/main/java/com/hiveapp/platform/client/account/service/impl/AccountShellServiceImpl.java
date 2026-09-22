@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.UUID;
 import com.hiveapp.platform.communication.CommunicationModels.*;
 import com.hiveapp.platform.communication.CommunicationService;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import org.springframework.data.domain.*;
 
 @Service
@@ -59,7 +60,7 @@ public class AccountShellServiceImpl extends ClientWorkspaceFeatureService imple
     @Transactional
     @PermissionNode(key = "send_notification", description = "Send one-way information to selected own-account members")
     public void sendInternalNotification(InternalNotice notice) {
-        if (!dev.karroumi.permissionizer.PermissionGuard.has(new dev.karroumi.permissionizer.Permission("platform.workspace.choose_notification_recipients")))
+        if (!dev.karroumi.permissionizer.PermissionGuard.has(PlatformPermissions.Workspace.Choose_notification_recipients.permission()))
             throw new ForbiddenException("Notification recipient selection permission is required.");
         internalNotifications.send(notice);
     }
@@ -125,7 +126,7 @@ public class AccountShellServiceImpl extends ClientWorkspaceFeatureService imple
 
     private void requireCommunicationRead() {
         if (!dev.karroumi.permissionizer.PermissionGuard.has(
-                new dev.karroumi.permissionizer.Permission("platform.workspace.read_communications"))) {
+                PlatformPermissions.Workspace.Read_communications.permission())) {
             throw new ForbiddenException("Reading communications is required.");
         }
     }

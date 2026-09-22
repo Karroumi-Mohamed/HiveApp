@@ -136,4 +136,30 @@ class PermissionAnnotationProcessorTest {
             throw new IllegalStateException(exception);
         }
     }
+
+    @Test
+    @org.junit.jupiter.api.Timeout(30)
+    void largeCatalogueCanBeReferencedInTheSameCompilation() throws IOException {
+        Path source = tempDir.resolve("sample/LargeService.java");
+        Files.createDirectories(source.getParent());
+        StringBuilder body = new StringBuilder("package sample; import dev.karroumi.permissionizer.*; @PermissionNode(key=\"service\") public class LargeService {\n");
+        for (int i = 0; i < 150; i++) {
+            body.append("@PermissionNode(key=\"read_").append(i).append("\", description=\"Read\") public void read_").append(i).append("() {}\n");
+        }
+        body.append("public Permission reference() { return sample.generated.ServicePermissions.Read_0.permission(); } }");
+        Files.writeString(source, body);
+        Path classes = Files.createDirectories(tempDir.resolve("large-classes"));
+        Path generated = Files.createDirectories(tempDir.resolve("large-generated"));
+        var compiler = ToolProvider.getSystemJavaCompiler();
+        var diagnostics = new DiagnosticCollector<JavaFileObject>();
+        try (var files = compiler.getStandardFileManager(diagnostics, null, null)) {
+            var task = compiler.getTask(null, files, diagnostics,
+                    List.of("-classpath", System.getProperty("java.class.path"), "-d", classes.toString(), "-s", generated.toString()),
+                    null, files.getJavaFileObjects(source.toFile()));
+            task.setProcessors(List.of(new PermissionAnnotationProcessor()));
+            assertTrue(task.call(), () -> diagnostics.getDiagnostics().toString());
+        }
+        assertTrue(readUnchecked(generated.resolve("sample/generated/ServicePermissions.java"))
+                .contains("Map.<String, String>ofEntries"));
+    }
 }

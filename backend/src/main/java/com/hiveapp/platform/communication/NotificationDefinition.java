@@ -12,7 +12,7 @@ public interface NotificationDefinition {
 
   Kind kind();
 
-  String requiredPermission();
+  dev.karroumi.permissionizer.Permission requiredPermission();
 
   default Purpose purpose() {
     return Purpose.SERVICE;

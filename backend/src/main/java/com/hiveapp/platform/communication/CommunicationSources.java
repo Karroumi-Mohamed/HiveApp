@@ -6,6 +6,7 @@ import com.hiveapp.platform.client.plan.domain.entity.*;
 import com.hiveapp.platform.client.plan.domain.repository.*;
 import dev.karroumi.permissionizer.*;
 import java.util.*;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,16 +21,16 @@ public class CommunicationSources {
   private final NotificationCatalog catalog;
 
   public List<String> allowedPermissions() {
-    return java.util.stream.Stream.concat(
-            List.of(
-                "platform.subscription.read_content_notices",
-                "platform.subscription.read_price_notices")
-                .stream(),
-            catalog.all().stream()
-                .map(NotificationDefinition::requiredPermission)
-                .filter(Objects::nonNull))
+    List<Permission> permissions = new ArrayList<>();
+    permissions.add(PlatformPermissions.Subscription.Read_content_notices.permission());
+    permissions.add(PlatformPermissions.Subscription.Read_price_notices.permission());
+    for (var definition : catalog.all()) {
+      if (definition.requiredPermission() != null) permissions.add(definition.requiredPermission());
+    }
+    return permissions.stream()
         .distinct()
-        .filter(p -> PermissionGuard.has(new Permission(p)))
+        .filter(PermissionGuard::has)
+        .map(Permission::path)
         .toList();
   }
 
@@ -44,7 +45,7 @@ public class CommunicationSources {
     e.setTopic(Topic.COMMERCIAL);
     e.setMessageTitle(notice.getPlanName());
     e.setMessageBody("V" + notice.getSourceVersion() + " → V" + notice.getTargetVersion());
-    e.setRequiredPermission("platform.subscription.read_content_notices");
+    e.setRequiredPermission(PlatformPermissions.Subscription.Read_content_notices.path());
     e.setActionPath("/app/subscription?tab=notices");
     e.setAvailableAt(notice.getDelivery().getCreatedAt());
     e.getDelivery().publish(e.getAvailableAt(), false);
@@ -63,7 +64,7 @@ public class CommunicationSources {
     e.setTopic(Topic.BILLING);
     e.setMessageTitle("Tarif de votre abonnement");
     e.setMessageBody("Un changement de tarif a été préparé. Consultez son état et ses conditions.");
-    e.setRequiredPermission("platform.subscription.read_price_notices");
+    e.setRequiredPermission(PlatformPermissions.Subscription.Read_price_notices.path());
     e.setActionPath("/app/subscription?tab=notices");
     e.setAvailableAt(notice.getNoticeCreatedAt());
     e.getDelivery().publish(e.getAvailableAt(), false);
