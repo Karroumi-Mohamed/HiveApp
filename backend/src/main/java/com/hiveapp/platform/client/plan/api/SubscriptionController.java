@@ -2,19 +2,22 @@ package com.hiveapp.platform.client.plan.api;
 
 import com.hiveapp.platform.client.account.dto.AccountBillingProfileModels;
 import com.hiveapp.platform.client.plan.domain.constant.BillingTimelineEntryType;
+import com.hiveapp.platform.client.plan.dto.BillingModels;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
 import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.ClientSubscriptionChangePreviewResponse;
+import com.hiveapp.platform.client.plan.dto.SpecialAgreementModels;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
-import com.hiveapp.platform.client.plan.dto.SpecialAgreementModels;
-import com.hiveapp.platform.client.plan.dto.BillingModels;
 import com.hiveapp.platform.client.plan.service.SubscriptionService;
 import com.hiveapp.shared.api.PageResponse;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import jakarta.validation.Valid;
+import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -29,163 +32,215 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
-import java.util.Map;
-import java.util.UUID;
-
 @RestController
 @RequestMapping("/api/v1/subscriptions")
 @RequiredArgsConstructor
 public class SubscriptionController {
 
-    private static final Map<String, String> CHANGE_OPERATION_SORTS = Map.of(
-            "createdAt", "createdAt",
-            "effectiveAt", "effectiveAt",
-            "status", "status",
-            "timing", "timing");
-    private static final Map<String, String> INVOICE_SORTS = Map.of(
-            "issuedAt", "issuedAt",
-            "invoiceNumber", "invoiceNumber",
-            "status", "status",
-            "amount", "totalAmount");
+  private static final Map<String, String> CHANGE_OPERATION_SORTS =
+      Map.of(
+          "createdAt", "createdAt",
+          "effectiveAt", "effectiveAt",
+          "status", "status",
+          "timing", "timing");
+  private static final Map<String, String> INVOICE_SORTS =
+      Map.of(
+          "issuedAt", "issuedAt",
+          "invoiceNumber", "invoiceNumber",
+          "status", "status",
+          "amount", "totalAmount");
 
-    private final SubscriptionService subscriptionService;
+  private final SubscriptionService subscriptionService;
 
-    @GetMapping("/notices")
-    public PageResponse<com.hiveapp.platform.client.plan.dto.RepricingModels.Notice> notices(
-            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
-        var context = HiveAppContextHolder.getContext();
-        return PageResponse.from(subscriptionService.listMyPriceNotices(context.currentAccountId(), context.actorUserId(),
-                CommercialProductPageRequest.of(page, size, "createdAt", "desc", Map.of("createdAt", "createdAt"), "createdAt", Sort.Direction.DESC)));
-    }
-    @PostMapping("/notices/{id}/read") @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void readNotice(@PathVariable UUID id) {
-        var context = HiveAppContextHolder.getContext();
-        subscriptionService.markPriceNoticeRead(context.currentAccountId(), context.actorUserId(), id);
-    }
+  @GetMapping("/notices")
+  public PageResponse<com.hiveapp.platform.client.plan.dto.RepricingModels.Notice> notices(
+      @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+    var context = HiveAppContextHolder.getContext();
+    return PageResponse.from(
+        subscriptionService.listMyPriceNotices(
+            context.currentAccountId(),
+            context.actorUserId(),
+            CommercialProductPageRequest.of(
+                page,
+                size,
+                "createdAt",
+                "desc",
+                Map.of("createdAt", "createdAt"),
+                "createdAt",
+                Sort.Direction.DESC)));
+  }
 
-    @GetMapping("/me")
-    public SubscriptionDto getMySubscription() {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionService.getMySubscription(accountId);
-    }
+  @PostMapping("/notices/{id}/read")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void readNotice(@PathVariable UUID id) {
+    var context = HiveAppContextHolder.getContext();
+    subscriptionService.markPriceNoticeRead(context.currentAccountId(), context.actorUserId(), id);
+  }
 
-    @GetMapping("/agreements")
-    public PageResponse<SpecialAgreementModels.ClientView> agreements(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return PageResponse.from(subscriptionService.listMySpecialAgreements(
+  @GetMapping("/content-notices")
+  public PageResponse<com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Notice>
+      contentNotices(
+          @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+    var context = HiveAppContextHolder.getContext();
+    return PageResponse.from(
+        subscriptionService.listMyContentNotices(
+            context.currentAccountId(),
+            context.actorUserId(),
+            CommercialProductPageRequest.of(
+                page,
+                size,
+                "createdAt",
+                "desc",
+                Map.of("createdAt", "createdAt"),
+                "createdAt",
+                Sort.Direction.DESC)));
+  }
+
+  @PostMapping("/content-notices/{id}/read")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void readContentNotice(@PathVariable UUID id) {
+    var context = HiveAppContextHolder.getContext();
+    subscriptionService.markContentNoticeRead(
+        context.currentAccountId(), context.actorUserId(), id);
+  }
+
+  @GetMapping("/me")
+  public SubscriptionDto getMySubscription() {
+    UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+    return subscriptionService.getMySubscription(accountId);
+  }
+
+  @GetMapping("/agreements")
+  public PageResponse<SpecialAgreementModels.ClientView> agreements(
+      @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+    UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+    return PageResponse.from(
+        subscriptionService.listMySpecialAgreements(
+            accountId,
+            CommercialProductPageRequest.of(
+                page,
+                size,
+                "createdAt",
+                "desc",
+                Map.of("createdAt", "createdAt"),
+                "createdAt",
+                Sort.Direction.DESC)));
+  }
+
+  @GetMapping("/catalog")
+  public ClientPlanCatalogResponse catalog() {
+    UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+    return subscriptionService.catalog(accountId);
+  }
+
+  @PostMapping("/preview")
+  public ClientSubscriptionChangePreviewResponse preview(
+      @Valid @RequestBody SubscriptionChangeRequest request) {
+    var context = HiveAppContextHolder.getContext();
+    return ClientSubscriptionChangePreviewResponse.from(
+        subscriptionService.previewChange(
+            context.currentAccountId(), context.actorUserId(), request));
+  }
+
+  @PostMapping("/apply")
+  @ResponseStatus(HttpStatus.CREATED)
+  public ClientSubscriptionChangeApplyResponse apply(
+      @Valid @RequestBody SubscriptionChangeApplyRequest request) {
+    var context = HiveAppContextHolder.getContext();
+    return ClientSubscriptionChangeApplyResponse.from(
+        subscriptionService.applyChange(
+            context.currentAccountId(), context.actorUserId(), request));
+  }
+
+  @GetMapping("/changes")
+  public PageResponse<ClientSubscriptionChangeOperationDto> changes(
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(required = false) String sort,
+      @RequestParam(required = false) String direction) {
+    UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+    return PageResponse.from(
+        subscriptionService
+            .listChangeOperations(
                 accountId,
                 CommercialProductPageRequest.of(
-                        page, size, "createdAt", "desc", Map.of("createdAt", "createdAt"),
-                        "createdAt", Sort.Direction.DESC)));
-    }
+                    page,
+                    size,
+                    sort,
+                    direction,
+                    CHANGE_OPERATION_SORTS,
+                    "createdAt",
+                    Sort.Direction.DESC))
+            .map(ClientSubscriptionChangeOperationDto::from));
+  }
 
-    @GetMapping("/catalog")
-    public ClientPlanCatalogResponse catalog() {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionService.catalog(accountId);
-    }
+  @DeleteMapping("/changes/{operationId}")
+  public ClientSubscriptionChangeOperationDto cancelChange(@PathVariable UUID operationId) {
+    var context = HiveAppContextHolder.getContext();
+    return ClientSubscriptionChangeOperationDto.from(
+        subscriptionService.cancelPendingChange(
+            context.currentAccountId(), operationId, context.actorUserId()));
+  }
 
-    @PostMapping("/preview")
-    public ClientSubscriptionChangePreviewResponse preview(
-            @Valid @RequestBody SubscriptionChangeRequest request
-    ) {
-        var context = HiveAppContextHolder.getContext();
-        return ClientSubscriptionChangePreviewResponse.from(subscriptionService.previewChange(
-                context.currentAccountId(), context.actorUserId(), request));
-    }
+  @GetMapping("/invoices")
+  public PageResponse<BillingModels.InvoiceRow> invoices(
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(required = false) String sort,
+      @RequestParam(required = false) String direction) {
+    UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+    return PageResponse.from(
+        subscriptionService.invoiceHistory(
+            accountId,
+            CommercialProductPageRequest.of(
+                page, size, sort, direction, INVOICE_SORTS, "issuedAt", Sort.Direction.DESC)));
+  }
 
-    @PostMapping("/apply")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ClientSubscriptionChangeApplyResponse apply(
-            @Valid @RequestBody SubscriptionChangeApplyRequest request) {
-        var context = HiveAppContextHolder.getContext();
-        return ClientSubscriptionChangeApplyResponse.from(subscriptionService.applyChange(
-                context.currentAccountId(), context.actorUserId(), request));
-    }
+  @GetMapping("/invoices/{invoiceId}")
+  public BillingModels.ClientInvoiceDetail invoice(@PathVariable UUID invoiceId) {
+    UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+    return subscriptionService.invoice(accountId, invoiceId);
+  }
 
-    @GetMapping("/changes")
-    public PageResponse<ClientSubscriptionChangeOperationDto> changes(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String sort,
-            @RequestParam(required = false) String direction
-    ) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return PageResponse.from(subscriptionService.listChangeOperations(
-                accountId,
-                CommercialProductPageRequest.of(
-                        page, size, sort, direction, CHANGE_OPERATION_SORTS,
-                        "createdAt", Sort.Direction.DESC))
-                .map(ClientSubscriptionChangeOperationDto::from));
-    }
+  @GetMapping("/invoices/{invoiceId}/document")
+  public BillingModels.InvoiceDocument invoiceDocument(@PathVariable UUID invoiceId) {
+    UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+    return subscriptionService.invoiceDocument(accountId, invoiceId);
+  }
 
-    @DeleteMapping("/changes/{operationId}")
-    public ClientSubscriptionChangeOperationDto cancelChange(@PathVariable UUID operationId) {
-        var context = HiveAppContextHolder.getContext();
-        return ClientSubscriptionChangeOperationDto.from(subscriptionService.cancelPendingChange(
-                context.currentAccountId(), operationId, context.actorUserId()));
+  @GetMapping("/financial-timeline")
+  public PageResponse<BillingModels.FinancialTimelineEntry> financialTimeline(
+      @RequestParam(required = false) BillingTimelineEntryType type,
+      @RequestParam(required = false) String currencyCode,
+      @RequestParam(required = false) Instant occurredFrom,
+      @RequestParam(required = false) Instant occurredUntil,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size) {
+    if (page < 0 || size < 1 || size > 100) {
+      throw new com.hiveapp.shared.exception.InvalidRequestException(
+          "Timeline page must be non-negative and size must be between 1 and 100.");
     }
+    UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+    return PageResponse.from(
+        subscriptionService.financialTimeline(
+            accountId,
+            type,
+            currencyCode,
+            occurredFrom,
+            occurredUntil,
+            org.springframework.data.domain.PageRequest.of(page, size)));
+  }
 
-    @GetMapping("/invoices")
-    public PageResponse<BillingModels.InvoiceRow> invoices(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String sort,
-            @RequestParam(required = false) String direction
-    ) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return PageResponse.from(subscriptionService.invoiceHistory(
-                accountId,
-                CommercialProductPageRequest.of(
-                        page, size, sort, direction, INVOICE_SORTS,
-                        "issuedAt", Sort.Direction.DESC)));
-    }
+  @GetMapping("/billing-profile")
+  public AccountBillingProfileModels.Profile billingProfile() {
+    UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+    return subscriptionService.billingProfile(accountId);
+  }
 
-    @GetMapping("/invoices/{invoiceId}")
-    public BillingModels.ClientInvoiceDetail invoice(@PathVariable UUID invoiceId) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionService.invoice(accountId, invoiceId);
-    }
-
-    @GetMapping("/invoices/{invoiceId}/document")
-    public BillingModels.InvoiceDocument invoiceDocument(@PathVariable UUID invoiceId) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionService.invoiceDocument(accountId, invoiceId);
-    }
-
-    @GetMapping("/financial-timeline")
-    public PageResponse<BillingModels.FinancialTimelineEntry> financialTimeline(
-            @RequestParam(required = false) BillingTimelineEntryType type,
-            @RequestParam(required = false) String currencyCode,
-            @RequestParam(required = false) Instant occurredFrom,
-            @RequestParam(required = false) Instant occurredUntil,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
-    ) {
-        if (page < 0 || size < 1 || size > 100) {
-            throw new com.hiveapp.shared.exception.InvalidRequestException(
-                    "Timeline page must be non-negative and size must be between 1 and 100.");
-        }
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return PageResponse.from(subscriptionService.financialTimeline(
-                accountId, type, currencyCode, occurredFrom, occurredUntil,
-                org.springframework.data.domain.PageRequest.of(page, size)));
-    }
-
-    @GetMapping("/billing-profile")
-    public AccountBillingProfileModels.Profile billingProfile() {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionService.billingProfile(accountId);
-    }
-
-    @PutMapping("/billing-profile")
-    public AccountBillingProfileModels.Profile updateBillingProfile(
-            @Valid @RequestBody AccountBillingProfileModels.UpdateRequest request
-    ) {
-        UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
-        return subscriptionService.updateBillingProfile(accountId, request);
-    }
+  @PutMapping("/billing-profile")
+  public AccountBillingProfileModels.Profile updateBillingProfile(
+      @Valid @RequestBody AccountBillingProfileModels.UpdateRequest request) {
+    UUID accountId = HiveAppContextHolder.getContext().currentAccountId();
+    return subscriptionService.updateBillingProfile(accountId, request);
+  }
 }

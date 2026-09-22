@@ -27,6 +27,8 @@ public class PlanVersionRolloutWorker {
   private final PlanVersionApplicationAssessor assessor;
   private final PlanVersionApplicationOperations executor;
   private final PlanVersionRolloutOperations rollouts;
+  private final PlanContentNoticeService notices;
+  private final PlanContentNoticeRepository noticeRepository;
   private final AdminMutationAuthorizer actors;
   private final CommercialCatalogVersionService catalogue;
   private final RegistryCatalogVersionService registry;
@@ -63,10 +65,23 @@ public class PlanVersionRolloutWorker {
         var assessment =
             assessor.assess(
                 current, target, job.getContentDefinition().request().application(), now);
+        var conflicts = new ArrayList<>(assessment.conflicts());
+        if (job.getContentDefinition().request().notificationPolicy()
+                == PlanContentNoticeModels.Policy.EMAIL_REQUIRED
+            && (current.getAccount().getOwner() == null
+                || !current.getAccount().getOwner().isEmailVerified()))
+          conflicts.add(
+              new SubscriptionChangeConflict(
+                  "NOTICE_RECIPIENT_UNVERIFIED",
+                  null,
+                  null,
+                  null,
+                  null,
+                  "A verified Account-owner email is required by this notification policy."));
         item.assessContent(
             new PlanVersionRolloutModels.Assessment(
                 assessment.reviewed(),
-                assessment.conflicts(),
+                conflicts,
                 assessment.beforeLimits(),
                 assessment.afterLimits(),
                 assessment.removedFeatures()),
@@ -117,6 +132,45 @@ public class PlanVersionRolloutWorker {
     if (item.getNextAttemptAt() != null && item.getNextAttemptAt().isAfter(clock.instant())) return;
     actors.requireBackgroundPermission(
         job.getRequestedByUserId(), "platform.plans.confirm_version_rollout");
+    actors.requireBackgroundPermission(
+        job.getRequestedByUserId(), PlanVersionRolloutOperations.APPLY);
+    actors.requireBackgroundPermission(
+        job.getRequestedByUserId(), PlanVersionRolloutOperations.PREVIEW);
+    accounts.findByIdForSubscriptionUpdate(item.getAccount().getId()).orElseThrow();
+    var reviewed = item.getContentAssessment().reviewed();
+    var notice =
+        notices.publish(
+            itemId,
+            jobId,
+            job.getContentDefinition().request().notificationPolicy(),
+            reviewed,
+            PlanVersionApplicationOperations.plannedAt(
+                reviewed.request(), reviewed.periodEnd(), job.getConfirmedAt()));
+    if (notice.getPolicy() == PlanContentNoticeModels.Policy.EMAIL_REQUIRED) {
+      var delivery = notice.getDelivery().getDelivery();
+      if (delivery == RepricingModels.Delivery.PENDING
+          || delivery == RepricingModels.Delivery.SENDING) {
+        item.waitForContent(clock.instant(), clock.instant().plusSeconds(30));
+        items.saveAndFlush(item);
+        return;
+      }
+      var owner = item.getAccount().getOwner();
+      String conflictCode =
+          delivery != RepricingModels.Delivery.SENT
+              ? "NOTICE_REQUIRED_FAILED"
+              : owner == null || !owner.isEmailVerified()
+                  ? "NOTICE_RECIPIENT_UNVERIFIED"
+                  : !owner.getId().equals(notice.getDelivery().getRecipientId())
+                      ? "NOTICE_RECIPIENT_CHANGED"
+                      : null;
+      if (conflictCode != null) {
+        item.fail(SubscriptionChangeJobItemStatus.CONFLICT, conflictCode, clock.instant());
+        notice.conflicted();
+        noticeRepository.saveAndFlush(notice);
+        items.saveAndFlush(item);
+        return;
+      }
+    }
     var result =
         executor.executeReviewed(
             itemId, job.getRequestedByUserId(), item.getContentAssessment().reviewed());
@@ -124,7 +178,11 @@ public class PlanVersionRolloutWorker {
       case APPLIED ->
           item.succeed(
               SubscriptionChangeJobItemStatus.APPLIED, result.operationId(), clock.instant());
-      case CONFLICT -> item.rejectContent(result.conflicts(), clock.instant());
+      case CONFLICT -> {
+        item.rejectContent(result.conflicts(), clock.instant());
+        notice.conflicted();
+        noticeRepository.saveAndFlush(notice);
+      }
       case WAITING -> {
         Instant next = clock.instant().plusSeconds(60);
         var review = item.getContentAssessment().reviewed();
@@ -162,6 +220,15 @@ public class PlanVersionRolloutWorker {
     } else {
       // The Account transaction rolled back. Technical retry retains the same command ID/review.
       item.fail(SubscriptionChangeJobItemStatus.FAILED, "TECHNICAL_FAILURE", clock.instant());
+    }
+    if (item.getStatus() == SubscriptionChangeJobItemStatus.CONFLICT) {
+      noticeRepository
+          .findByCommandId(itemId)
+          .ifPresent(
+              notice -> {
+                notice.conflicted();
+                noticeRepository.save(notice);
+              });
     }
     items.saveAndFlush(item);
   }

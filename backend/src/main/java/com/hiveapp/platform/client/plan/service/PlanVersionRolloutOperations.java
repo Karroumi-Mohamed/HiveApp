@@ -31,6 +31,8 @@ public class PlanVersionRolloutOperations {
   private final SubscriptionChangeJobItemRepository items;
   private final PlanRepository plans;
   private final AccountRepository accounts;
+  private final PlanContentNoticeService notices;
+  private final PlanContentNoticeRepository noticeRepository;
   private final PlanVersionRolloutAudience audience;
   private final CommercialCatalogVersionService catalogue;
   private final RegistryCatalogVersionService registry;
@@ -113,6 +115,8 @@ public class PlanVersionRolloutOperations {
                         cb.equal(root.get("job").get("id"), jobId),
                         cb.equal(root.get("status"), status)),
             bounded(pageable));
+    var deliveries =
+        notices.deliveryViews(result.stream().map(SubscriptionChangeJobItem::getId).toList());
     return result.map(
         item ->
             new Item(
@@ -121,6 +125,7 @@ public class PlanVersionRolloutOperations {
                 item.getFrozenSubscriptionId(),
                 impact(item.getContentAssessment()),
                 item.getExecutionConflicts() == null ? List.of() : item.getExecutionConflicts(),
+                deliveries.get(item.getId()),
                 item.getSubscriptionOperationId(),
                 item.getOutcomeCode(),
                 item.getAttempts(),
@@ -183,6 +188,7 @@ public class PlanVersionRolloutOperations {
           "Another confirmed content change now targets this audience. Resolve it and review"
               + " again.");
     job.confirm(clock.instant());
+    job.prepareContentNotices(clock.instant());
     jobs.saveAndFlush(job);
     record(
         "apply_version",
@@ -212,6 +218,10 @@ public class PlanVersionRolloutOperations {
         SubscriptionChangeJobItemStatus.CANCELLED,
         "CANCELLED_BY_OPERATOR",
         clock.instant());
+    noticeRepository.cancelUnapplied(
+        jobId,
+        com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.State.CANCELLED,
+        com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.State.APPLIED);
     jobs.saveAndFlush(job);
     record("cancel_version_application", job, Map.of("reason", reason));
     return detail(job);
@@ -240,6 +250,57 @@ public class PlanVersionRolloutOperations {
         clock.instant());
     jobs.saveAndFlush(job);
     record("retry_version_application", job, Map.of("reason", reason));
+    return detail(job);
+  }
+
+  @Transactional
+  public Detail retryNotices(
+      UUID jobId, com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Retry request) {
+    UUID actor = actors.currentActorUserId();
+    actors.requireBackgroundPermission(actor, APPLY);
+    actors.requireBackgroundPermission(actor, PREVIEW);
+    var job = locked(jobId);
+    requireOwner(job, actor);
+    if (job.getStatus() == SubscriptionChangeJobStatus.CANCELLED)
+      throw new InvalidStateException("Cancelled applications cannot send new notices.");
+    if (request.noticeIds() == null
+        || request.noticeIds().isEmpty()
+        || request.noticeIds().size() > 100
+        || new HashSet<>(request.noticeIds()).size() != request.noticeIds().size())
+      throw new InvalidRequestException("Choose between 1 and 100 unique notices.");
+    var selected = noticeRepository.findAllById(request.noticeIds());
+    if (selected.size() != request.noticeIds().size()
+        || selected.stream().anyMatch(n -> !jobId.equals(n.getJobId())))
+      throw new InvalidRequestException("Some notices do not belong to this application.");
+    selected.sort(Comparator.comparing(n -> n.getAccount().getId()));
+    boolean resume = false;
+    for (var snapshot : selected) {
+      var account =
+          accounts.findByIdForSubscriptionUpdate(snapshot.getAccount().getId()).orElseThrow();
+      var notice = noticeRepository.lock(snapshot.getId()).orElseThrow();
+      var item = items.findByIdAndJobId(notice.getCommandId(), jobId).orElseThrow();
+      boolean changedRecipient =
+          "NOTICE_RECIPIENT_CHANGED".equals(item.getOutcomeCode()) && account.getOwner() != null;
+      boolean retried =
+          notice.getDelivery().retry()
+              || (changedRecipient
+                  && notice.getDelivery().retryForNewRecipient(account.getOwner().getId()));
+      if (!retried)
+        throw new InvalidStateException(
+            "Only failed/suppressed notices or a changed recipient can be retried.");
+      if (item.resumeAfterNotice(clock.instant())) {
+        notice.resumeAfterNoticeRetry();
+        resume = true;
+        items.save(item);
+      }
+      noticeRepository.save(notice);
+    }
+    if (resume) job.resumeAfterNotice(actor, request.reason(), clock.instant());
+    jobs.saveAndFlush(job);
+    record(
+        "retry_version_notices",
+        job,
+        Map.of("reason", request.reason(), "notices", selected.size()));
     return detail(job);
   }
 

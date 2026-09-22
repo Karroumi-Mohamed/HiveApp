@@ -42,12 +42,20 @@ public class PlanVersionApplicationAssessor {
     return assess(current, target, request, now, null);
   }
 
-  public Assessment assess(Subscription current, Plan target, Request request, Instant now, UUID ignoredContentCommandId) {
+  public Assessment assess(
+      Subscription current,
+      Plan target,
+      Request request,
+      Instant now,
+      UUID ignoredContentCommandId) {
     List<SubscriptionChangeConflict> conflicts = new ArrayList<>();
     var before = current.getEntitlementSnapshot();
     UUID accountId = current.getAccount().getId();
     if (contentJobs.countOtherPendingContent(accountId, ignoredContentCommandId) > 0)
-      add(conflicts, "CONTENT_CHANGE_PENDING", "Another confirmed content change targets this Account.");
+      add(
+          conflicts,
+          "CONTENT_CHANGE_PENDING",
+          "Another confirmed content change targets this Account.");
     if (!current.getAccount().isActive())
       add(conflicts, "ACCOUNT_INACTIVE", "The Account is inactive.");
     if (current.getStatus() != SubscriptionStatus.ACTIVE
@@ -85,7 +93,10 @@ public class PlanVersionApplicationAssessor {
         List.of(SubscriptionChangeStatus.PENDING, SubscriptionChangeStatus.AWAITING_CONFIRMATION)))
       add(conflicts, "OTHER_CHANGE_PENDING", "Another subscription or payment change is pending.");
     if (repricing.existsByPendingAccountId(accountId))
-      add(conflicts, "REPRICING_PENDING", "Resolve the scheduled price change before reviewing a content change.");
+      add(
+          conflicts,
+          "REPRICING_PENDING",
+          "Resolve the scheduled price change before reviewing a content change.");
 
     var built =
         rules.build(current.getPlan(), target, features.findAllByPlanId(target.getId()), before);
@@ -94,6 +105,18 @@ public class PlanVersionApplicationAssessor {
       return new Assessment(
           null, conflicts, impacts.effectiveQuotaLimits(before), List.of(), List.of());
     var after = built.snapshot();
+    if (after.features().stream()
+        .noneMatch(
+            feature ->
+                feature
+                    .featureCode()
+                    .equals(
+                        com.hiveapp.platform.registry.definition.ClientSubscriptionFeature.CODE)))
+      add(
+          conflicts,
+          "SUBSCRIPTION_PORTAL_REQUIRED",
+          "Retain subscription-management access so the Account can read its commercial notices."
+              + " This flow does not bypass Plan access controls.");
     Set<String> addOnCodes =
         before.addOns().stream().map(SubscriptionAddOnSnapshot::code).collect(Collectors.toSet());
     var packQuantities =

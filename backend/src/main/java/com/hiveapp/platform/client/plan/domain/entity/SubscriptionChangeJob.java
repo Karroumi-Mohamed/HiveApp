@@ -2,9 +2,9 @@ package com.hiveapp.platform.client.plan.domain.entity;
 
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobItemStatus;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobStatus;
+import com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeJobModels;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
-import com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -36,8 +36,12 @@ import org.hibernate.type.SqlTypes;
     name = "subscription_change_jobs",
     indexes = {
       @Index(name = "idx_subscription_change_job_due", columnList = "status,execute_at,id"),
-      @Index(name = "idx_subscription_change_job_actor", columnList = "requested_by_user_id,created_at,id"),
-      @Index(name = "idx_subscription_change_job_family", columnList = "plan_lineage_id,created_at,id")
+      @Index(
+          name = "idx_subscription_change_job_actor",
+          columnList = "requested_by_user_id,created_at,id"),
+      @Index(
+          name = "idx_subscription_change_job_family",
+          columnList = "plan_lineage_id,created_at,id")
     })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -109,7 +113,11 @@ public class SubscriptionChangeJob extends BaseEntity {
   @Column(name = "last_retry_reason", length = 2000)
   private String lastRetryReason;
 
-  @OneToMany(mappedBy = "job", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+  @OneToMany(
+      mappedBy = "job",
+      cascade = CascadeType.ALL,
+      orphanRemoval = true,
+      fetch = FetchType.LAZY)
   @Setter(AccessLevel.NONE)
   private List<SubscriptionChangeJobItem> items = new ArrayList<>();
 
@@ -136,11 +144,18 @@ public class SubscriptionChangeJob extends BaseEntity {
     return job;
   }
 
-  public boolean isContentVersion() { return contentDefinition != null; }
+  public boolean isContentVersion() {
+    return contentDefinition != null;
+  }
 
   public static SubscriptionChangeJob assessingContent(
-      UUID familyId, PlanVersionRolloutModels.Definition definition, UUID actor,
-      long catalogRevision, String registryVersion, Instant now, String fingerprint) {
+      UUID familyId,
+      PlanVersionRolloutModels.Definition definition,
+      UUID actor,
+      long catalogRevision,
+      String registryVersion,
+      Instant now,
+      String fingerprint) {
     SubscriptionChangeJob job = new SubscriptionChangeJob();
     job.contentDefinition = Objects.requireNonNull(definition);
     job.planLineageId = Objects.requireNonNull(familyId);
@@ -170,17 +185,31 @@ public class SubscriptionChangeJob extends BaseEntity {
     executeAt = Objects.requireNonNull(until);
   }
 
+  public void prepareContentNotices(Instant now) {
+    if (!isContentVersion() || confirmedAt == null)
+      throw new IllegalStateException("Only confirmed content instructions can publish notices.");
+    // Prepare notices promptly; actual application remains gated by each reviewed effective time.
+    status = SubscriptionChangeJobStatus.QUEUED;
+    executeAt = now;
+  }
+
   /** Aggregate counts are queried, never hydrate a large population to finish a job. */
   public boolean completeContent(boolean outstanding, boolean errors, Instant now) {
-    if (!isContentVersion() || status != SubscriptionChangeJobStatus.RUNNING || outstanding) return false;
-    status = errors ? SubscriptionChangeJobStatus.COMPLETED_WITH_ERRORS : SubscriptionChangeJobStatus.COMPLETED;
+    if (!isContentVersion() || status != SubscriptionChangeJobStatus.RUNNING || outstanding)
+      return false;
+    status =
+        errors
+            ? SubscriptionChangeJobStatus.COMPLETED_WITH_ERRORS
+            : SubscriptionChangeJobStatus.COMPLETED;
     completedAt = now;
     return true;
   }
 
   public void cancelContent(UUID actor, String reason, Instant now) {
-    if (!isContentVersion() || status == SubscriptionChangeJobStatus.COMPLETED
-        || status == SubscriptionChangeJobStatus.COMPLETED_WITH_ERRORS || status == SubscriptionChangeJobStatus.CANCELLED)
+    if (!isContentVersion()
+        || status == SubscriptionChangeJobStatus.COMPLETED
+        || status == SubscriptionChangeJobStatus.COMPLETED_WITH_ERRORS
+        || status == SubscriptionChangeJobStatus.CANCELLED)
       throw new IllegalStateException("Only unfinished content jobs can be cancelled.");
     status = SubscriptionChangeJobStatus.CANCELLED;
     cancelledByUserId = Objects.requireNonNull(actor);
@@ -191,7 +220,8 @@ public class SubscriptionChangeJob extends BaseEntity {
 
   public void retryContent(UUID actor, String reason, Instant now) {
     if (!isContentVersion() || status != SubscriptionChangeJobStatus.COMPLETED_WITH_ERRORS)
-      throw new IllegalStateException("Only completed content jobs with technical failures can retry.");
+      throw new IllegalStateException(
+          "Only completed content jobs with technical failures can retry.");
     lastRetriedByUserId = Objects.requireNonNull(actor);
     lastRetryReason = required(reason, "Retry reason");
     lastRetriedAt = now;
@@ -199,6 +229,21 @@ public class SubscriptionChangeJob extends BaseEntity {
     status = SubscriptionChangeJobStatus.QUEUED;
     executeAt = now;
     completedAt = null;
+  }
+
+  public void resumeAfterNotice(UUID actor, String reason, Instant now) {
+    if (!isContentVersion()
+        || confirmedAt == null
+        || status == SubscriptionChangeJobStatus.CANCELLED
+        || status == SubscriptionChangeJobStatus.COMPLETED)
+      throw new IllegalStateException("This content job cannot resume after a notice retry.");
+    lastRetriedByUserId = actor;
+    lastRetryReason = required(reason, "Retry reason");
+    lastRetriedAt = now;
+    retryCount++;
+    completedAt = null;
+    status = SubscriptionChangeJobStatus.QUEUED;
+    executeAt = now;
   }
 
   public void addItem(
@@ -217,7 +262,8 @@ public class SubscriptionChangeJob extends BaseEntity {
   }
 
   public void sealAssessment(String fingerprint) {
-    if (items.isEmpty()) throw new IllegalStateException("A subscription-change job requires targets.");
+    if (items.isEmpty())
+      throw new IllegalStateException("A subscription-change job requires targets.");
     assessmentFingerprint = required(fingerprint, "Assessment fingerprint");
   }
 
@@ -226,9 +272,10 @@ public class SubscriptionChangeJob extends BaseEntity {
       throw new IllegalStateException("Only a previewed job can be confirmed.");
     }
     confirmedAt = Objects.requireNonNull(now, "Confirmation time is required");
-    status = executeAt.isAfter(now)
-        ? SubscriptionChangeJobStatus.SCHEDULED
-        : SubscriptionChangeJobStatus.QUEUED;
+    status =
+        executeAt.isAfter(now)
+            ? SubscriptionChangeJobStatus.SCHEDULED
+            : SubscriptionChangeJobStatus.QUEUED;
   }
 
   public boolean start(Instant now) {
@@ -240,7 +287,7 @@ public class SubscriptionChangeJob extends BaseEntity {
       throw new IllegalStateException("Only a queued or scheduled job can start.");
     }
     status = SubscriptionChangeJobStatus.RUNNING;
-    startedAt = Objects.requireNonNull(now, "Start time is required");
+    if (startedAt == null) startedAt = Objects.requireNonNull(now, "Start time is required");
     return true;
   }
 
@@ -251,12 +298,16 @@ public class SubscriptionChangeJob extends BaseEntity {
     if (items.stream().anyMatch(item -> !item.getStatus().terminal())) {
       return false;
     }
-    boolean errors = items.stream().anyMatch(item ->
-        item.getStatus() == SubscriptionChangeJobItemStatus.CONFLICT
-            || item.getStatus() == SubscriptionChangeJobItemStatus.FAILED);
-    status = errors
-        ? SubscriptionChangeJobStatus.COMPLETED_WITH_ERRORS
-        : SubscriptionChangeJobStatus.COMPLETED;
+    boolean errors =
+        items.stream()
+            .anyMatch(
+                item ->
+                    item.getStatus() == SubscriptionChangeJobItemStatus.CONFLICT
+                        || item.getStatus() == SubscriptionChangeJobItemStatus.FAILED);
+    status =
+        errors
+            ? SubscriptionChangeJobStatus.COMPLETED_WITH_ERRORS
+            : SubscriptionChangeJobStatus.COMPLETED;
     completedAt = Objects.requireNonNull(now, "Completion time is required");
     return true;
   }
@@ -297,16 +348,24 @@ public class SubscriptionChangeJob extends BaseEntity {
   @PrePersist
   @PreUpdate
   void validateJob() {
-    if ((selection == null) == (contentDefinition == null) || requestedByUserId == null || executeAt == null || evaluatedAt == null
+    if ((selection == null) == (contentDefinition == null)
+        || requestedByUserId == null
+        || executeAt == null
+        || evaluatedAt == null
         || (contentDefinition != null && planLineageId == null)
-        || reason == null || reason.isBlank() || registryVersion == null || registryVersion.isBlank()
-        || assessmentFingerprint == null || assessmentFingerprint.isBlank()) {
+        || reason == null
+        || reason.isBlank()
+        || registryVersion == null
+        || registryVersion.isBlank()
+        || assessmentFingerprint == null
+        || assessmentFingerprint.isBlank()) {
       throw new IllegalStateException("Subscription-change job provenance is incomplete.");
     }
   }
 
   private static String required(String value, String label) {
-    if (value == null || value.isBlank()) throw new IllegalArgumentException(label + " is required.");
+    if (value == null || value.isBlank())
+      throw new IllegalArgumentException(label + " is required.");
     return value.trim();
   }
 }

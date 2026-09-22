@@ -638,6 +638,13 @@ Admins can change what Plan X means for future customers without a durable revis
 - Verification: the full backend suite passes **919 tests** (0 failures/errors), including 10 new rollout integration tests. Coverage includes a 251-Account frozen review (51 assessed, 200 explicitly excluded), mixed outcomes, paid-term preservation, cancellation after partial success, fixed-date/renewal waiting, stale review, concurrent duplicate workers, revoked actors and technical retry. The 100/1,000/10,000-Account performance benchmark remains a separate verification gate; batching is not itself a throughput claim.
 - Still **OPEN**: notification policy/delivery gating and client notice projection, guided frontend and subscriber presets, remaining compatibility/security/load audits and browser verification. Do not mark `PLAN-007` complete from these operational APIs alone. Production DDL must also accommodate the typed job/item columns and indexes; legacy purchase selection/assessment columns become nullable with mutually exclusive application validation.
 
+Content-notification checkpoint (2026-09-22):
+
+- Backend support now includes Account-private in-app notices, optional email and explicitly required email dispatch, using the existing durable dispatcher rather than a second scheduler. Required-dispatch failure preserves the old version; explicit retries retain delivery attempts and resume only notification-blocked instructions. Current-owner verification is rechecked, cancellations preserve applied outcomes, and read receipts are idempotent and never consent.
+- The content target must retain subscription-portal access. Removing that capability is an explicit review conflict so clients do not lose access to their own commercial notices; no runtime Plan veto is bypassed.
+- Verification: the full suite passed **923 tests**, with one opt-in benchmark skipped. A subsequent focused run passed 16 tests after adding recipient-verification rechecks and abandoned-mail lease/stale-completion coverage. Client scoping/read receipts, required-email failure/retry, optional suppressed email and cancelled future notices are covered; the frontend is not yet accepted.
+- The explicit pre-notification 100/1,000/10,000-Account benchmark passed on local H2: audience freeze **356/211/1,132 ms**, assessment **6,157/27,709/276,521 ms**, application **5,685/22,917/395,067 ms**. Scheduler passes were invoked without their normal delay. This measures the population engine before notice creation was added, not production PostgreSQL or VPS request capacity; final notice-inclusive performance remains a separate verification gate.
+
 ---
 
 ### BILLING-001 — Client self-service activates paid plans without payment or approval

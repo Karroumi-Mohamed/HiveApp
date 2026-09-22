@@ -126,6 +126,26 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
     private final SubscriptionRepository subscriptionRepository;
     private final com.hiveapp.platform.client.plan.service.SubscriptionRepricingService repricing;
 
+  private final com.hiveapp.platform.client.plan.service.PlanContentNoticeService contentNotices;
+
+  @Override
+  @PermissionNode(
+      key = "read_content_notices",
+      description = "Read own Account Plan content-change notices")
+  public Page<com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Notice>
+      listMyContentNotices(UUID accountId, UUID userId, Pageable pageable) {
+    return contentNotices.list(accountId, userId, pageable);
+  }
+
+  @Override
+  @PermissionNode(
+      key = "mark_content_notice_read",
+      description = "Mark an own Account Plan content notice as read, not as consent")
+  public void markContentNoticeRead(UUID accountId, UUID userId, UUID noticeId) {
+    contentNotices.markRead(accountId, userId, noticeId);
+  }
+
+
     @Override @PermissionNode(key = "read_price_notices", description = "Read own Account price-change notices")
     public Page<com.hiveapp.platform.client.plan.dto.RepricingModels.Notice> listMyPriceNotices(UUID accountId, UUID userId, Pageable pageable) {
         return repricing.notices(accountId, userId, pageable);

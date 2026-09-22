@@ -225,6 +225,16 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
         return versionRollouts.identities(jobId, resultIds);
     }
 
+  @Override
+  @PermissionNode(
+      key = "retry_version_notices",
+      description = "Retry failed content notices and resume only notice-blocked instructions")
+  public com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail retryVersionNotices(
+      UUID jobId, com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Retry request) {
+    return versionRollouts.retryNotices(jobId, request);
+  }
+
+
     @Override
     @Transactional(readOnly = true)
     @PermissionNode(key = "preview_version_application", description = "Review subscriber content-version changes and retained terms")

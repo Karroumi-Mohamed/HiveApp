@@ -31,14 +31,42 @@ public final class PlanVersionRolloutModels {
       @Size(max = 200) String search,
       @Pattern(regexp = "[A-Z]{3}") String currency,
       BillingCycle billingCycle,
-      @NotNull @Valid PlanVersionApplicationModels.Request application) {
+      @NotNull @Valid PlanVersionApplicationModels.Request application,
+      PlanContentNoticeModels.Policy notificationPolicy) {
     public Request {
+      notificationPolicy =
+          notificationPolicy == null ? PlanContentNoticeModels.Policy.IN_APP : notificationPolicy;
       accountIds = accountIds == null ? List.of() : List.copyOf(accountIds);
       excludedAccountIds = excludedAccountIds == null ? List.of() : List.copyOf(excludedAccountIds);
       statuses =
           statuses == null || statuses.isEmpty()
               ? Set.of(SubscriptionStatus.ACTIVE)
               : Set.copyOf(statuses);
+    }
+
+    public Request(
+        UUID sourcePlanId,
+        Scope scope,
+        Audience audience,
+        List<UUID> accountIds,
+        List<UUID> excludedAccountIds,
+        Set<SubscriptionStatus> statuses,
+        String search,
+        String currency,
+        BillingCycle billingCycle,
+        PlanVersionApplicationModels.Request application) {
+      this(
+          sourcePlanId,
+          scope,
+          audience,
+          accountIds,
+          excludedAccountIds,
+          statuses,
+          search,
+          currency,
+          billingCycle,
+          application,
+          PlanContentNoticeModels.Policy.IN_APP);
     }
   }
 
@@ -103,6 +131,7 @@ public final class PlanVersionRolloutModels {
       UUID frozenSubscriptionId,
       Impact impact,
       List<SubscriptionChangeConflict> executionConflicts,
+      PlanContentNoticeModels.Delivery notice,
       UUID operationId,
       String outcomeCode,
       int attempts,

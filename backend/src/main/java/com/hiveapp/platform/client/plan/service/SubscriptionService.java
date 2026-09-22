@@ -3,22 +3,21 @@ package com.hiveapp.platform.client.plan.service;
 import com.hiveapp.platform.client.account.dto.AccountBillingProfileModels;
 import com.hiveapp.platform.client.plan.domain.constant.BillingTimelineEntryType;
 import com.hiveapp.platform.client.plan.domain.entity.Subscription;
+import com.hiveapp.platform.client.plan.dto.BillingModels;
 import com.hiveapp.platform.client.plan.dto.ClientPlanCatalogResponse;
-import com.hiveapp.platform.client.plan.dto.CommercialOfferRequests;
 import com.hiveapp.platform.client.plan.dto.CommercialOfferEffectSnapshot;
+import com.hiveapp.platform.client.plan.dto.CommercialOfferRequests;
 import com.hiveapp.platform.client.plan.dto.CommercialOfferViews;
+import com.hiveapp.platform.client.plan.dto.SpecialAgreementModels;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeApplyResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeOperationDto;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangePreviewResponse;
 import com.hiveapp.platform.client.plan.dto.SubscriptionChangeRequest;
 import com.hiveapp.platform.client.plan.dto.SubscriptionDto;
-import com.hiveapp.platform.client.plan.dto.SpecialAgreementModels;
-import com.hiveapp.platform.client.plan.dto.SubscriptionOfferEvaluation;
-import com.hiveapp.platform.client.plan.dto.BillingModels;
-import java.util.UUID;
-import java.util.List;
 import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -32,8 +31,16 @@ public interface SubscriptionService {
    * fails with open-in-view disabled.
    */
   SubscriptionDto getMySubscription(UUID accountId);
-  Page<com.hiveapp.platform.client.plan.dto.RepricingModels.Notice> listMyPriceNotices(UUID accountId, UUID userId, Pageable pageable);
+
+  Page<com.hiveapp.platform.client.plan.dto.RepricingModels.Notice> listMyPriceNotices(
+      UUID accountId, UUID userId, Pageable pageable);
+
   void markPriceNoticeRead(UUID accountId, UUID userId, UUID noticeId);
+
+  Page<com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Notice> listMyContentNotices(
+      UUID accountId, UUID userId, Pageable pageable);
+
+  void markContentNoticeRead(UUID accountId, UUID userId, UUID noticeId);
 
   Page<SpecialAgreementModels.ClientView> listMySpecialAgreements(
       UUID accountId, Pageable pageable);
@@ -137,6 +144,5 @@ public interface SubscriptionService {
   AccountBillingProfileModels.Profile billingProfile(UUID accountId);
 
   AccountBillingProfileModels.Profile updateBillingProfile(
-      UUID accountId,
-      AccountBillingProfileModels.UpdateRequest request);
+      UUID accountId, AccountBillingProfileModels.UpdateRequest request);
 }

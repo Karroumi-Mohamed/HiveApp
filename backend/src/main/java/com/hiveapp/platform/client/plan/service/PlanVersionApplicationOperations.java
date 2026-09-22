@@ -32,6 +32,7 @@ public class PlanVersionApplicationOperations {
   private final SubscriptionContentEvidenceRepository evidence;
   private final PlanVersionApplicationAssessor assessor;
   private final PlanVersionContentRules rules;
+  private final PlanContentNoticeService notices;
   private final CommercialCatalogVersionService catalogue;
   private final RegistryCatalogVersionService registry;
   private final CommercialPreviewTokenService tokens;
@@ -91,6 +92,7 @@ public class PlanVersionApplicationOperations {
     lock(accountId);
     var previous = evidence.findByCommandId(command.commandId()).orElse(null);
     if (previous != null) return repeated(previous, actor, accountId, targetId, command.request());
+    notices.requireStandalone(command.commandId());
     var current = current(accountId);
     var target = plan(targetId);
     var assessment = assessor.assess(current, target, command.request(), clock.instant());
@@ -164,7 +166,9 @@ public class PlanVersionApplicationOperations {
         current,
         target,
         fresh.reviewed(),
-        plannedAt(reviewed.request(), reviewed.periodEnd(), now));
+        notices
+            .plannedAt(commandId)
+            .orElseGet(() -> plannedAt(reviewed.request(), reviewed.periodEnd(), now)));
   }
 
   private Result applyLocked(
@@ -216,6 +220,7 @@ public class PlanVersionApplicationOperations {
                 plannedAt,
                 actual,
                 reviewed));
+    notices.applied(commandId, reviewed, plannedAt, actual);
     current.applyContentVersion(target, reviewed.target(), record.getId());
     subscriptions.saveAndFlush(current);
     audit.recordSuccess(

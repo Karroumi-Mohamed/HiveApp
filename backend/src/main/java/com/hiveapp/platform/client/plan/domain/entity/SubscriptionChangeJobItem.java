@@ -2,8 +2,8 @@ package com.hiveapp.platform.client.plan.domain.entity;
 
 import com.hiveapp.platform.client.account.domain.entity.Account;
 import com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobItemStatus;
-import com.hiveapp.platform.client.plan.dto.SubscriptionChangeJobModels;
 import com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels;
+import com.hiveapp.platform.client.plan.dto.SubscriptionChangeJobModels;
 import com.hiveapp.shared.domain.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -30,11 +30,17 @@ import org.hibernate.type.SqlTypes;
 @Table(
     name = "subscription_change_job_items",
     uniqueConstraints =
-        @UniqueConstraint(name = "uk_subscription_change_job_account", columnNames = {"job_id", "account_id"}),
+        @UniqueConstraint(
+            name = "uk_subscription_change_job_account",
+            columnNames = {"job_id", "account_id"}),
     indexes = {
       @Index(name = "idx_subscription_change_job_item_status", columnList = "job_id,status,id"),
-      @Index(name = "idx_subscription_change_job_item_account", columnList = "account_id,created_at,id"),
-      @Index(name = "idx_subscription_content_item_due", columnList = "job_id,status,next_attempt_at,id")
+      @Index(
+          name = "idx_subscription_change_job_item_account",
+          columnList = "account_id,created_at,id"),
+      @Index(
+          name = "idx_subscription_content_item_due",
+          columnList = "job_id,status,next_attempt_at,id")
     })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -68,7 +74,8 @@ public class SubscriptionChangeJobItem extends BaseEntity {
 
   @JdbcTypeCode(SqlTypes.JSON)
   @Column(name = "execution_conflicts")
-  private java.util.List<com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict> executionConflicts;
+  private java.util.List<com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict>
+      executionConflicts;
 
   @Column(name = "next_attempt_at")
   private Instant nextAttemptAt;
@@ -108,15 +115,26 @@ public class SubscriptionChangeJobItem extends BaseEntity {
   }
 
   public static SubscriptionChangeJobItem frozenContent(
-      SubscriptionChangeJob job, Account account, UUID subscriptionId, UUID planId, boolean excluded, Instant now) {
+      SubscriptionChangeJob job,
+      Account account,
+      UUID subscriptionId,
+      UUID planId,
+      boolean excluded,
+      Instant now) {
     if (!job.isContentVersion()) throw new IllegalArgumentException("A content job is required.");
     SubscriptionChangeJobItem item = new SubscriptionChangeJobItem();
     item.job = job;
     item.account = account;
     item.frozenSubscriptionId = java.util.Objects.requireNonNull(subscriptionId);
     item.frozenPlanId = java.util.Objects.requireNonNull(planId);
-    item.status = excluded ? SubscriptionChangeJobItemStatus.EXCLUDED : SubscriptionChangeJobItemStatus.ASSESSING;
-    if (excluded) { item.outcomeCode = "EXCLUDED_BY_OPERATOR"; item.completedAt = now; }
+    item.status =
+        excluded
+            ? SubscriptionChangeJobItemStatus.EXCLUDED
+            : SubscriptionChangeJobItemStatus.ASSESSING;
+    if (excluded) {
+      item.outcomeCode = "EXCLUDED_BY_OPERATOR";
+      item.completedAt = now;
+    }
     item.nextAttemptAt = now;
     return item;
   }
@@ -125,10 +143,14 @@ public class SubscriptionChangeJobItem extends BaseEntity {
     if (status != SubscriptionChangeJobItemStatus.ASSESSING || !job.isContentVersion())
       throw new IllegalStateException("Only an unassessed content item can be reviewed.");
     contentAssessment = java.util.Objects.requireNonNull(assessment);
-    status = assessment.conflicts().isEmpty() ? SubscriptionChangeJobItemStatus.READY : SubscriptionChangeJobItemStatus.CONFLICT;
+    status =
+        assessment.conflicts().isEmpty()
+            ? SubscriptionChangeJobItemStatus.READY
+            : SubscriptionChangeJobItemStatus.CONFLICT;
     if (status == SubscriptionChangeJobItemStatus.READY && assessment.reviewed() == null)
       throw new IllegalArgumentException("Ready content requires immutable reviewed terms.");
-    outcomeCode = assessment.conflicts().isEmpty() ? null : assessment.conflicts().getFirst().code();
+    outcomeCode =
+        assessment.conflicts().isEmpty() ? null : assessment.conflicts().getFirst().code();
     nextAttemptAt = now;
   }
 
@@ -147,13 +169,28 @@ public class SubscriptionChangeJobItem extends BaseEntity {
     completedAt = now;
   }
 
-  public void rejectContent(java.util.List<com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict> conflicts, Instant now) {
+  public void rejectContent(
+      java.util.List<com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict> conflicts,
+      Instant now) {
     executionConflicts = java.util.List.copyOf(conflicts);
-    fail(SubscriptionChangeJobItemStatus.CONFLICT, conflicts.isEmpty() ? "CONTENT_CONFLICT" : conflicts.getFirst().code(), now);
+    fail(
+        SubscriptionChangeJobItemStatus.CONFLICT,
+        conflicts.isEmpty() ? "CONTENT_CONFLICT" : conflicts.getFirst().code(),
+        now);
   }
 
-  public void succeed(
-      SubscriptionChangeJobItemStatus outcome, UUID operationId, Instant now) {
+  public boolean resumeAfterNotice(Instant now) {
+    if (status != SubscriptionChangeJobItemStatus.CONFLICT
+        || (!"NOTICE_REQUIRED_FAILED".equals(outcomeCode)
+            && !"NOTICE_RECIPIENT_CHANGED".equals(outcomeCode))) return false;
+    status = SubscriptionChangeJobItemStatus.READY;
+    outcomeCode = null;
+    completedAt = null;
+    nextAttemptAt = now;
+    return true;
+  }
+
+  public void succeed(SubscriptionChangeJobItemStatus outcome, UUID operationId, Instant now) {
     if (outcome != SubscriptionChangeJobItemStatus.APPLIED
         && outcome != SubscriptionChangeJobItemStatus.PENDING_RENEWAL
         && outcome != SubscriptionChangeJobItemStatus.AWAITING_PAYMENT) {
@@ -197,7 +234,9 @@ public class SubscriptionChangeJobItem extends BaseEntity {
   @PrePersist
   @PreUpdate
   void validateItem() {
-    if (job == null || account == null || status == null
+    if (job == null
+        || account == null
+        || status == null
         || (job.isContentVersion() ? frozenSubscriptionId == null : assessment == null)) {
       throw new IllegalStateException("Subscription-change job item is incomplete.");
     }

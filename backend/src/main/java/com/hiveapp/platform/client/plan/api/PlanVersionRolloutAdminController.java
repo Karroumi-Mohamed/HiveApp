@@ -69,6 +69,14 @@ public class PlanVersionRolloutAdminController {
     return plans.retryVersionRollout(id, request.reason());
   }
 
+  @PostMapping("/{id}/notices/retry")
+  public Detail retryNotices(
+      @PathVariable UUID id,
+      @Valid @RequestBody
+          com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Retry request) {
+    return plans.retryVersionNotices(id, request);
+  }
+
   private PageRequest page(int page, int size) {
     if (page < 0 || size < 1 || size > 100)
       throw new com.hiveapp.shared.exception.InvalidRequestException(

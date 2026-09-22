@@ -48,6 +48,8 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
   @Autowired SubscriptionChangeJobProcessor processor;
   @Autowired SubscriptionChangeJobTransitionService transitions;
   @Autowired PlanVersionRolloutWorker worker;
+  @Autowired PlanContentNoticeRepository notices;
+  @Autowired PlanContentNoticeDeliverySource noticeDelivery;
   @Autowired SubscriptionChangeJobService legacyJobs;
   @Autowired CommercialCatalogVersionService catalogue;
   @Autowired PlatformTransactionManager transactionManager;
@@ -55,6 +57,7 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
   @Autowired PlanVersionApplicationIntegrationTest.MutableClock clock;
   TransactionTemplate tx;
   String admin;
+  final Map<UUID, String> clientTokens = new HashMap<>();
   static final String BASE = "/api/admin/plan-version-applications";
 
   @BeforeEach
@@ -260,8 +263,17 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
     confirm(reviewedFirst, false, 200);
     confirm(reviewedSecond, false, 409);
     processor.processDue(clock.instant());
-    assertThat(detail(first.summary().id()).summary().status())
-        .isEqualTo(SubscriptionChangeJobStatus.SCHEDULED);
+    assertThat(detail(first.summary().id()).summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.WAITING, 1L);
+    assertThat(
+            subscriptions
+                .findCurrentByAccountId(f.accounts.getFirst())
+                .orElseThrow()
+                .getPlan()
+                .getId())
+        .isEqualTo(f.source);
+    assertThat(notice(first.summary().id()).getState())
+        .isEqualTo(com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.State.SCHEDULED);
     clock.set(request.application().notBefore().plusSeconds(1));
     processor.processDue(clock.instant());
     assertThat(detail(first.summary().id()).summary().counts())
@@ -374,6 +386,292 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
   }
 
   /** Cheap synthetic audience; authentication and actual mutation use registered Accounts above. */
+  @Test
+  @org.junit.jupiter.api.condition.EnabledIfSystemProperty(
+      named = "hiveapp.test.content-scale",
+      matches = "true")
+  void measureFrozenPopulationSizes() throws Exception {
+    for (int size : List.of(100, 1000, 10000)) {
+      var f = fixture(0);
+      bulkAccounts(f.source, size);
+      long start = System.nanoTime();
+      var created = create(f, request(f, Audience.ALL, Timing.NOW, List.of()));
+      long frozen = System.nanoTime();
+      Detail review = created;
+      int passes = 0;
+      while (review.summary().status() == SubscriptionChangeJobStatus.ASSESSING) {
+        assertThat(++passes)
+            .isLessThanOrEqualTo(size / PlanVersionRolloutProcessor.ITEM_BATCH_SIZE + 2);
+        processor.processDue(clock.instant());
+        review = detail(created.summary().id());
+      }
+      long assessed = System.nanoTime();
+      assertThat(review.summary().counts())
+          .containsEntry(SubscriptionChangeJobItemStatus.READY, (long) size);
+      confirm(review, false, 200);
+      passes = 0;
+      do {
+        assertThat(++passes)
+            .isLessThanOrEqualTo(size / PlanVersionRolloutProcessor.ITEM_BATCH_SIZE + 2);
+        processor.processDue(clock.instant());
+        review = detail(created.summary().id());
+      } while (review.summary().status() == SubscriptionChangeJobStatus.RUNNING
+          || review.summary().status() == SubscriptionChangeJobStatus.QUEUED);
+      long applied = System.nanoTime();
+      assertThat(review.summary().status()).isEqualTo(SubscriptionChangeJobStatus.COMPLETED);
+      assertThat(review.summary().counts())
+          .containsEntry(SubscriptionChangeJobItemStatus.APPLIED, (long) size);
+      System.out.printf(
+          "CONTENT_SCALE accounts=%d freeze_ms=%d assess_ms=%d apply_ms=%d%n",
+          size,
+          (frozen - start) / 1_000_000,
+          (assessed - frozen) / 1_000_000,
+          (applied - assessed) / 1_000_000);
+    }
+  }
+
+  @Test
+  void inAppNoticeIsPrivateReadIsIdempotentAndDoesNotChangeConsent() throws Exception {
+    var f = fixture(1);
+    var job = create(f, request(f, Audience.SELECTED, Timing.NOW, List.of()));
+    processor.processDue(clock.instant());
+    confirm(detail(job.summary().id()), false, 200);
+    processor.processDue(clock.instant());
+    var notice = notice(job.summary().id());
+    String client = clientTokens.get(f.accounts.getFirst());
+    mockMvc
+        .perform(
+            get("/api/v1/subscriptions/content-notices").header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("content[0].state").value("APPLIED"))
+        .andExpect(jsonPath("content[0].financialTermsRetained").value(true))
+        .andExpect(jsonPath("content[0].read").value(false))
+        .andExpect(jsonPath("content[0].impact").doesNotExist());
+    for (int i = 0; i < 2; i++)
+      mockMvc
+          .perform(
+              post("/api/v1/subscriptions/content-notices/{id}/read", notice.getId())
+                  .header("Authorization", bearer(client)))
+          .andExpect(status().isNoContent());
+    mockMvc
+        .perform(
+            get("/api/v1/subscriptions/content-notices").header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("content[0].read").value(true));
+    String outsider = registerClientAndGetToken();
+    mockMvc
+        .perform(
+            post("/api/v1/subscriptions/content-notices/{id}/read", notice.getId())
+                .header("Authorization", bearer(outsider)))
+        .andExpect(status().isNotFound());
+    assertThat(notices.findById(notice.getId()).orElseThrow().getDelivery().getDelivery())
+        .isEqualTo(com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.NOT_REQUESTED);
+  }
+
+  @Test
+  void requiredEmailWaitsThenFailureNeedsExplicitRetryAndSuccessfulDispatch() throws Exception {
+    var f = fixture(1);
+    verified(f, true);
+    var job =
+        create(
+            f,
+            notification(
+                request(f, Audience.SELECTED, Timing.NOW, List.of()),
+                com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Policy
+                    .EMAIL_REQUIRED));
+    processor.processDue(clock.instant());
+    confirm(detail(job.summary().id()), false, 200);
+    processor.processDue(clock.instant());
+    assertThat(detail(job.summary().id()).summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.WAITING, 1L);
+    var notice = notice(job.summary().id());
+    var claim = noticeDelivery.claimNotice(notice.getId());
+    assertThat(claim).isNotNull();
+    assertThat(noticeDelivery.claimNotice(notice.getId())).isNull();
+    noticeDelivery.completeNotice(
+        claim, com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.FAILED);
+    clock.set(clock.instant().plusSeconds(31));
+    processor.processDue(clock.instant());
+    assertThat(detail(job.summary().id()).summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.CONFLICT, 1L);
+    assertThat(
+            subscriptions
+                .findCurrentByAccountId(f.accounts.getFirst())
+                .orElseThrow()
+                .getPlan()
+                .getId())
+        .isEqualTo(f.source);
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/notices/retry", job.summary().id())
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Retry(
+                            List.of(notice.getId()), "Transport recovered"))))
+        .andExpect(status().isOk());
+    claim = noticeDelivery.claimNotice(notice.getId());
+    noticeDelivery.completeNotice(
+        claim, com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.SENT);
+    processor.processDue(clock.instant());
+    assertThat(detail(job.summary().id()).summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.APPLIED, 1L);
+    assertThat(notices.findById(notice.getId()).orElseThrow().getDelivery().getAttempts())
+        .isEqualTo(2);
+  }
+
+  @Test
+  void optionalEmailDoesNotBlockAndCancelledFutureNoticeIsNotDispatched() throws Exception {
+    var f = fixture(1);
+    verified(f, false);
+    var optional =
+        create(
+            f,
+            notification(
+                request(f, Audience.SELECTED, Timing.NOW, List.of()),
+                com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Policy.EMAIL));
+    processor.processDue(clock.instant());
+    confirm(detail(optional.summary().id()), false, 200);
+    processor.processDue(clock.instant());
+    assertThat(detail(optional.summary().id()).summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.APPLIED, 1L);
+    var optionalNotice = notice(optional.summary().id());
+    assertThat(noticeDelivery.claimNotice(optionalNotice.getId())).isNull();
+    assertThat(notices.findById(optionalNotice.getId()).orElseThrow().getDelivery().getDelivery())
+        .isEqualTo(com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.SUPPRESSED);
+    var future = fixture(1);
+    verified(future, true);
+    var scheduled =
+        create(
+            future,
+            notification(
+                request(future, Audience.SELECTED, Timing.AT_DATE, List.of()),
+                com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Policy.EMAIL));
+    processor.processDue(clock.instant());
+    confirm(detail(scheduled.summary().id()), false, 200);
+    processor.processDue(clock.instant());
+    var scheduledNotice = notice(scheduled.summary().id());
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/cancel", scheduled.summary().id())
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Withdraw change\"}"))
+        .andExpect(status().isOk());
+    assertThat(noticeDelivery.claimNotice(scheduledNotice.getId())).isNull();
+    assertThat(notices.findById(scheduledNotice.getId()).orElseThrow().getDelivery().getDelivery())
+        .isEqualTo(com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.CANCELLED);
+  }
+
+  @Test
+  void unverifiedRequiredEmailAndRemovingSubscriptionPortalAreReviewConflicts() throws Exception {
+    var f = fixture(1);
+    verified(f, false);
+    tx.executeWithoutResult(
+        ignored ->
+            features.deleteAll(
+                features.findAllByPlanId(f.target).stream()
+                    .filter(
+                        row ->
+                            row.getFeature()
+                                .getCode()
+                                .equals(
+                                    com.hiveapp.platform.registry.definition
+                                        .ClientSubscriptionFeature.CODE))
+                    .toList()));
+    var job =
+        create(
+            f,
+            notification(
+                request(f, Audience.SELECTED, Timing.NOW, List.of()),
+                com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Policy
+                    .EMAIL_REQUIRED));
+    processor.processDue(clock.instant());
+    var item =
+        items
+            .findAllByJobId(
+                job.summary().id(), org.springframework.data.domain.PageRequest.of(0, 10))
+            .getContent()
+            .getFirst();
+    assertThat(item.getContentAssessment().conflicts())
+        .extracting(com.hiveapp.platform.client.plan.dto.SubscriptionChangeConflict::code)
+        .contains("NOTICE_RECIPIENT_UNVERIFIED", "SUBSCRIPTION_PORTAL_REQUIRED");
+  }
+
+  @Test
+  void requiredDispatchDoesNotSurviveRecipientLosingVerification() throws Exception {
+    var f = fixture(1);
+    verified(f, true);
+    var job =
+        create(
+            f,
+            notification(
+                request(f, Audience.SELECTED, Timing.NOW, List.of()),
+                com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Policy
+                    .EMAIL_REQUIRED));
+    processor.processDue(clock.instant());
+    confirm(detail(job.summary().id()), false, 200);
+    processor.processDue(clock.instant());
+    var claim = noticeDelivery.claimNotice(notice(job.summary().id()).getId());
+    noticeDelivery.completeNotice(
+        claim, com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.SENT);
+    verified(f, false);
+    clock.set(clock.instant().plusSeconds(31));
+    processor.processDue(clock.instant());
+    assertThat(detail(job.summary().id()).summary().counts())
+        .containsEntry(SubscriptionChangeJobItemStatus.CONFLICT, 1L);
+    assertThat(
+            subscriptions
+                .findCurrentByAccountId(f.accounts.getFirst())
+                .orElseThrow()
+                .getPlan()
+                .getId())
+        .isEqualTo(f.source);
+    mockMvc
+        .perform(
+            get(BASE + "/{id}/results", job.summary().id()).header("Authorization", bearer(admin)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("content[0].notice.emailDelivery").value("SENT"))
+        .andExpect(jsonPath("content[0].outcomeCode").value("NOTICE_RECIPIENT_UNVERIFIED"));
+  }
+
+  private PlanContentNotice notice(UUID jobId) {
+    return notices
+        .findByCommandId(
+            items
+                .findAllByJobId(jobId, org.springframework.data.domain.PageRequest.of(0, 10))
+                .getContent()
+                .getFirst()
+                .getId())
+        .orElseThrow();
+  }
+
+  private void verified(Fixture f, boolean value) {
+    tx.executeWithoutResult(
+        ignored -> {
+          var owner = accounts.findById(f.accounts.getFirst()).orElseThrow().getOwner();
+          owner.setEmailVerified(value);
+          users.saveAndFlush(owner);
+        });
+  }
+
+  private Request notification(
+      Request r, com.hiveapp.platform.client.plan.dto.PlanContentNoticeModels.Policy policy) {
+    return new Request(
+        r.sourcePlanId(),
+        r.scope(),
+        r.audience(),
+        r.accountIds(),
+        r.excludedAccountIds(),
+        r.statuses(),
+        r.search(),
+        r.currency(),
+        r.billingCycle(),
+        r.application(),
+        policy);
+  }
+
   private List<UUID> bulkAccounts(UUID planId, int count) {
     return tx.execute(
         ignored -> {
@@ -505,40 +803,52 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
 
   private UUID addAccount(UUID planId) throws Exception {
     String email = "rollout-" + UUID.randomUUID() + "@example.com";
-    mockMvc
-        .perform(
-            post("/api/v1/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    objectMapper.writeValueAsString(
-                        new RegisterRequest(email, CLIENT_PASSWORD, "Rollout", "Owner", null))))
-        .andExpect(status().isCreated());
-    return tx.execute(
-        ignored -> {
-          UUID account =
-              accounts
-                  .findByOwner_Id(users.findByEmail(email).orElseThrow().getId())
-                  .orElseThrow()
-                  .getId();
-          var current = subscriptions.findCurrentByAccountId(account).orElseThrow();
-          var source = plans.findById(planId).orElseThrow();
-          current.setPlan(source);
-          current.setStatus(SubscriptionStatus.ACTIVE);
-          current.setEntitlementSnapshot(
-              snapshots
-                  .fromPlan(source)
-                  .withEffectivePeriod(
-                      current.getCurrentPeriodStart(), current.getCurrentPeriodEnd()));
-          current.setCurrentMoney(source.money());
-          subscriptions.saveAndFlush(current);
-          var period =
-              periods
-                  .findBySubscriptionIdAndStatus(current.getId(), SubscriptionPeriodStatus.OPEN)
-                  .orElseThrow();
-          period.setEntitlementSnapshot(current.getEntitlementSnapshot());
-          periods.saveAndFlush(period);
-          return account;
-        });
+    String token =
+        objectMapper
+            .readTree(
+                mockMvc
+                    .perform(
+                        post("/api/v1/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(
+                                objectMapper.writeValueAsString(
+                                    new RegisterRequest(
+                                        email, CLIENT_PASSWORD, "Rollout", "Owner", null))))
+                    .andExpect(status().isCreated())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString())
+            .path("accessToken")
+            .asText();
+    UUID accountId =
+        tx.execute(
+            ignored -> {
+              UUID account =
+                  accounts
+                      .findByOwner_Id(users.findByEmail(email).orElseThrow().getId())
+                      .orElseThrow()
+                      .getId();
+              var current = subscriptions.findCurrentByAccountId(account).orElseThrow();
+              var source = plans.findById(planId).orElseThrow();
+              current.setPlan(source);
+              current.setStatus(SubscriptionStatus.ACTIVE);
+              current.setEntitlementSnapshot(
+                  snapshots
+                      .fromPlan(source)
+                      .withEffectivePeriod(
+                          current.getCurrentPeriodStart(), current.getCurrentPeriodEnd()));
+              current.setCurrentMoney(source.money());
+              subscriptions.saveAndFlush(current);
+              var period =
+                  periods
+                      .findBySubscriptionIdAndStatus(current.getId(), SubscriptionPeriodStatus.OPEN)
+                      .orElseThrow();
+              period.setEntitlementSnapshot(current.getEntitlementSnapshot());
+              periods.saveAndFlush(period);
+              return account;
+            });
+    clientTokens.put(accountId, token);
+    return accountId;
   }
 
   private Plan plan(Plan source) {
