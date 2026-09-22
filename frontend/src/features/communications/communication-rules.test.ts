@@ -49,6 +49,8 @@ describe("communication review", () => {
     } as CommunicationItem;
     expect(notificationAction(item)).toEqual({ path: "/app/offers/123", label: "offerAction" });
     expect(notificationAction(item, true)).toBeNull();
+    for (const sourceState of ["CANCELLED", "WITHDRAWN", "RESOLVED", "UNAVAILABLE"])
+      expect(notificationAction({ ...item, sourceState })).toBeNull();
     for (const path of ["https://evil.invalid", "//evil.invalid", "/app/\\evil", "/admin/invoices/1"])
       expect(notificationAction({ ...item, actionPath: path })).toBeNull();
   });

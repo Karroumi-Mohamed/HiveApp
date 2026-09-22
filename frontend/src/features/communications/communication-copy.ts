@@ -53,6 +53,7 @@ const copy = {
     "اختر عرضا عاما نشطا. يجب أن يكون كل حساب مختار مؤهلا له.",
   ],
   resolved: ["Traité à la source", "تمت المعالجة في المصدر"],
+  UNAVAILABLE: ["Offre indisponible", "العرض غير متاح"],
   personal: ["Pour vous", "لك"],
   notifyMembers: ["Informer des membres", "إعلام الأعضاء"],
   internalHint: [

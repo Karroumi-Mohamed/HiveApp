@@ -19,6 +19,7 @@ public class CommunicationSources {
   private final PlanContentNoticeRepository content;
   private final SubscriptionRepricingItemRepository pricing;
   private final NotificationCatalog catalog;
+  private final NotificationOfferEligibility offers;
 
   public List<String> allowedPermissions() {
     List<Permission> permissions = new ArrayList<>();
@@ -98,11 +99,27 @@ public class CommunicationSources {
     found.stream()
         .filter(e -> Set.of("PLAN_CONTENT", "REPRICING").contains(e.getSource()))
         .forEach(e -> result.put(e.getId(), values.getOrDefault(e.getSourceId(), "WITHDRAWN")));
+    // At most one live eligibility check per distinct account/Offer in this bounded page.
+    var offerStates = new HashMap<String, String>();
+    for (var entry : found) {
+      if (entry.getKind() != Kind.OFFER) continue;
+      String key = entry.getAccountId() + ":" + entry.getResourceId();
+      String state = offerStates.computeIfAbsent(key, ignored -> {
+        if (entry.getAccountId() == null || entry.getResourceId() == null) return "UNAVAILABLE";
+        try {
+          offers.requireAvailable(entry.getAccountId(), entry.getResourceId());
+          return "PUBLISHED";
+        } catch (com.hiveapp.shared.exception.OfferNotAvailableException unavailable) {
+          return "UNAVAILABLE";
+        }
+      });
+      result.put(entry.getId(), state);
+    }
     return result;
   }
 
   public boolean isInactiveState(String state) {
-    return "CANCELLED".equals(state) || "WITHDRAWN".equals(state) || "APPLIED".equals(state);
+    return "CANCELLED".equals(state) || "WITHDRAWN".equals(state) || "APPLIED".equals(state) || "UNAVAILABLE".equals(state);
   }
 
   public boolean inactive(CommunicationEntry e) {

@@ -18,6 +18,8 @@ export function communicationDraftValid(draft: CommunicationDraft, now = Date.no
   );
 }
 export function notificationAction(item: CommunicationItem, platform = false) {
+  if (item.resolved || ["CANCELLED", "WITHDRAWN", "APPLIED", "UNAVAILABLE", "RESOLVED"].includes(item.sourceState))
+    return null;
   const path = item.actionPath;
   if (!path?.startsWith(platform ? "/admin/" : "/app/") || path.includes("\\") || path.includes("//")) return null;
   const label =

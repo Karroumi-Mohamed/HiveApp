@@ -512,7 +512,7 @@ public class CommunicationService {
         e.isCancelled()
             ? "CANCELLED"
             : e.getResolvedAt() != null ? "RESOLVED" : state == null ? "PUBLISHED" : state,
-        e.getActionPath(),
+        withdrawn ? null : e.getActionPath(),
         e.getAvailableAt(),
         e.getExpiresAt(),
         read,

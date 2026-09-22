@@ -260,7 +260,13 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
                   {item.resolved ? (
                     <p className="flex items-center gap-2 text-sm text-success">
                       <CheckCircleIcon />
-                      {c(["CANCELLED", "WITHDRAWN"].includes(item.sourceState) ? "WITHDRAWN" : "resolved")}
+                      {c(
+                        item.sourceState === "UNAVAILABLE"
+                          ? "UNAVAILABLE"
+                          : ["CANCELLED", "WITHDRAWN"].includes(item.sourceState)
+                            ? "WITHDRAWN"
+                            : "resolved",
+                      )}
                     </p>
                   ) : (
                     item.kind !== "NOTICE" && (
