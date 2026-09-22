@@ -579,16 +579,18 @@ Admins can expose unfinished plans, edit something intended as immutable history
 
 ### COMMUNICATION-001 — Unify notices, warnings and private messages
 
-**Status:** `OPEN — ACCEPTED REWORK IN PROGRESS 2026-09-22`
+**Status:** `IMPLEMENTED AND VERIFIED 2026-09-22 — PRODUCTION SCHEMA/SMTP GATES REMAIN OPEN`
 
-- Current content/repricing notices and credential-email monitoring are separate narrow surfaces, not a reusable client communication product.
-- Implement `COMMUNICATION-FLOW-001`: distinct kinds/interactions, purpose versus transport, private inbox, draft/publish/schedule/cancel, delivery/retry/results, per-Account message replies, per-user read/acknowledge/archive and owner-controlled marketing preferences.
-- Integrate existing commercial notices without changing required-email gates or exposing private accepted terms; retain legacy paths and use bounded idempotent source indexing.
-- Verify own-Account/B2B/permission isolation, published immutability, schedule/expiry/cancellation, concurrent/idempotent interactions, warning semantics, private replies, opt-in/revocation and stale email claims. Use shared UI components with accessible French/Arabic, light/dark and narrow layouts.
-- Completion evidence and residual limits belong here, not in another specification file.
+- Shared `NOTICE`, `WARNING`, and `MESSAGE` channels are implemented with independent service/marketing purpose and in-app/email transport. Client actions are read/archive, acknowledge-seeing, and optional private reply; none execute a subscription change, accept a price or resolve a business problem.
+- Admin API `/api/admin/customer-communications` supports drafts, version-checked edits, selected-Account lookup/audience review, explicit publish/schedule, withdrawal, paginated delivery/read/acknowledgement/reply results, failed/suppressed-email retry, replies and thread closure/reopening. Client API `/api/v1/communications` supports the own-Account inbox, detail, per-user interactions, private replies and owner-controlled marketing opt-ins. Authorities are distinct from the existing credential-email monitor.
+- Content-version and repricing workflows index safe source-linked entries and reuse their original read receipts; required-email gates and legacy detail APIs remain authoritative. Capacity reductions as well as removed Features produce warnings. Backfill is bounded to 100 per source per pass, with one source-row-locked transaction per entry. Recipient counts use grouped queries, not one count query per row.
+- The admin composer stages content → selected Accounts → review, saves a draft, then publishes separately. The client inbox separates three channels and read/acknowledge/reply controls. Shared tables, pagination, dialogs and session-scoped query caches are reused; private bodies are redacted from audit payloads.
+- Live verification in a disposable H2 environment: save/publish a message, client receipt/reply, admin reply/close, client unread/closed state, Arabic dark mode at a narrow viewport with no horizontal overflow. Temporary servers/tabs are removed after verification; no email is sent to real recipients.
+- Verification: clean full backend suite **945 passed, 1 skipped, no failures/errors**. After the final source-warning/recipient-state fixes, focused communication, Plan application/rollout and repricing regressions passed **63 tests, 1 skipped**; the combined Surefire inventory is **946 passed, 1 skipped**. Frontend **435 tests passed**, with lint, typecheck and production build passing. Security coverage includes cross-Account and B2B isolation, separate publish/marketing authorities, source-specific read permissions, private reply/audit boundaries, idempotent receipt/reply commands, stale versions, cancelled/expired delivery claims and marketing opt-outs.
+- Production schema migration/validation and real SMTP deployment remain explicit gates; this is not a promise of automatic Campaign/Offer sends, push/SMS, attachments, client-initiated tickets, real-time chat, legal consent evidence or a throughput benchmark.
 
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
-<!-- Shared communications are tracked independently below; Plan notice delivery is not the complete communications product. -->
+<!-- Shared communications are tracked independently in COMMUNICATION-001; Plan notice delivery alone is not the communications product. -->
 
 **Status:** `PLAN VERSION APPLICATION WORKFLOW RESOLVED 2026-09-22 — BROADER RENEWAL/GRACE AND PRODUCTION DEPLOYMENT GATES REMAIN OPEN`
 
