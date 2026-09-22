@@ -651,6 +651,11 @@ Management-read checkpoint (2026-09-22):
 - Added family-wide version/application audit history with date/type/actor filters, batch actor labels and no raw audit payloads. Conflict groups now include a typed resolution category and result pages can filter by the primary blocker.
 - Verification: **19 rollout integration tests passed**, with the opt-in scale test skipped, including family isolation, client rejection, page bounds, pending/cancel/retry behavior, protected history payloads, system actors and conflict filtering. Guided UI and final end-to-end/load verification remain in progress; this checkpoint does not close the overall workflow.
 
+Final backend verification (2026-09-22):
+
+- Client notices and operator impact now expose both added and removed capabilities. Older persisted impact JSON without `addedFeatures` remains readable as an empty list. Explicit exclusions outside the frozen audience fail validation instead of being silently ignored.
+- The final full Maven run passed **930 tests**, with **0 failures/errors** and **1 opt-in benchmark skipped** (931 discovered). The separate notice-inclusive 100/1,000/10,000-Account benchmark also passed: freeze **240/116/493 ms**, assessment **2,610/10,230/208,512 ms**, application **2,862/14,322/373,878 ms**, and 20-row subscriber reads **44/9/27 ms**. Each applied Account had exactly one persisted notice. These are local H2 measurements with scheduler passes invoked directly, not isolated production PostgreSQL, real SMTP delivery or VPS throughput evidence.
+
 ---
 
 ### BILLING-001 — Client self-service activates paid plans without payment or approval

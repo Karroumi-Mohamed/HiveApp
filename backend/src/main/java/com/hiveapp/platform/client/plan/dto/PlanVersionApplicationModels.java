@@ -47,7 +47,19 @@ public final class PlanVersionApplicationModels {
       String currency,
       Instant periodStart,
       Instant periodEnd,
-      Request request) {}
+      Request request) {
+    public java.util.List<String> addedFeatures() {
+      var previous =
+          before.features().stream()
+              .map(SubscriptionFeatureSnapshot::featureCode)
+              .collect(java.util.stream.Collectors.toSet());
+      return target.features().stream()
+          .map(SubscriptionFeatureSnapshot::featureCode)
+          .filter(code -> !previous.contains(code))
+          .sorted()
+          .toList();
+    }
+  }
 
   public record Preview(
       UUID accountId,

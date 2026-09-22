@@ -129,7 +129,12 @@ public final class PlanVersionRolloutModels {
       List<SubscriptionChangeConflict> conflicts,
       List<EffectiveQuotaLimit> beforeLimits,
       List<EffectiveQuotaLimit> afterLimits,
-      List<String> removedFeatures) {}
+      List<String> removedFeatures,
+      List<String> addedFeatures) {
+    public Impact {
+      addedFeatures = addedFeatures == null ? List.of() : List.copyOf(addedFeatures);
+    }
+  }
 
   /**
    * Identity remains separately permission-gated; this result has no owner email or account name.

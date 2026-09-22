@@ -89,6 +89,10 @@ public class PlanVersionRolloutAudience {
         throw new InvalidRequestException(
             "Some selected Accounts no longer match this source version or the chosen filters.");
     }
+    if (!new HashSet<>(result.stream().map(Member::accountId).toList()).containsAll(excluded))
+      throw new InvalidRequestException(
+          "Some excluded Accounts do not match the chosen audience. Review the exclusions and"
+              + " filters.");
     return result;
   }
 

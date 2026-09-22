@@ -129,6 +129,22 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
   }
 
   @Test
+  void unrelatedExclusionsAreRejectedRatherThanSilentlyDropped() throws Exception {
+    var f = fixture(1);
+    var outsider = fixture(1);
+    mockMvc
+        .perform(
+            post(BASE)
+                .param("targetPlanId", f.target.toString())
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        request(f, Audience.ALL, Timing.NOW, outsider.accounts))))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void audienceIsAssessedBeforeConfirmationAndAppliesWithoutNewBilling() throws Exception {
     var f = fixture(1);
     long invoicesBefore = invoices.count();

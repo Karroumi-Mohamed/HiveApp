@@ -391,7 +391,8 @@ public class PlanVersionRolloutOperations {
         assessment.conflicts(),
         assessment.beforeLimits(),
         assessment.afterLimits(),
-        assessment.removedFeatures());
+        assessment.removedFeatures(),
+        reviewed == null ? List.of() : reviewed.addedFeatures());
   }
 
   private Plan plan(UUID id) {

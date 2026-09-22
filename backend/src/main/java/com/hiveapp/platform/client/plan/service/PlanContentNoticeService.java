@@ -56,7 +56,8 @@ public class PlanContentNoticeService {
             List.of(),
             impacts.effectiveQuotaLimits(review.before()),
             impacts.effectiveQuotaLimits(review.target()),
-            removed);
+            removed,
+            review.addedFeatures());
     return notices.saveAndFlush(
         new PlanContentNotice(
             commandId,
@@ -159,6 +160,7 @@ public class PlanContentNoticeService {
                 n.getImpact().beforeLimits(),
                 n.getImpact().afterLimits(),
                 n.getImpact().removedFeatures(),
+                n.getImpact().addedFeatures(),
                 true,
                 viewed.contains(n.getId()),
                 n.getDelivery().getCreatedAt()));

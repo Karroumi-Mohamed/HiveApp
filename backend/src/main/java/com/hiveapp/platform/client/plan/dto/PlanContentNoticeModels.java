@@ -49,6 +49,7 @@ public final class PlanContentNoticeModels {
       List<EffectiveQuotaLimit> beforeLimits,
       List<EffectiveQuotaLimit> afterLimits,
       List<String> removedFeatures,
+      List<String> addedFeatures,
       boolean financialTermsRetained,
       boolean read,
       Instant createdAt) {}

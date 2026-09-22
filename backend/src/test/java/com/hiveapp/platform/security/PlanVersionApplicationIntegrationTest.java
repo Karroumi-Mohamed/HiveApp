@@ -286,6 +286,15 @@ class PlanVersionApplicationIntegrationTest extends PlatformShellIntegrationTest
     assertThat(evidence.findById(second.evidenceId()).orElseThrow().getPreviousEvidenceId())
         .isEqualTo(first.evidenceId());
     mockMvc
+        .perform(
+            get("/api/v1/subscriptions/content-notices").header("Authorization", bearer(f.client)))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("content[0].addedFeatures")
+                .value(
+                    org.hamcrest.Matchers.hasItem(
+                        com.hiveapp.platform.registry.definition.CompanyFeature.CODE)));
+    mockMvc
         .perform(get("/api/v1/companies").header("Authorization", bearer(f.client)))
         .andExpect(status().isOk());
   }
