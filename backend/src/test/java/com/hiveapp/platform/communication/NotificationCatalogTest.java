@@ -38,12 +38,19 @@ class NotificationCatalogTest {
             return new dev.karroumi.permissionizer.Permission("business.tasks.read");
           }
         };
-    assertThat(new NotificationCatalog(List.of(task)).require("tasks.assigned")).isSameAs(task);
+    var catalog = new NotificationCatalog(List.of(task), registry("business.tasks.read"));
+    catalog.validatePermissions();
+    assertThat(catalog.require("tasks.assigned")).isSameAs(task);
+    var invalid = new NotificationCatalog(List.of(task), registry());
+    assertThatThrownBy(invalid::validatePermissions)
+        .isInstanceOf(IllegalStateException.class).hasMessageContaining("business.tasks.read");
+    assertThatThrownBy(() -> invalid.require(task.key()))
+        .isInstanceOf(IllegalStateException.class).hasMessageContaining("tasks.assigned");
   }
 
   @Test
   void rejectsDuplicateContractsAndOptionalWarnings() {
-    assertThatThrownBy(() -> new NotificationCatalog(List.of(CoreNotification.MEMBER_CREATED)))
+    assertThatThrownBy(() -> new NotificationCatalog(List.of(CoreNotification.MEMBER_CREATED), registry()))
         .isInstanceOf(IllegalStateException.class);
     var unsafe =
         new NotificationDefinition() {
@@ -67,7 +74,18 @@ class NotificationCatalogTest {
             return new dev.karroumi.permissionizer.Permission("business.tasks.read");
           }
         };
-    assertThatThrownBy(() -> new NotificationCatalog(List.of(unsafe)))
+    assertThatThrownBy(() -> new NotificationCatalog(List.of(unsafe), registry()))
         .isInstanceOf(IllegalStateException.class);
+  }
+
+  private com.hiveapp.platform.registry.service.CurrentRegistrySnapshot registry(String... extra) {
+    var paths = new java.util.HashSet<String>();
+    for (var permission : com.hiveapp.platform.generated.PlatformPermissions.all())
+      paths.add(permission.path());
+    paths.addAll(List.of(extra));
+    var registry = new com.hiveapp.platform.registry.service.CurrentRegistrySnapshot();
+    registry.install(new com.hiveapp.platform.registry.service.RegistrySnapshot(
+        List.of(), List.of(), paths, "test"));
+    return registry;
   }
 }

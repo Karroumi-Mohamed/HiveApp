@@ -1,13 +1,19 @@
 package com.hiveapp.platform.communication;
 
 import java.util.*;
+import com.hiveapp.platform.registry.service.CurrentRegistrySnapshot;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 @Component
 public class NotificationCatalog {
   private final Map<String, NotificationDefinition> definitions;
+  private final CurrentRegistrySnapshot registry;
 
-  public NotificationCatalog(List<NotificationDefinition> extensions) {
+  public NotificationCatalog(List<NotificationDefinition> extensions, CurrentRegistrySnapshot registry) {
+    this.registry = registry;
     var found = new LinkedHashMap<String, NotificationDefinition>();
     var all = new ArrayList<NotificationDefinition>(List.of(CoreNotification.values()));
     all.addAll(extensions);
@@ -37,7 +43,21 @@ public class NotificationCatalog {
     var definition = definitions.get(key);
     if (definition == null)
       throw new IllegalArgumentException("Unregistered notification type: " + key);
+    validatePermission(definition);
     return definition;
+  }
+
+  @EventListener(ApplicationReadyEvent.class)
+  @Order(2) // The registry synchronizer installs the validated snapshot at order 1.
+  public void validatePermissions() {
+    definitions.values().forEach(this::validatePermission);
+  }
+
+  private void validatePermission(NotificationDefinition definition) {
+    var permission = definition.requiredPermission();
+    if (permission != null && !registry.containsAction(permission.path()))
+      throw new IllegalStateException("Notification " + definition.key()
+          + " references an unregistered permission: " + permission.path());
   }
 
   public Collection<NotificationDefinition> all() {
