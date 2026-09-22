@@ -2776,6 +2776,32 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
         }
     }
 
+    @Test
+    void customerCommunicationsSeparateReadPublishAndMarketingAuthority() throws Exception {
+        String root = loginAdminAndGetToken();
+        String client = registerClientAndGetToken();
+        UUID account = UUID.fromString(responseJson(mockMvc.perform(get("/api/v1/accounts/me")
+                .header("Authorization", bearer(client))).andExpect(status().isOk())).get("id").asText());
+        var payload = Map.of("kind", "NOTICE", "purpose", "MARKETING", "messageTitle", "Offer",
+                "messageBody", "Private commercial content", "accountIds", List.of(account));
+        JsonNode created = responseJson(mockMvc.perform(post("/api/admin/customer-communications")
+                .header("Authorization", bearer(root)).contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(payload))).andExpect(status().isCreated()));
+        String path = "/api/admin/customer-communications/" + created.get("id").asText();
+        LimitedAdmin reader = createLimitedAdmin("platform.customer_communications.read");
+        mockMvc.perform(get(path).header("Authorization", bearer(reader.token()))).andExpect(status().isOk());
+        mockMvc.perform(get(path + "/results").header("Authorization", bearer(reader.token()))).andExpect(status().isForbidden());
+        mockMvc.perform(get(path + "/selected-recipients").header("Authorization", bearer(reader.token()))).andExpect(status().isForbidden());
+        String command = objectMapper.writeValueAsString(Map.of("version", created.get("version").asLong(), "reason", "Reviewed"));
+        mockMvc.perform(post(path + "/publish").header("Authorization", bearer(reader.token()))
+                .contentType(MediaType.APPLICATION_JSON).content(command)).andExpect(status().isForbidden());
+        LimitedAdmin publisher = createLimitedAdmin("platform.customer_communications.publish");
+        mockMvc.perform(post(path + "/publish").header("Authorization", bearer(publisher.token()))
+                .contentType(MediaType.APPLICATION_JSON).content(command)).andExpect(status().isForbidden());
+        mockMvc.perform(get(path).header("Authorization", bearer(root))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("DRAFT"));
+    }
+
     private LimitedAdmin createLimitedAdmin(String... permissionCodes) throws Exception {
         String superToken = loginAdminAndGetToken();
         String email = operatorEmail();

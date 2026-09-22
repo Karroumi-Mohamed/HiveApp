@@ -32,6 +32,7 @@ public class SubscriptionRepricingService {
   private final SpecialCommercialAgreementRepository agreements;
   private final SubscriptionChangeOperationRepository operations;
   private final CommercialNoticeReadRepository noticeReads;
+  private final com.hiveapp.platform.communication.CommunicationSources communicationSources;
   private final CommercialSegmentAudienceResolver segments;
   private final SubscriptionRepricingRules rules;
   private final BillingCalculator billing;
@@ -148,6 +149,7 @@ public class SubscriptionRepricingService {
       item.setDelivery(job.getRequest().email() ? Delivery.PENDING : Delivery.NOT_REQUESTED);
     }
     items.saveAllAndFlush(targets);
+    targets.stream().filter(item -> item.getNoticeCreatedAt() != null).forEach(communicationSources::index);
     job.setStatus("CONFIRMED");
     job.setConfirmedAt(clock.instant());
     jobs.saveAndFlush(job);

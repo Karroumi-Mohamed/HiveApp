@@ -124,6 +124,19 @@ class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTe
     }
 
     @Test
+    void activeB2bCollaborationCannotReadEitherAccountsPrivateCommunications() throws Exception {
+        B2bSetup setup = setupActiveCollaboration();
+        grantPermission(setup.providerToken(), setup.collaborationId(), "platform.company.read_single")
+                .andExpect(status().isNoContent());
+        b2bCompanyRead(setup).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/communications")
+                        .header("Authorization", bearer(setup.clientToken()))
+                        .header("X-Company-ID", setup.companyId().toString())
+                        .header("X-Is-B2B", "true"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void clientPlanWithoutB2bCannotInitiateCollaboration() throws Exception {
         String providerToken = registerClientAndGetToken();
         String clientToken = registerClientAndGetToken();

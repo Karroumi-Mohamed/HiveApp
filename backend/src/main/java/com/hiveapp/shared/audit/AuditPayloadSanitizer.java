@@ -34,7 +34,8 @@ class AuditPayloadSanitizer {
     private static final int MAX_DEPTH = 6;
     private static final Set<String> SENSITIVE_FRAGMENTS = Set.of(
             "password", "token", "secret", "credential", "sharecode", "authorization", "cookie", "hash",
-            "idempotency", "redemptioncode", "offercode", "customercode", "promotioncode", "couponcode");
+            "idempotency", "redemptioncode", "offercode", "customercode", "promotioncode", "couponcode",
+            "messagetitle", "messagebody", "replybody");
 
     private final ObjectMapper objectMapper;
 

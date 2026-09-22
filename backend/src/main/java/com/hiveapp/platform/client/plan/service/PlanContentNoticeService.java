@@ -24,6 +24,7 @@ public class PlanContentNoticeService {
   private final CommercialNoticeReadRepository reads;
   private final SubscriptionImpactAnalyzer impacts;
   private final Clock clock;
+  private final com.hiveapp.platform.communication.CommunicationSources communicationSources;
 
   @Transactional
   public PlanContentNotice publish(
@@ -58,7 +59,7 @@ public class PlanContentNoticeService {
             impacts.effectiveQuotaLimits(review.target()),
             removed,
             review.addedFeatures());
-    return notices.saveAndFlush(
+    var created = notices.saveAndFlush(
         new PlanContentNotice(
             commandId,
             jobId,
@@ -73,6 +74,8 @@ public class PlanContentNoticeService {
             plannedAt,
             impact,
             clock.instant()));
+    communicationSources.index(created);
+    return created;
   }
 
   @Transactional

@@ -20,6 +20,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.UUID;
+import com.hiveapp.platform.communication.CommunicationModels.*;
+import com.hiveapp.platform.communication.CommunicationService;
+import org.springframework.data.domain.*;
 
 @Service
 @RequiredArgsConstructor
@@ -30,6 +33,79 @@ public class AccountShellServiceImpl extends ClientWorkspaceFeatureService imple
     private final AccountMapper accountMapper;
     private final MemberRepository memberRepository;
     private final TokenSessionService tokenSessionService;
+    private final CommunicationService communications;
+
+    @Override
+    @PermissionNode(key = "read_communications", description = "Read own Account notices, warnings and messages")
+    public Page<Item> communicationInbox(Kind kind, boolean archived, boolean unread, Pageable page) {
+        return communications.inbox(kind, archived, unread, page);
+    }
+
+    @Override
+    @PermissionNode(key = "internal_communication_detail", guard = PermissionNode.Guard.OFF)
+    public Item communicationDetail(UUID id) {
+        requireCommunicationRead();
+        return communications.detail(id);
+    }
+
+    @Override
+    @PermissionNode(key = "internal_communication_thread", guard = PermissionNode.Guard.OFF)
+    public Page<Reply> communicationThread(UUID id, Pageable page) {
+        requireCommunicationRead();
+        return communications.thread(id, false, page);
+    }
+
+    @Override
+    @PermissionNode(key = "mark_communication_read", description = "Mark own communication as read")
+    public void readCommunication(UUID id) {
+        requireCommunicationRead();
+        communications.interact(id, Interaction.READ);
+    }
+
+    @Override
+    @PermissionNode(key = "acknowledge_warning", description = "Acknowledge seeing an Account warning without resolving it")
+    @Transactional
+    public void acknowledgeCommunication(UUID id) {
+        requireCommunicationRead();
+        communications.interact(id, Interaction.ACKNOWLEDGE);
+    }
+
+    @Override
+    @PermissionNode(key = "archive_communication", description = "Archive or restore own communications")
+    public void archiveCommunication(UUID id, boolean archived) {
+        requireCommunicationRead();
+        communications.interact(id, archived ? Interaction.ARCHIVE : Interaction.RESTORE);
+    }
+
+    @Override
+    @PermissionNode(key = "reply_communication", description = "Reply in an own Account message thread")
+    @Transactional
+    public Reply replyCommunication(UUID id, ReplyRequest request) {
+        requireCommunicationRead();
+        return communications.reply(id, request, false);
+    }
+
+    @Override
+    @PermissionNode(key = "internal_communication_preferences", guard = PermissionNode.Guard.OFF)
+    public Preference communicationPreference() {
+        requireCommunicationRead();
+        return communications.preference();
+    }
+
+    @Override
+    @PermissionNode(key = "communication_preferences", description = "Manage Account marketing opt-in as owner")
+    @Transactional
+    public Preference updateCommunicationPreference(Preference request) {
+        requireCommunicationRead();
+        return communications.preference(request);
+    }
+
+    private void requireCommunicationRead() {
+        if (!dev.karroumi.permissionizer.PermissionGuard.has(
+                new dev.karroumi.permissionizer.Permission("platform.workspace.read_communications"))) {
+            throw new ForbiddenException("Reading communications is required.");
+        }
+    }
 
     @Override
     protected FeatureDefinition featureDefinition() {
