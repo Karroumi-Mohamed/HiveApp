@@ -71,6 +71,8 @@ const plan = {
 };
 const queries: InstanceType<typeof QueryClient>[] = [];
 const requests: string[] = [];
+const writes: { path: string; body: Record<string, unknown> }[] = [];
+let applicationConfirmed = false;
 const secondId = "d777b6cb-a4b2-4ffe-99a8-cd7e1fb21652";
 const firstVersion = {
   ...plan,
@@ -90,11 +92,68 @@ function response(body: unknown) {
 
 function renderPage(path: string, permissions: string[], isSuperAdmin = false) {
   const profile = { id: "admin-1", email: "admin@hiveapp.test", isActive: true, isSuperAdmin, permissions };
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async (input, options) => {
     const url = new URL(String(input), "http://localhost:8080");
     if (url.pathname === "/api/admin/me") return response(profile);
     requests.push(url.pathname);
+    if (options?.method === "POST") writes.push({ path: url.pathname, body: JSON.parse(String(options.body)) });
+    if (url.pathname.startsWith("/api/admin/plan-version-applications")) {
+      if (url.pathname.endsWith("/confirm")) applicationConfirmed = true;
+      if (url.pathname.endsWith("/results"))
+        return response({
+          content: [
+            {
+              id: "result-1",
+              status: applicationConfirmed ? "APPLIED" : "READY",
+              frozenSubscriptionId: "sub-1",
+              impact: null,
+              executionConflicts: [],
+              operationId: null,
+              outcomeCode: null,
+              attempts: 0,
+              nextAttemptAt: null,
+              completedAt: null,
+              notice: null,
+            },
+          ],
+          page: 0,
+          size: 20,
+          totalPages: 1,
+          totalElements: 1,
+        });
+      return response({
+        summary: {
+          id: "job-1",
+          familyId: planId,
+          targetPlanId: secondId,
+          status: applicationConfirmed ? "COMPLETED_WITH_ERRORS" : "PREVIEWED",
+          counts: applicationConfirmed ? { APPLIED: 1, CONFLICT: 1 } : { READY: 1, CONFLICT: 1 },
+          createdAt: "2026-01-01T00:00:00Z",
+          reason: "Reviewed",
+          requestedByUserId: "admin-1",
+          version: 0,
+        },
+        definition: {
+          targetPlanId: secondId,
+          request: {
+            sourcePlanId: planId,
+            scope: "FAMILY",
+            audience: "ALL",
+            accountIds: [],
+            excludedAccountIds: [],
+            statuses: ["ACTIVE"],
+            application: { timing: "NOW", notBefore: null, reason: "Reviewed" },
+            notificationPolicy: "IN_APP",
+          },
+        },
+        conflicts: [{ primaryReason: "OTHER_CHANGE_PENDING", accounts: 1 }],
+        reviewInvalidated: false,
+        previewToken: "review-token",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    }
     if (url.pathname === `/api/admin/plans/${planId}`) return response(plan);
+    if (url.pathname === `/api/admin/plans/${secondId}`) return response(secondVersion);
     if (url.pathname.endsWith("/versions"))
       return response({
         lineageId: planId,
@@ -148,6 +207,51 @@ function renderPage(path: string, permissions: string[], isSuperAdmin = false) {
       });
     if (url.pathname.includes("/feature-catalog")) return response([]);
     if (url.pathname.endsWith("/operations")) return response({ availableActions: [] });
+    if (url.pathname.endsWith("/family-subscribers"))
+      return response({
+        content: [
+          {
+            subscriptionId: "sub-1",
+            accountId: "account-1",
+            accountName: "Atlas",
+            planId: secondId,
+            productVersionNumber: 2,
+            status: "ACTIVE",
+            retainedTotal: "100",
+            currency: "MAD",
+            billingCycle: "MONTHLY",
+            periodEnd: "2027-01-01T00:00:00Z",
+          },
+        ],
+        page: 0,
+        size: 20,
+        totalElements: 1,
+        totalPages: 1,
+        first: true,
+        last: true,
+      });
+    if (url.pathname.endsWith("/version-history"))
+      return response({
+        content: [
+          {
+            id: "event-1",
+            occurredAt: "2026-01-01T00:00:00Z",
+            kind: "VERSION",
+            action: "platform.plans.select_public_version",
+            outcome: "SUCCEEDED",
+            actorUserId: null,
+            actorLabel: null,
+            resourceId: secondId,
+            productVersionNumber: 2,
+          },
+        ],
+        page: 0,
+        size: 20,
+        totalElements: 1,
+        totalPages: 1,
+        first: true,
+        last: true,
+      });
     if (url.pathname.endsWith("/features")) return response([]);
     if (url.pathname.endsWith("/subscribers") || url.pathname === "/api/admin/product-prices") {
       return response({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0, first: true, last: true });
@@ -177,6 +281,8 @@ beforeEach(async () => {
   await i18n.changeLanguage("fr");
   cleanup();
   requests.length = 0;
+  writes.length = 0;
+  applicationConfirmed = false;
   clearSession("admin");
   writeSession("admin", {
     accessToken: "admin-token",
@@ -193,6 +299,117 @@ afterEach(() => {
 });
 
 describe("plan detail route rendering and authorization", () => {
+  test("result rows refetch and the conflict filter clears after a successful job action", async () => {
+    const view = renderPage(`${base}/applications/job-1`, [
+      adminPermissions.plansReadApplication,
+      adminPermissions.plansApplicationResults,
+      adminPermissions.plansConfirmApplication,
+      adminPermissions.plansApplyVersion,
+      adminPermissions.plansPreviewApplication,
+    ]);
+    const user = userEvent.setup({ document: browser.document as unknown as Document });
+    await waitFor(() => expect(requests.filter((path) => path.endsWith("/results")).length).toBe(1));
+    const conflictFilter = view.container.querySelector('button[aria-pressed="false"]');
+    expect(conflictFilter).toBeTruthy();
+    await user.click(conflictFilter as HTMLButtonElement);
+    expect(conflictFilter?.getAttribute("aria-pressed")).toBe("true");
+    await user.click(view.getByRole("checkbox"));
+    await user.click(view.getByRole("button", { name: "Confirmer l’application" }));
+    const dialog = view.getByRole("dialog");
+    const buttons = dialog.querySelectorAll("button");
+    const confirm = Array.from(buttons).find((button) => button.textContent?.includes("Confirmer l’application"));
+    expect(confirm).toBeTruthy();
+    await user.click(confirm as HTMLButtonElement);
+    await waitFor(() => expect(requests.filter((path) => path.endsWith("/results")).length).toBeGreaterThan(1));
+    await waitFor(() => expect(view.getAllByText("Appliqué").length).toBeGreaterThan(1));
+    expect(view.container.querySelector('button[aria-pressed="true"]')).toBeNull();
+  });
+
+  test("family subscribers show retained terms and a version without the old subscriber permission", async () => {
+    const view = renderPage(`${base}/subscribers`, [
+      adminPermissions.plansReadDetail,
+      adminPermissions.plansListFamilySubscribers,
+    ]);
+    await waitFor(() => expect(view.getByText("Atlas")).toBeTruthy());
+    expect(view.getByText("V2")).toBeTruthy();
+    expect(view.getByRole("combobox")).toBeTruthy();
+    expect(requests.some((path) => path.endsWith("/family-subscribers"))).toBe(true);
+    expect(requests.some((path) => path.endsWith("/subscribers"))).toBe(false);
+    expect(view.queryByText("Accès indisponible")).toBeNull();
+  });
+
+  test("version history works independently and renders system actor with a readable action", async () => {
+    const view = renderPage(`${base}/history`, [
+      adminPermissions.plansReadDetail,
+      adminPermissions.plansReadVersionHistory,
+    ]);
+    await waitFor(() => expect(view.getByText("Version proposée au catalogue")).toBeTruthy());
+    expect(view.getByText("Système")).toBeTruthy();
+    expect(requests.some((path) => path.startsWith("/api/admin/plan-version-applications"))).toBe(false);
+    expect(view.queryByText("Accès indisponible")).toBeNull();
+  });
+
+  test("Arabic read-only application uses localized steps and exposes no mutations", async () => {
+    await i18n.changeLanguage("ar");
+    const view = renderPage(`${base}/applications/job-1`, [adminPermissions.plansReadApplication]);
+    await waitFor(() => expect(view.getByText("تطبيق إصدار على المشتركين")).toBeTruthy());
+    expect(view.queryByText("تأكيد التطبيق")).toBeNull();
+    expect(writes.length).toBe(0);
+  });
+
+  test("content flow freezes only on review, acknowledges partial results and confirms explicitly", async () => {
+    const view = renderPage(`/admin/plans/${secondId}/apply`, [
+      adminPermissions.plansReadDetail,
+      adminPermissions.plansListVersions,
+      adminPermissions.plansCreateApplication,
+      adminPermissions.plansPreviewApplication,
+      adminPermissions.plansReadApplication,
+      adminPermissions.plansApplyVersion,
+      adminPermissions.plansConfirmApplication,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    const next = await view.findByRole("button", { name: "Continuer" });
+    await waitFor(() => expect(next.hasAttribute("disabled")).toBeFalse());
+    expect(writes).toHaveLength(0);
+    await user.click(next);
+    await user.type(view.getByLabelText("Motif du changement"), "Reviewed removal with retained billing");
+    await user.click(view.getByRole("button", { name: "Analyser les impacts" }));
+    await waitFor(() => expect(view.router.state.location.pathname).toContain("/applications/job-1"));
+    expect(writes[0]?.body).toMatchObject({
+      scope: "FAMILY",
+      audience: "ALL",
+      notificationPolicy: "IN_APP",
+      application: { timing: "NOW", reason: "Reviewed removal with retained billing" },
+    });
+    const confirm = await view.findByRole("button", { name: "Confirmer l’application" });
+    expect(confirm.hasAttribute("disabled")).toBeTrue();
+    await user.click(view.getByRole("checkbox", { name: /Appliquer uniquement/ }));
+    await user.click(confirm);
+    const dialog = view.getByRole("dialog");
+    await user.click(
+      Array.from(dialog.querySelectorAll("button")).find(
+        (button) => button.textContent === "Confirmer l’application",
+      ) as HTMLButtonElement,
+    );
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes[1]?.body).toEqual({ previewToken: "review-token", applyReadyOnly: true });
+    expect(requests.some((path) => path.endsWith("/results") || path.endsWith("/identities"))).toBeFalse();
+  });
+
+  test("read-only application access does not request results or identities or offer confirmation", async () => {
+    const view = renderPage(`${base}/applications/job-1`, [adminPermissions.plansReadApplication]);
+    expect(await view.findByRole("heading", { name: "Appliquer une version aux abonnés" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Confirmer l’application" })).toBeNull();
+    expect(view.queryByText("Accès indisponible")).toBeNull();
+    expect(requests).toEqual(["/api/admin/plan-version-applications/job-1"]);
+  });
+
+  test("application creation route needs preview permission as well as creation", async () => {
+    const view = renderPage(`${base}/apply`, [adminPermissions.plansCreateApplication]);
+    expect(await view.findByText("Accès indisponible")).toBeTruthy();
+    expect(requests).toHaveLength(0);
+  });
+
   test("SuperAdmin opening the base URL sees the overview, not a false permission denial", async () => {
     const view = renderPage(base, [adminPermissions.plansReadDetail], true);
     expect(await view.findByRole("heading", { name: "Contenu du forfait" })).toBeTruthy();

@@ -1,5 +1,6 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
+import { planApplicationMessages } from "@/features/admin/plans/plan-application-messages";
 import { planVersionMessages } from "@/features/admin/plans/plan-version-messages";
 
 export const supportedLanguages = ["fr", "ar"] as const;
@@ -23,7 +24,12 @@ const resources = {
   fr: {
     translation: {
       planVersions: planVersionMessages.fr,
+      planApplication: planApplicationMessages.fr,
       common: {
+        results: "résultats",
+        pageOf: "Page {{page}} sur {{total}}",
+        previousPage: "Page précédente",
+        nextPage: "Page suivante",
         close: "Fermer",
         search: "Rechercher",
         preview: "Aperçu",
@@ -120,7 +126,12 @@ const resources = {
   ar: {
     translation: {
       planVersions: planVersionMessages.ar,
+      planApplication: planApplicationMessages.ar,
       common: {
+        results: "نتائج",
+        pageOf: "صفحة {{page}} من {{total}}",
+        previousPage: "الصفحة السابقة",
+        nextPage: "الصفحة التالية",
         close: "إغلاق",
         search: "بحث",
         preview: "معاينة",

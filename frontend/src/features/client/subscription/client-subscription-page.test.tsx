@@ -54,6 +54,7 @@ const { ClientSessionProvider } = await import("@/auth/session-provider");
 const { clearSession, writeSession } = await import("@/auth/session-store");
 const { ClientSubscriptionPage } = await import("./client-subscription-page");
 const { ClientCommercialPolicyTerms } = await import("@/features/commercial/commercial-policy-terms");
+const { i18n } = await import("@/app/i18n");
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -286,7 +287,8 @@ function clientPolicyPreview(
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await i18n.changeLanguage("fr");
   cleanup();
   clearSession("client");
   browser.localStorage.clear();
@@ -305,6 +307,72 @@ afterEach(() => {
 });
 
 describe("client subscription operations", () => {
+  test("content notices are independently readable and marking read is explicit", async () => {
+    const requests: string[] = [];
+    let read = false;
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input));
+      requests.push(url.pathname);
+      if (url.pathname.endsWith("/content-notices/notice-1/read") && init?.method === "POST") {
+        read = true;
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname === "/api/v1/subscriptions/content-notices")
+        return jsonResponse(
+          pageResponse([
+            {
+              id: "notice-1",
+              planName: "Atlas",
+              sourceVersion: 1,
+              targetVersion: 2,
+              state: "APPLIED",
+              timing: "NOW",
+              plannedAt: "2026-09-01T00:00:00Z",
+              effectiveAt: "2026-09-01T00:00:01Z",
+              beforeLimits: [],
+              afterLimits: [],
+              removedFeatures: [],
+              addedFeatures: ["platform.company"],
+              financialTermsRetained: true,
+              read,
+              createdAt: "2026-09-01T00:00:00Z",
+            },
+          ]),
+        );
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    }) as typeof fetch;
+    const { view, queryClient } = renderClient("/app/subscription?tab=notices", [
+      clientPermissions.subscriptionReadContentNotices,
+      clientPermissions.subscriptionMarkContentNoticeRead,
+    ]);
+    expect(await view.findByText("Votre prix et votre période payée ne changent pas.")).toBeTruthy();
+    expect(view.getByText("Gestion des entreprises")).toBeTruthy();
+    expect(read).toBe(false);
+    await userEvent
+      .setup({ document: browser.document as unknown as Document })
+      .click(view.getByRole("button", { name: "Marquer comme lue" }));
+    await waitFor(() => expect(view.getByText("Lue")).toBeTruthy());
+    expect(read).toBe(true);
+    expect(requests.every((path) => path.startsWith("/api/v1/subscriptions/content-notices"))).toBe(true);
+    queryClient.clear();
+  });
+
+  test("read-only content notices have no mark-read operation", async () => {
+    const methods: string[] = [];
+    globalThis.fetch = (async (input, init) => {
+      expect(new URL(String(input)).pathname).toBe("/api/v1/subscriptions/content-notices");
+      methods.push(init?.method ?? "GET");
+      return jsonResponse(pageResponse([]));
+    }) as typeof fetch;
+    const { view, queryClient } = renderClient("/app/subscription?tab=notices", [
+      clientPermissions.subscriptionReadContentNotices,
+    ]);
+    expect(await view.findByText("Aucun changement annoncé")).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Marquer comme lue" })).toBeNull();
+    expect(methods).toEqual(["GET"]);
+    queryClient.clear();
+  });
+
   test("orders exact commercial pricing while keeping the rendered client terms privacy-safe", () => {
     const evaluation = {
       ...clientPolicyEvaluation(),

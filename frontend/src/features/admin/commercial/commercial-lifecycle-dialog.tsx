@@ -31,14 +31,14 @@ type Preview = PlanActivationPreview | AddOnActivationPreview | QuotaPackageActi
 type Kind = "plan" | "add-on" | "quota";
 
 const actionCopy: Record<CommercialLifecycleAction, { label: string; title: string }> = {
-  ACTIVATE: { label: "Activer", title: "Mettre cette révision en vente ?" },
+  ACTIVATE: { label: "Activer", title: "Mettre cette version en vente ?" },
   DEACTIVATE: { label: "Suspendre", title: "Suspendre les nouvelles ventes ?" },
-  ARCHIVE: { label: "Archiver", title: "Archiver définitivement cette révision ?" },
+  ARCHIVE: { label: "Archiver", title: "Archiver définitivement cette version ?" },
 };
 
 const blockerCopy: Record<string, string> = {
   WRONG_LIFECYCLE_STATE: "Cette action n’est pas possible depuis le statut actuel.",
-  ARCHIVED_TERMINAL: "Une révision archivée ne peut pas être réactivée.",
+  ARCHIVED_TERMINAL: "Une version archivée ne peut pas être réactivée.",
   NO_INCLUDED_FEATURES: "Ajoutez au moins une fonctionnalité incluse.",
   NO_FEATURES: "Ajoutez au moins une fonctionnalité.",
   FEATURE_CONFIGURATION_INVALID: "La composition contient une configuration invalide.",
@@ -146,7 +146,7 @@ export function CommercialLifecycleDialog({
       ) {
         setPreview(null);
         setEvidenceClock(Date.now());
-        toast.warning("La révision a changé. Recalculez l’activation.");
+        toast.warning("La version a changé. Recalculez l’activation.");
         return;
       }
       toast.error(error instanceof Error ? error.message : "Action impossible");
@@ -172,7 +172,7 @@ export function CommercialLifecycleDialog({
       ];
     return [
       ["Tarifs vérifiés", reviewedPrices(preview).length],
-      ["Révisions remplacées", preview.packagesToDeactivate.length],
+      ["Versions remplacées", preview.packagesToDeactivate.length],
     ];
   }, [preview]);
 
@@ -195,7 +195,7 @@ export function CommercialLifecycleDialog({
             {action === "ACTIVATE"
               ? "La plateforme vérifie la composition, la compatibilité et les tarifs avant l’activation."
               : action === "DEACTIVATE"
-                ? "Les abonnements existants restent conservés, mais cette révision ne sera plus proposée."
+                ? "Les abonnements existants restent conservés, mais cette version ne sera plus proposée."
                 : "L’archivage est définitif. Les abonnements existants conservent leurs conditions."}
           </DialogDescription>
         </DialogHeader>
@@ -209,7 +209,7 @@ export function CommercialLifecycleDialog({
               </Button>
             ) : preview && !evidenceCurrent ? (
               <div className="space-y-3 text-sm" role="status">
-                <p>La vérification a expiré ou ne correspond plus à cette révision.</p>
+                <p>La vérification a expiré ou ne correspond plus à cette version.</p>
                 <Button onClick={refreshPreview} variant="outline">
                   Recalculer l’activation
                 </Button>

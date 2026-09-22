@@ -81,7 +81,10 @@ import {
 import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
 import { commercialAmount, isCommercialAmount } from "@/lib/exact-decimal";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { PlanApplications } from "./plan-application-detail-page";
+import { PlanSubscriberTable } from "./plan-subscriber-table";
 import { PlanMetadataDialog, PlanStatusTag, PlanVersionTag } from "./plan-version-controls";
+import { PlanVersionHistory } from "./plan-version-history";
 
 type PlanFeatureCommercialRow = {
   feature: PlanFeature;
@@ -1354,19 +1357,24 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
         ariaLabel="Sections du forfait"
         tabs={[
           { label: t("planVersions.content"), to: `/admin/plans/${id}`, end: true, active: contentTab },
-          ...(session.can(adminPermissions.plansListSubscribers)
+          ...(session.can(adminPermissions.plansListSubscribers) ||
+          session.can(adminPermissions.plansListFamilySubscribers)
             ? [
                 {
                   label: t("planVersions.subscribers"),
                   to: `/admin/plans/${id}/subscribers`,
-                  count: data.currentSubscriberCount,
+                  count: session.can(adminPermissions.plansListFamilySubscribers)
+                    ? undefined
+                    : data.currentSubscriberCount,
                 },
               ]
             : []),
           ...(hasSalesAccess
             ? [{ label: t("planVersions.sales"), to: `/admin/plans/${id}/sales`, active: salesTab }]
             : []),
-          ...(session.can(adminPermissions.commercialReadHistory)
+          ...(session.can(adminPermissions.commercialReadHistory) ||
+          session.can(adminPermissions.plansListApplications) ||
+          session.can(adminPermissions.plansReadVersionHistory)
             ? [{ label: t("planVersions.history"), to: `/admin/plans/${id}/history` }]
             : []),
         ]}
@@ -1432,8 +1440,29 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
             <p className="text-sm text-muted-foreground">{t("planVersions.contentHidden")}</p>
           )}
         </div>
-      ) : tab === "subscribers" && session.can(adminPermissions.plansListSubscribers) ? (
-        <PlanSubscribers plan={data} />
+      ) : tab === "subscribers" &&
+        (session.can(adminPermissions.plansListSubscribers) ||
+          session.can(adminPermissions.plansListFamilySubscribers)) ? (
+        <div className="space-y-4">
+          {data.status === "ACTIVE" &&
+            [
+              adminPermissions.plansCreateApplication,
+              adminPermissions.plansPreviewApplication,
+              adminPermissions.plansReadApplication,
+              adminPermissions.plansListVersions,
+            ].every(session.can) && (
+              <div className="flex justify-end">
+                <Button asChild>
+                  <Link to={`/admin/plans/${id}/apply`}>{t("planApplication.title")}</Link>
+                </Button>
+              </div>
+            )}
+          {session.can(adminPermissions.plansListFamilySubscribers) ? (
+            <PlanSubscriberTable planId={id} />
+          ) : (
+            <PlanSubscribers plan={data} />
+          )}
+        </div>
       ) : salesTab && hasSalesAccess ? (
         <div className="space-y-4">
           {tab === "sales" ? (
@@ -1458,8 +1487,15 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
             (salesPanels.find((panel) => panel.key === tab && panel.allowed)?.body ?? <PermissionState />)
           )}
         </div>
-      ) : tab === "history" && session.can(adminPermissions.commercialReadHistory) ? (
-        <CommercialAvailabilityHistory productId={id} />
+      ) : tab === "history" &&
+        (session.can(adminPermissions.commercialReadHistory) ||
+          session.can(adminPermissions.plansListApplications) ||
+          session.can(adminPermissions.plansReadVersionHistory)) ? (
+        <div className="space-y-5">
+          <PlanApplications planId={id} />
+          <PlanVersionHistory planId={id} />
+          {session.can(adminPermissions.commercialReadHistory) && <CommercialAvailabilityHistory productId={id} />}
+        </div>
       ) : (
         <PermissionState />
       )}

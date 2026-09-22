@@ -110,6 +110,17 @@ export function PlanVersionsPage() {
             row.original.salesVisibility === "PUBLIC" && (
               <SelectPlanPublicVersion plan={row.original} catalogRevision={data.catalogRevision} />
             )}
+          {row.original.status === "ACTIVE" &&
+            [
+              adminPermissions.plansCreateApplication,
+              adminPermissions.plansPreviewApplication,
+              adminPermissions.plansReadApplication,
+              adminPermissions.plansReadDetail,
+            ].every(session.can) && (
+              <Button asChild variant="ghost" size="sm">
+                <Link to={`/admin/plans/${row.original.id}/apply`}>{t("planApplication.title")}</Link>
+              </Button>
+            )}
         </div>
       ),
     }),

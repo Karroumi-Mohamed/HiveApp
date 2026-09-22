@@ -213,8 +213,8 @@ describe("commercial dialog open paths", () => {
     );
     const user = userEvent.setup({ document: view.container.ownerDocument });
     await user.click(view.getByRole("button", { name: "Activer" }));
-    expect(await view.findByRole("heading", { name: "Mettre cette révision en vente ?" })).toBeTruthy();
-    await view.findByText("La vérification a expiré ou ne correspond plus à cette révision.");
+    expect(await view.findByRole("heading", { name: "Mettre cette version en vente ?" })).toBeTruthy();
+    await view.findByText("La vérification a expiré ou ne correspond plus à cette version.");
 
     await user.type(view.getByLabelText("Motif"), "Validation commerciale");
     expect(view.getByRole("button", { name: "Activer" }).hasAttribute("disabled")).toBeTrue();

@@ -76,6 +76,7 @@ import {
   SubscriptionQuantityControl,
 } from "@/features/commercial/subscription-quantity-control";
 import { formatExactMoney } from "@/lib/exact-decimal";
+import { ClientContentNotices } from "./client-content-notices";
 import { ClientInvoiceHistory } from "./client-invoice-history";
 import { ClientPriceNotices } from "./client-price-notices";
 import {
@@ -989,7 +990,9 @@ export function ClientSubscriptionPage() {
   const session = useClientSession();
   const [params, setParams] = useSearchParams();
   const canReadSubscription = session.can(clientPermissions.subscriptionRead);
-  const canReadNotices = session.can(clientPermissions.subscriptionReadPriceNotices);
+  const canReadPriceNotices = session.can(clientPermissions.subscriptionReadPriceNotices);
+  const canReadContentNotices = session.can(clientPermissions.subscriptionReadContentNotices);
+  const canReadNotices = canReadPriceNotices || canReadContentNotices;
   const canReadSpecialAgreements = session.can(clientPermissions.subscriptionReadSpecialAgreements);
   const canReadCatalog = session.can(clientPermissions.subscriptionCatalog);
   const canReadChanges = session.can(clientPermissions.subscriptionReadChanges);
@@ -1049,7 +1052,10 @@ export function ClientSubscriptionPage() {
       ) : tab === "changes" && canReadChanges ? (
         <ChangeHistory />
       ) : tab === "notices" && canReadNotices ? (
-        <ClientPriceNotices />
+        <div className="space-y-6">
+          {canReadContentNotices && <ClientContentNotices />}
+          {canReadPriceNotices && <ClientPriceNotices />}
+        </div>
       ) : tab === "invoices" && canReadBilling ? (
         <div className="space-y-6">
           <BillingProfilePanel
