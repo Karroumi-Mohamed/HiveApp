@@ -60,8 +60,7 @@ public class AccountShellServiceImpl extends ClientWorkspaceFeatureService imple
     @Transactional
     @PermissionNode(key = "send_notification", description = "Send one-way information to selected own-account members")
     public void sendInternalNotification(InternalNotice notice) {
-        if (!dev.karroumi.permissionizer.PermissionGuard.has(PlatformPermissions.Workspace.Choose_notification_recipients.permission()))
-            throw new ForbiddenException("Notification recipient selection permission is required.");
+        dev.karroumi.permissionizer.PermissionGuard.check(PlatformPermissions.Workspace.Choose_notification_recipients.permission());
         internalNotifications.send(notice);
     }
 
@@ -125,10 +124,8 @@ public class AccountShellServiceImpl extends ClientWorkspaceFeatureService imple
     }
 
     private void requireCommunicationRead() {
-        if (!dev.karroumi.permissionizer.PermissionGuard.has(
-                PlatformPermissions.Workspace.Read_communications.permission())) {
-            throw new ForbiddenException("Reading communications is required.");
-        }
+        dev.karroumi.permissionizer.PermissionGuard.check(
+                PlatformPermissions.Workspace.Read_communications.permission());
     }
 
     @Override

@@ -194,12 +194,10 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
   }
 
   private void requireDelivery(Permission permission) {
-    if (!PermissionGuard.has(permission))
-      throw new ForbiddenException("Notification delivery permission required.");
+    PermissionGuard.check(permission);
   }
 
   private void requireRead() {
-    if (!PermissionGuard.has(PlatformPermissions.Notifications.Read.permission()))
-      throw new ForbiddenException("Notification read permission required.");
+    PermissionGuard.check(PlatformPermissions.Notifications.Read.permission());
   }
 }
