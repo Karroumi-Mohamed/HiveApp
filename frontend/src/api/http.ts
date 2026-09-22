@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import type { ApiErrorBody } from "@/api/contracts";
 
 export type ApiAudience = "admin" | "client" | "public";
@@ -54,6 +55,7 @@ export async function apiRequest<T>(
   }
 
   const headers = new Headers(requestInit.headers);
+  if (!headers.has("Accept-Language")) headers.set("Accept-Language", i18n.language?.startsWith("ar") ? "ar" : "fr");
   if (requestInit.body && !(requestInit.body instanceof FormData)) headers.set("Content-Type", "application/json");
   if (audience !== "public") {
     const token = readToken(audience);

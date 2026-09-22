@@ -4,9 +4,9 @@ import static com.hiveapp.platform.communication.CommunicationModels.*;
 
 import com.hiveapp.platform.client.plan.domain.entity.*;
 import com.hiveapp.platform.client.plan.domain.repository.*;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import dev.karroumi.permissionizer.*;
 import java.util.*;
-import com.hiveapp.platform.generated.PlatformPermissions;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,7 +19,8 @@ public class CommunicationSources {
   private final PlanContentNoticeRepository content;
   private final SubscriptionRepricingItemRepository pricing;
   private final NotificationCatalog catalog;
-  private final org.springframework.beans.factory.ObjectProvider<NotificationOfferEligibility> offers;
+  private final org.springframework.beans.factory.ObjectProvider<NotificationOfferEligibility>
+      offers;
 
   public List<String> allowedPermissions() {
     List<Permission> permissions = new ArrayList<>();
@@ -106,22 +107,29 @@ public class CommunicationSources {
     for (var entry : found) {
       if (entry.getKind() != Kind.OFFER) continue;
       String key = entry.getAccountId() + ":" + entry.getResourceId();
-      String state = offerStates.computeIfAbsent(key, ignored -> {
-        if (entry.getAccountId() == null || entry.getResourceId() == null) return "UNAVAILABLE";
-        try {
-          offers.getObject().requireAvailable(entry.getAccountId(), entry.getResourceId());
-          return "PUBLISHED";
-        } catch (com.hiveapp.shared.exception.OfferNotAvailableException unavailable) {
-          return "UNAVAILABLE";
-        }
-      });
+      String state =
+          offerStates.computeIfAbsent(
+              key,
+              ignored -> {
+                if (entry.getAccountId() == null || entry.getResourceId() == null)
+                  return "UNAVAILABLE";
+                try {
+                  offers.getObject().requireAvailable(entry.getAccountId(), entry.getResourceId());
+                  return "PUBLISHED";
+                } catch (com.hiveapp.shared.exception.OfferNotAvailableException unavailable) {
+                  return "UNAVAILABLE";
+                }
+              });
       result.put(entry.getId(), state);
     }
     return result;
   }
 
   public boolean isInactiveState(String state) {
-    return "CANCELLED".equals(state) || "WITHDRAWN".equals(state) || "APPLIED".equals(state) || "UNAVAILABLE".equals(state);
+    return "CANCELLED".equals(state)
+        || "WITHDRAWN".equals(state)
+        || "APPLIED".equals(state)
+        || "UNAVAILABLE".equals(state);
   }
 
   public boolean inactive(CommunicationEntry e) {

@@ -54,7 +54,8 @@ public class ClientCommunicationController {
   }
 
   @GetMapping("/internal")
-  public PageResponse<SentNotice> sent(@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+  public PageResponse<SentNotice> sent(
+      @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
     return PageResponse.from(service.sentNotifications(CommunicationService.page(page, size)));
   }
 
@@ -71,6 +72,16 @@ public class ClientCommunicationController {
   @GetMapping("/{id}")
   public Item detail(@PathVariable UUID id) {
     return service.communicationDetail(id);
+  }
+
+  @GetMapping("/language")
+  public LanguageSetting language() {
+    return service.notificationLanguage();
+  }
+
+  @PutMapping("/language")
+  public LanguageSetting language(@Valid @RequestBody LanguageSetting setting) {
+    return service.updateNotificationLanguage(setting);
   }
 
   @PostMapping("/{id}/read")

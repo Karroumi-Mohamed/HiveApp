@@ -148,6 +148,9 @@ export const communicationApi = {
       query: action === "archive" ? { archived } : undefined,
     }),
   settings: (platform = false) => inboxApi(platform)<NotificationSetting[]>(platform ? "/preferences" : "/settings"),
+  language: (platform = false) => inboxApi(platform)<{ language: "fr" | "ar" }>("/language"),
+  setLanguage: (language: "fr" | "ar", platform = false) =>
+    inboxApi(platform)<{ language: "fr" | "ar" }>("/language", body({ language }, "PUT")),
   setting: (setting: NotificationSetting, platform = false) =>
     inboxApi(platform)<NotificationSetting>(platform ? "/preferences" : "/settings", body(setting, "PUT")),
   members: (search: string, page = 0) =>

@@ -9,9 +9,10 @@ import org.junit.jupiter.api.Test;
 class NotificationCatalogTest {
   @Test
   void coreNotificationsUseGeneratedPermissionReferences() {
-    var declared = java.util.Arrays.stream(
-            com.hiveapp.platform.generated.PlatformPermissions.all())
-        .map(dev.karroumi.permissionizer.Permission::path).toList();
+    var declared =
+        java.util.Arrays.stream(com.hiveapp.platform.generated.PlatformPermissions.all())
+            .map(dev.karroumi.permissionizer.Permission::path)
+            .toList();
     for (var definition : CoreNotification.values()) {
       if (definition.requiredPermission() != null)
         assertThat(declared).contains(definition.requiredPermission().path());
@@ -38,37 +39,60 @@ class NotificationCatalogTest {
             return new dev.karroumi.permissionizer.Permission("business.tasks.read");
           }
 
-          public String actionPath(java.util.UUID id) { return "/app/tasks/" + id; }
+          public String actionPath(java.util.UUID id) {
+            return "/app/tasks/" + id;
+          }
         };
     var catalog = new NotificationCatalog(List.of(task), registry("business.tasks.read"));
     catalog.validatePermissions();
     assertThat(catalog.require("tasks.assigned")).isSameAs(task);
     var invalid = new NotificationCatalog(List.of(task), registry());
     assertThatThrownBy(invalid::validatePermissions)
-        .isInstanceOf(IllegalStateException.class).hasMessageContaining("business.tasks.read");
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("business.tasks.read");
     assertThatThrownBy(() -> invalid.require(task.key()))
-        .isInstanceOf(IllegalStateException.class).hasMessageContaining("tasks.assigned");
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("tasks.assigned");
   }
 
   @Test
   void priorityIsIndependentAndMarketingCannotClaimHighUrgency() {
     assertThat(CoreNotification.PAYMENT_FAILED.priority()).isEqualTo(Priority.HIGH);
     assertThat(CoreNotification.OFFER_AVAILABLE.priority()).isEqualTo(Priority.NORMAL);
-    var marketing = new NotificationDefinition() {
-      public String key() { return "marketing.information"; }
-      public Topic topic() { return Topic.COMMERCIAL; }
-      public Kind kind() { return Kind.NOTICE; }
-      public Priority priority() { return Priority.HIGH; }
-      public Purpose purpose() { return Purpose.MARKETING; }
-      public dev.karroumi.permissionizer.Permission requiredPermission() { return null; }
-    };
+    var marketing =
+        new NotificationDefinition() {
+          public String key() {
+            return "marketing.information";
+          }
+
+          public Topic topic() {
+            return Topic.COMMERCIAL;
+          }
+
+          public Kind kind() {
+            return Kind.NOTICE;
+          }
+
+          public Priority priority() {
+            return Priority.HIGH;
+          }
+
+          public Purpose purpose() {
+            return Purpose.MARKETING;
+          }
+
+          public dev.karroumi.permissionizer.Permission requiredPermission() {
+            return null;
+          }
+        };
     assertThatThrownBy(() -> new NotificationCatalog(List.of(marketing), registry()))
         .isInstanceOf(IllegalStateException.class);
   }
 
   @Test
   void rejectsDuplicateContractsAndOptionalWarnings() {
-    assertThatThrownBy(() -> new NotificationCatalog(List.of(CoreNotification.MEMBER_CREATED), registry()))
+    assertThatThrownBy(
+            () -> new NotificationCatalog(List.of(CoreNotification.MEMBER_CREATED), registry()))
         .isInstanceOf(IllegalStateException.class);
     var unsafe =
         new NotificationDefinition() {
@@ -102,8 +126,9 @@ class NotificationCatalogTest {
       paths.add(permission.path());
     paths.addAll(List.of(extra));
     var registry = new com.hiveapp.platform.registry.service.CurrentRegistrySnapshot();
-    registry.install(new com.hiveapp.platform.registry.service.RegistrySnapshot(
-        List.of(), List.of(), paths, "test"));
+    registry.install(
+        new com.hiveapp.platform.registry.service.RegistrySnapshot(
+            List.of(), List.of(), paths, "test"));
     return registry;
   }
 }

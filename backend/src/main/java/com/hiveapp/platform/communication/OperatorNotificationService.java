@@ -3,13 +3,13 @@ package com.hiveapp.platform.communication;
 import static com.hiveapp.platform.communication.CommunicationModels.*;
 
 import com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import com.hiveapp.platform.registry.definition.FeatureDefinition;
 import com.hiveapp.platform.registry.definition.service.PlatformControlFeatureService;
 import com.hiveapp.shared.exception.*;
 import dev.karroumi.permissionizer.*;
 import java.time.*;
 import java.util.UUID;
-import com.hiveapp.platform.generated.PlatformPermissions;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
@@ -29,7 +29,11 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
       int attempts,
       Instant nextAttemptAt,
       String failureCode,
-      long version, Instant createdAt, Instant updatedAt, String sourcePath, boolean canRetry) {}
+      long version,
+      Instant createdAt,
+      Instant updatedAt,
+      String sourcePath,
+      boolean canRetry) {}
 
   public record EmailResult(
       UUID id,
@@ -38,7 +42,12 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
       int attempts,
       Instant nextAttemptAt,
       long version,
-      boolean canRetry, String failureCode, Instant createdAt, Instant updatedAt, UUID eventId, String sourcePath) {}
+      boolean canRetry,
+      String failureCode,
+      Instant createdAt,
+      Instant updatedAt,
+      UUID eventId,
+      String sourcePath) {}
 
   private final CommunicationService communications;
   private final NotificationEventRepository events;
@@ -75,6 +84,19 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
   public NotificationSetting setting(NotificationSetting s) {
     requireRead();
     return communications.setting(s, true);
+  }
+
+  @PermissionNode(key = "internal_language", guard = PermissionNode.Guard.OFF)
+  public LanguageSetting language() {
+    requireRead();
+    return communications.language(true);
+  }
+
+  @PermissionNode(key = "internal_update_language", guard = PermissionNode.Guard.OFF)
+  public LanguageSetting language(LanguageSetting setting) {
+    PermissionGuard.check(PlatformPermissions.Notifications.Preferences.permission());
+    requireRead();
+    return communications.language(setting, true);
   }
 
   @PermissionNode(key = "mark_read", description = "Mark own operator notification as read")
@@ -115,7 +137,11 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
                     e.getAttempts(),
                     e.getNextAttemptAt(),
                     e.getFailureCode(),
-                    e.getVersion(), e.getCreatedAt(), e.getUpdatedAt(), sourcePath(e.getDefinitionKey(), e.getResourceId()), eventRetryable(e)));
+                    e.getVersion(),
+                    e.getCreatedAt(),
+                    e.getUpdatedAt(),
+                    sourcePath(e.getDefinitionKey(), e.getResourceId()),
+                    eventRetryable(e)));
   }
 
   @PermissionNode(key = "retry_delivery", description = "Retry a failed notification event")
@@ -158,7 +184,12 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
                     e.getDelivery().getAttempts(),
                     e.getNextEmailAttemptAt(),
                     e.getVersion(),
-                    emailRetryable(e), e.getEmailFailureCode(), e.getCreatedAt(), e.getUpdatedAt(), e.getEventId(), sourcePath(e.getEventType(), e.getResourceId())));
+                    emailRetryable(e),
+                    e.getEmailFailureCode(),
+                    e.getCreatedAt(),
+                    e.getUpdatedAt(),
+                    e.getEventId(),
+                    sourcePath(e.getEventType(), e.getResourceId())));
   }
 
   @PermissionNode(key = "internal_retry_email", guard = PermissionNode.Guard.OFF)
@@ -193,15 +224,22 @@ public class OperatorNotificationService extends PlatformControlFeatureService {
   }
 
   private String sourcePath(String type, UUID resource) {
-    if (type != null && resource != null && java.util.Set.of(CoreNotification.PAYMENT_FAILED.key(), CoreNotification.PAYMENT_RECEIVED.key(),
-        CoreNotification.BILLING_ATTENTION.key()).contains(type)
+    if (type != null
+        && resource != null
+        && java.util.Set.of(
+                CoreNotification.PAYMENT_FAILED.key(),
+                CoreNotification.PAYMENT_RECEIVED.key(),
+                CoreNotification.BILLING_ATTENTION.key())
+            .contains(type)
         && PermissionGuard.has(PlatformPermissions.Billing.Read_invoice.permission()))
       return "/admin/billing/invoices/" + resource;
     return null;
   }
 
   private boolean eventRetryable(NotificationEvent event) {
-    return event.getState() == NotificationEvent.State.FAILED && !event.isCancelled() && event.getResolvedAt() == null
+    return event.getState() == NotificationEvent.State.FAILED
+        && !event.isCancelled()
+        && event.getResolvedAt() == null
         && (event.getExpiresAt() == null || event.getExpiresAt().isAfter(clock.instant()));
   }
 

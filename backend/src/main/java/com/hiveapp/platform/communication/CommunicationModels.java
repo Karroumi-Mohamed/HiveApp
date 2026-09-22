@@ -27,7 +27,10 @@ public final class CommunicationModels {
     TASKS
   }
 
-  public enum Priority { NORMAL, HIGH }
+  public enum Priority {
+    NORMAL,
+    HIGH
+  }
 
   public enum Audience {
     ACCOUNT,
@@ -110,7 +113,8 @@ public final class CommunicationModels {
       UUID resourceId,
       Audience audience,
       boolean resolved,
-      String senderName, Priority priority) {}
+      String senderName,
+      Priority priority) {}
 
   public record Recipient(
       UUID id,
@@ -134,11 +138,20 @@ public final class CommunicationModels {
 
   public record InternalNoticeResult(UUID commandId, int recipients) {}
 
-  public record SentNotice(UUID commandId, String messageTitle, String messageBody,
-      Instant createdAt, int recipients, long delivered, long failed, long pending) {}
+  public record SentNotice(
+      UUID commandId,
+      String messageTitle,
+      String messageBody,
+      Instant createdAt,
+      int recipients,
+      long delivered,
+      long failed,
+      long pending) {}
 
   public record NotificationSetting(
       @NotNull Topic topic, boolean inAppEnabled, boolean emailEnabled) {}
+
+  public record LanguageSetting(@NotNull @Pattern(regexp = "fr|ar") String language) {}
 
   public record AccountChoice(UUID id, String name) {}
 }

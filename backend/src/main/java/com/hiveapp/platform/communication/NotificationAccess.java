@@ -7,11 +7,11 @@ import com.hiveapp.platform.admin.domain.repository.AdminUserRepository;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.company.domain.repository.CompanyRepository;
 import com.hiveapp.platform.client.member.domain.repository.MemberRepository;
+import com.hiveapp.platform.generated.PlatformPermissions;
 import com.hiveapp.shared.exception.ForbiddenException;
 import com.hiveapp.shared.security.context.*;
 import dev.karroumi.permissionizer.*;
 import java.util.*;
-import com.hiveapp.platform.generated.PlatformPermissions;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -110,7 +110,9 @@ public class NotificationAccess {
         new HiveAppPermissionContext(
             user.getId(), account, account, entry.getCompanyId(), null, false);
     Permission read =
-        account == null ? PlatformPermissions.Notifications.Read.permission() : PlatformPermissions.Workspace.Read_communications.permission();
+        account == null
+            ? PlatformPermissions.Notifications.Read.permission()
+            : PlatformPermissions.Workspace.Read_communications.permission();
     if (!PermissionGuard.has(read, context)
         || (entry.getRequiredPermission() != null
             && !PermissionGuard.has(new Permission(entry.getRequiredPermission()), context)))

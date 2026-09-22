@@ -20,6 +20,7 @@ public class CommunicationEmailSource implements CommercialNoticeDeliverySource 
   private final NotificationPreferenceRepository notificationPreferences;
   private final NotificationOfferEligibility offers;
   private final com.hiveapp.shared.config.ActivationProperties links;
+  private final NotificationLanguageRepository languages;
   private final Clock clock;
 
   public List<UUID> due(Instant now, int limit) {
@@ -39,7 +40,8 @@ public class CommunicationEmailSource implements CommercialNoticeDeliverySource 
                 || e.getKind() == CommunicationModels.Kind.ACTION))
         || (e.getExpiresAt() != null && !e.getExpiresAt().isAfter(now))) {
       d.cancelAbandonedClaim();
-      e.setEmailFailureCode(e.getExpiresAt() != null && !e.getExpiresAt().isAfter(now) ? "EXPIRED" : "WITHDRAWN");
+      e.setEmailFailureCode(
+          e.getExpiresAt() != null && !e.getExpiresAt().isAfter(now) ? "EXPIRED" : "WITHDRAWN");
       e.setNextEmailAttemptAt(null);
       return null;
     }
@@ -78,17 +80,27 @@ public class CommunicationEmailSource implements CommercialNoticeDeliverySource 
     var claim = d.claim(recipient.getId(), now);
     e.setEmailFailureCode(null);
     entries.saveAndFlush(e);
+    var language =
+        languages
+            .findById(recipient.getId())
+            .map(NotificationLanguagePreference::getLanguage)
+            .orElse("fr");
     return new Claim(
         id,
         claim,
         recipient.getEmail(),
-        "HiveApp — Notification",
+        NotificationText.emailSubject(language),
         e.getPurpose() == Purpose.MARKETING
-            ? e.getMessageBody() + "\n\n" + links.getValidatedOrigin() + (e.getActionPath() == null ? "" : e.getActionPath())
-            : "Une notification vous attend dans HiveApp → Notifications. Connectez-vous pour la"
-                + " consulter.\n\n" + links.getValidatedOrigin()
+            ? e.getMessageBody()
+                + "\n\n"
+                + links.getValidatedOrigin()
+                + (e.getActionPath() == null ? "" : e.getActionPath())
+            : NotificationText.emailPrompt(language)
+                + "\n\n"
+                + links.getValidatedOrigin()
                 + (e.getAccountId() == null ? "/admin/notifications" : "/app/communications")
-                + "?item=" + e.getId()
+                + "?item="
+                + e.getId()
                 + (e.getCompanyId() == null ? "" : "&company=" + e.getCompanyId()));
   }
 
@@ -99,7 +111,10 @@ public class CommunicationEmailSource implements CommercialNoticeDeliverySource 
     if (d.getDelivery() != Delivery.SENDING
         || !java.util.Objects.equals(d.getClaimId(), claim.claimId())) return;
     d.complete(claim.claimId(), outcome);
-    e.setEmailFailureCode(outcome == Delivery.FAILED ? "TRANSPORT_FAILED" : outcome == Delivery.SUPPRESSED ? "TRANSPORT_SUPPRESSED" : null);
+    e.setEmailFailureCode(
+        outcome == Delivery.FAILED
+            ? "TRANSPORT_FAILED"
+            : outcome == Delivery.SUPPRESSED ? "TRANSPORT_SUPPRESSED" : null);
     if (outcome == Delivery.FAILED && d.getAttempts() < 3 && !e.isCancelled()) {
       d.retry();
       e.setNextEmailAttemptAt(clock.instant().plusSeconds(60L << d.getAttempts()));

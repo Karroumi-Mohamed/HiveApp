@@ -24,6 +24,7 @@ const copy = {
   operatorInbox: ["Mes notifications", "إشعاراتي"],
   outbound: ["Communiquer aux clients", "التواصل مع العملاء"],
   personalSettings: ["Mes préférences", "تفضيلاتي"],
+  emailLanguage: ["Langue des emails automatiques", "لغة الرسائل التلقائية"],
   requiredHint: [
     "Ces choix filtrent les informations facultatives du flux, sans bloquer leur lien direct. L’email est envoyé seulement si l’événement le prévoit. Les avertissements obligatoires et le consentement commercial restent séparés.",
     "تخفي هذه الخيارات المعلومات الاختيارية من القائمة دون منع رابطها المباشر. يرسل البريد فقط عندما يدعمه الحدث. التنبيهات الإلزامية والموافقة التجارية مستقلة.",

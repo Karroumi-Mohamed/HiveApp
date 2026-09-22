@@ -13,6 +13,8 @@ public interface AccountShellService {
     Page<SentNotice> sentNotifications(Pageable page);
     java.util.List<NotificationSetting> notificationSettings();
     NotificationSetting updateNotificationSetting(NotificationSetting setting);
+    LanguageSetting notificationLanguage();
+    LanguageSetting updateNotificationLanguage(LanguageSetting setting);
     Item communicationDetail(UUID id);
     void readCommunication(UUID id);
     void acknowledgeCommunication(UUID id);

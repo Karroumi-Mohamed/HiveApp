@@ -37,10 +37,16 @@ import lombok.*;
             + " company_id is null) or (audience='OPERATOR' and account_id is null and"
             + " recipient_user_id is not null and company_id is null)")
 public class CommunicationEntry extends BaseEntity {
-  @Column(length = 255) private String senderName;
-  @Column(length = 80) private String emailFailureCode;
-  @Enumerated(EnumType.STRING) @Column(nullable = false, length = 16)
+  @Column(length = 255)
+  private String senderName;
+
+  @Column(length = 80)
+  private String emailFailureCode;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false, length = 16)
   private CommunicationModels.Priority priority = CommunicationModels.Priority.NORMAL;
+
   @Version private long version;
 
   @Column(name = "account_id", updatable = false)

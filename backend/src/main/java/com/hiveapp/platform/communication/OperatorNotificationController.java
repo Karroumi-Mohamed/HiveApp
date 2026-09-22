@@ -48,6 +48,16 @@ public class OperatorNotificationController {
     return service.detail(id);
   }
 
+  @GetMapping("/language")
+  public LanguageSetting language() {
+    return service.language();
+  }
+
+  @PutMapping("/language")
+  public LanguageSetting language(@Valid @RequestBody LanguageSetting setting) {
+    return service.language(setting);
+  }
+
   @PostMapping("/{id}/read")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void read(@PathVariable UUID id) {

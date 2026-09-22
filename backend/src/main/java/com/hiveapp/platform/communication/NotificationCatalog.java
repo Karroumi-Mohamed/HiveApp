@@ -1,7 +1,7 @@
 package com.hiveapp.platform.communication;
 
-import java.util.*;
 import com.hiveapp.platform.registry.service.CurrentRegistrySnapshot;
+import java.util.*;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
@@ -12,7 +12,8 @@ public class NotificationCatalog {
   private final Map<String, NotificationDefinition> definitions;
   private final CurrentRegistrySnapshot registry;
 
-  public NotificationCatalog(List<NotificationDefinition> extensions, CurrentRegistrySnapshot registry) {
+  public NotificationCatalog(
+      List<NotificationDefinition> extensions, CurrentRegistrySnapshot registry) {
     this.registry = registry;
     var found = new LinkedHashMap<String, NotificationDefinition>();
     var all = new ArrayList<NotificationDefinition>(List.of(CoreNotification.values()));
@@ -59,8 +60,11 @@ public class NotificationCatalog {
   private void validatePermission(NotificationDefinition definition) {
     var permission = definition.requiredPermission();
     if (permission != null && !registry.containsAction(permission.path()))
-      throw new IllegalStateException("Notification " + definition.key()
-          + " references an unregistered permission: " + permission.path());
+      throw new IllegalStateException(
+          "Notification "
+              + definition.key()
+              + " references an unregistered permission: "
+              + permission.path());
   }
 
   public Collection<NotificationDefinition> all() {

@@ -38,8 +38,11 @@ public class NotificationWorker {
                           if (e.getState() != NotificationEvent.State.PENDING) return;
                           int attempts = e.getAttempts() + 1;
                           e.setAttempts(attempts);
-                          e.setFailureCode(failure instanceof IllegalArgumentException || failure instanceof IllegalStateException
-                              ? "CONTRACT_INVALID" : "DELIVERY_FAILED");
+                          e.setFailureCode(
+                              failure instanceof IllegalArgumentException
+                                      || failure instanceof IllegalStateException
+                                  ? "CONTRACT_INVALID"
+                                  : "DELIVERY_FAILED");
                           e.setNextAttemptAt(
                               clock
                                   .instant()
@@ -74,7 +77,10 @@ public class NotificationWorker {
             e.setAudience(event.getAudience());
             e.setResourceId(event.getResourceId());
             e.setSenderName(event.getSenderName());
-            e.setRequiredPermission(definition.requiredPermission() == null ? null : definition.requiredPermission().path());
+            e.setRequiredPermission(
+                definition.requiredPermission() == null
+                    ? null
+                    : definition.requiredPermission().path());
             e.setActionPath(definition.actionPath(event.getResourceId()));
             e.setMessageTitle(event.getMessageTitle());
             e.setMessageBody(event.getMessageBody());

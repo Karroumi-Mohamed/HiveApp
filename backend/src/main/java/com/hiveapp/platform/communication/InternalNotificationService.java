@@ -27,19 +27,39 @@ public class InternalNotificationService {
   @Transactional(readOnly = true)
   public Page<SentNotice> sent(Pageable page) {
     var viewer = access.viewer(false);
-    var found = commands.findByAccountIdAndSenderUserId(viewer.accountId(), viewer.userId(),
-        PageRequest.of(page.getPageNumber(), page.getPageSize(), Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("commandKey"))));
+    var found =
+        commands.findByAccountIdAndSenderUserId(
+            viewer.accountId(),
+            viewer.userId(),
+            PageRequest.of(
+                page.getPageNumber(),
+                page.getPageSize(),
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("commandKey"))));
     var counts = new HashMap<UUID, EnumMap<NotificationEvent.State, Long>>();
     if (!found.isEmpty())
-      for (var row : events.sentCounts(viewer.accountId(), viewer.userId(), found.map(NotificationSendCommand::getCommandId).getContent()))
-        counts.computeIfAbsent((UUID) row[0], ignored -> new EnumMap<>(NotificationEvent.State.class))
+      for (var row :
+          events.sentCounts(
+              viewer.accountId(),
+              viewer.userId(),
+              found.map(NotificationSendCommand::getCommandId).getContent()))
+        counts
+            .computeIfAbsent((UUID) row[0], ignored -> new EnumMap<>(NotificationEvent.State.class))
             .put((NotificationEvent.State) row[1], ((Number) row[2]).longValue());
-    return found.map(command -> {
-      var result = counts.getOrDefault(command.getCommandId(), new EnumMap<>(NotificationEvent.State.class));
-      return new SentNotice(command.getCommandId(), command.getMessageTitle(), command.getMessageBody(), command.getCreatedAt(),
-          command.getRecipients(), result.getOrDefault(NotificationEvent.State.DELIVERED, 0L),
-          result.getOrDefault(NotificationEvent.State.FAILED, 0L), result.getOrDefault(NotificationEvent.State.PENDING, 0L));
-    });
+    return found.map(
+        command -> {
+          var result =
+              counts.getOrDefault(
+                  command.getCommandId(), new EnumMap<>(NotificationEvent.State.class));
+          return new SentNotice(
+              command.getCommandId(),
+              command.getMessageTitle(),
+              command.getMessageBody(),
+              command.getCreatedAt(),
+              command.getRecipients(),
+              result.getOrDefault(NotificationEvent.State.DELIVERED, 0L),
+              result.getOrDefault(NotificationEvent.State.FAILED, 0L),
+              result.getOrDefault(NotificationEvent.State.PENDING, 0L));
+        });
   }
 
   @Transactional(readOnly = true)
@@ -108,19 +128,22 @@ public class InternalNotificationService {
                         || !m.isActive()
                         || !m.getUser().isActive()))
       throw new InvalidRequestException("Choose active members of your own Account.");
-    entities.persist(new NotificationSendCommand(key, fingerprint, clock.instant(), v.accountId(), v.userId(), request));
+    entities.persist(
+        new NotificationSendCommand(
+            key, fingerprint, clock.instant(), v.accountId(), v.userId(), request));
     var sender = members.findByAccountIdAndUserId(v.accountId(), v.userId()).orElseThrow();
     for (var member : selected) {
-      UUID id = publisher.publish(
-          CoreNotification.INTERNAL_INFORMATION,
-          v.userId() + ":" + request.commandId(),
-          NotificationPublisher.Target.member(v.accountId(), member.getUser().getId()),
-          request.commandId(),
-          request.messageTitle(),
-          request.messageBody(),
-          false,
-          null,
-          null);
+      UUID id =
+          publisher.publish(
+              CoreNotification.INTERNAL_INFORMATION,
+              v.userId() + ":" + request.commandId(),
+              NotificationPublisher.Target.member(v.accountId(), member.getUser().getId()),
+              request.commandId(),
+              request.messageTitle(),
+              request.messageBody(),
+              false,
+              null,
+              null);
       var event = entities.find(NotificationEvent.class, id);
       event.setSenderUserId(v.userId());
       event.setSenderName(sender.getDisplayName() == null ? "Membre" : sender.getDisplayName());

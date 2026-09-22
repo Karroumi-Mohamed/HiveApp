@@ -11,8 +11,14 @@ public interface NotificationEventRepository
     extends JpaRepository<NotificationEvent, UUID>, JpaSpecificationExecutor<NotificationEvent> {
   Optional<NotificationEvent> findByDedupeKey(String key);
 
-  @Query("select e.resourceId, e.state, count(e) from NotificationEvent e where e.accountId=:account and e.senderUserId=:sender and e.resourceId in :commands group by e.resourceId,e.state")
-  List<Object[]> sentCounts(@Param("account") UUID account, @Param("sender") UUID sender, @Param("commands") Collection<UUID> commands);
+  @Query(
+      "select e.resourceId, e.state, count(e) from NotificationEvent e where e.accountId=:account"
+          + " and e.senderUserId=:sender and e.resourceId in :commands group by"
+          + " e.resourceId,e.state")
+  List<Object[]> sentCounts(
+      @Param("account") UUID account,
+      @Param("sender") UUID sender,
+      @Param("commands") Collection<UUID> commands);
 
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select e from NotificationEvent e where e.id=:id")
@@ -32,6 +38,9 @@ public interface NotificationEventRepository
       @Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
 
   @Modifying
-  @Query("update NotificationEvent e set e.cancelled=true, e.resolvedAt=:now where e.definitionKey=:type and e.resourceId=:resource and e.cancelled=false")
-  int withdraw(@Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
+  @Query(
+      "update NotificationEvent e set e.cancelled=true, e.resolvedAt=:now where"
+          + " e.definitionKey=:type and e.resourceId=:resource and e.cancelled=false")
+  int withdraw(
+      @Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
 }

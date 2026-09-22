@@ -34,14 +34,18 @@ public interface CommunicationEntryRepository
       @Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
 
   @Modifying
-  @Query("update CommunicationEntry e set e.cancelled=true, e.resolvedAt=:now where e.eventType=:type and e.resourceId=:resource and e.cancelled=false")
-  int withdrawEvent(@Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
+  @Query(
+      "update CommunicationEntry e set e.cancelled=true, e.resolvedAt=:now where e.eventType=:type"
+          + " and e.resourceId=:resource and e.cancelled=false")
+  int withdrawEvent(
+      @Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
 
   @Query(
       "select e.id from CommunicationEntry e where e.source in ('ADMIN','EVENT') and"
-          + " ((e.availableAt<=:now and (e.cancelled=true or e.hidden=true or (e.resolvedAt is not null and e.kind in ('WARNING','ACTION'))"
-          + " or e.expiresAt<=:now or e.nextEmailAttemptAt is null or e.nextEmailAttemptAt<=:now)"
-          + " and e.delivery.delivery=com.hiveapp.platform.client.plan.dto.RepricingModels$Delivery.PENDING)"
+          + " ((e.availableAt<=:now and (e.cancelled=true or e.hidden=true or (e.resolvedAt is not"
+          + " null and e.kind in ('WARNING','ACTION')) or e.expiresAt<=:now or e.nextEmailAttemptAt"
+          + " is null or e.nextEmailAttemptAt<=:now) and"
+          + " e.delivery.delivery=com.hiveapp.platform.client.plan.dto.RepricingModels$Delivery.PENDING)"
           + " or (e.delivery.delivery=com.hiveapp.platform.client.plan.dto.RepricingModels$Delivery.SENDING"
           + " and e.delivery.claimedAt<:stale)) order by e.availableAt,e.id")
   List<UUID> due(@Param("now") Instant now, @Param("stale") Instant stale, Pageable page);

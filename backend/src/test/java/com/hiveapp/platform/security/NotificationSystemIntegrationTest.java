@@ -85,22 +85,36 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
   }
 
   @Test
-  void sourceCancellationWithdrawsBothDeliveredAndPendingWarningsWithoutPaymentReceipt() throws Exception {
+  void sourceCancellationWithdrawsBothDeliveredAndPendingWarningsWithoutPaymentReceipt()
+      throws Exception {
     UUID invoice = UUID.randomUUID();
-    UUID clientEvent = publish(CoreNotification.PAYMENT_FAILED, "cancel", NotificationPublisher.Target.account(account), invoice);
-    UUID operatorEvent = publish(CoreNotification.BILLING_ATTENTION, "cancel", NotificationPublisher.Target.platform(), invoice);
+    UUID clientEvent =
+        publish(
+            CoreNotification.PAYMENT_FAILED,
+            "cancel",
+            NotificationPublisher.Target.account(account),
+            invoice);
+    UUID operatorEvent =
+        publish(
+            CoreNotification.BILLING_ATTENTION,
+            "cancel",
+            NotificationPublisher.Target.platform(),
+            invoice);
     UUID clientEntry = deliver(clientEvent);
     long count = events.count();
-    transactions.executeWithoutResult(tx -> {
-      publisher.withdraw(CoreNotification.PAYMENT_FAILED, invoice);
-      publisher.withdraw(CoreNotification.BILLING_ATTENTION, invoice);
-    });
+    transactions.executeWithoutResult(
+        tx -> {
+          publisher.withdraw(CoreNotification.PAYMENT_FAILED, invoice);
+          publisher.withdraw(CoreNotification.BILLING_ATTENTION, invoice);
+        });
     UUID operatorEntry = deliver(operatorEvent);
     assertThat(entries.findById(clientEntry).orElseThrow().isCancelled()).isTrue();
     assertThat(entries.findById(operatorEntry).orElseThrow().isCancelled()).isTrue();
     assertThat(events.count()).isEqualTo(count);
-    mockMvc.perform(get(CLIENT + "/" + clientEntry).header("Authorization", bearer(client)))
-        .andExpect(status().isOk()).andExpect(jsonPath("sourceState").value("CANCELLED"))
+    mockMvc
+        .perform(get(CLIENT + "/" + clientEntry).header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("sourceState").value("CANCELLED"))
         .andExpect(jsonPath("canAcknowledge").value(false));
     var claim = transactions.execute(tx -> email.claimNotice(clientEntry));
     assertThat(claim).isNull();
@@ -109,18 +123,29 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
   @Test
   void expiredEmailsBecomeTerminalEvenDuringBackoffOrAfterAnAbandonedLease() {
     for (boolean claimed : List.of(false, true)) {
-      UUID event = transactions.execute(tx -> publisher.publish(CoreNotification.INTERNAL_INFORMATION,
-          UUID.randomUUID().toString(), NotificationPublisher.Target.account(account), null,
-          "Expired", "Do not deliver", true, null, null));
+      UUID event =
+          transactions.execute(
+              tx ->
+                  publisher.publish(
+                      CoreNotification.INTERNAL_INFORMATION,
+                      UUID.randomUUID().toString(),
+                      NotificationPublisher.Target.account(account),
+                      null,
+                      "Expired",
+                      "Do not deliver",
+                      true,
+                      null,
+                      null));
       UUID id = deliver(event);
       Instant now = Instant.now();
-      transactions.executeWithoutResult(tx -> {
-        var entry = entries.findById(id).orElseThrow();
-        entry.setAvailableAt(now.minusSeconds(2000));
-        entry.setExpiresAt(now.minusSeconds(1));
-        entry.setNextEmailAttemptAt(now.plusSeconds(3600));
-        if (claimed) entry.getDelivery().claim(owner, now.minusSeconds(1000));
-      });
+      transactions.executeWithoutResult(
+          tx -> {
+            var entry = entries.findById(id).orElseThrow();
+            entry.setAvailableAt(now.minusSeconds(2000));
+            entry.setExpiresAt(now.minusSeconds(1));
+            entry.setNextEmailAttemptAt(now.plusSeconds(3600));
+            if (claimed) entry.getDelivery().claim(owner, now.minusSeconds(1000));
+          });
       assertThat(email.due(now, 100)).contains(id);
       assertThat(email.claimNotice(id)).isNull();
       assertThat(entries.findById(id).orElseThrow().getDelivery().getDelivery())
@@ -131,23 +156,101 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
 
   @Test
   void internalSentHistoryAndSenderOriginAreScopedAndMatchDelivery() throws Exception {
-    UUID member = transactions.execute(tx -> members.findByAccountIdAndUserId(account, owner).orElseThrow().getId());
+    UUID member =
+        transactions.execute(
+            tx -> members.findByAccountIdAndUserId(account, owner).orElseThrow().getId());
     UUID command = UUID.randomUUID();
-    mockMvc.perform(post(CLIENT + "/internal").header("Authorization", bearer(client))
-        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(
-            new InternalNotice(command, "Internal announcement", "Reviewed content", List.of(member)))))
+    mockMvc
+        .perform(
+            post(CLIENT + "/internal")
+                .header("Authorization", bearer(client))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new InternalNotice(
+                            command,
+                            "Internal announcement",
+                            "Reviewed content",
+                            List.of(member)))))
         .andExpect(status().isAccepted());
-    mockMvc.perform(get(CLIENT + "/internal").header("Authorization", bearer(client)))
-        .andExpect(status().isOk()).andExpect(jsonPath("content[0].pending").value(1));
-    var event = events.findAll().stream().filter(e -> command.equals(e.getResourceId())).findFirst().orElseThrow();
+    mockMvc
+        .perform(get(CLIENT + "/internal").header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("content[0].pending").value(1));
+    var event =
+        events.findAll().stream()
+            .filter(e -> command.equals(e.getResourceId()))
+            .findFirst()
+            .orElseThrow();
     UUID id = deliver(event.getId());
-    mockMvc.perform(get(CLIENT + "/" + id).header("Authorization", bearer(client)))
-        .andExpect(status().isOk()).andExpect(jsonPath("senderName").isNotEmpty());
-    mockMvc.perform(get(CLIENT + "/internal").header("Authorization", bearer(client)))
-        .andExpect(status().isOk()).andExpect(jsonPath("content[0].delivered").value(1))
+    mockMvc
+        .perform(get(CLIENT + "/" + id).header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("senderName").isNotEmpty());
+    mockMvc
+        .perform(get(CLIENT + "/internal").header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("content[0].delivered").value(1))
         .andExpect(jsonPath("content[0].pending").value(0));
-    mockMvc.perform(get(CLIENT + "/internal").header("Authorization", bearer(other)))
-        .andExpect(status().isOk()).andExpect(jsonPath("totalElements").value(0));
+    mockMvc
+        .perform(get(CLIENT + "/internal").header("Authorization", bearer(other)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("totalElements").value(0));
+  }
+
+  @Test
+  void automaticContentUsesRequestLocaleAndEmailUsesRecipientPreference() throws Exception {
+    transactions.executeWithoutResult(
+        tx -> accounts.findById(account).orElseThrow().getOwner().setEmailVerified(true));
+    mockMvc
+        .perform(
+            put(CLIENT + "/language")
+                .header("Authorization", bearer(client))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"language\":\"ar\"}"))
+        .andExpect(status().isOk());
+    UUID event =
+        transactions.execute(
+            tx ->
+                publisher.publish(
+                    CoreNotification.PAYMENT_FAILED,
+                    UUID.randomUUID().toString(),
+                    NotificationPublisher.Target.account(account),
+                    UUID.randomUUID(),
+                    "Fallback",
+                    "Fallback",
+                    true,
+                    null,
+                    null));
+    UUID id = deliver(event);
+    mockMvc
+        .perform(
+            get(CLIENT + "/" + id)
+                .header("Authorization", bearer(client))
+                .header("Accept-Language", "ar-MA"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("messageTitle").value("لم يكتمل الدفع"));
+    mockMvc
+        .perform(
+            get(CLIENT + "/" + id)
+                .header("Authorization", bearer(client))
+                .header("Accept-Language", "fr"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("messageTitle").value("Paiement non abouti"));
+    var claim = email.claimNotice(id);
+    assertThat(claim.subject()).contains("إشعار");
+    assertThat(claim.body()).contains("سجل الدخول", "/app/communications?item=" + id);
+    mockMvc
+        .perform(get(CLIENT + "/language").header("Authorization", bearer(other)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("language").value("fr"));
+    mockMvc
+        .perform(
+            put(CLIENT + "/language")
+                .header("Authorization", bearer(client))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"language\":\"invalid\"}"))
+        .andExpect(status().isUnprocessableEntity());
   }
 
   @Test
@@ -381,24 +484,45 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
 
   @Test
   void emailOnlyOptionalNoticeHasAnAuthorizedDirectLinkButIsAbsentFromTheFeed() throws Exception {
-    transactions.executeWithoutResult(tx -> accounts.findById(account).orElseThrow().getOwner().setEmailVerified(true));
-    UUID event = transactions.execute(tx -> publisher.publish(CoreNotification.INTERNAL_INFORMATION,
-        UUID.randomUUID().toString(), NotificationPublisher.Target.member(account, owner), null,
-        "Information", "Optional information", true, null, null));
+    transactions.executeWithoutResult(
+        tx -> accounts.findById(account).orElseThrow().getOwner().setEmailVerified(true));
+    UUID event =
+        transactions.execute(
+            tx ->
+                publisher.publish(
+                    CoreNotification.INTERNAL_INFORMATION,
+                    UUID.randomUUID().toString(),
+                    NotificationPublisher.Target.member(account, owner),
+                    null,
+                    "Information",
+                    "Optional information",
+                    true,
+                    null,
+                    null));
     UUID id = deliver(event);
-    mockMvc.perform(put(CLIENT + "/settings").header("Authorization", bearer(client))
-        .contentType(MediaType.APPLICATION_JSON)
-        .content("{\"topic\":\"ACCOUNT\",\"inAppEnabled\":false,\"emailEnabled\":true}"))
+    mockMvc
+        .perform(
+            put(CLIENT + "/settings")
+                .header("Authorization", bearer(client))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"topic\":\"ACCOUNT\",\"inAppEnabled\":false,\"emailEnabled\":true}"))
         .andExpect(status().isOk());
     var claim = email.claimNotice(id);
     assertThat(claim).isNotNull();
     assertThat(claim.body()).contains("/app/communications?item=" + id);
-    mockMvc.perform(get(CLIENT + "/" + id).header("Authorization", bearer(client))).andExpect(status().isOk());
-    mockMvc.perform(get(CLIENT + "/" + id).header("Authorization", bearer(other))).andExpect(status().isNotFound());
-    mockMvc.perform(get(CLIENT).param("topic", "ACCOUNT").header("Authorization", bearer(client)))
-        .andExpect(status().isOk()).andExpect(jsonPath("totalElements").value(0));
+    mockMvc
+        .perform(get(CLIENT + "/" + id).header("Authorization", bearer(client)))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(get(CLIENT + "/" + id).header("Authorization", bearer(other)))
+        .andExpect(status().isNotFound());
+    mockMvc
+        .perform(get(CLIENT).param("topic", "ACCOUNT").header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("totalElements").value(0));
     assertThat(CoreNotification.PAYMENT_FAILED.actionPath(UUID.randomUUID()))
-        .startsWith("/app/subscription?tab=invoices&invoice=").doesNotContain("/document");
+        .startsWith("/app/subscription?tab=invoices&invoice=")
+        .doesNotContain("/document");
   }
 
   @Test
@@ -420,8 +544,10 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
     mockMvc
         .perform(get(CLIENT + "/" + optional).header("Authorization", bearer(client)))
         .andExpect(status().isOk());
-    mockMvc.perform(get(CLIENT).param("topic", "ACCOUNT").header("Authorization", bearer(client)))
-        .andExpect(status().isOk()).andExpect(jsonPath("totalElements").value(0));
+    mockMvc
+        .perform(get(CLIENT).param("topic", "ACCOUNT").header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("totalElements").value(0));
     mockMvc
         .perform(
             put(CLIENT + "/settings")
@@ -440,8 +566,10 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
         .perform(get(CLIENT + "/" + warning).header("Authorization", bearer(client)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("kind").value("WARNING"));
-    mockMvc.perform(get(CLIENT + "/" + warning).header("Authorization", bearer(client)))
-        .andExpect(status().isOk()).andExpect(jsonPath("priority").value("HIGH"));
+    mockMvc
+        .perform(get(CLIENT + "/" + warning).header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("priority").value("HIGH"));
     mockMvc
         .perform(get(CLIENT).param("topic", "BILLING").header("Authorization", bearer(client)))
         .andExpect(status().isOk())

@@ -101,6 +101,10 @@ CREATE TABLE IF NOT EXISTS notification_preferences (
  user_id uuid NOT NULL, topic varchar(24) NOT NULL, in_app_enabled boolean NOT NULL DEFAULT true, email_enabled boolean NOT NULL DEFAULT true,
  CONSTRAINT uk_notification_preference UNIQUE(user_id,topic)
 );
+CREATE TABLE IF NOT EXISTS notification_language_preferences (
+ user_id uuid PRIMARY KEY, language varchar(2) NOT NULL DEFAULT 'fr',
+ CONSTRAINT ck_notification_language CHECK(language IN ('fr','ar'))
+);
 DO $$ DECLARE table_name text; BEGIN
  FOREACH table_name IN ARRAY ARRAY['communication_entries','notification_events'] LOOP
   IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=table_name::regclass AND conname='ck_'||table_name||'_audience') THEN

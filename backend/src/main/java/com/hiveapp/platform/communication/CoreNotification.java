@@ -2,15 +2,19 @@ package com.hiveapp.platform.communication;
 
 import static com.hiveapp.platform.communication.CommunicationModels.*;
 
-import java.util.UUID;
 import com.hiveapp.platform.generated.PlatformPermissions;
 import dev.karroumi.permissionizer.Permission;
+import java.util.UUID;
 
 /** Presentation and permission requirements are fixed by the business event, never its sender. */
 public enum CoreNotification implements NotificationDefinition {
   INTERNAL_INFORMATION("account.information", Topic.ACCOUNT, Kind.NOTICE, null, null),
   MEMBER_CREATED(
-      "account.member_created", Topic.ACCOUNT, Kind.NOTICE, PlatformPermissions.Staff.Read.permission(), "/app/members"),
+      "account.member_created",
+      Topic.ACCOUNT,
+      Kind.NOTICE,
+      PlatformPermissions.Staff.Read.permission(),
+      "/app/members"),
   MEMBER_ACCESS_CHANGED(
       "account.member_access_changed",
       Topic.ACCOUNT,
@@ -30,8 +34,11 @@ public enum CoreNotification implements NotificationDefinition {
       PlatformPermissions.B2b.Read_detail.permission(),
       "/app/collaborations/"),
   B2B_REQUEST_SENT(
-      "collaboration.request_sent", Topic.COLLABORATION, Kind.NOTICE,
-      PlatformPermissions.B2b.Read_detail.permission(), "/app/collaborations/"),
+      "collaboration.request_sent",
+      Topic.COLLABORATION,
+      Kind.NOTICE,
+      PlatformPermissions.B2b.Read_detail.permission(),
+      "/app/collaborations/"),
   PAYMENT_RECEIVED(
       "billing.payment_received",
       Topic.BILLING,
@@ -104,6 +111,10 @@ public enum CoreNotification implements NotificationDefinition {
 
   public Priority priority() {
     return this == PAYMENT_FAILED || this == BILLING_ATTENTION ? Priority.HIGH : Priority.NORMAL;
+  }
+
+  public NotificationText.Content content(java.util.Locale locale) {
+    return NotificationText.forType(this, locale);
   }
 
   public String actionPath(UUID id) {

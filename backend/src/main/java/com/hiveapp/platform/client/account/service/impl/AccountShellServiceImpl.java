@@ -86,6 +86,21 @@ public class AccountShellServiceImpl extends ClientWorkspaceFeatureService imple
     }
 
     @Override
+    @PermissionNode(key = "internal_notification_language", guard = PermissionNode.Guard.OFF)
+    public LanguageSetting notificationLanguage() {
+        requireCommunicationRead();
+        return communications.language(false);
+    }
+
+    @Override
+    @PermissionNode(key = "internal_update_notification_language", guard = PermissionNode.Guard.OFF)
+    public LanguageSetting updateNotificationLanguage(LanguageSetting setting) {
+        dev.karroumi.permissionizer.PermissionGuard.check(PlatformPermissions.Workspace.Notification_preferences.permission());
+        requireCommunicationRead();
+        return communications.language(setting, false);
+    }
+
+    @Override
     @PermissionNode(key = "internal_communication_detail", guard = PermissionNode.Guard.OFF)
     public Item communicationDetail(UUID id) {
         requireCommunicationRead();

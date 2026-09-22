@@ -266,6 +266,33 @@ test("sent history is separately authorized and never loads another sender's rec
   expect(calls.every((url) => new URL(url).pathname.endsWith("/communications/internal"))).toBe(true);
   expect(view.queryByRole("button", { name: "Informer des membres" })).toBeNull();
 });
+test("notification preferences save an explicit email language and requests carry UI language", async () => {
+  let language = "fr";
+  globalThis.fetch = (async (input, init) => {
+    expect(new Headers(init?.headers).get("Accept-Language")).toBe("fr");
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith("/language")) {
+      if (init?.method === "PUT") language = JSON.parse(String(init.body)).language;
+      return response({ language });
+    }
+    if (path.endsWith("/settings")) return response([]);
+    if (path.endsWith("/preferences")) return response({ marketingInApp: false, marketingEmail: false });
+    return response(page([]));
+  }) as typeof fetch;
+  const view = mount(
+    true,
+    [p.communicationsRead, p.notificationsPreferences],
+    "/app/communications",
+    <ClientCommunicationsPage />,
+  );
+  const user = userEvent.setup({ document: browser.document as unknown as Document });
+  await user.click(view.getByRole("button", { name: "Mes préférences" }));
+  const picker = await view.findByRole("combobox", { name: "Langue des emails automatiques" });
+  await waitFor(() => expect((picker as HTMLButtonElement).disabled).toBe(false));
+  await user.click(picker);
+  await user.click(view.getByRole("option", { name: "العربية" }));
+  await waitFor(() => expect(language).toBe("ar"));
+});
 test("information stays one-way and never loads a conversation", async () => {
   clientFetch({ ...warning, kind: "NOTICE", canAcknowledge: false });
   const view = mount(true, [p.communicationsRead], "/app/communications?item=entry-1", <ClientCommunicationsPage />);

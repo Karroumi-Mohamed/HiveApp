@@ -52,7 +52,9 @@ public class NotificationEvent extends BaseEntity {
   private UUID companyId;
   private UUID resourceId;
   private UUID senderUserId;
-  @Column(length = 255) private String senderName;
+
+  @Column(length = 255)
+  private String senderName;
 
   @Column(nullable = false, length = 160)
   private String messageTitle;

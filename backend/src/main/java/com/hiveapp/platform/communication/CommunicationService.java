@@ -5,8 +5,8 @@ import static com.hiveapp.platform.communication.CommunicationModels.*;
 import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.domain.entity.CommercialNoticeRead;
 import com.hiveapp.platform.client.plan.domain.repository.CommercialNoticeReadRepository;
-import com.hiveapp.shared.exception.*;
 import com.hiveapp.platform.generated.PlatformPermissions;
+import com.hiveapp.shared.exception.*;
 import com.hiveapp.shared.security.context.HiveAppContextHolder;
 import dev.karroumi.permissionizer.*;
 import jakarta.persistence.criteria.Predicate;
@@ -34,6 +34,8 @@ public class CommunicationService {
   private final NotificationPreferenceRepository notificationPreferences;
   private final com.hiveapp.platform.client.plan.service.CommercialOfferService offers;
   private final Clock clock;
+  private final NotificationCatalog notificationCatalog;
+  private final NotificationLanguageRepository languages;
 
   public static Pageable page(int page, int size) {
     if (page < 0 || size < 1 || size > 100)
@@ -77,7 +79,8 @@ public class CommunicationService {
   }
 
   private void assign(CommunicationPublication p, Draft d) {
-    if (!PermissionGuard.has(PlatformPermissions.Customer_communications.Choose_recipients.permission()))
+    if (!PermissionGuard.has(
+        PlatformPermissions.Customer_communications.Choose_recipients.permission()))
       throw new ForbiddenException("Recipient selection permission is required.");
     if (d.kind() == Kind.WARNING && d.purpose() == Purpose.MARKETING)
       throw new InvalidRequestException("Marketing cannot be a warning.");
@@ -503,12 +506,23 @@ public class CommunicationService {
   private Item item(CommunicationEntry e, CommunicationInteraction m, boolean read, String state) {
     boolean withdrawn =
         e.isCancelled() || sources.isInactiveState(state) || e.getResolvedAt() != null;
+    var locale = org.springframework.context.i18n.LocaleContextHolder.getLocale();
+    NotificationText.Content content = null;
+    if ("REPRICING".equals(e.getSource())) content = NotificationText.repricing(locale);
+    else if ("EVENT".equals(e.getSource()))
+      content =
+          notificationCatalog.all().stream()
+              .filter(definition -> definition.key().equals(e.getEventType()))
+              .map(definition -> definition.content(locale))
+              .filter(Objects::nonNull)
+              .findFirst()
+              .orElse(null);
     return new Item(
         e.getId(),
         e.getKind() == Kind.MESSAGE ? Kind.NOTICE : e.getKind(),
         e.getPurpose(),
-        e.getMessageTitle(),
-        e.getMessageBody(),
+        content == null ? e.getMessageTitle() : content.title(),
+        content == null ? e.getMessageBody() : content.body(),
         e.getSource(),
         e.isCancelled()
             ? "CANCELLED"
@@ -526,7 +540,28 @@ public class CommunicationService {
         e.getResourceId(),
         e.getAudience(),
         withdrawn,
-        e.getSenderName(), e.getPriority());
+        e.getSenderName(),
+        e.getPriority());
+  }
+
+  @Transactional(readOnly = true)
+  public LanguageSetting language(boolean platform) {
+    var viewer = access.viewer(platform);
+    return new LanguageSetting(
+        languages
+            .findById(viewer.userId())
+            .map(NotificationLanguagePreference::getLanguage)
+            .orElse("fr"));
+  }
+
+  @Transactional
+  public LanguageSetting language(LanguageSetting setting, boolean platform) {
+    if (!Set.of("fr", "ar").contains(setting.language()))
+      throw new InvalidRequestException("Choose French or Arabic.");
+    var viewer = access.viewer(platform);
+    access.lockIdentity(viewer);
+    languages.save(new NotificationLanguagePreference(viewer.userId(), setting.language()));
+    return setting;
   }
 
   private UUID receiptId(CommunicationEntry e) {

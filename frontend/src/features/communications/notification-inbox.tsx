@@ -11,6 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router";
 import { communicationApi } from "@/api/communication-api";
 import { PageHeader } from "@/components/patterns/page-header";
@@ -42,6 +43,7 @@ export type NotificationContext = {
 };
 
 export function NotificationInbox({ context, marketing }: { context: NotificationContext; marketing?: ReactNode }) {
+  const { i18n } = useTranslation();
   const c = useCommunicationCopy(),
     cache = useQueryClient();
   const [params, setParams] = useSearchParams();
@@ -54,7 +56,7 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
   const page = Math.min(10000, Math.max(0, Math.floor(Number(params.get("page")) || 0)));
   const archived = params.get("archived") === "true",
     unread = params.get("unread") === "true";
-  const key = [context.platform ? "admin" : "client", "notifications", context.identity];
+  const key = [context.platform ? "admin" : "client", "notifications", context.identity, i18n.language];
   const change = (values: Record<string, string | null>) =>
     setParams((previous) => {
       const next = new URLSearchParams(previous);
