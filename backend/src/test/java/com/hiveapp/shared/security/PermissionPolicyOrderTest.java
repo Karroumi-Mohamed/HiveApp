@@ -144,6 +144,10 @@ class PermissionPolicyOrderTest {
     }
 
     private SecurityConfig securityConfig() {
+        return securityConfig(featureRuntimePolicy, planPolicy);
+    }
+
+    private SecurityConfig securityConfig(FeatureRuntimePolicy runtime, PlanPolicy plan) {
         return new SecurityConfig(
                 mock(JwtTokenProvider.class),
                 mock(TokenSessionService.class),
@@ -152,13 +156,44 @@ class PermissionPolicyOrderTest {
                 mock(AuthEntryPoint.class),
                 mock(AccessDeniedHandler.class),
                 adminPolicy,
-                featureRuntimePolicy,
+                runtime,
                 b2bPolicy,
-                planPolicy,
+                plan,
                 userRolePolicy,
                 mock(ContextDetectionFilter.class),
                 () -> context,
                 mock(PermissionInterceptor.class));
+    }
+
+    @Test
+    void realMandatoryRestrictionsStillVetoAnOtherwiseGrantedClientPermission() {
+        var features = mock(com.hiveapp.platform.registry.domain.repository.FeatureRepository.class);
+        var registry = new com.hiveapp.platform.registry.service.CurrentRegistrySnapshot();
+        registry.install(new com.hiveapp.platform.registry.service.RegistrySnapshot(
+                List.of(), List.of(), java.util.Set.of(requested.path()), "real-chain"));
+        var feature = new com.hiveapp.platform.registry.domain.entity.Feature();
+        feature.setCode("platform.company");
+        feature.setRuntimeEnabled(false);
+        when(features.findByCode(feature.getCode())).thenReturn(java.util.Optional.of(feature));
+        var entitlements = mock(com.hiveapp.platform.client.plan.service.PlanEntitlementService.class);
+        securityConfig(new FeatureRuntimePolicy(features, registry), new PlanPolicy(entitlements))
+                .permissionsLoader();
+        when(adminPolicy.evaluate(requested, context)).thenReturn(PermissionPolicy.Decision.ABSTAIN);
+        when(b2bPolicy.evaluate(requested, context)).thenReturn(PermissionPolicy.Decision.ABSTAIN);
+        when(userRolePolicy.evaluate(requested, context)).thenReturn(PermissionPolicy.Decision.GRANTED);
+        authenticateWithRequestedAuthority();
+
+        assertThat(PermissionGuard.has(requested, context)).isFalse();
+        verifyNoInteractions(entitlements, adminPolicy, b2bPolicy, userRolePolicy);
+        feature.setRuntimeEnabled(true);
+        assertThat(PermissionGuard.has(requested, context)).isFalse();
+        verifyNoInteractions(userRolePolicy);
+
+        when(entitlements.isPermissionEntitled(context.currentAccountId(), requested.path())).thenReturn(true);
+        assertThat(PermissionGuard.has(requested, context)).isTrue();
+        when(userRolePolicy.evaluate(requested, context)).thenReturn(PermissionPolicy.Decision.DENIED);
+        assertThat(PermissionGuard.has(requested, context)).isFalse();
+        assertThat(PermissionGuard.has(new Permission("platform.company.removed"), context)).isFalse();
     }
 
     private void authenticateWithRequestedAuthority() {

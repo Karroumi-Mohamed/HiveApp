@@ -179,6 +179,9 @@ public class SecurityConfig {
     @PostConstruct
     public void permissionsLoader() {
         PermissionGuard.resetConfiguration();
+        // Permissionizer stops at the first decision, not at the last/global deny.
+        // Mandatory runtime veto runs before grants. Client plan eligibility abstains
+        // (never grants); B2B's earlier grant performs its own provider-plan checks.
         PermissionGuard.builder()
             .addPolicy(featureRuntimePolicy)   // MANDATORY — emergency runtime cutoff for every actor
             .addPolicy(adminPermissionPolicy)   // FIRST — short-circuits for admin actors
