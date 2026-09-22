@@ -130,6 +130,27 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
   }
 
   @Test
+  void internalSentHistoryAndSenderOriginAreScopedAndMatchDelivery() throws Exception {
+    UUID member = transactions.execute(tx -> members.findByAccountIdAndUserId(account, owner).orElseThrow().getId());
+    UUID command = UUID.randomUUID();
+    mockMvc.perform(post(CLIENT + "/internal").header("Authorization", bearer(client))
+        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(
+            new InternalNotice(command, "Internal announcement", "Reviewed content", List.of(member)))))
+        .andExpect(status().isAccepted());
+    mockMvc.perform(get(CLIENT + "/internal").header("Authorization", bearer(client)))
+        .andExpect(status().isOk()).andExpect(jsonPath("content[0].pending").value(1));
+    var event = events.findAll().stream().filter(e -> command.equals(e.getResourceId())).findFirst().orElseThrow();
+    UUID id = deliver(event.getId());
+    mockMvc.perform(get(CLIENT + "/" + id).header("Authorization", bearer(client)))
+        .andExpect(status().isOk()).andExpect(jsonPath("senderName").isNotEmpty());
+    mockMvc.perform(get(CLIENT + "/internal").header("Authorization", bearer(client)))
+        .andExpect(status().isOk()).andExpect(jsonPath("content[0].delivered").value(1))
+        .andExpect(jsonPath("content[0].pending").value(0));
+    mockMvc.perform(get(CLIENT + "/internal").header("Authorization", bearer(other)))
+        .andExpect(status().isOk()).andExpect(jsonPath("totalElements").value(0));
+  }
+
+  @Test
   void domainRollbackLeavesNoNotificationIntentOrInboxEntry() {
     long before = events.count();
     transactions.executeWithoutResult(

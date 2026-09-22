@@ -82,6 +82,17 @@ CREATE TABLE IF NOT EXISTS notification_send_commands (
  command_key varchar(110) PRIMARY KEY, payload_hash varchar(64) NOT NULL, created_at timestamptz NOT NULL
 );
 ALTER TABLE notification_events ADD COLUMN IF NOT EXISTS cancelled boolean NOT NULL DEFAULT false;
+ALTER TABLE notification_events ADD COLUMN IF NOT EXISTS sender_user_id uuid;
+ALTER TABLE notification_events ADD COLUMN IF NOT EXISTS sender_name varchar(255);
+ALTER TABLE communication_entries ADD COLUMN IF NOT EXISTS sender_name varchar(255);
+ALTER TABLE notification_send_commands ADD COLUMN IF NOT EXISTS command_id uuid;
+ALTER TABLE notification_send_commands ADD COLUMN IF NOT EXISTS account_id uuid;
+ALTER TABLE notification_send_commands ADD COLUMN IF NOT EXISTS sender_user_id uuid;
+ALTER TABLE notification_send_commands ADD COLUMN IF NOT EXISTS message_title varchar(160);
+ALTER TABLE notification_send_commands ADD COLUMN IF NOT EXISTS message_body varchar(10000);
+ALTER TABLE notification_send_commands ADD COLUMN IF NOT EXISTS recipients integer NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_notification_sent ON notification_send_commands(account_id,sender_user_id,created_at,command_key);
+CREATE INDEX IF NOT EXISTS idx_notification_sent_events ON notification_events(account_id,sender_user_id,resource_id,state);
 CREATE TABLE IF NOT EXISTS notification_preferences (
  id uuid PRIMARY KEY, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL,
  user_id uuid NOT NULL, topic varchar(24) NOT NULL, in_app_enabled boolean NOT NULL DEFAULT true, email_enabled boolean NOT NULL DEFAULT true,

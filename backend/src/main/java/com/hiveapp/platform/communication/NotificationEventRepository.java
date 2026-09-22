@@ -11,6 +11,9 @@ public interface NotificationEventRepository
     extends JpaRepository<NotificationEvent, UUID>, JpaSpecificationExecutor<NotificationEvent> {
   Optional<NotificationEvent> findByDedupeKey(String key);
 
+  @Query("select e.resourceId, e.state, count(e) from NotificationEvent e where e.accountId=:account and e.senderUserId=:sender and e.resourceId in :commands group by e.resourceId,e.state")
+  List<Object[]> sentCounts(@Param("account") UUID account, @Param("sender") UUID sender, @Param("commands") Collection<UUID> commands);
+
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select e from NotificationEvent e where e.id=:id")
   Optional<NotificationEvent> lock(@Param("id") UUID id);

@@ -524,7 +524,8 @@ public class CommunicationService {
         e.getEventType(),
         e.getResourceId(),
         e.getAudience(),
-        withdrawn);
+        withdrawn,
+        e.getSenderName());
   }
 
   private UUID receiptId(CommunicationEntry e) {

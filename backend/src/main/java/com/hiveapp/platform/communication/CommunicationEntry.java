@@ -37,6 +37,7 @@ import lombok.*;
             + " company_id is null) or (audience='OPERATOR' and account_id is null and"
             + " recipient_user_id is not null and company_id is null)")
 public class CommunicationEntry extends BaseEntity {
+  @Column(length = 255) private String senderName;
   @Version private long version;
 
   @Column(name = "account_id", updatable = false)

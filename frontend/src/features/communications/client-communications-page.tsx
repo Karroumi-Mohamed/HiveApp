@@ -88,6 +88,7 @@ export function ClientCommunicationsPage() {
         archive: session.can(clientPermissions.communicationsArchive),
         preferences: session.can(clientPermissions.notificationsPreferences),
         send: session.can(clientPermissions.notificationsSend) && session.can(clientPermissions.notificationsChoose),
+        sent: session.can(clientPermissions.notificationsSent),
         delivery: false,
       }}
       marketing={<MarketingPreferences />}

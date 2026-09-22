@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { communicationDate, useCommunicationCopy } from "./communication-copy";
 import { notificationAction, notificationTopics } from "./communication-rules";
 import { InternalNotificationComposer } from "./internal-notification-composer";
+import { InternalNotificationHistory } from "./internal-notification-history";
 import { NotificationSettings } from "./notification-settings";
 
 const icons = { NOTICE: BellIcon, WARNING: WarningIcon, ACTION: ListChecksIcon, OFFER: TagIcon };
@@ -36,6 +37,7 @@ export type NotificationContext = {
   archive: boolean;
   preferences: boolean;
   send: boolean;
+  sent?: boolean;
   delivery: boolean;
 };
 
@@ -44,7 +46,8 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
     cache = useQueryClient();
   const [params, setParams] = useSearchParams();
   const [settings, setSettings] = useState(false),
-    [compose, setCompose] = useState(false);
+    [compose, setCompose] = useState(false),
+    [sent, setSent] = useState(false);
   const selected = params.get("item");
   const kind = kinds.find((k) => k === params.get("kind"));
   const topic = notificationTopics.find((t) => t === params.get("topic"));
@@ -63,14 +66,14 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
     });
   const query = useQuery({
     queryKey: [...key, kind, topic, archived, unread, page],
-    enabled: context.allowed,
+    enabled: context.allowed && !sent,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
     queryFn: () => communicationApi.inbox(kind, archived, unread, page, topic, context.platform, context.companyId),
   });
   const detail = useQuery({
     queryKey: [...key, "item", selected],
-    enabled: context.allowed && !!selected,
+    enabled: context.allowed && !sent && !!selected,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
     queryFn: () => communicationApi.item(selected ?? "", context.platform, context.companyId),
@@ -82,6 +85,22 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
       void cache.invalidateQueries({ queryKey: [key[0], "notifications"] });
     },
   });
+  if (context.sent && (sent || !context.allowed))
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title={c("sent")}
+          actions={
+            context.allowed && (
+              <Button variant="ghost" onClick={() => setSent(false)}>
+                {c("inbox")}
+              </Button>
+            )
+          }
+        />
+        <InternalNotificationHistory identity={context.identity} />
+      </div>
+    );
   if (!context.allowed) return <PermissionState />;
   const item = detail.isError ? undefined : detail.data,
     action = item ? notificationAction(item, context.platform) : null;
@@ -101,6 +120,11 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
               {c("personalSettings")}
             </Button>
             {context.send && <Button onClick={() => setCompose(true)}>{c("notifyMembers")}</Button>}
+            {context.sent && (
+              <Button variant="ghost" onClick={() => setSent(true)}>
+                {c("sent")}
+              </Button>
+            )}
           </>
         }
       />
@@ -249,6 +273,11 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
                       {["PLAN_CONTENT", "REPRICING"].includes(item.source) ? c(item.source) : item.messageTitle}
                     </h2>
                     <p className="mt-2 text-xs text-muted-foreground">{communicationDate(item.availableAt)}</p>
+                    {item.senderName && (
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {c("sender")} : <span dir="auto">{item.senderName}</span>
+                      </p>
+                    )}
                   </header>
                   <p dir="auto" className="max-w-prose whitespace-pre-wrap break-words leading-relaxed">
                     {item.source === "REPRICING"

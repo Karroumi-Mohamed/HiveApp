@@ -56,6 +56,13 @@ const copy = {
   UNAVAILABLE: ["Offre indisponible", "العرض غير متاح"],
   "collaboration.request_sent": ["Demande de collaboration envoyée", "تم إرسال طلب التعاون"],
   personal: ["Pour vous", "لك"],
+  sender: ["Envoyé par", "أرسله"],
+  sent: ["Mes envois", "إرسالاتي"],
+  sentAt: ["Envoyé le", "وقت الإرسال"],
+  sentHint: [
+    "Vos annonces et leur mise à disposition. Livré ne signifie pas lu. Les anciens envois sans provenance conservée ne figurent pas ici.",
+    "إعلاناتك وحالة إتاحتها. التسليم لا يعني القراءة. لا تظهر الإرسالات القديمة التي لم تحفظ بيانات مصدرها.",
+  ],
   notifyMembers: ["Informer des membres", "إعلام الأعضاء"],
   internalHint: [
     "Information à sens unique pour les membres choisis de votre compte. Aucun accès supplémentaire n’est accordé.",

@@ -71,6 +71,7 @@ public class NotificationWorker {
             e.setCompanyId(event.getCompanyId());
             e.setAudience(event.getAudience());
             e.setResourceId(event.getResourceId());
+            e.setSenderName(event.getSenderName());
             e.setRequiredPermission(definition.requiredPermission() == null ? null : definition.requiredPermission().path());
             e.setActionPath(definition.actionPath(event.getResourceId()));
             e.setMessageTitle(event.getMessageTitle());

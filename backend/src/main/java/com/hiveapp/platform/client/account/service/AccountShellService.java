@@ -10,6 +10,7 @@ public interface AccountShellService {
     Page<Item> notificationInbox(Kind kind, Topic topic, boolean archived, boolean unread, Pageable page);
     Page<MemberChoice> notificationRecipients(String search, Pageable page);
     void sendInternalNotification(InternalNotice notice);
+    Page<SentNotice> sentNotifications(Pageable page);
     java.util.List<NotificationSetting> notificationSettings();
     NotificationSetting updateNotificationSetting(NotificationSetting setting);
     Item communicationDetail(UUID id);

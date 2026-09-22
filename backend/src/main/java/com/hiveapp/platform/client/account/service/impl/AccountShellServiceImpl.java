@@ -65,6 +65,12 @@ public class AccountShellServiceImpl extends ClientWorkspaceFeatureService imple
     }
 
     @Override
+    @PermissionNode(key = "read_sent_notifications", description = "Read own sent internal announcements and delivery counts")
+    public Page<SentNotice> sentNotifications(Pageable page) {
+        return internalNotifications.sent(page);
+    }
+
+    @Override
     @PermissionNode(key = "internal_notification_settings", guard = PermissionNode.Guard.OFF)
     public java.util.List<NotificationSetting> notificationSettings() {
         requireCommunicationRead();

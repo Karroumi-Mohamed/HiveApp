@@ -107,7 +107,8 @@ public final class CommunicationModels {
       String eventType,
       UUID resourceId,
       Audience audience,
-      boolean resolved) {}
+      boolean resolved,
+      String senderName) {}
 
   public record Recipient(
       UUID id,
@@ -130,6 +131,9 @@ public final class CommunicationModels {
   public record InboxSummary(long unread) {}
 
   public record InternalNoticeResult(UUID commandId, int recipients) {}
+
+  public record SentNotice(UUID commandId, String messageTitle, String messageBody,
+      Instant createdAt, int recipients, long delivered, long failed, long pending) {}
 
   public record NotificationSetting(
       @NotNull Topic topic, boolean inAppEnabled, boolean emailEnabled) {}

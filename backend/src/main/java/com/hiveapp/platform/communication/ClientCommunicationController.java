@@ -53,6 +53,11 @@ public class ClientCommunicationController {
     return new InternalNoticeResult(notice.commandId(), notice.memberIds().size());
   }
 
+  @GetMapping("/internal")
+  public PageResponse<SentNotice> sent(@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+    return PageResponse.from(service.sentNotifications(CommunicationService.page(page, size)));
+  }
+
   @GetMapping("/settings")
   public java.util.List<NotificationSetting> settings() {
     return service.notificationSettings();

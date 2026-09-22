@@ -241,6 +241,29 @@ test("without inbox permission the page performs no communication request", asyn
   await waitFor(() => expect(view.getByText("Accès indisponible")).toBeTruthy());
   expect(calls).toEqual([]);
 });
+test("sent history is separately authorized and never loads another sender's recipients", async () => {
+  globalThis.fetch = (async (input) => {
+    calls.push(String(input));
+    return response(
+      page([
+        {
+          commandId: "send-1",
+          messageTitle: "Team update",
+          messageBody: "Original content",
+          recipients: 2,
+          pending: 1,
+          delivered: 1,
+          failed: 0,
+          createdAt: "2026-09-22T10:00:00Z",
+        },
+      ]),
+    );
+  }) as typeof fetch;
+  const view = mount(true, [p.notificationsSent], "/app/communications", <ClientCommunicationsPage />);
+  await waitFor(() => expect(view.getByText("Team update")).toBeTruthy());
+  expect(calls.every((url) => new URL(url).pathname.endsWith("/communications/internal"))).toBe(true);
+  expect(view.queryByRole("button", { name: "Informer des membres" })).toBeNull();
+});
 test("information stays one-way and never loads a conversation", async () => {
   clientFetch({ ...warning, kind: "NOTICE", canAcknowledge: false });
   const view = mount(true, [p.communicationsRead], "/app/communications?item=entry-1", <ClientCommunicationsPage />);

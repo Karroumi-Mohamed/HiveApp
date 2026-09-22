@@ -359,6 +359,7 @@ export const clientPermissions = {
   communicationsArchive: permission("workspace", "archive_communication"),
   notificationsChoose: permission("workspace", "choose_notification_recipients"),
   notificationsSend: permission("workspace", "send_notification"),
+  notificationsSent: permission("workspace", "read_sent_notifications"),
   notificationsPreferences: permission("workspace", "notification_preferences"),
   communicationsPreferences: permission("workspace", "communication_preferences"),
   workspaceRead: permission("workspace", "read"),

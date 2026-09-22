@@ -11,6 +11,16 @@ export type NotificationTopic =
   | "TASKS";
 export type NotificationSetting = { topic: NotificationTopic; inAppEnabled: boolean; emailEnabled: boolean };
 export type InternalNotice = { commandId: string; messageTitle: string; messageBody: string; memberIds: string[] };
+export type SentNotice = {
+  commandId: string;
+  messageTitle: string;
+  messageBody: string;
+  createdAt: string;
+  recipients: number;
+  delivered: number;
+  failed: number;
+  pending: number;
+};
 export type NotificationEvent = {
   id: string;
   type: string;
@@ -65,6 +75,7 @@ export type CommunicationItem = {
   resourceId: string | null;
   audience: "ACCOUNT" | "MEMBER" | "PLATFORM" | "OPERATOR";
   resolved: boolean;
+  senderName?: string | null;
 };
 export type CommunicationRecipient = {
   id: string;
@@ -137,6 +148,7 @@ export const communicationApi = {
     client<PageResponse<{ id: string; name: string }>>("/recipients", { query: { search, page, size: 20 } }),
   sendInternal: (notice: InternalNotice) =>
     client<{ commandId: string; recipients: number }>("/internal", body(notice)),
+  sent: (page = 0) => client<PageResponse<SentNotice>>("/internal", { query: { page, size: 20 } }),
   events: (state: NotificationEvent["state"] | undefined, page = 0) =>
     operator<PageResponse<NotificationEvent>>("/delivery", { query: { state, page, size: 20 } }),
   retryEvent: (id: string, version: number, reason: string) =>
