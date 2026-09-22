@@ -130,6 +130,7 @@ public class CommunicationService {
       e.setSource("ADMIN");
       e.setSourceId(id);
       e.setKind(p.getKind());
+      e.setPriority(p.getKind() == Kind.WARNING ? Priority.HIGH : Priority.NORMAL);
       e.setPurpose(p.getPurpose());
       e.setMessageTitle(p.getMessageTitle());
       e.setMessageBody(p.getMessageBody());
@@ -525,7 +526,7 @@ public class CommunicationService {
         e.getResourceId(),
         e.getAudience(),
         withdrawn,
-        e.getSenderName());
+        e.getSenderName(), e.getPriority());
   }
 
   private UUID receiptId(CommunicationEntry e) {

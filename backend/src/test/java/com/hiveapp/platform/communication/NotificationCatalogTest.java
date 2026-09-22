@@ -51,6 +51,22 @@ class NotificationCatalogTest {
   }
 
   @Test
+  void priorityIsIndependentAndMarketingCannotClaimHighUrgency() {
+    assertThat(CoreNotification.PAYMENT_FAILED.priority()).isEqualTo(Priority.HIGH);
+    assertThat(CoreNotification.OFFER_AVAILABLE.priority()).isEqualTo(Priority.NORMAL);
+    var marketing = new NotificationDefinition() {
+      public String key() { return "marketing.information"; }
+      public Topic topic() { return Topic.COMMERCIAL; }
+      public Kind kind() { return Kind.NOTICE; }
+      public Priority priority() { return Priority.HIGH; }
+      public Purpose purpose() { return Purpose.MARKETING; }
+      public dev.karroumi.permissionizer.Permission requiredPermission() { return null; }
+    };
+    assertThatThrownBy(() -> new NotificationCatalog(List.of(marketing), registry()))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
   void rejectsDuplicateContractsAndOptionalWarnings() {
     assertThatThrownBy(() -> new NotificationCatalog(List.of(CoreNotification.MEMBER_CREATED), registry()))
         .isInstanceOf(IllegalStateException.class);

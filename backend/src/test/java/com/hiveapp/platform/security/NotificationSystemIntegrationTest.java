@@ -440,6 +440,8 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
         .perform(get(CLIENT + "/" + warning).header("Authorization", bearer(client)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("kind").value("WARNING"));
+    mockMvc.perform(get(CLIENT + "/" + warning).header("Authorization", bearer(client)))
+        .andExpect(status().isOk()).andExpect(jsonPath("priority").value("HIGH"));
     mockMvc
         .perform(get(CLIENT).param("topic", "BILLING").header("Authorization", bearer(client)))
         .andExpect(status().isOk())

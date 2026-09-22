@@ -65,6 +65,7 @@ public class NotificationWorker {
             e.setEventType(definition.key());
             e.setTopic(definition.topic());
             e.setKind(definition.kind());
+            e.setPriority(definition.priority());
             e.setPurpose(definition.purpose());
             e.setOptional(definition.optional());
             e.setAccountId(event.getAccountId());

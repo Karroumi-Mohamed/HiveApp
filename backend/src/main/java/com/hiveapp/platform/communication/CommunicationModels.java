@@ -27,6 +27,8 @@ public final class CommunicationModels {
     TASKS
   }
 
+  public enum Priority { NORMAL, HIGH }
+
   public enum Audience {
     ACCOUNT,
     MEMBER,
@@ -108,7 +110,7 @@ public final class CommunicationModels {
       UUID resourceId,
       Audience audience,
       boolean resolved,
-      String senderName) {}
+      String senderName, Priority priority) {}
 
   public record Recipient(
       UUID id,

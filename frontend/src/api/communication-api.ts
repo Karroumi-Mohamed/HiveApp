@@ -81,6 +81,7 @@ export type CommunicationItem = {
   audience: "ACCOUNT" | "MEMBER" | "PLATFORM" | "OPERATOR";
   resolved: boolean;
   senderName?: string | null;
+  priority?: "NORMAL" | "HIGH";
 };
 export type CommunicationRecipient = {
   id: string;

@@ -236,6 +236,9 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
                           <span>{c(row.topic)}</span>
                           <span>· {c(row.kind)}</span>
                           {!row.read && <span className="font-medium text-primary">· {c("unread")}</span>}
+                          {row.priority === "HIGH" && !row.resolved && (
+                            <span className="font-semibold text-warning">· {c("highPriority")}</span>
+                          )}
                           {row.resolved && <span>· {c("resolved")}</span>}
                         </span>
                       </span>
@@ -268,6 +271,9 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
                         {c(item.kind)} · {c(item.topic)}
                       </span>
                       {["MEMBER", "OPERATOR"].includes(item.audience) && <span>· {c("personal")}</span>}
+                      {item.priority === "HIGH" && !item.resolved && (
+                        <span className="font-semibold text-warning">· {c("highPriority")}</span>
+                      )}
                     </div>
                     <h2 dir="auto" className="text-xl font-semibold">
                       {["PLAN_CONTENT", "REPRICING"].includes(item.source) ? c(item.source) : item.messageTitle}

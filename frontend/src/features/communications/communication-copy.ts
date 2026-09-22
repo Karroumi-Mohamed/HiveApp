@@ -56,6 +56,7 @@ const copy = {
   UNAVAILABLE: ["Offre indisponible", "العرض غير متاح"],
   "collaboration.request_sent": ["Demande de collaboration envoyée", "تم إرسال طلب التعاون"],
   personal: ["Pour vous", "لك"],
+  highPriority: ["Important", "مهم"],
   sender: ["Envoyé par", "أرسله"],
   details: ["Détails", "التفاصيل"],
   correlation: ["Référence de suivi", "مرجع التتبع"],

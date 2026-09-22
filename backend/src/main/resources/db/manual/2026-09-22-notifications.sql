@@ -86,6 +86,8 @@ ALTER TABLE notification_events ADD COLUMN IF NOT EXISTS sender_user_id uuid;
 ALTER TABLE notification_events ADD COLUMN IF NOT EXISTS sender_name varchar(255);
 ALTER TABLE communication_entries ADD COLUMN IF NOT EXISTS sender_name varchar(255);
 ALTER TABLE communication_entries ADD COLUMN IF NOT EXISTS email_failure_code varchar(80);
+ALTER TABLE communication_entries ADD COLUMN IF NOT EXISTS priority varchar(16) NOT NULL DEFAULT 'NORMAL';
+UPDATE communication_entries SET priority='HIGH' WHERE kind='WARNING' AND purpose='SERVICE' AND priority='NORMAL';
 ALTER TABLE notification_send_commands ADD COLUMN IF NOT EXISTS command_id uuid;
 ALTER TABLE notification_send_commands ADD COLUMN IF NOT EXISTS account_id uuid;
 ALTER TABLE notification_send_commands ADD COLUMN IF NOT EXISTS sender_user_id uuid;

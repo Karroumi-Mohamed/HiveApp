@@ -43,6 +43,7 @@ public class CommunicationSources {
         .isPresent()) return;
     var e = base("PLAN_CONTENT", notice.getId(), notice.getAccount().getId());
     e.setKind(hasReduction(notice.getImpact()) ? Kind.WARNING : Kind.NOTICE);
+    e.setPriority(e.getKind() == Kind.WARNING ? Priority.HIGH : Priority.NORMAL);
     e.setTopic(Topic.COMMERCIAL);
     e.setMessageTitle(notice.getPlanName());
     e.setMessageBody("V" + notice.getSourceVersion() + " → V" + notice.getTargetVersion());
@@ -62,6 +63,7 @@ public class CommunicationSources {
             .isPresent()) return;
     var e = base("REPRICING", notice.getId(), notice.getAccount().getId());
     e.setKind(Kind.WARNING);
+    e.setPriority(Priority.HIGH);
     e.setTopic(Topic.BILLING);
     e.setMessageTitle("Tarif de votre abonnement");
     e.setMessageBody("Un changement de tarif a été préparé. Consultez son état et ses conditions.");

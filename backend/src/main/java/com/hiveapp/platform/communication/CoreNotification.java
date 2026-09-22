@@ -102,6 +102,10 @@ public enum CoreNotification implements NotificationDefinition {
     return this == OFFER_AVAILABLE ? Purpose.MARKETING : Purpose.SERVICE;
   }
 
+  public Priority priority() {
+    return this == PAYMENT_FAILED || this == BILLING_ATTENTION ? Priority.HIGH : Priority.NORMAL;
+  }
+
   public String actionPath(UUID id) {
     if (path == null) return null;
     if (this == PAYMENT_FAILED) {

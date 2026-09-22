@@ -23,6 +23,9 @@ public class NotificationCatalog {
           || definition.topic() == null
           || definition.kind() == null
           || definition.purpose() == null
+          || definition.priority() == null
+          || (definition.purpose() == CommunicationModels.Purpose.MARKETING
+              && definition.priority() != CommunicationModels.Priority.NORMAL)
           || definition.kind() == CommunicationModels.Kind.MESSAGE
           || (definition.platform()
               && definition.purpose() == CommunicationModels.Purpose.MARKETING)
