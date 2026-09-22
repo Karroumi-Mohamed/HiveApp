@@ -124,6 +124,15 @@ public class NotificationPublisher {
     entries.resolveEvent(definition.key(), resourceId, clock.instant());
   }
 
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void withdraw(NotificationDefinition definition, UUID resourceId) {
+    catalog.require(definition.key());
+    Objects.requireNonNull(resourceId);
+    // Same event-before-entry lock order as delivery; late delivery inherits withdrawal.
+    events.withdraw(definition.key(), resourceId, clock.instant());
+    entries.withdrawEvent(definition.key(), resourceId, clock.instant());
+  }
+
   private String hash(String value) {
     try {
       return HexFormat.of()

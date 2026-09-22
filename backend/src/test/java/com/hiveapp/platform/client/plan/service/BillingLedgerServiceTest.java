@@ -188,6 +188,7 @@ class BillingLedgerServiceTest {
         assertThat(provider.getStatus()).isEqualTo(BillingPaymentStatus.CANCELLED);
         assertThat(command.getStatus()).isEqualTo(BillingOutboxStatus.CANCELLED);
         assertThat(invoice.getStatus()).isEqualTo(BillingInvoiceStatus.CANCELLED);
+        verify(notifications).paymentCancelled(invoice);
     }
 
     private SubscriptionEntitlementSnapshot snapshot() {

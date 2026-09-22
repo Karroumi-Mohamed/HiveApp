@@ -211,6 +211,7 @@ public class BillingLedgerService {
         }
         invoice.cancel();
         invoices.save(invoice);
+        notifications.paymentCancelled(invoice);
     }
 
     /**

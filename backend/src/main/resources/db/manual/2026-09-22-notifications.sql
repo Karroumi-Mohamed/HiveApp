@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS notification_events (
 CREATE TABLE IF NOT EXISTS notification_send_commands (
  command_key varchar(110) PRIMARY KEY, payload_hash varchar(64) NOT NULL, created_at timestamptz NOT NULL
 );
+ALTER TABLE notification_events ADD COLUMN IF NOT EXISTS cancelled boolean NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS notification_preferences (
  id uuid PRIMARY KEY, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL,
  user_id uuid NOT NULL, topic varchar(24) NOT NULL, in_app_enabled boolean NOT NULL DEFAULT true, email_enabled boolean NOT NULL DEFAULT true,

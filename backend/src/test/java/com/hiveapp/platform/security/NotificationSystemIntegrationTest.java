@@ -85,6 +85,28 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
   }
 
   @Test
+  void sourceCancellationWithdrawsBothDeliveredAndPendingWarningsWithoutPaymentReceipt() throws Exception {
+    UUID invoice = UUID.randomUUID();
+    UUID clientEvent = publish(CoreNotification.PAYMENT_FAILED, "cancel", NotificationPublisher.Target.account(account), invoice);
+    UUID operatorEvent = publish(CoreNotification.BILLING_ATTENTION, "cancel", NotificationPublisher.Target.platform(), invoice);
+    UUID clientEntry = deliver(clientEvent);
+    long count = events.count();
+    transactions.executeWithoutResult(tx -> {
+      publisher.withdraw(CoreNotification.PAYMENT_FAILED, invoice);
+      publisher.withdraw(CoreNotification.BILLING_ATTENTION, invoice);
+    });
+    UUID operatorEntry = deliver(operatorEvent);
+    assertThat(entries.findById(clientEntry).orElseThrow().isCancelled()).isTrue();
+    assertThat(entries.findById(operatorEntry).orElseThrow().isCancelled()).isTrue();
+    assertThat(events.count()).isEqualTo(count);
+    mockMvc.perform(get(CLIENT + "/" + clientEntry).header("Authorization", bearer(client)))
+        .andExpect(status().isOk()).andExpect(jsonPath("sourceState").value("CANCELLED"))
+        .andExpect(jsonPath("canAcknowledge").value(false));
+    var claim = transactions.execute(tx -> email.claimNotice(clientEntry));
+    assertThat(claim).isNull();
+  }
+
+  @Test
   void domainRollbackLeavesNoNotificationIntentOrInboxEntry() {
     long before = events.count();
     transactions.executeWithoutResult(

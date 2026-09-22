@@ -65,6 +65,7 @@ public class NotificationEvent extends BaseEntity {
 
   private Instant expiresAt;
   private Instant resolvedAt;
+  private boolean cancelled;
 
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 20)

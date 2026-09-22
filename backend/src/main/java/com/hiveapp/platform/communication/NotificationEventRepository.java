@@ -27,4 +27,8 @@ public interface NotificationEventRepository
           + " e.resourceId=:resource and e.resolvedAt is null")
   int resolve(
       @Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
+
+  @Modifying
+  @Query("update NotificationEvent e set e.cancelled=true, e.resolvedAt=:now where e.definitionKey=:type and e.resourceId=:resource and e.cancelled=false")
+  int withdraw(@Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
 }

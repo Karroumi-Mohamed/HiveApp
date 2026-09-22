@@ -117,4 +117,10 @@ public class BusinessNotifications {
           null,
           null);
   }
+
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void paymentCancelled(BillingInvoice invoice) {
+    publisher.withdraw(CoreNotification.PAYMENT_FAILED, invoice.getId());
+    publisher.withdraw(CoreNotification.BILLING_ATTENTION, invoice.getId());
+  }
 }

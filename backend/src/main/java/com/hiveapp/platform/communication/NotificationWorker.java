@@ -78,6 +78,7 @@ public class NotificationWorker {
             e.setAvailableAt(event.getAvailableAt());
             e.setExpiresAt(event.getExpiresAt());
             e.setResolvedAt(event.getResolvedAt());
+            e.setCancelled(event.isCancelled());
             e.getDelivery().publish(clock.instant(), event.isEmail());
             entries.saveAndFlush(e);
           }

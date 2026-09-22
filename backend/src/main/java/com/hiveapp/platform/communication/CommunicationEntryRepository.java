@@ -33,6 +33,10 @@ public interface CommunicationEntryRepository
   int resolveEvent(
       @Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
 
+  @Modifying
+  @Query("update CommunicationEntry e set e.cancelled=true, e.resolvedAt=:now where e.eventType=:type and e.resourceId=:resource and e.cancelled=false")
+  int withdrawEvent(@Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
+
   @Query(
       "select e.id from CommunicationEntry e where e.source in ('ADMIN','EVENT') and"
           + " ((e.cancelled=false and e.availableAt<=:now and (e.expiresAt is null or"
