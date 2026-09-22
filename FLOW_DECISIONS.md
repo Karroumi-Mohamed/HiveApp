@@ -968,17 +968,17 @@ Creation should be guided rather than one large form:
 
 - The existing numbered product `revisionNumber` represents a business version within a stable product lineage. Creating its successor produces a separate draft; it does not move existing subscribers or rewrite their purchased terms. This is not the optimistic-concurrency `version`/`rowVersion` counter, which changes when the same stored record is edited.
 - The requested header interaction is a clickable product-version tag leading to the versions of that same product family. A commercial-availability audit log is not a substitute for this destination.
-- Plans currently have successor creation and a lineage-filtered list API, but no dedicated product-versions page. Record this as open design work (`PLAN-013`), not as an implemented destination or a reason to make the preview tag navigate to an unrelated screen.
+- At design acceptance, Plans had successor creation and a lineage-filtered list API but no dedicated product-versions page. That gap (`PLAN-013`) is now delivered: the tag opens the same-family Versions destination, never an unrelated availability log.
 - Use canonical administrator-facing **Version / Créer une version**, with backend business names, API contracts and frontend copy aligned through compatibility-safe changes. Preserve the separate meanings of product versions, price versions and concurrency counters; this naming work must not change purchase, publication or subscriber-effect rules.
 - The consolidated implementation plan below is accepted. Reuse existing product-lineage and capacity-package revision capabilities rather than introducing a second versioning model.
 
 ### Applying Plan versions to existing subscribers — reopened discussion (2026-09-21)
 
-**Status:** `DECIDED — IMPLEMENTATION IN PROGRESS (2026-09-21)`
+**Status:** `DECIDED — PLAN CONTENT WORKFLOW IMPLEMENTED AND VERIFIED (2026-09-22)`
 
 The immutable-version and explicit-subscriber-effect decisions above remain in force. This discussion settles the missing operational contract, not a replacement for those decisions. Track implementation in `PLAN-007` and `PLAN-011`; do not create another specification document.
 
-**Current implementation boundary**
+**Original implementation boundary at acceptance**
 
 - Immediate/renewal changes and scheduled selected-Account jobs exist, with immutable snapshots, impact checks and per-Account outcomes. They are not yet a dedicated content-version rollout preserving the current financial agreement: the generic positive-price change requests payment confirmation, and an immediate selection change starts a new period.
 - Existing price-only repricing deliberately requires the same exact product revision. It cannot be reused unchanged to alter Plan composition or to pretend a price belonging to V1 belongs to V2.
@@ -1002,7 +1002,7 @@ The user approved the consolidated plan and authorized implementation on 2026-09
 
 ### Consolidated Plan implementation plan (2026-09-21)
 
-**Status:** `ACCEPTED — IMPLEMENTATION IN PROGRESS`
+**Status:** `IMPLEMENTED AND VERIFIED FOR PLANS — 2026-09-22`
 
 This is the implementation plan for the two open discussions above, including the original `PLAN-013` naming/versions-page gap and the `PLAN-007` / `PLAN-011` subscriber-effect work. It does not reopen already accepted immutability or grandfathering rules. Keep decisions here and delivery evidence in `TOFIX.md`; do not add another planning document. OpenMeter's [Plan model](https://openmeter.io/docs/product-catalog/plan/overview), Autumn's [version workflow](https://docs.useautumn.com/documentation/customers/versioning), and Kill Bill's [catalogue examples](https://docs.killbill.io/0.24/catalog-examples) are design references, not dependencies or authority over HiveApp decisions.
 
@@ -1101,6 +1101,10 @@ Population-execution refinement (2026-09-22): extend the existing subscription j
 Notification refinement (2026-09-22): every applied content instruction creates an Account-private in-app notice; confirmed future instructions publish before application. Operators may also request email, or require successful email dispatch before application. Required dispatch needs a verified current Account owner and is rechecked before application; failed/suppressed dispatch or owner changes preserve the old content until explicitly retried. “Sent” is the transport result, not delivery, reading or consent. The existing durable email dispatcher serves both repricing and content notices, with bounded leases and explicit retry. Content application must retain subscription-portal access; removing that feature is a review conflict, not an authorization bypass. Cancellation preserves applied notices and prevents unclaimed future email; mail already in flight cannot be recalled.
 
 Management-view refinement (2026-09-22): the family subscriber surface exposes current/other versions, confirmed pending changes and unresolved results as paginated presets, with retained price and paid-period end visible. Reading this population has its own permission, distinct from job-result identity resolution. A successful later content instruction resolves the older conflict in the attention preset, without deleting its audit evidence. Conflict groups carry a typed resolution category and link to filtered per-Account results; corrections still use the separately authorized subscription, capacity or commercial workflows. Family history projects the existing append-only audit with bounded date/type/actor filters and readable actor names; it never returns arbitrary request/result payloads or creates another audit store.
+
+Final delivery checkpoint (2026-09-22): the Plan-specific slices above now include the guided audience/timing/notification/review flow, partial confirmation, progress, grouped results, cancellation and authorized retries; family subscriber presets/history and Account-private client notices/read receipts are connected to their operational APIs. Added and removed capabilities and changed limits are visible without exposing internal accepted commercial snapshots. Restricted surfaces are covered by backend and frontend authorization tests; real browser verification covers the administrator/client journey, required-email failure/retry, French/Arabic direction and light/dark layouts. The final verification and local 100/1,000/10,000-Account measurements are recorded in `TOFIX.md`. Earlier delivery checkpoints are chronological evidence, not current missing-feature claims.
+
+The completion boundary remains explicit: production PostgreSQL DDL/upgrade validation and real SMTP configuration/transport verification are deployment gates. Local H2 and suppressed dev email do not satisfy them. Feature-specific grace/remediation and broader renewal-policy exceptions remain separate backlog, and add-on/capacity-package definition changes remain slice 8; this Plan implementation must not mark those unrelated capabilities complete.
 
 ---
 

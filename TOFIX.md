@@ -579,7 +579,7 @@ Admins can expose unfinished plans, edit something intended as immutable history
 
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
 
-**Status:** `PARTIALLY RESOLVED — ACCEPTED VERSION APPLICATION PLAN IN PROGRESS 2026-09-21`
+**Status:** `PLAN VERSION APPLICATION WORKFLOW RESOLVED 2026-09-22 — BROADER RENEWAL/GRACE AND PRODUCTION DEPLOYMENT GATES REMAIN OPEN`
 
 **Original evidence — before the immutable revision foundation**
 
@@ -611,7 +611,7 @@ Admins can change what Plan X means for future customers without a durable revis
 - Generic creation is now explicitly empty rather than silently inheriting FREE. Subscription snapshots store the Plan revision number as their definition version, so accepted terms identify the exact published revision.
 - Selected/filtered bulk subscriber changes, scheduled execution jobs, renewal policy, reusable communications, and audit remain later operational work. Current subscribers continue changing only through the existing one-Account previewed operation.
 
-**Current gap and reopened discussion — 2026-09-21**
+**Historical gap and reopened discussion — 2026-09-21 (superseded by final delivery below)**
 
 - The accepted implementation plan lives in `PLAN-FLOW-005` of `FLOW_DECISIONS.md`, covering `PLAN-013`, this issue and `PLAN-011`. It includes family/version coexistence, explicit public-version selection, preserved financial terms, grouped conflict resolution, simpler admin views, backend/test/frontend delivery slices and verification gates. Acceptance on 2026-09-21 authorizes implementation, not a claim of completed delivery.
 - The 2026-08-10 implementation note above is historical: selected-Account scheduled change jobs have since shipped under `PLAN-011`. They do not yet provide a content-only Plan-version rollout that preserves the paid period and existing agreed financial terms without another checkout.
@@ -655,6 +655,17 @@ Final backend verification (2026-09-22):
 
 - Client notices and operator impact now expose both added and removed capabilities. Older persisted impact JSON without `addedFeatures` remains readable as an empty list. Explicit exclusions outside the frozen audience fail validation instead of being silently ignored.
 - The final full Maven run passed **930 tests**, with **0 failures/errors** and **1 opt-in benchmark skipped** (931 discovered). The separate notice-inclusive 100/1,000/10,000-Account benchmark also passed: freeze **240/116/493 ms**, assessment **2,610/10,230/208,512 ms**, application **2,862/14,322/373,878 ms**, and 20-row subscriber reads **44/9/27 ms**. Each applied Account had exactly one persisted notice. These are local H2 measurements with scheduler passes invoked directly, not isolated production PostgreSQL, real SMTP delivery or VPS throughput evidence.
+
+**Final operator/client delivery and acceptance — 2026-09-22**
+
+- The previous checkpoint references to unbuilt notices, audience UI, management presets, history and load verification are superseded. The accepted Plan-specific workflow is delivered; the larger original renewal/grace umbrella is not silently closed.
+- Administrators choose a source version/family, target published version, selected/filtered/all audience, explicit exclusions, timing and notice policy. The guided flow remains local until analysis; analysis freezes the audience, then an expiring actor-bound review requires confirmation (including explicit partial-success acknowledgement). No direct save skips the review or changes the customer's financial terms.
+- Family subscriber views expose current/other versions, pending changes and accounts to review. Result tables are paged, permission-gate identities independently, group conflicts, show gained/lost features and before/after capacity, and link to separately authorized subscription operations. Background progress refreshes through the final result; successful retry clears an obsolete conflict filter. Cancel, technical retry and notification retry remain distinct audited actions with required reasons.
+- Client notices are Account-private, separately permissioned from pricing notices, and show the version change and retained financial terms without internal administrative reasons. Read-only clients can inspect them without acquiring mark-read rights. Marking read is explicit, idempotent and not acceptance/consent.
+- Final frontend verification: **425 tests passed**, **0 failed**, lint (313 files), TypeScript checks and production build succeeded. Tests cover restricted/read-only routes, secondary-query gating, stale/partial review, history/system actors, final result refresh/filter reset, Arabic copy and client notice/receipt permissions.
+- Real browser on isolated disposable ports 5173/8081 verified V1/V2 coexistence, version creation/comparison/public-choice separation, explicit V1→V2 application with unchanged amount and paid period, client notice/mark-read, and required email suppression preserving V2 instead of applying a V1 return. Explicit email retry resumed the same instruction and displayed its updated row. Desktop/narrow layouts, light/dark and the new French/Arabic surfaces were checked. Older shared French-only pages and seeded English names are not claimed fully localized; no real email was delivered by the dev fallback.
+- **Remaining deployment gates:** provide/review production DDL and indexes for public version, content evidence/notices and typed job/item data; validate upgrade/backward compatibility on PostgreSQL before `ddl-auto=validate`. Configure and verify real SMTP transport before promising required-dispatch operations. Run environment-specific load/capacity tests; the 10,000-account bound and local background timings are not a 1,000 requests/second claim.
+- **Remaining product scope:** broader renewal policy/expiring exceptions and feature-specific grace/remediation stay open under their existing decisions. Conflicts preserve the old version; this release does not invent grace or remove purchased products. Add-on and capacity-package definition-change workflows are the explicitly later phase. Existing financial repricing remains a separate reviewed operation.
 
 ---
 
@@ -1119,7 +1130,7 @@ A copied plan can become sellable before review, admins cannot understand its or
 
 ### PLAN-013 — Product version terminology and Plan version navigation are incomplete
 
-**Status:** `PARTIALLY RESOLVED — VERSION BACKEND AND UI FOUNDATION DELIVERED`
+**Status:** `RESOLVED FOR PLAN VERSION MANAGEMENT — 2026-09-22`
 
 **Evidence**
 
@@ -1145,20 +1156,20 @@ A copied plan can become sellable before review, admins cannot understand its or
 - Verification: 134 tests passed across the initial Plan/catalogue/subscription/admin-security selection. After compatibility/security refinements, 108 tests passed across `PlanVersionManagementIntegrationTest` (9), `CommercialCatalogMutationCoverageTest` (2), `PlanAdminServiceImplTest` (26), and `AdminControlPlaneSecurityIntegrationTest` (71). Coverage includes public choice/staleness, inactive/direct-only/unpriced rejection, family grouping, diffs, metadata-only invariants, lifecycle parity, client discovery/isolation, restricted secondary data and route compatibility.
 - The frontend now groups family cards, links the centered icon-bearing Version tag to a paginated Versions table, resumes an existing draft, compares two versions with unchanged rows opt-in, and exposes explicit public selection and metadata-only edits. Four main sections replace the previous nine; legacy deep links remain valid. Schema code and closed sales panels load on demand. Existing feature-row/add-on/pack presentation is retained.
 - Frontend verification: lint/typecheck, 410 tests and production build; real browser on isolated ports 5173/8081 covered catalogue, V1→draft V2 creation, coexistence, two-version comparison, light/dark and Arabic direction. Restricted read/compare/family routes are covered by UI tests. Existing French-only shared navigation, seeded English names and older subpanels have not been relabelled as fully localized.
-- `PLAN-007` / `PLAN-011` content-only subscriber operations and their workflow UI remain open. Family-wide history, version-aware subscriber presets, rollout actions and final cross-workflow verification are still outstanding; this foundation slice does not close those tasks.
+- Final completion: family-wide history, version-aware subscriber presets, guided application/results and final verification are delivered under `PLAN-007`. Administrator wording is Version; persisted revision columns, legacy serialized properties/routes/permission identities and concurrency counters retain explicit compatibility. This closes the Plan naming/navigation gap, not a wholesale rename of every product or database field.
 
 ---
 
 ### PLAN-011 — Admin subscriber management is a collection of single-record endpoints, not the decided operational flow
 
-**Status:** `PARTIALLY RESOLVED — SELECTED-ACCOUNT CHANGE JOBS IMPLEMENTED 2026-08-31`
+**Status:** `PARTIALLY RESOLVED — CONTENT-VERSION POPULATIONS AND WORKFLOWS DELIVERED 2026-09-22; BROADER LIFECYCLE WORK REMAINS`
 
 **Remaining evidence**
 
-- One-Account immediate and at-renewal changes and explicit selected-Account jobs now use the reviewed operation engine, but filtered/Plan-subscriber populations and lifecycle command kinds are not implemented.
+- One-Account immediate and at-renewal changes and explicit selected-Account jobs use the reviewed operation engine. Filtered/Plan-family populations now exist for content-version applications; this does not add every financial/lifecycle command kind to those jobs.
 - Reviewed trial creation, cancel-at-period-end, immediate cancellation, suspension, expiry, restoration, correction, and communications are not yet first-class operator commands. Progress, partial results, cancellation, and safe retry are implemented for selected-Account `CHANGE_SELECTION` jobs.
 - General negotiated/grace/restricted-state exceptions remain later than the delivered typed commercial-policy effects.
-- Dedicated content-only single-Account execution and population/scheduling backends preserving existing financial terms and the paid period are delivered under `PLAN-007` (2026-09-22). Notices, the operator UI and remaining scale/audit gates remain open; the older selected-Account commercial-change job must not be mistaken for that content-only rollout.
+- Dedicated content-only single-Account execution and population/scheduling APIs, notifications, operator/client UI and final local verification are delivered under `PLAN-007` (2026-09-22). The older selected-Account commercial-change job remains separate; production deployment gates are listed at the final `PLAN-007` checkpoint.
 - The consolidated `PLAN-FLOW-005` proposal adds grouped actionable conflicts, frozen filtered/family audiences, version-aware preset views, operational APIs, notice reuse and bounded background processing. Verify current lifecycle implementations before relying on this entry's older Phase 12 inventory; do not rebuild capabilities already delivered elsewhere.
 
 **Risk**
@@ -1185,7 +1196,7 @@ An admin UI built over these endpoints would force unsafe UUID-driven changes, h
 - Admin responses preserve actor, request/cancellation, checkout and policy provenance. Client responses deliberately expose only safe effective terms, stable attention codes, and checkout state.
 - Exact retained Plan/AddOn/package Price-entry identities and quantities survive later catalogue pause/inactivation/direct-only changes; retained items remain visible/removable but cannot be newly selected or increased.
 - Selected-Account population previews, immutable affected sets, partial-success jobs/retry, and scheduled execution are now durable operational APIs with admin list/create/detail/results UI and independently authorized identity reveal.
-- Filtered/Plan-subscriber populations, lifecycle/correction command kinds, export, client pending-job projection, and communications remain unresolved and must be implemented before claiming a complete subscriber-management workflow.
+- Filtered/Plan-subscriber content-version populations and their private scheduled/client notices are now implemented. The older broader lifecycle/correction/export inventory remains a separate scope; verify current dedicated lifecycle capabilities before implementing missing operations. Do not infer completion of every subscriber-management feature from the content-version workflow.
 
 ---
 
