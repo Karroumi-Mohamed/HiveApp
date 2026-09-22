@@ -75,8 +75,12 @@ public class NotificationPublisher {
     if (expiresAt != null && !expiresAt.isAfter(at))
       throw new IllegalArgumentException("Invalid notification expiry.");
     String path = definition.actionPath(resourceId);
+    if ((definition.kind() == Kind.ACTION || definition.kind() == Kind.OFFER)
+        && (resourceId == null || path == null || definition.requiredPermission() == null))
+      throw new IllegalArgumentException("Actionable notifications require a resource, destination and permission.");
     if (path != null && !(path.startsWith(definition.platform() ? "/admin/" : "/app/"))
-        || (path != null && (path.contains("//") || path.contains("\\"))))
+        || (path != null && (path.contains("//") || path.contains("\\")
+            || path.contains("..") || path.chars().anyMatch(Character::isWhitespace))))
       throw new IllegalArgumentException(
           "Notification actions must be internal typed destinations.");
     String key = hash(definition.key() + "|" + occurrence + "|" + target);

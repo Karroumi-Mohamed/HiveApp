@@ -37,6 +37,8 @@ class NotificationCatalogTest {
           public dev.karroumi.permissionizer.Permission requiredPermission() {
             return new dev.karroumi.permissionizer.Permission("business.tasks.read");
           }
+
+          public String actionPath(java.util.UUID id) { return "/app/tasks/" + id; }
         };
     var catalog = new NotificationCatalog(List.of(task), registry("business.tasks.read"));
     catalog.validatePermissions();
