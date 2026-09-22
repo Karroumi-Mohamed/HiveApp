@@ -1605,6 +1605,51 @@ export type PlanDetail = Plan & {
   warnings: string[];
 };
 
+export type PlanVersion = {
+  id: UUID;
+  code: string;
+  name: string;
+  description: string | null;
+  lineageId: UUID;
+  productVersionNumber: number;
+  sourcePlanId: UUID | null;
+  status: PlanStatus;
+  extensionPolicy: PlanExtensionPolicy;
+  salesVisibility: ProductSalesVisibility;
+  rowVersion: number;
+};
+export type PlanVersionPrice = Pick<
+  ProductPrice,
+  "id" | "amount" | "currencyCode" | "billingCycle" | "effectiveFrom" | "effectiveUntil"
+>;
+export type PlanFamily = {
+  lineageId: UUID;
+  publicVersion: PlanVersion;
+  draft: PlanVersion | null;
+  versionCount: number;
+  currentSubscriberCount: number | null;
+  currentPrices: PlanVersionPrice[];
+  pricesVisible: boolean;
+};
+export type PlanVersions = {
+  lineageId: UUID;
+  publicPlanId: UUID;
+  draftPlanId: UUID | null;
+  catalogRevision: number;
+  versions: PageResponse<PlanOperationalItem>;
+};
+export type PlanVersionComparison = {
+  lineageId: UUID;
+  source: PlanVersion;
+  target: PlanVersion;
+  features: { featureCode: string; before: PlanFeature | null; after: PlanFeature | null; changed: boolean }[];
+  extensionPolicyChanged: boolean;
+  visibilityChanged: boolean;
+  sourcePrices: PlanVersionPrice[];
+  targetPrices: PlanVersionPrice[];
+  pricesVisible: boolean;
+};
+
 export type CommercialOperationalItem = {
   id: UUID;
   code: string;

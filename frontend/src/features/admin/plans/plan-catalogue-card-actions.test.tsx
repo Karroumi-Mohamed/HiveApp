@@ -65,15 +65,15 @@ test("labelled catalogue actions preserve their navigation destinations", async 
   const view = mount(true);
   const user = userEvent.setup({ document: view.container.ownerDocument });
   const duplicate = view.getByRole("link", { name: "Dupliquer le forfait Enterprise" });
-  const revise = view.getByRole("link", { name: "Réviser le forfait Enterprise" });
+  const revise = view.getByRole("link", { name: "Créer une version du forfait Enterprise" });
   const open = view.getByRole("link", { name: "Ouvrir le forfait Enterprise" });
   expect(duplicate.textContent).toBe("Dupliquer");
-  expect(revise.textContent).toBe("Réviser");
+  expect(revise.textContent).toBe("Créer une version");
   expect(open.textContent).toBe("Ouvrir");
   await user.click(duplicate);
   expect(view.getByLabelText("Page actuelle").textContent).toBe("/admin/plans/new?from=plan-one");
   await user.click(revise);
-  expect(view.getByLabelText("Page actuelle").textContent).toBe("/admin/plans/plan-one");
+  expect(view.getByLabelText("Page actuelle").textContent).toBe("/admin/plans/plan-one?createVersion=1");
   await user.click(open);
   expect(view.getByLabelText("Page actuelle").textContent).toBe("/admin/plans/plan-one");
 });
@@ -84,7 +84,7 @@ test("unavailable catalogue actions explain themselves on keyboard focus and can
   expect(view.queryByRole("link")).toBeNull();
   for (const [label, reason] of [
     ["Dupliquer le forfait Enterprise", "Duplication non autorisée"],
-    ["Réviser le forfait Enterprise", "Révision non autorisée"],
+    ["Créer une version du forfait Enterprise", "Création de version non autorisée"],
     ["Ouvrir le forfait Enterprise", "Consultation non autorisée"],
   ] as const) {
     await user.tab();
@@ -103,9 +103,11 @@ test("draft revision keeps its state-specific explanation with a visible label",
   await user.tab();
   await user.tab();
   expect(view.container.ownerDocument.activeElement).toBe(
-    view.getByRole("button", { name: "Réviser le forfait Enterprise" }),
+    view.getByRole("button", { name: "Créer une version du forfait Enterprise" }),
   );
-  expect((await view.findByRole("tooltip")).textContent).toBe("La révision n’est pas disponible dans cet état");
+  expect((await view.findByRole("tooltip")).textContent).toBe(
+    "La création de version n’est pas disponible dans cet état",
+  );
   await user.keyboard("{Enter}");
   expect(view.getByLabelText("Page actuelle").textContent).toBe("/admin/plans");
 });

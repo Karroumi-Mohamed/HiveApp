@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PlanCatalogueCards } from "@/features/admin/plans/plan-catalogue-cards";
+import { PlanFamilyCatalogue } from "@/features/admin/plans/plan-family-catalogue";
 import { adminCommercialKeys } from "@/features/commercial/commercial-query";
 import { AddOnForm, QuotaForm } from "./admin-commercial-pages";
 import {
@@ -408,7 +409,12 @@ function CommercialCatalogPage({ kind }: { kind: Kind }) {
 }
 
 export function AdminOperationalPlansPage() {
-  return <CommercialCatalogPage kind="plan" />;
+  const session = useAdminSession();
+  return session.can(adminPermissions.plansListFamilies) ? (
+    <PlanFamilyCatalogue />
+  ) : (
+    <CommercialCatalogPage kind="plan" />
+  );
 }
 export function AdminOperationalAddOnsPage() {
   return <CommercialCatalogPage kind="add-on" />;

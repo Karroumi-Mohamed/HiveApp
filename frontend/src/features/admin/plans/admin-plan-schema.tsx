@@ -190,7 +190,7 @@ export function PlanSchema({ plan }: { plan: Plan }) {
               <h3 className="min-w-0 truncate text-sm font-semibold">{plan.name}</h3>
               <StatusBadge tone={planTone[plan.status]}>{statusText[plan.status]}</StatusBadge>
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">Révision {plan.revisionNumber}</p>
+            <p className="mt-2 text-xs text-muted-foreground">Version {plan.revisionNumber}</p>
           </article>
 
           {model.rows.map(({ feature, definition, quotaLines, permissionPreview, permissionOverflow, y, height }) => (

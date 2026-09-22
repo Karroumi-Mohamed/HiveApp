@@ -1,7 +1,7 @@
 import { NavLink } from "react-router";
 import { cn } from "@/lib/utils";
 
-export type SectionTab = { label: string; to: string; end?: boolean; count?: number };
+export type SectionTab = { label: string; to: string; end?: boolean; count?: number; active?: boolean };
 export type LocalSectionTab = { label: string; value: string; count?: number };
 
 export function SectionTabs(
@@ -48,10 +48,11 @@ export function SectionTabs(
             className={({ isActive }) =>
               cn(
                 "relative flex min-h-11 items-center gap-2 border-b-2 border-transparent text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                isActive && "border-primary text-foreground",
+                (tab.active ?? isActive) && "border-primary text-foreground",
               )
             }
             end={tab.end}
+            aria-current={tab.active ? "page" : undefined}
             key={tab.to}
             to={tab.to}
           >

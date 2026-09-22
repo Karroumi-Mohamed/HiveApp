@@ -1,5 +1,6 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
+import { planVersionMessages } from "@/features/admin/plans/plan-version-messages";
 
 export const supportedLanguages = ["fr", "ar"] as const;
 export type AppLanguage = (typeof supportedLanguages)[number];
@@ -21,6 +22,7 @@ function getInitialLanguage(): AppLanguage {
 const resources = {
   fr: {
     translation: {
+      planVersions: planVersionMessages.fr,
       common: {
         close: "Fermer",
         search: "Rechercher",
@@ -117,6 +119,7 @@ const resources = {
   },
   ar: {
     translation: {
+      planVersions: planVersionMessages.ar,
       common: {
         close: "إغلاق",
         search: "بحث",

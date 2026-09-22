@@ -50,7 +50,7 @@ test("plan catalogue uses a semantic card with meaningful facts and explicit nav
   expect(html).toContain("Ouvrir le forfait");
   expect(html).toMatch(/<fieldset[^>]*aria-label="Actions pour Entreprise"/);
   expect(html).toMatch(/<a[^>]*aria-label="Dupliquer le forfait Entreprise"[^>]*>.*Dupliquer<\/a>/);
-  expect(html).toMatch(/<a[^>]*aria-label="Réviser le forfait Entreprise"[^>]*>.*Réviser<\/a>/);
+  expect(html).toMatch(/<a[^>]*aria-label="Créer une version du forfait Entreprise"[^>]*>.*Créer une version<\/a>/);
   expect(html).not.toContain("bg-muted/40");
   expect(html).not.toContain("shadow-sm");
   expect(html).not.toContain("HIDDEN_TECHNICAL_CODE");
@@ -65,7 +65,7 @@ test("restricted cards retain explained controls without navigation or mutation 
 });
 test("draft cards cannot offer revision when the backend omits the action", () => {
   const html = card(true, { ...plan, status: "DRAFT", availableActions: [] });
-  expect(html).toContain('aria-label="Réviser le forfait Entreprise"');
+  expect(html).toContain('aria-label="Créer une version du forfait Entreprise"');
   expect(html).toContain('aria-disabled="true"');
   expect(html).toContain('href="/admin/plans/new?from=plan-one"');
 });

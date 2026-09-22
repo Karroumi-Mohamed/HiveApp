@@ -1092,6 +1092,8 @@ Delivery slices, each separately verified and committed (never pushed):
 7. **Final audit and docs:** run backend/frontend suites and build, real browser scenarios for ordinary and restricted admins, read-only client visibility, failure/retry and supported languages/themes; update TOFIX only with observed verification evidence and list any residual limitations. No subagents unless the user re-enables them.
 8. **Later product-specific extension work:** separately design and implement changing add-on definitions and capacity-package definitions using the same reviewed-operation foundations. Their incompatibilities with Plan changes are covered in slices 3–4, not postponed until this later work.
 
+Delivery checkpoint (2026-09-22): version/catalogue backend and the dependent frontend foundation are delivered before subscriber-rollout work. The public-choice operation affects ordinary new-client discovery only; Versions/comparison screens do not yet apply content to subscribers. Implementation/verification evidence and remaining work are tracked under `PLAN-013`, `PLAN-007` and `PLAN-011` in `TOFIX.md`, not in a new planning document.
+
 ---
 
 ## PLAN-FLOW-006 — Feature composition and add-ons

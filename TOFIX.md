@@ -1084,7 +1084,7 @@ A copied plan can become sellable before review, admins cannot understand its or
 
 ### PLAN-013 — Product version terminology and Plan version navigation are incomplete
 
-**Status:** `PARTIALLY RESOLVED — VERSION BACKEND DELIVERED; FRONTEND IN PROGRESS`
+**Status:** `PARTIALLY RESOLVED — VERSION BACKEND AND UI FOUNDATION DELIVERED`
 
 **Evidence**
 
@@ -1108,7 +1108,9 @@ A copied plan can become sellable before review, admins cannot understand its or
 - New DTOs distinguish `productVersionNumber` and `rowVersion`. The Java command is `createPlanVersion`; `/versions` is available while `/revisions`, stored `revision_number`, existing response `revisionNumber` and the persisted `platform.plans.revise` permission remain compatible.
 - Read, compare, public-choice and metadata permissions are independent. Family counts and actual price schedules require their secondary read permissions. Active-to-archived Plan commands now enforce the same suspend-sales prerequisite as action discovery.
 - Verification: 134 tests passed across the initial Plan/catalogue/subscription/admin-security selection. After compatibility/security refinements, 108 tests passed across `PlanVersionManagementIntegrationTest` (9), `CommercialCatalogMutationCoverageTest` (2), `PlanAdminServiceImplTest` (26), and `AdminControlPlaneSecurityIntegrationTest` (71). Coverage includes public choice/staleness, inactive/direct-only/unpriced rejection, family grouping, diffs, metadata-only invariants, lifecycle parity, client discovery/isolation, restricted secondary data and route compatibility.
-- The dedicated Versions/comparison UI and the four-section detail redesign are not yet delivered. `PLAN-007` / `PLAN-011` content-only subscriber operations remain open; this backend slice does not close those tasks.
+- The frontend now groups family cards, links the centered icon-bearing Version tag to a paginated Versions table, resumes an existing draft, compares two versions with unchanged rows opt-in, and exposes explicit public selection and metadata-only edits. Four main sections replace the previous nine; legacy deep links remain valid. Schema code and closed sales panels load on demand. Existing feature-row/add-on/pack presentation is retained.
+- Frontend verification: lint/typecheck, 410 tests and production build; real browser on isolated ports 5173/8081 covered catalogue, V1→draft V2 creation, coexistence, two-version comparison, light/dark and Arabic direction. Restricted read/compare/family routes are covered by UI tests. Existing French-only shared navigation, seeded English names and older subpanels have not been relabelled as fully localized.
+- `PLAN-007` / `PLAN-011` content-only subscriber operations and their workflow UI remain open. Family-wide history, version-aware subscriber presets, rollout actions and final cross-workflow verification are still outstanding; this foundation slice does not close those tasks.
 
 ---
 

@@ -32,7 +32,7 @@ import { commercialAmount, isCommercialAmount } from "@/lib/exact-decimal";
 
 type StagedFeature = AssignPlanFeatureInput;
 
-const STEPS = ["Point de départ", "Identité", "Tarification", "Composition & quotas", "Révision"] as const;
+const STEPS = ["Point de départ", "Identité", "Tarification", "Composition & quotas", "Vérification"] as const;
 
 /**
  * The guided creation of PLAN-FLOW-004, in the decided order: nothing is persisted until the
@@ -185,7 +185,7 @@ export function AdminPlanCreatePage() {
         </Button>
       </div>
       <PageHeader
-        description="Rien n’est enregistré avant la révision finale ; le forfait démarre en brouillon."
+        description="Rien n’est enregistré avant la vérification finale ; le forfait démarre en brouillon."
         title="Créer un forfait"
       />
 
@@ -270,7 +270,7 @@ export function AdminPlanCreatePage() {
               >
                 <span className="block truncate text-sm font-medium">{plan.name}</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  Révision {plan.revisionNumber} · {plan.choiceState === "SELECTABLE" ? "disponible" : "plus active"}
+                  Version {plan.revisionNumber} · {plan.choiceState === "SELECTABLE" ? "disponible" : "plus active"}
                 </span>
               </button>
             ))}

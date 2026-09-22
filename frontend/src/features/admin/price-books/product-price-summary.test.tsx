@@ -75,7 +75,8 @@ test("shows independent cycles and currencies from the authoritative bounded que
   const view = mount();
   expect(await view.findByText("Annuel")).toBeTruthy();
   expect(view.getAllByText("Mensuel")).toHaveLength(2);
-  expect(view.getByText("EUR")).toBeTruthy();
+  expect(view.getByText(/90,00\s*€/)).toBeTruthy();
+  expect(view.container.textContent).not.toMatch(/MAD\s+MAD/);
   expect(requests).toHaveLength(1);
   expect(requests[0]).toContain("currentOnly=true");
   expect(requests[0]).toContain("ownerIds=plan-1");

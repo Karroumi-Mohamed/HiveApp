@@ -9,7 +9,8 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, lazy, type ReactNode, Suspense, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { adminApi } from "@/api/admin-api";
@@ -59,14 +60,11 @@ import {
 } from "@/features/admin/commercial/commercial-detail-panels";
 import { ChoiceLoadState } from "@/features/admin/commercial/commercial-form-primitives";
 import { CommercialLifecycleDialog } from "@/features/admin/commercial/commercial-lifecycle-dialog";
-import { PlanSchema } from "@/features/admin/plans/admin-plan-schema";
 import {
   addOnAvailabilityLabel,
   featureModePresentation,
   money,
-  planTone,
   selectableCycles,
-  statusText,
 } from "@/features/admin/plans/plan-presentation";
 import { quotaLinesOf } from "@/features/admin/plans/plan-schema-model";
 import {
@@ -83,6 +81,7 @@ import {
 import { subscriptionStatusPresentation } from "@/features/commercial/subscription-presentation";
 import { commercialAmount, isCommercialAmount } from "@/lib/exact-decimal";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { PlanMetadataDialog, PlanStatusTag, PlanVersionTag } from "./plan-version-controls";
 
 type PlanFeatureCommercialRow = {
   feature: PlanFeature;
@@ -92,6 +91,27 @@ type PlanFeatureCommercialRow = {
 };
 
 const planFeatureColumn = createDataColumns<PlanFeatureCommercialRow>();
+const PlanSchema = lazy(() => import("./admin-plan-schema").then((module) => ({ default: module.PlanSchema })));
+
+function PlanSalesSection({
+  title,
+  initiallyOpen,
+  children,
+}: {
+  title: string;
+  initiallyOpen: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(initiallyOpen);
+  return (
+    <details className="rounded-xl border bg-card" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="cursor-pointer p-5 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        {title}
+      </summary>
+      {open && <div className="px-5 pb-5">{children}</div>}
+    </details>
+  );
+}
 
 function PlanFormDialog({
   source,
@@ -101,7 +121,7 @@ function PlanFormDialog({
   onOpenChange,
 }: {
   source?: Plan;
-  mode?: "create" | "edit" | "duplicate" | "revise";
+  mode?: "create" | "edit" | "duplicate" | "version";
   /** Omit to control the dialog from outside through `open`/`onOpenChange`. */
   trigger?: React.ReactNode;
   open?: boolean;
@@ -133,7 +153,7 @@ function PlanFormDialog({
       if (mode === "edit" && source)
         return adminApi.updatePlan(source.id, { ...input, expectedVersion: source.version });
       if (mode === "duplicate" && source) return adminApi.duplicatePlan(source.id, source.version, input);
-      if (mode === "revise" && source) return adminApi.revisePlan(source.id, source.version, input);
+      if (mode === "version" && source) return adminApi.createPlanVersion(source.id, source.version, input);
       return adminApi.createPlan({ ...input, features: [] });
     },
     onSuccess: (plan) => {
@@ -148,7 +168,7 @@ function PlanFormDialog({
       ? adminPermissions.plansUpdate
       : mode === "duplicate"
         ? adminPermissions.plansDuplicate
-        : mode === "revise"
+        : mode === "version"
           ? adminPermissions.plansRevise
           : adminPermissions.plansCreate;
   if (!session.can(requiredPermission)) return null;
@@ -160,17 +180,17 @@ function PlanFormDialog({
           <DialogTitle>
             {mode === "edit"
               ? "Modifier le forfait"
-              : mode === "revise"
-                ? "Créer une révision"
+              : mode === "version"
+                ? "Créer une version"
                 : mode === "duplicate"
                   ? "Dupliquer le forfait"
                   : "Créer un forfait"}
           </DialogTitle>
           <DialogDescription>
             {mode === "edit"
-              ? "Modifie ce forfait sans créer de révision : la lignée et les abonnés ne changent pas."
-              : mode === "revise"
-                ? `Nouvelle révision R${(source?.revisionNumber ?? 0) + 1} dans la même lignée : les abonnés actuels restent sur leur révision. Après activation, la nouvelle pourra être choisie explicitement pour de prochaines souscriptions. Elle démarre en brouillon.`
+              ? "Modifie ce brouillon sans créer de version. Les abonnés ne changent pas."
+              : mode === "version"
+                ? "Crée un brouillon dans le même forfait. Les abonnés actuels conservent leur version et leurs tarifs."
                 : mode === "duplicate"
                   ? "Copie indépendante dans une nouvelle lignée, sans lien avec les abonnés du forfait source. Elle démarre en brouillon."
                   : "Un nouveau forfait démarre en brouillon : configurez ses fonctionnalités et quotas avant de l’activer."}
@@ -552,7 +572,7 @@ function PlanFeatures({ plan }: { plan: Plan }) {
           <h2 className="text-sm font-semibold">Contenu du forfait</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {frozen
-              ? "La composition d’un forfait publié est figée — créez une révision pour la faire évoluer."
+              ? "La composition d’un forfait publié est figée — créez une version pour la faire évoluer."
               : `${features.data?.length ?? 0} fonctionnalités configurées`}
           </p>
           {extensions.data && extensions.data.totalElements > extensions.data.content.length ? (
@@ -781,13 +801,13 @@ function PlanFeatureActions({
   const session = useAdminSession();
   const [editOpen, setEditOpen] = useState(false);
   const editBlockedBy = frozen
-    ? "La composition ne se modifie qu’à l’état brouillon — créez une révision"
+    ? "La composition ne se modifie qu’à l’état brouillon — créez une version"
     : (catalogBlockedBy ??
       (!session.can(adminPermissions.plansUpdateFeature)
         ? "Vous n’êtes pas autorisé à configurer les fonctionnalités"
         : null));
   const removeBlockedBy = frozen
-    ? "La composition ne se modifie qu’à l’état brouillon — créez une révision"
+    ? "La composition ne se modifie qu’à l’état brouillon — créez une version"
     : !session.can(adminPermissions.plansRemoveFeature)
       ? "Vous n’êtes pas autorisé à retirer une fonctionnalité"
       : removing
@@ -1159,7 +1179,9 @@ export function DeletePlanDialog({ plan }: { plan: Plan }) {
 }
 
 function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) {
+  const { t } = useTranslation();
   const session = useAdminSession();
+  const [params, setParams] = useSearchParams();
   const plan = useQuery({
     queryKey: adminCommercialKeys.plans.detail(id),
     queryFn: () => adminApi.plan(id),
@@ -1170,248 +1192,280 @@ function PlanDetailPage({ id, tab = "overview" }: { id: string; tab?: string }) 
     queryFn: () => adminApi.planOperations(id),
     enabled: commercialQueryEnabled(session.can, adminPermissions.plansReadOperations),
   });
+  const versions = useQuery({
+    queryKey: [...adminCommercialKeys.plans.all(), id, "versions", "header"],
+    queryFn: () => adminApi.planVersions(id, { size: 1 }),
+    enabled: session.can(adminPermissions.plansListVersions),
+  });
   if (plan.isLoading) return <LoadingState />;
   if (plan.isError || !plan.data) return <ErrorState retry={() => void plan.refetch()} />;
   const data = plan.data;
   const hasAction = (action: CommercialProductAction) => operations.data?.availableActions.includes(action) ?? false;
+  const contentTab = ["overview", "features", "schema"].includes(tab);
+  const salesTab = ["sales", "prices", "compatibility", "availability", "lifecycle"].includes(tab);
+  const schema = tab === "schema" || params.get("view") === "schema";
+  const hasSalesAccess = [
+    adminPermissions.priceBooksList,
+    adminPermissions.commercialInspectCompatibility,
+    adminPermissions.commercialPreviewPlanPolicy,
+    adminPermissions.plansTransition,
+  ].some(session.can);
+  const salesPanels = [
+    {
+      key: "prices",
+      label: t("planVersions.prices"),
+      allowed: session.can(adminPermissions.priceBooksList),
+      body: <ProductPricePanel ownerId={id} ownerType="PLAN" />,
+    },
+    {
+      key: "compatibility",
+      label: t("planVersions.compatibility"),
+      allowed: session.can(adminPermissions.commercialInspectCompatibility),
+      body: <PlanCompatibilityPanel planId={id} />,
+    },
+    {
+      key: "availability",
+      label: t("planVersions.availability"),
+      allowed: session.can(adminPermissions.commercialPreviewPlanPolicy),
+      body: <CommercialAvailabilityPanel kind="plan" product={data} />,
+    },
+  ];
+  const lifecycle = (
+    <div className="space-y-5">
+      <div className="flex flex-wrap gap-2">
+        {hasAction("ACTIVATE") && session.can(adminPermissions.plansPreviewActivation) ? (
+          <CommercialLifecycleDialog
+            action="ACTIVATE"
+            kind="plan"
+            onChanged={() => void plan.refetch()}
+            product={data}
+            trigger={<Button>Activer</Button>}
+          />
+        ) : hasAction("DEACTIVATE") ? (
+          <CommercialLifecycleDialog
+            action="DEACTIVATE"
+            kind="plan"
+            onChanged={() => void plan.refetch()}
+            product={data}
+            trigger={<Button variant="outline">Suspendre les ventes</Button>}
+          />
+        ) : null}
+        {hasAction("ARCHIVE") && (
+          <CommercialLifecycleDialog
+            action="ARCHIVE"
+            kind="plan"
+            onChanged={() => void plan.refetch()}
+            product={data}
+            trigger={<Button variant="destructive">Archiver</Button>}
+          />
+        )}
+      </div>
+      {hasAction("DELETE_DRAFT") &&
+        session.can(adminPermissions.plansDelete) &&
+        session.can(adminPermissions.plansPreviewDelete) && <DeletePlanDialog plan={data} />}
+    </div>
+  );
   return (
     <div className="space-y-5">
-      <div className="space-y-3">
-        <Button asChild className="-ms-2 text-muted-foreground" size="sm" variant="ghost">
-          <Link to="/admin/plans">
-            <ArrowLeftIcon className="rtl:rotate-180" />
-            Forfaits
-          </Link>
-        </Button>
-        <PageHeader
-          actions={
-            <>
-              {hasAction("EDIT_DRAFT") ? (
+      <Button asChild className="-ms-2 text-muted-foreground" size="sm" variant="ghost">
+        <Link to="/admin/plans">
+          <ArrowLeftIcon className="rtl:rotate-180" />
+          {t("planVersions.plans")}
+        </Link>
+      </Button>
+      <PageHeader
+        align="center"
+        title={
+          <span className="flex flex-wrap items-center gap-3">
+            <span>{data.name}</span>
+            <PlanStatusTag status={data.status} />
+            <PlanVersionTag
+              id={id}
+              number={data.revisionNumber}
+              clickable={session.can(adminPermissions.plansListVersions)}
+            />
+          </span>
+        }
+        actions={
+          <>
+            {data.status !== "ARCHIVED" && session.can(adminPermissions.plansUpdateMetadata) && (
+              <PlanMetadataDialog plan={data} />
+            )}
+            {hasAction("EDIT_DRAFT") && (
+              <PlanFormDialog
+                mode="edit"
+                source={data}
+                trigger={
+                  <Button size="sm" variant="ghost">
+                    <PencilSimpleIcon />
+                    {t("planVersions.edit")}
+                  </Button>
+                }
+              />
+            )}
+            {session.can(adminPermissions.plansDuplicate) && (
+              <Button asChild size="sm" variant="ghost">
+                <Link to={`/admin/plans/new?from=${id}`}>
+                  <CopyIcon />
+                  {t("planVersions.duplicate")}
+                </Link>
+              </Button>
+            )}
+            {versions.data?.draftPlanId && versions.data.draftPlanId !== id ? (
+              <Button asChild size="sm">
+                <Link to={`/admin/plans/${versions.data.draftPlanId}`}>{t("planVersions.continueDraft")}</Link>
+              </Button>
+            ) : (
+              hasAction("REVISE") && (
                 <PlanFormDialog
-                  mode="edit"
-                  source={data}
-                  trigger={
-                    <Button size="sm" variant="ghost">
-                      <PencilSimpleIcon />
-                      Modifier
-                    </Button>
-                  }
-                />
-              ) : null}
-              {session.can(adminPermissions.plansDuplicate) ? (
-                <Button asChild size="sm" variant="ghost">
-                  <Link to={`/admin/plans/new?from=${data.id}`}>
-                    <CopyIcon />
-                    Dupliquer
-                  </Link>
-                </Button>
-              ) : null}
-              {hasAction("REVISE") ? (
-                <PlanFormDialog
-                  mode="revise"
+                  mode="version"
                   source={data}
                   trigger={
                     <Button size="sm">
                       <GitBranchIcon />
-                      Réviser
+                      {t("planVersions.createVersion")}
                     </Button>
                   }
                 />
-              ) : null}
-            </>
-          }
-          description={
-            <span className="flex items-center gap-2 text-xs">
-              <span>Révision {data.revisionNumber}</span>
-            </span>
-          }
-          title={
-            <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span>{data.name}</span>
-              <StatusText className="text-sm tracking-normal" tone={planTone[data.status]}>
-                {statusText[data.status]}
-              </StatusText>
-            </span>
-          }
+              )
+            )}
+          </>
+        }
+      />
+      {hasAction("REVISE") && !versions.data?.draftPlanId && (
+        <PlanFormDialog
+          mode="version"
+          source={data}
+          open={params.get("createVersion") === "1"}
+          onOpenChange={(open) => {
+            if (!open)
+              setParams(
+                (previous) => {
+                  const next = new URLSearchParams(previous);
+                  next.delete("createVersion");
+                  return next;
+                },
+                { replace: true },
+              );
+          }}
         />
-      </div>
+      )}
       <SectionTabs
         ariaLabel="Sections du forfait"
         tabs={[
-          { label: "Synthèse", to: `/admin/plans/${id}`, end: true },
-          ...(session.can(adminPermissions.plansListFeatures)
-            ? [{ label: "Fonctionnalités", to: `/admin/plans/${id}/features`, count: data.featureCount }]
-            : []),
-          ...(session.can(adminPermissions.plansListFeatures)
-            ? [{ label: "Schéma", to: `/admin/plans/${id}/schema` }]
-            : []),
+          { label: t("planVersions.content"), to: `/admin/plans/${id}`, end: true, active: contentTab },
           ...(session.can(adminPermissions.plansListSubscribers)
-            ? [{ label: "Abonnés", to: `/admin/plans/${id}/subscribers`, count: data.currentSubscriberCount }]
+            ? [
+                {
+                  label: t("planVersions.subscribers"),
+                  to: `/admin/plans/${id}/subscribers`,
+                  count: data.currentSubscriberCount,
+                },
+              ]
             : []),
-          ...(session.can(adminPermissions.priceBooksList)
-            ? [{ label: "Tarifs", to: `/admin/plans/${id}/prices` }]
-            : []),
-          ...(session.can(adminPermissions.commercialInspectCompatibility)
-            ? [{ label: "Compatibilité", to: `/admin/plans/${id}/compatibility` }]
-            : []),
-          ...(session.can(adminPermissions.commercialPreviewPlanPolicy)
-            ? [{ label: "Disponibilité", to: `/admin/plans/${id}/availability` }]
+          ...(hasSalesAccess
+            ? [{ label: t("planVersions.sales"), to: `/admin/plans/${id}/sales`, active: salesTab }]
             : []),
           ...(session.can(adminPermissions.commercialReadHistory)
-            ? [{ label: "Historique", to: `/admin/plans/${id}/history` }]
-            : []),
-          ...(session.can(adminPermissions.plansTransition)
-            ? [{ label: "Cycle de vie", to: `/admin/plans/${id}/lifecycle` }]
+            ? [{ label: t("planVersions.history"), to: `/admin/plans/${id}/history` }]
             : []),
         ]}
       />
-      {operations.isError ? (
-        <p className="text-sm text-warning">
-          Les actions autorisées n’ont pas pu être vérifiées.{" "}
-          <button className="underline underline-offset-2" onClick={() => void operations.refetch()} type="button">
+      {operations.isError && (
+        <div role="alert" className="text-sm text-warning">
+          Les actions n’ont pas pu être vérifiées.{" "}
+          <Button size="sm" variant="ghost" onClick={() => void operations.refetch()}>
             Réessayer
-          </button>
-        </p>
-      ) : null}
-      {tab === "features" && session.can(adminPermissions.plansListFeatures) ? (
-        <PlanFeatures plan={data} />
-      ) : tab === "schema" && session.can(adminPermissions.plansListFeatures) ? (
-        <PlanSchema plan={data} />
+          </Button>
+        </div>
+      )}
+      {versions.isError && (
+        <div role="alert" className="text-sm text-warning">
+          Les versions n’ont pas pu être vérifiées.{" "}
+          <Button size="sm" variant="ghost" onClick={() => void versions.refetch()}>
+            Réessayer
+          </Button>
+        </div>
+      )}
+      {contentTab ? (
+        <div className="space-y-5">
+          <section
+            aria-label={t("planVersions.content")}
+            className="flex flex-wrap items-start justify-between gap-5 rounded-xl border bg-card p-5"
+          >
+            <div className="max-w-xl space-y-2">
+              <h2 className="text-sm font-semibold">{data.name}</h2>
+              {data.description && <p className="text-sm text-muted-foreground">{data.description}</p>}
+              {data.status !== "DRAFT" && (
+                <p className="text-xs text-muted-foreground">{t("planVersions.publishedHint")}</p>
+              )}
+            </div>
+            {session.can(adminPermissions.priceBooksList) && (
+              <div className="min-w-48">
+                <ProductPriceSummary ownerType="PLAN" ownerId={id} />
+              </div>
+            )}
+          </section>
+          {session.can(adminPermissions.plansListFeatures) ? (
+            <>
+              <fieldset className="flex justify-end gap-2" aria-label={t("planVersions.content")}>
+                <Button asChild size="sm" variant={!schema ? "secondary" : "ghost"}>
+                  <Link to={`/admin/plans/${id}`} aria-current={!schema ? "page" : undefined}>
+                    {t("planVersions.table")}
+                  </Link>
+                </Button>
+                <Button asChild size="sm" variant={schema ? "secondary" : "ghost"}>
+                  <Link to={`/admin/plans/${id}?view=schema`} aria-current={schema ? "page" : undefined}>
+                    {t("planVersions.schema")}
+                  </Link>
+                </Button>
+              </fieldset>
+              {schema ? (
+                <Suspense fallback={<LoadingState />}>
+                  <PlanSchema plan={data} />
+                </Suspense>
+              ) : (
+                <PlanFeatures plan={data} />
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t("planVersions.contentHidden")}</p>
+          )}
+        </div>
       ) : tab === "subscribers" && session.can(adminPermissions.plansListSubscribers) ? (
         <PlanSubscribers plan={data} />
-      ) : tab === "prices" && session.can(adminPermissions.priceBooksList) ? (
-        <ProductPricePanel ownerId={data.id} ownerType="PLAN" />
-      ) : tab === "compatibility" && session.can(adminPermissions.commercialInspectCompatibility) ? (
-        <PlanCompatibilityPanel planId={data.id} />
-      ) : tab === "availability" && session.can(adminPermissions.commercialPreviewPlanPolicy) ? (
-        <CommercialAvailabilityPanel kind="plan" product={data} />
-      ) : tab === "history" && session.can(adminPermissions.commercialReadHistory) ? (
-        <CommercialAvailabilityHistory productId={data.id} />
-      ) : tab === "lifecycle" && session.can(adminPermissions.plansTransition) ? (
-        <div className="space-y-6">
-          {session.can(adminPermissions.plansTransition) ? (
-            <section className="rounded-xl border bg-card p-5">
-              <h2 className="text-sm font-semibold">Changer le statut</h2>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {hasAction("ACTIVATE") && session.can(adminPermissions.plansPreviewActivation) ? (
-                  <CommercialLifecycleDialog
-                    action="ACTIVATE"
-                    kind="plan"
-                    onChanged={() => void plan.refetch()}
-                    product={data}
-                    trigger={<Button>Activer</Button>}
-                  />
-                ) : hasAction("DEACTIVATE") ? (
-                  <CommercialLifecycleDialog
-                    action="DEACTIVATE"
-                    kind="plan"
-                    onChanged={() => void plan.refetch()}
-                    product={data}
-                    trigger={<Button variant="outline">Suspendre</Button>}
-                  />
-                ) : null}
-                {hasAction("ARCHIVE") ? (
-                  <CommercialLifecycleDialog
-                    action="ARCHIVE"
-                    kind="plan"
-                    onChanged={() => void plan.refetch()}
-                    product={data}
-                    trigger={<Button variant="destructive">Archiver</Button>}
-                  />
-                ) : null}
-              </div>
-            </section>
-          ) : null}
-          {hasAction("DELETE_DRAFT") &&
-          session.can(adminPermissions.plansDelete) &&
-          session.can(adminPermissions.plansPreviewDelete) ? (
-            <section className="rounded-xl border border-destructive/30 p-5">
-              <h2 className="text-sm font-semibold text-destructive">Zone de suppression</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Une prévisualisation serveur vérifie toutes les références avant suppression.
-              </p>
-              <div className="mt-4">
-                <DeletePlanDialog plan={data} />
-              </div>
-            </section>
-          ) : null}
-        </div>
-      ) : tab !== "overview" ? (
-        <PermissionState />
-      ) : (
-        <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="rounded-xl border bg-card p-5">
-            <h2 className="text-sm font-semibold">Configuration commerciale</h2>
-            <dl className="mt-5 grid gap-5 sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <dt className="mb-3 text-sm text-muted-foreground">Tarifs actuels</dt>
-                <dd>
-                  <ProductPriceSummary ownerType="PLAN" ownerId={data.id} />
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Révision</dt>
-                <dd className="mt-1 font-medium">
-                  R{data.revisionNumber}
-                  <span className="ms-2 text-xs font-normal text-muted-foreground">
-                    {data.creationReason === "DUPLICATED"
-                      ? "· créé par duplication"
-                      : data.creationReason === "REVISED"
-                        ? "· révision d’un forfait antérieur"
-                        : "· création directe"}
-                  </span>
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Fonctionnalités</dt>
-                <dd className="mt-1 font-medium">{data.featureCount}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Avec limites configurées</dt>
-                <dd className="mt-1 font-medium">{data.quotaConfiguredFeatureCount}</dd>
-              </div>
-            </dl>
-            <p className="mt-5 border-t pt-4 text-xs leading-5 text-muted-foreground">
-              « Modifier » change ce forfait en place. « Réviser » crée R{data.revisionNumber + 1} dans la même lignée
-              sans toucher aux abonnés actuels ; après activation, cette révision pourra être choisie explicitement pour
-              de prochaines souscriptions. « Dupliquer » démarre une lignée indépendante.
-            </p>
-            {data.description ? (
-              <p className="mt-5 border-t pt-4 text-sm text-muted-foreground">{data.description}</p>
-            ) : null}
-          </section>
-          <section className="rounded-xl border bg-card p-5">
-            <h2 className="text-sm font-semibold">Utilisation actuelle</h2>
-            <dl className="mt-5 space-y-4">
-              <div className="flex justify-between">
-                <dt className="text-sm text-muted-foreground">Abonnés actifs</dt>
-                <dd className="font-semibold tabular-nums">{data.activeSubscriberCount}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-sm text-muted-foreground">En essai</dt>
-                <dd className="font-semibold tabular-nums">{data.trialingSubscriberCount}</dd>
-              </div>
-              <div className="flex justify-between border-t pt-4">
-                <dt className="text-sm text-muted-foreground">Revenu configuré</dt>
-                <dd className="font-semibold">
-                  {money(data.configuredRecurringPriceTotal, data.configuredRecurringPriceCurrencyCode)}
-                </dd>
-              </div>
-            </dl>
-            {data.warnings.length ? (
-              <ul className="mt-5 list-disc space-y-1 border-t pt-4 ps-5 text-xs text-warning">
-                {data.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
+      ) : salesTab && hasSalesAccess ? (
+        <div className="space-y-4">
+          {tab === "sales" ? (
+            <>
+              {session.can(adminPermissions.plansTransition) && (
+                <section className="space-y-4 rounded-xl border bg-card p-5">
+                  <h2 className="font-semibold">{t("planVersions.lifecycle")}</h2>
+                  {lifecycle}
+                </section>
+              )}
+              {salesPanels
+                .filter((panel) => panel.allowed)
+                .map((panel) => (
+                  <PlanSalesSection key={panel.key} title={panel.label} initiallyOpen={panel.key === "prices"}>
+                    {panel.body}
+                  </PlanSalesSection>
                 ))}
-              </ul>
-            ) : null}
-          </section>
+            </>
+          ) : tab === "lifecycle" && session.can(adminPermissions.plansTransition) ? (
+            lifecycle
+          ) : (
+            (salesPanels.find((panel) => panel.key === tab && panel.allowed)?.body ?? <PermissionState />)
+          )}
         </div>
+      ) : tab === "history" && session.can(adminPermissions.commercialReadHistory) ? (
+        <CommercialAvailabilityHistory productId={id} />
+      ) : (
+        <PermissionState />
       )}
     </div>
   );
 }
-
 export function AdminPlansPage({ tab: staticTab }: { tab?: "features" | "schema" | "subscribers" } = {}) {
   const { planId, tab } = useParams();
   if (!planId) return <ErrorState />;

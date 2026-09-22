@@ -120,10 +120,14 @@ import type {
   PlanDeletionPreview,
   PlanDetail,
   PlanExtensionPolicy,
+  PlanFamily,
   PlanFeature,
   PlanOperationalItem,
   PlanSubscriber,
   PlanSubscriberOwnerLookup,
+  PlanVersion,
+  PlanVersionComparison,
+  PlanVersions,
   PlatformActivity,
   PlatformActivityAccountResolution,
   PlatformActivityActorResolution,
@@ -390,6 +394,20 @@ export const adminApi = {
   selectedPlanCodeChoices: (codes: string[]) =>
     admin<PlanChooserItem[]>("/plans/chooser/selected-codes", { query: { codes } }),
   plan: (id: UUID) => admin<PlanDetail>(`/plans/${id}`),
+  planFamilies: (query: { search?: string; page?: number; size?: number } = {}) =>
+    admin<PageResponse<PlanFamily>>("/plans/families", { query }),
+  planVersions: (id: UUID, query: { page?: number; size?: number } = {}) =>
+    admin<PlanVersions>(`/plans/${id}/versions`, { query }),
+  comparePlanVersions: (source: UUID, target: UUID) =>
+    admin<PlanVersionComparison>(`/plans/${source}/compare/${target}`),
+  selectPlanPublicVersion: (
+    id: UUID,
+    input: { expectedCatalogRevision: number; expectedVersion: number; reason: string },
+  ) => admin<PlanVersion>(`/plans/${id}/public-version`, { method: "POST", body: jsonBody(input) }),
+  updatePlanMetadata: (
+    id: UUID,
+    input: { expectedVersion: number; name: string; description: string; reason: string },
+  ) => admin<PlanVersion>(`/plans/${id}/metadata`, { method: "PATCH", body: jsonBody(input) }),
   planOperations: (id: UUID) => admin<PlanOperationalItem>(`/plans/${id}/operations`),
   planFeatures: (id: UUID) => admin<PlanFeature[]>(`/plans/${id}/features`),
   planSubscribers: (id: UUID, query: { search?: string; status?: string; page?: number; size?: number }) =>
@@ -411,8 +429,8 @@ export const adminApi = {
       query: { expectedVersion: typeof expectedVersionOrInput === "number" ? expectedVersionOrInput : undefined },
       body: jsonBody(maybeInput ?? (expectedVersionOrInput as PlanBranchInput)),
     }),
-  revisePlan: (id: UUID, expectedVersionOrInput: number | PlanBranchInput, maybeInput?: PlanBranchInput) =>
-    admin<Plan>(`/plans/${id}/revisions`, {
+  createPlanVersion: (id: UUID, expectedVersionOrInput: number | PlanBranchInput, maybeInput?: PlanBranchInput) =>
+    admin<Plan>(`/plans/${id}/versions`, {
       method: "POST",
       query: { expectedVersion: typeof expectedVersionOrInput === "number" ? expectedVersionOrInput : undefined },
       body: jsonBody(maybeInput ?? (expectedVersionOrInput as PlanBranchInput)),

@@ -34,7 +34,7 @@ export function ProductPriceOptions({
   prices,
   variant = "summary",
 }: {
-  prices: ProductPrice[];
+  prices: Pick<ProductPrice, "id" | "amount" | "currencyCode" | "billingCycle">[];
   variant?: "summary" | "catalogue";
 }) {
   if (variant === "catalogue") {
@@ -67,10 +67,7 @@ export function ProductPriceOptions({
       {prices.map((price) => (
         <li className="flex flex-wrap items-baseline justify-between gap-x-5 gap-y-1" key={price.id}>
           <span className="text-sm text-muted-foreground">{productPriceCycle[price.billingCycle]}</span>
-          <span className="font-semibold tabular-nums">
-            {formatExactMoney(price.amount, price.currencyCode)}{" "}
-            <span className="text-xs font-normal">{price.currencyCode}</span>
-          </span>
+          <span className="font-semibold tabular-nums">{formatExactMoney(price.amount, price.currencyCode)}</span>
         </li>
       ))}
     </ul>

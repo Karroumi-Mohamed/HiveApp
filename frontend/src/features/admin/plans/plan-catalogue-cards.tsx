@@ -125,18 +125,18 @@ export function PlanCatalogueCard({
           Dupliquer
         </PlanCardAction>
         <PlanCardAction
-          label={`Réviser le forfait ${plan.name}`}
+          label={`Créer une version du forfait ${plan.name}`}
           unavailableReason={
             !canRevise
-              ? "Révision non autorisée"
+              ? "Création de version non autorisée"
               : !revise
-                ? "La révision n’est pas disponible dans cet état"
+                ? "La création de version n’est pas disponible dans cet état"
                 : undefined
           }
-          to={revise ? path : undefined}
+          to={revise ? `${path}?createVersion=1` : undefined}
         >
           <GitBranchIcon aria-hidden="true" />
-          Réviser
+          Créer une version
         </PlanCardAction>
         <PlanCardAction
           label={`Ouvrir le forfait ${plan.name}`}

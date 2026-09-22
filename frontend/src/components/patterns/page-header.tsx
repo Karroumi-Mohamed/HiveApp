@@ -4,13 +4,17 @@ export function PageHeader({
   title,
   actions,
   description,
+  align = "start",
 }: {
   title: ReactNode;
   actions?: ReactNode;
   description?: ReactNode;
+  align?: "start" | "center";
 }) {
   return (
-    <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+    <header
+      className={`flex flex-col justify-between gap-4 sm:flex-row ${align === "center" ? "sm:items-center" : "sm:items-start"}`}
+    >
       <div className="min-w-0">
         <h1 className="text-2xl font-semibold tracking-[-0.035em] md:text-[1.75rem]">{title}</h1>
         {description ? <div className="mt-1.5 max-w-3xl text-sm text-muted-foreground">{description}</div> : null}

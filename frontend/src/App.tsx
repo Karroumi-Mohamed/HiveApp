@@ -138,7 +138,7 @@ const router = createBrowserRouter([
       {
         path: "plans",
         element: (
-          <AdminReadPermissionGate allOf={[adminPermissions.plansList]}>
+          <AdminReadPermissionGate anyOf={[adminPermissions.plansList, adminPermissions.plansListFamilies]}>
             <AdminOperationalPlansPage />
           </AdminReadPermissionGate>
         ),

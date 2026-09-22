@@ -119,7 +119,12 @@ export function AdminLayout() {
     {
       label: "Commercial",
       items: [
-        { label: "Forfaits", to: "/admin/plans", icon: CubeIcon, visible: session.can(adminPermissions.plansList) },
+        {
+          label: "Forfaits",
+          to: "/admin/plans",
+          icon: CubeIcon,
+          visible: session.can(adminPermissions.plansList) || session.can(adminPermissions.plansListFamilies),
+        },
         {
           label: "Add-ons",
           to: "/admin/add-ons",

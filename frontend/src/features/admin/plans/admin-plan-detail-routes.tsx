@@ -2,9 +2,26 @@ import type { RouteObject } from "react-router";
 import { adminPermissions } from "@/auth/permissions";
 import { AdminReadPermissionGate } from "@/components/patterns/permission-gate";
 import { AdminPlansPage } from "./admin-plans-page";
+import { PlanVersionComparisonPage, PlanVersionsPage } from "./plan-versions-page";
 
 /** Shared with routing tests so static URLs and their permission gates are exercised together. */
 export const adminPlanDetailRoutes: RouteObject[] = [
+  {
+    path: "plans/:planId/versions",
+    element: (
+      <AdminReadPermissionGate allOf={[adminPermissions.plansListVersions]}>
+        <PlanVersionsPage />
+      </AdminReadPermissionGate>
+    ),
+  },
+  {
+    path: "plans/:planId/versions/compare",
+    element: (
+      <AdminReadPermissionGate allOf={[adminPermissions.plansCompareVersions]}>
+        <PlanVersionComparisonPage />
+      </AdminReadPermissionGate>
+    ),
+  },
   {
     path: "plans/:planId",
     element: (

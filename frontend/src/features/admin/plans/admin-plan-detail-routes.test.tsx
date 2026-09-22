@@ -37,6 +37,8 @@ const { AdminSessionProvider } = await import("@/auth/session-provider");
 const { clearSession, writeSession } = await import("@/auth/session-store");
 const { TooltipProvider } = await import("@/components/ui/tooltip");
 const { adminPlanDetailRoutes } = await import("./admin-plan-detail-routes");
+const { i18n } = await import("@/app/i18n");
+const { PlanFamilyCatalogue } = await import("./plan-family-catalogue");
 
 const planId = "7f31acf0-5101-4341-ac59-7ac88d29ce45";
 const base = `/admin/plans/${planId}`;
@@ -69,6 +71,18 @@ const plan = {
 };
 const queries: InstanceType<typeof QueryClient>[] = [];
 const requests: string[] = [];
+const secondId = "d777b6cb-a4b2-4ffe-99a8-cd7e1fb21652";
+const firstVersion = {
+  ...plan,
+  applicablePriceCount: 1,
+  draftPriceCount: 0,
+  publishedPriceCount: 1,
+  availableActions: [],
+  blockers: [],
+  includedFeatureCount: 0,
+};
+const secondVersion = { ...firstVersion, id: secondId, revisionNumber: 2 };
+const versionRef = { ...plan, productVersionNumber: 1, rowVersion: 0 };
 
 function response(body: unknown) {
   return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
@@ -81,6 +95,58 @@ function renderPage(path: string, permissions: string[], isSuperAdmin = false) {
     if (url.pathname === "/api/admin/me") return response(profile);
     requests.push(url.pathname);
     if (url.pathname === `/api/admin/plans/${planId}`) return response(plan);
+    if (url.pathname.endsWith("/versions"))
+      return response({
+        lineageId: planId,
+        publicPlanId: planId,
+        draftPlanId: null,
+        catalogRevision: 7,
+        versions: { content: [firstVersion, secondVersion], totalPages: 1, totalElements: 2 },
+      });
+    if (url.pathname.includes("/compare/"))
+      return response({
+        lineageId: planId,
+        source: versionRef,
+        target: { ...versionRef, id: secondId, productVersionNumber: 2 },
+        features: [
+          {
+            featureCode: "client.staff",
+            changed: true,
+            before: {
+              id: "a",
+              featureCode: "client.staff",
+              mode: "INCLUDED",
+              quotaConfigs: [{ resource: "members", mode: "FINITE", limit: 5 }],
+            },
+            after: {
+              id: "b",
+              featureCode: "client.staff",
+              mode: "INCLUDED",
+              quotaConfigs: [{ resource: "members", mode: "FINITE", limit: 10 }],
+            },
+          },
+        ],
+        pricesVisible: false,
+        sourcePrices: [],
+        targetPrices: [],
+      });
+    if (url.pathname === "/api/admin/plans/families")
+      return response({
+        content: [
+          {
+            lineageId: planId,
+            publicVersion: versionRef,
+            draft: { ...versionRef, id: secondId, status: "DRAFT", productVersionNumber: 2 },
+            versionCount: 2,
+            currentSubscriberCount: null,
+            pricesVisible: false,
+            currentPrices: [],
+          },
+        ],
+        totalPages: 1,
+        totalElements: 1,
+      });
+    if (url.pathname.includes("/feature-catalog")) return response([]);
     if (url.pathname.endsWith("/operations")) return response({ availableActions: [] });
     if (url.pathname.endsWith("/features")) return response([]);
     if (url.pathname.endsWith("/subscribers") || url.pathname === "/api/admin/product-prices") {
@@ -91,7 +157,10 @@ function renderPage(path: string, permissions: string[], isSuperAdmin = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   queries.push(queryClient);
   queryClient.setQueryData(["admin", "me", "admin-token"], profile);
-  const router = createMemoryRouter([{ path: "/admin", children: adminPlanDetailRoutes }], { initialEntries: [path] });
+  const router = createMemoryRouter(
+    [{ path: "/admin", children: [{ path: "plans", element: <PlanFamilyCatalogue /> }, ...adminPlanDetailRoutes] }],
+    { initialEntries: [path] },
+  );
   const view = render(
     <QueryClientProvider client={queryClient}>
       <AdminSessionProvider>
@@ -104,7 +173,8 @@ function renderPage(path: string, permissions: string[], isSuperAdmin = false) {
   return { ...view, router };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await i18n.changeLanguage("fr");
   cleanup();
   requests.length = 0;
   clearSession("admin");
@@ -125,13 +195,13 @@ afterEach(() => {
 describe("plan detail route rendering and authorization", () => {
   test("SuperAdmin opening the base URL sees the overview, not a false permission denial", async () => {
     const view = renderPage(base, [adminPermissions.plansReadDetail], true);
-    expect(await view.findByRole("heading", { name: "Configuration commerciale" })).toBeTruthy();
+    expect(await view.findByRole("heading", { name: "Contenu du forfait" })).toBeTruthy();
     expect(view.queryByText("Accès indisponible")).toBeNull();
   });
 
   test("an ordinary detail reader can also open the overview without broader permissions", async () => {
     const view = renderPage(base, [adminPermissions.plansReadDetail]);
-    expect(await view.findByRole("heading", { name: "Utilisation actuelle" })).toBeTruthy();
+    expect(await view.findByText("Le contenu n’est pas accessible avec votre rôle.")).toBeTruthy();
     expect(requests).toEqual([`/api/admin/plans/${planId}`]);
   });
 
@@ -146,14 +216,14 @@ describe("plan detail route rendering and authorization", () => {
     expect(requests).toContain(`/api/admin/plans/${planId}${endpoint}`);
   });
 
-  test("tab clicks switch content and returning to Synthèse restores the overview", async () => {
+  test("the content view switches between the table and schema without extra main tabs", async () => {
     const view = renderPage(base, [adminPermissions.plansReadDetail, adminPermissions.plansListFeatures]);
     const user = userEvent.setup({ document: view.container.ownerDocument });
-    await view.findByRole("heading", { name: "Configuration commerciale" });
-    await user.click(view.getByRole("link", { name: /Fonctionnalités/ }));
+    await view.findByRole("heading", { name: "Contenu du forfait" });
+    await user.click(view.getByRole("link", { name: "Schéma" }));
+    expect(await view.findByText(/Aucune fonctionnalité à représenter/)).toBeTruthy();
+    await user.click(view.getByRole("link", { name: "Tableau" }));
     expect(await view.findByRole("heading", { name: "Contenu du forfait" })).toBeTruthy();
-    await user.click(view.getByRole("link", { name: "Synthèse" }));
-    expect(await view.findByRole("heading", { name: "Configuration commerciale" })).toBeTruthy();
     expect(view.router.state.location.pathname).toBe(base);
   });
 
@@ -183,5 +253,57 @@ describe("plan detail route rendering and authorization", () => {
     const view = renderPage(`${base}/unknown`, [adminPermissions.plansReadDetail]);
     await waitFor(() => expect(view.queryByText("Accès indisponible")).not.toBeNull());
     expect(view.queryByRole("heading", { name: "Configuration commerciale" })).toBeNull();
+  });
+
+  test("a versions-only reader can compare neither versions nor mutate the public choice", async () => {
+    const view = renderPage(`${base}/versions`, [adminPermissions.plansListVersions]);
+    expect(await view.findByText("Version 2")).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Proposer cette version" })).toBeNull();
+    expect(view.queryByRole("checkbox")).toBeNull();
+    expect(requests).toEqual([`/api/admin/plans/${planId}/versions`]);
+  });
+
+  test("comparison uses the independent read permission and degrades to feature codes", async () => {
+    const view = renderPage(`${base}/versions/compare?source=${planId}&target=${secondId}`, [
+      adminPermissions.plansCompareVersions,
+    ]);
+    expect(await view.findByText("client.staff")).toBeTruthy();
+    expect(view.getByText("members · 5")).toBeTruthy();
+    expect(view.getByText("members · 10")).toBeTruthy();
+    expect(requests).toEqual([`/api/admin/plans/${planId}/compare/${secondId}`]);
+  });
+
+  test("selecting two versions enables comparison and prevents selecting too many", async () => {
+    const view = renderPage(`${base}/versions`, [
+      adminPermissions.plansListVersions,
+      adminPermissions.plansCompareVersions,
+    ]);
+    const user = userEvent.setup({ document: view.container.ownerDocument });
+    await user.click(await view.findByRole("checkbox", { name: "Sélectionner la version 1" }));
+    await user.click(view.getByRole("checkbox", { name: "Sélectionner la version 2" }));
+    expect(view.getByRole("link", { name: "Comparer" }).getAttribute("href")).toContain(
+      `source=${planId}&target=${secondId}`,
+    );
+  });
+
+  test("family catalogue renders one card and keeps inaccessible counts and prices hidden", async () => {
+    const view = renderPage("/admin/plans", [
+      adminPermissions.plansListFamilies,
+      adminPermissions.plansListVersions,
+      adminPermissions.plansReadDetail,
+    ]);
+    expect(await view.findByRole("article", { name: "Enterprise" })).toBeTruthy();
+    expect(view.getAllByRole("article")).toHaveLength(1);
+    expect(view.getByRole("link", { name: "Continuer le brouillon" }).getAttribute("href")).toBe(
+      `/admin/plans/${secondId}`,
+    );
+    expect(view.queryByText("0 abonnés")).toBeNull();
+    expect(requests).toEqual(["/api/admin/plans/families"]);
+  });
+
+  test.each(["versions", "versions/compare"])("unauthorized %s route does not fetch data", async (path) => {
+    const view = renderPage(`${base}/${path}`, [adminPermissions.plansReadDetail]);
+    expect(await view.findByText("Accès indisponible")).toBeTruthy();
+    expect(requests).toHaveLength(0);
   });
 });
