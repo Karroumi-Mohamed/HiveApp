@@ -11,7 +11,27 @@ public final class CommunicationModels {
   public enum Kind {
     NOTICE,
     WARNING,
+    ACTION,
+    OFFER,
+    /** Read-only compatibility for previously stored publications; never a conversation. */
     MESSAGE
+  }
+
+  public enum Topic {
+    GENERAL,
+    ACCOUNT,
+    BILLING,
+    COLLABORATION,
+    COMMERCIAL,
+    OPERATIONS,
+    TASKS
+  }
+
+  public enum Audience {
+    ACCOUNT,
+    MEMBER,
+    PLATFORM,
+    OPERATOR
   }
 
   public enum Purpose {
@@ -39,16 +59,15 @@ public final class CommunicationModels {
       @NotBlank @Size(max = 10000) String messageBody,
       @NotEmpty @Size(max = 500) List<@NotNull UUID> accountIds,
       boolean email,
-      boolean replies,
+      @AssertFalse(message = "Notifications are one-way; replies are not supported.")
+          boolean replies,
       Instant availableAt,
-      Instant expiresAt) {}
+      Instant expiresAt,
+      UUID offerId) {}
 
   public record Edit(@NotNull Long version, @NotNull @jakarta.validation.Valid Draft draft) {}
 
   public record Command(@NotNull Long version, @NotBlank @Size(max = 2000) String reason) {}
-
-  public record ReplyRequest(
-      @NotNull UUID commandId, @NotBlank @Size(max = 4000) String replyBody) {}
 
   public record Preference(boolean marketingInApp, boolean marketingEmail) {}
 
@@ -65,7 +84,8 @@ public final class CommunicationModels {
       Instant availableAt,
       Instant expiresAt,
       State state,
-      Instant createdAt) {}
+      Instant createdAt,
+      UUID offerId) {}
 
   public record Item(
       UUID id,
@@ -83,11 +103,11 @@ public final class CommunicationModels {
       boolean archived,
       boolean canAcknowledge,
       boolean canArchive,
-      boolean canReply,
-      boolean closed) {}
-
-  public record Reply(
-      UUID id, UUID commandId, boolean fromAdmin, String replyBody, Instant createdAt) {}
+      Topic topic,
+      String eventType,
+      UUID resourceId,
+      Audience audience,
+      boolean resolved) {}
 
   public record Recipient(
       UUID id,
@@ -97,9 +117,22 @@ public final class CommunicationModels {
       Delivery emailDelivery,
       int emailAttempts,
       long readers,
-      long acknowledgements,
-      long replies,
-      boolean closed) {}
+      long acknowledgements) {}
+
+  public record MemberChoice(UUID id, String name) {}
+
+  public record InternalNotice(
+      @NotNull UUID commandId,
+      @NotBlank @Size(max = 160) String messageTitle,
+      @NotBlank @Size(max = 10000) String messageBody,
+      @NotEmpty @Size(max = 100) List<@NotNull UUID> memberIds) {}
+
+  public record InboxSummary(long unread) {}
+
+  public record InternalNoticeResult(UUID commandId, int recipients) {}
+
+  public record NotificationSetting(
+      @NotNull Topic topic, boolean inAppEnabled, boolean emailEnabled) {}
 
   public record AccountChoice(UUID id, String name) {}
 }

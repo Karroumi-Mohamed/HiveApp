@@ -7,12 +7,15 @@ import org.springframework.data.domain.*;
 
 public interface AccountShellService {
     Page<Item> communicationInbox(Kind kind, boolean archived, boolean unread, Pageable page);
+    Page<Item> notificationInbox(Kind kind, Topic topic, boolean archived, boolean unread, Pageable page);
+    Page<MemberChoice> notificationRecipients(String search, Pageable page);
+    void sendInternalNotification(InternalNotice notice);
+    java.util.List<NotificationSetting> notificationSettings();
+    NotificationSetting updateNotificationSetting(NotificationSetting setting);
     Item communicationDetail(UUID id);
     void readCommunication(UUID id);
     void acknowledgeCommunication(UUID id);
     void archiveCommunication(UUID id, boolean archived);
-    Page<Reply> communicationThread(UUID id, Pageable page);
-    Reply replyCommunication(UUID id, ReplyRequest request);
     Preference communicationPreference();
     Preference updateCommunicationPreference(Preference request);
     AccountDto getAccount(UUID id);

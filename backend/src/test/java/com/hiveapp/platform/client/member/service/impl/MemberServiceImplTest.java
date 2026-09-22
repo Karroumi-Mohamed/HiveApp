@@ -68,6 +68,7 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class MemberServiceImplTest {
+    @Mock private com.hiveapp.platform.communication.BusinessNotifications notifications;
 
     @Mock private MemberRepository memberRepository;
     @Mock private MemberRoleRepository memberRoleRepository;

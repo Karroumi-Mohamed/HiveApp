@@ -23,7 +23,6 @@ class CustomerCommunicationIntegrationTest extends PlatformShellIntegrationTestS
   @Autowired CommunicationEntryRepository entries;
   @Autowired CommunicationPublicationRepository publications;
   @Autowired CommunicationEmailSource email;
-  @Autowired CommunicationReplyRepository replies;
   @Autowired CommunicationSources sources;
   @Autowired CommunicationBackfill backfill;
 
@@ -167,47 +166,36 @@ class CustomerCommunicationIntegrationTest extends PlatformShellIntegrationTestS
   }
 
   @Test
-  void messageRepliesArePrivateIdempotentAndCanBeClosed() throws Exception {
-    var id = create(draft("MESSAGE", "SERVICE", List.of(account, otherAccount), false, true));
+  void conversationCreationAndReplyEndpointsAreRemoved() throws Exception {
+    mockMvc
+        .perform(
+            post(ADMIN)
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        draft("MESSAGE", "SERVICE", List.of(account), false, true))))
+        .andExpect(status().isUnprocessableEntity());
+    var id = create(draft("NOTICE", "SERVICE", List.of(account), false, false));
     publish(id);
     var entry = entry(id, account);
-    var command = UUID.randomUUID();
-    var payload =
-        objectMapper.writeValueAsString(
-            Map.of("commandId", command, "replyBody", "Question from client"));
-    for (int i = 0; i < 2; i++)
-      mockMvc
-          .perform(
-              post(CLIENT + "/" + entry + "/replies")
-                  .header("Authorization", bearer(client))
-                  .contentType(MediaType.APPLICATION_JSON)
-                  .content(payload))
-          .andExpect(status().isOk());
-    assertThat(replies.countByEntryId(entry)).isEqualTo(1);
-    mockMvc
-        .perform(get(CLIENT + "/" + entry + "/replies").header("Authorization", bearer(other)))
-        .andExpect(status().isNotFound());
-    mockMvc
-        .perform(
-            get(CLIENT + "/" + entry(id, otherAccount) + "/replies")
-                .header("Authorization", bearer(other)))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("totalElements").value(0));
-    mockMvc
-        .perform(
-            post(ADMIN + "/entries/" + entry + "/close")
-                .param("closed", "true")
-                .header("Authorization", bearer(admin)))
-        .andExpect(status().isNoContent());
     mockMvc
         .perform(
             post(CLIENT + "/" + entry + "/replies")
                 .header("Authorization", bearer(client))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    objectMapper.writeValueAsString(
-                        Map.of("commandId", UUID.randomUUID(), "replyBody", "Another"))))
-        .andExpect(status().isConflict());
+                .content("{\"replyBody\":\"Not a chat\"}"))
+        .andExpect(status().isNotFound());
+    mockMvc
+        .perform(
+            get(ADMIN + "/entries/" + entry + "/replies").header("Authorization", bearer(admin)))
+        .andExpect(status().isNotFound());
+    mockMvc
+        .perform(
+            post(ADMIN + "/entries/" + entry + "/close")
+                .param("closed", "true")
+                .header("Authorization", bearer(admin)))
+        .andExpect(status().isNotFound());
   }
 
   @Test
@@ -254,7 +242,7 @@ class CustomerCommunicationIntegrationTest extends PlatformShellIntegrationTestS
 
   @Test
   void scheduledCancellationAndPublishedImmutability() throws Exception {
-    var d = draft("MESSAGE", "SERVICE", List.of(account), true, true);
+    var d = draft("NOTICE", "SERVICE", List.of(account), true, false);
     d.put("availableAt", Instant.now().plusSeconds(3600).toString());
     var id = create(d);
     publish(id);
@@ -308,39 +296,22 @@ class CustomerCommunicationIntegrationTest extends PlatformShellIntegrationTestS
   }
 
   @Test
-  void newAdminReplyReopensUnreadInboxWithoutDuplicatingReadReceipt() throws Exception {
-    var id = create(draft("MESSAGE", "SERVICE", List.of(account), false, true));
+  void legacyMessageIsPresentedAsOneWayInformationWithoutReplyControls() throws Exception {
+    var id = create(draft("MESSAGE", "SERVICE", List.of(account), false, false));
     publish(id);
     var entry = entry(id, account);
     mockMvc
+        .perform(get(CLIENT + "/" + entry).header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("kind").value("NOTICE"))
+        .andExpect(jsonPath("canReply").doesNotExist());
+    mockMvc
         .perform(post(CLIENT + "/" + entry + "/read").header("Authorization", bearer(client)))
         .andExpect(status().isNoContent());
-    mockMvc
-        .perform(post(CLIENT + "/" + entry + "/archive").header("Authorization", bearer(client)))
-        .andExpect(status().isNoContent());
-    mockMvc
-        .perform(
-            post(ADMIN + "/entries/" + entry + "/replies")
-                .header("Authorization", bearer(admin))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    objectMapper.writeValueAsString(
-                        Map.of("commandId", UUID.randomUUID(), "replyBody", "Private follow-up"))))
-        .andExpect(status().isOk());
-    mockMvc
-        .perform(get(CLIENT).param("unread", "true").header("Authorization", bearer(client)))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("totalElements").value(1))
-        .andExpect(jsonPath("content[0].read").value(false));
     mockMvc
         .perform(post(CLIENT + "/" + entry + "/read").header("Authorization", bearer(client)))
         .andExpect(status().isNoContent());
     assertThat(reads.countByNoticeId(entry)).isEqualTo(1);
-    mockMvc
-        .perform(get(ADMIN + "/" + id + "/results").header("Authorization", bearer(admin)))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("content[0].readers").value(1))
-        .andExpect(jsonPath("content[0].replies").value(1));
   }
 
   @Test
@@ -366,6 +337,19 @@ class CustomerCommunicationIntegrationTest extends PlatformShellIntegrationTestS
         .isEqualTo(com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.SENDING);
     email.completeNotice(
         claim, com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.FAILED);
+    assertThat(email.claimNotice(entry)).isNull();
+    for (int attempt = 0; attempt < 2; attempt++) {
+      transactions.executeWithoutResult(
+          s ->
+              entries
+                  .lock(entry)
+                  .orElseThrow()
+                  .setNextEmailAttemptAt(Instant.now().minusSeconds(1)));
+      var retried = email.claimNotice(entry);
+      assertThat(retried).isNotNull();
+      email.completeNotice(
+          retried, com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.FAILED);
+    }
     mockMvc
         .perform(
             post(ADMIN + "/entries/" + entry + "/retry-email")
@@ -410,7 +394,7 @@ class CustomerCommunicationIntegrationTest extends PlatformShellIntegrationTestS
                 .header("Authorization", bearer(admin))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(d)))
-        .andExpect(status().isBadRequest());
+        .andExpect(status().isUnprocessableEntity());
     publish(id);
     var entry = entry(id, account);
     transactions.executeWithoutResult(
@@ -435,7 +419,7 @@ class CustomerCommunicationIntegrationTest extends PlatformShellIntegrationTestS
           owner.setEmailVerified(true);
           users.save(owner);
         });
-    var id = create(draft("MESSAGE", "SERVICE", List.of(account), true, true));
+    var id = create(draft("NOTICE", "SERVICE", List.of(account), true, false));
     publish(id);
     var entry = entry(id, account);
     try (var pool = java.util.concurrent.Executors.newFixedThreadPool(4)) {

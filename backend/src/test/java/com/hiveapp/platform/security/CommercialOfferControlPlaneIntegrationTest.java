@@ -68,6 +68,40 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
   @Autowired private AuditLogRepository auditLogs;
   @Autowired private com.hiveapp.platform.client.plan.service.CommercialOfferCodeHasher codeHasher;
   @Autowired private CommercialCatalogResolver catalogResolver;
+  @Autowired private com.hiveapp.platform.communication.CommunicationEntryRepository communicationEntries;
+  @Autowired private com.hiveapp.platform.communication.CommunicationEmailSource communicationEmail;
+  @Autowired private org.springframework.transaction.support.TransactionTemplate transactions;
+
+  @Test
+  void offerAnnouncementUsesRealOfferEligibilityAndIndependentMarketingConsent() throws Exception {
+    String admin=loginAdminAndGetToken(),client=registerClientAndGetToken();
+    UUID account=currentAccountId(client);
+    var fixture=offerFixture(true,null);
+    var draft=Map.of("kind","OFFER","purpose","MARKETING","messageTitle","Offre à découvrir","messageBody","Consultez les conditions de cette offre.",
+        "accountIds",List.of(account),"email",true,"offerId",fixture.offer().getId());
+    var created=response(mockMvc.perform(post("/api/admin/customer-communications").header("Authorization",bearer(admin)).contentType(MediaType.APPLICATION_JSON)
+        .content(objectMapper.writeValueAsString(draft))).andExpect(status().isCreated()));
+    mockMvc.perform(post("/api/admin/customer-communications/"+created.get("id").asText()+"/publish").header("Authorization",bearer(admin)).contentType(MediaType.APPLICATION_JSON)
+        .content(objectMapper.writeValueAsString(Map.of("version",created.get("version").asLong(),"reason","Announce reviewed Offer"))))
+        .andExpect(status().isOk());
+    mockMvc.perform(get("/api/v1/communications").param("kind","OFFER").header("Authorization",bearer(client)))
+        .andExpect(status().isOk()).andExpect(jsonPath("totalElements").value(0));
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/communications/preferences").header("Authorization",bearer(client)).contentType(MediaType.APPLICATION_JSON)
+        .content("{\"marketingInApp\":true,\"marketingEmail\":true}")).andExpect(status().isOk());
+    mockMvc.perform(get("/api/v1/communications").param("kind","OFFER").header("Authorization",bearer(client)))
+        .andExpect(status().isOk()).andExpect(jsonPath("totalElements").value(1))
+        .andExpect(jsonPath("content[0].actionPath").value("/app/offers/"+fixture.offer().getId()));
+    var restricted=offerFixture(true,null,CommercialOfferDiscovery.CODE_ONLY,"b".repeat(64));
+    var invalid=new HashMap<String,Object>(draft);invalid.put("offerId",restricted.offer().getId());
+    mockMvc.perform(post("/api/admin/customer-communications").header("Authorization",bearer(admin)).contentType(MediaType.APPLICATION_JSON)
+        .content(objectMapper.writeValueAsString(invalid))).andExpect(status().isBadRequest());
+    transactions.executeWithoutResult(tx -> {
+      accounts.findById(account).orElseThrow().getOwner().setEmailVerified(true);
+      offers.findById(fixture.offer().getId()).orElseThrow().retire(Instant.now());
+    });
+    var entry=communicationEntries.findAll().stream().filter(e -> fixture.offer().getId().equals(e.getResourceId()) && account.equals(e.getAccountId())).findFirst().orElseThrow();
+    assertThat(communicationEmail.claimNotice(entry.getId())).isNull();
+  }
 
   @Test
   void operationStateAdvertisesTheIndependentRedemptionDetailAction() throws Exception {

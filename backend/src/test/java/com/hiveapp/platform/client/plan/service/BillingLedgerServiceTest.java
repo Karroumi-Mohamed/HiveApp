@@ -51,6 +51,7 @@ class BillingLedgerServiceTest {
     @Mock private BillingPaymentAttemptRepository payments;
     @Mock private BillingOutboxCommandRepository outbox;
     @Mock private AccountBillingProfileService billingProfiles;
+    @Mock private com.hiveapp.platform.communication.BusinessNotifications notifications;
 
     private BillingLedgerService service;
 
@@ -58,7 +59,7 @@ class BillingLedgerServiceTest {
     void setUp() {
         BillingProperties properties = new BillingProperties();
         service = new BillingLedgerService(
-                invoices, payments, outbox, billingProfiles, properties,
+                notifications, invoices, payments, outbox, billingProfiles, properties,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -131,6 +132,7 @@ class BillingLedgerServiceTest {
         assertThat(payment.getOperatorUserId()).isEqualTo(operatorId);
         assertThat(invoice.getStatus()).isEqualTo(BillingInvoiceStatus.SETTLED);
         assertThat(invoice.getSettledAt()).isEqualTo(NOW);
+        verify(notifications).payment(invoice,payment.getId(),true);
     }
 
     @Test

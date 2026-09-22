@@ -45,6 +45,29 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class B2bCollaborationSecurityIntegrationTest extends PlatformShellIntegrationTestSupport {
 
+    @Autowired private com.hiveapp.platform.communication.NotificationEventRepository notificationEvents;
+    @Autowired private com.hiveapp.platform.communication.CommunicationEntryRepository notificationEntries;
+    @Autowired private com.hiveapp.platform.communication.NotificationWorker notificationWorker;
+
+    @Test
+    void collaborationTransitionsNotifyEachPartyInItsOwnContextAndResolveTheRequest() throws Exception {
+        B2bSetup setup = setupPendingCollaboration();
+        var pending = notificationEvents.findAll().stream().filter(e -> setup.collaborationId().equals(e.getResourceId())).toList();
+        assertThat(pending).hasSize(2);
+        assertThat(pending).extracting(e -> e.getAccountId()).doesNotHaveDuplicates();
+        for (var event : pending) notificationWorker.deliver(event.getId());
+        mockMvc.perform(get("/api/v1/communications").param("topic","COLLABORATION").header("Authorization",bearer(setup.clientToken())))
+            .andExpect(status().isOk()).andExpect(jsonPath("totalElements").value(1));
+        mockMvc.perform(get("/api/v1/communications").param("topic","COLLABORATION").header("Authorization",bearer(setup.providerToken())))
+            .andExpect(status().isOk()).andExpect(jsonPath("totalElements").value(1));
+        mockMvc.perform(patch("/api/v1/collaborations/{id}/accept",setup.collaborationId())
+            .header("Authorization",bearer(setup.providerToken())).contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(new CollaborationCommandRequest(setup.version(),null,null,null))))
+            .andExpect(status().isOk());
+        for (var event : pending) assertThat(notificationEntries.findByEventId(event.getId()).orElseThrow().getResolvedAt()).isNotNull();
+        assertThat(notificationEvents.findAll().stream().filter(e -> setup.collaborationId().equals(e.getResourceId()))).hasSize(4);
+    }
+
     @Autowired
     private SubscriptionRepository subscriptionRepository;
 

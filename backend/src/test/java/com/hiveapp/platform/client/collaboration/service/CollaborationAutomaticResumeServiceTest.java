@@ -40,7 +40,7 @@ class CollaborationAutomaticResumeServiceTest {
                 unentitled.getProviderAccount().getId(), "platform.b2b.resume"))
                 .thenReturn(false);
         CollaborationAutomaticResumeService service = new CollaborationAutomaticResumeService(
-                repository, entitlements, Clock.fixed(now, ZoneOffset.UTC));
+                repository, entitlements, Clock.fixed(now, ZoneOffset.UTC), mock(com.hiveapp.platform.communication.BusinessNotifications.class));
 
         assertThat(service.resumeDueCollaborations()).isEqualTo(1);
 

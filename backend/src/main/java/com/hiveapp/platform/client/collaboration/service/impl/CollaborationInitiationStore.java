@@ -30,6 +30,7 @@ class CollaborationInitiationStore {
     private final CollaborationRepository collaborationRepository;
     private final AccountRepository accountRepository;
     private final CompanyRepository companyRepository;
+    private final com.hiveapp.platform.communication.BusinessNotifications notifications;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     @AuditedMutation(
@@ -69,6 +70,8 @@ class CollaborationInitiationStore {
         collaboration.setRequestedPermissionCodes(requestedPermissions);
         collaboration.setRequestedAt(requestedAt);
         collaboration.setRequestedByUserId(actorId);
-        return collaborationRepository.saveAndFlush(collaboration).getId();
+        var saved = collaborationRepository.saveAndFlush(collaboration);
+        notifications.collaboration(saved);
+        return saved.getId();
     }
 }

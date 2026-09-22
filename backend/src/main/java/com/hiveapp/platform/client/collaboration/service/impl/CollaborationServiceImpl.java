@@ -79,6 +79,7 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
     private final DelegationCeilingService delegationCeilingService;
     private final RegistryCatalogVersionService catalogVersionService;
     private final Clock clock;
+    private final com.hiveapp.platform.communication.BusinessNotifications notifications;
 
     @Override
     protected FeatureDefinition featureDefinition() {
@@ -482,7 +483,9 @@ public class CollaborationServiceImpl extends ClientWorkspaceFeatureService impl
 
     private CollaborationDto saveTransition(Collaboration collaboration, UUID viewerAccountId) {
         try {
-            return toDto(collaborationRepository.saveAndFlush(collaboration), viewerAccountId);
+            var saved = collaborationRepository.saveAndFlush(collaboration);
+            notifications.collaboration(saved);
+            return toDto(saved, viewerAccountId);
         } catch (org.springframework.orm.ObjectOptimisticLockingFailureException exception) {
             throw new InvalidStateException("Collaboration changed concurrently; refresh and retry.");
         }

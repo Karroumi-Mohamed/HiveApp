@@ -60,6 +60,7 @@ import java.util.Comparator;
 @RequiredArgsConstructor
 @PermissionNode(key = StaffFeature.KEY, description = "Member Management", guard = PermissionNode.Guard.ON)
 public class MemberServiceImpl extends ClientWorkspaceFeatureService implements MemberService {
+    private final com.hiveapp.platform.communication.BusinessNotifications notifications;
 
     private final MemberRepository memberRepository;
     private final MemberRoleRepository memberRoleRepository;
@@ -169,6 +170,7 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         }
         memberRoleRepository.flush();
         roleRepository.flush();
+        notifications.memberCreated(member);
         return new MemberCreationResult(memberMapper.toDto(member), initialAccess);
     }
 
@@ -198,9 +200,11 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
         if (member.isOwner()) {
             throw new ForbiddenException("Workspace owner cannot be deactivated. Transfer ownership first.");
         }
+        if (!member.isActive()) return;
         memberCredentialService.invalidatePendingAccess(member.getUser());
         member.setActive(false);
         memberRepository.saveAndFlush(member);
+        notifications.memberChanged(member);
     }
 
     @Override
@@ -226,7 +230,9 @@ public class MemberServiceImpl extends ClientWorkspaceFeatureService implements 
                 () -> memberRepository.countByAccountIdAndIsActiveTrue(accountId)
         );
         member.setActive(true);
-        return memberMapper.toDto(memberRepository.saveAndFlush(member));
+        var saved = memberRepository.saveAndFlush(member);
+        notifications.memberChanged(saved);
+        return memberMapper.toDto(saved);
     }
 
     private void requireLifecycleReason(String reason) {

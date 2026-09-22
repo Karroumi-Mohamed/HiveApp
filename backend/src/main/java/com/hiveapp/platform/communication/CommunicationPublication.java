@@ -37,6 +37,7 @@ public class CommunicationPublication extends BaseEntity {
 
   private boolean email;
   private boolean replies;
+  private UUID offerId;
 
   @Column(nullable = false)
   private Instant availableAt;

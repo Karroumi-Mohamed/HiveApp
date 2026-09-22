@@ -24,10 +24,20 @@ public interface CommunicationEntryRepository
 
   List<CommunicationEntry> findAllByPublicationIdOrderById(UUID id);
 
+  Optional<CommunicationEntry> findByEventId(UUID id);
+
+  @Modifying
   @Query(
-      "select e.id from CommunicationEntry e where e.source='ADMIN' and ((e.cancelled=false and"
-          + " e.availableAt<=:now and (e.expiresAt is null or e.expiresAt>:now) and"
-          + " e.delivery.delivery=com.hiveapp.platform.client.plan.dto.RepricingModels$Delivery.PENDING)"
+      "update CommunicationEntry e set e.resolvedAt=:now where e.eventType=:type and"
+          + " e.resourceId=:resource and e.resolvedAt is null")
+  int resolveEvent(
+      @Param("type") String type, @Param("resource") UUID resource, @Param("now") Instant now);
+
+  @Query(
+      "select e.id from CommunicationEntry e where e.source in ('ADMIN','EVENT') and"
+          + " ((e.cancelled=false and e.availableAt<=:now and (e.expiresAt is null or"
+          + " e.expiresAt>:now) and (e.nextEmailAttemptAt is null or e.nextEmailAttemptAt<=:now)"
+          + " and e.delivery.delivery=com.hiveapp.platform.client.plan.dto.RepricingModels$Delivery.PENDING)"
           + " or (e.delivery.delivery=com.hiveapp.platform.client.plan.dto.RepricingModels$Delivery.SENDING"
           + " and e.delivery.claimedAt<:stale)) order by e.availableAt,e.id")
   List<UUID> due(@Param("now") Instant now, @Param("stale") Instant stale, Pageable page);

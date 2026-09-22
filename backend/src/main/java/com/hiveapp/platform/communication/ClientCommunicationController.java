@@ -19,12 +19,48 @@ public class ClientCommunicationController {
   @GetMapping
   public PageResponse<Item> list(
       @RequestParam(required = false) Kind kind,
+      @RequestParam(required = false) Topic topic,
       @RequestParam(defaultValue = "false") boolean archived,
       @RequestParam(defaultValue = "false") boolean unread,
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "20") int size) {
     return PageResponse.from(
-        service.communicationInbox(kind, archived, unread, CommunicationService.page(page, size)));
+        service.notificationInbox(
+            kind, topic, archived, unread, CommunicationService.page(page, size)));
+  }
+
+  @GetMapping("/summary")
+  public InboxSummary summary() {
+    return new InboxSummary(
+        service
+            .notificationInbox(null, null, false, true, CommunicationService.page(0, 1))
+            .getTotalElements());
+  }
+
+  @GetMapping("/recipients")
+  public PageResponse<MemberChoice> recipients(
+      @RequestParam(required = false) String search,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size) {
+    return PageResponse.from(
+        service.notificationRecipients(search, CommunicationService.page(page, size)));
+  }
+
+  @PostMapping("/internal")
+  @ResponseStatus(HttpStatus.ACCEPTED)
+  public InternalNoticeResult internal(@RequestBody @Valid InternalNotice notice) {
+    service.sendInternalNotification(notice);
+    return new InternalNoticeResult(notice.commandId(), notice.memberIds().size());
+  }
+
+  @GetMapping("/settings")
+  public java.util.List<NotificationSetting> settings() {
+    return service.notificationSettings();
+  }
+
+  @PutMapping("/settings")
+  public NotificationSetting settings(@RequestBody @Valid NotificationSetting setting) {
+    return service.updateNotificationSetting(setting);
   }
 
   @GetMapping("/{id}")
@@ -49,20 +85,6 @@ public class ClientCommunicationController {
   public void archive(
       @PathVariable UUID id, @RequestParam(defaultValue = "true") boolean archived) {
     service.archiveCommunication(id, archived);
-  }
-
-  @GetMapping("/{id}/replies")
-  public PageResponse<Reply> thread(
-      @PathVariable UUID id,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size) {
-    return PageResponse.from(
-        service.communicationThread(id, CommunicationService.page(page, size)));
-  }
-
-  @PostMapping("/{id}/replies")
-  public Reply reply(@PathVariable UUID id, @Valid @RequestBody ReplyRequest r) {
-    return service.replyCommunication(id, r);
   }
 
   @GetMapping("/preferences")

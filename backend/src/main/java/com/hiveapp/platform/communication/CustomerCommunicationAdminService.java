@@ -23,7 +23,7 @@ public class CustomerCommunicationAdminService extends PlatformControlFeatureSer
   protected FeatureDefinition featureDefinition() {
     return FeatureDefinition.platformControl("platform.customer_communications")
         .displayName("Customer Communications")
-        .description("Account-private notices, warnings and messages")
+        .description("One-way account information, warnings and offer announcements")
         .sortOrder(57)
         .build();
   }
@@ -101,24 +101,5 @@ public class CustomerCommunicationAdminService extends PlatformControlFeatureSer
   @Transactional
   public void retry(UUID id) {
     service.retryEmail(id);
-  }
-
-  @PermissionNode(key = "read_replies", description = "Read private Account communication replies")
-  public Page<Reply> thread(UUID id, Pageable p) {
-    return service.thread(id, true, p);
-  }
-
-  @PermissionNode(key = "reply", description = "Reply to an Account communication thread")
-  @Transactional
-  public Reply reply(UUID id, ReplyRequest r) {
-    return service.reply(id, r, true);
-  }
-
-  @PermissionNode(
-      key = "close_thread",
-      description = "Close or reopen an Account communication thread")
-  @Transactional
-  public void close(UUID id, boolean close) {
-    service.close(id, close);
   }
 }

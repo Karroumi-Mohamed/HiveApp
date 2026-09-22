@@ -73,23 +73,4 @@ public class CustomerCommunicationAdminController {
   public void retry(@PathVariable UUID id) {
     service.retry(id);
   }
-
-  @GetMapping("/entries/{id}/replies")
-  public PageResponse<Reply> thread(
-      @PathVariable UUID id,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size) {
-    return PageResponse.from(service.thread(id, CommunicationService.page(page, size)));
-  }
-
-  @PostMapping("/entries/{id}/replies")
-  public Reply reply(@PathVariable UUID id, @Valid @RequestBody ReplyRequest r) {
-    return service.reply(id, r);
-  }
-
-  @PostMapping("/entries/{id}/close")
-  @ResponseStatus(HttpStatus.NO_CONTENT)
-  public void close(@PathVariable UUID id, @RequestParam boolean closed) {
-    service.close(id, closed);
-  }
 }

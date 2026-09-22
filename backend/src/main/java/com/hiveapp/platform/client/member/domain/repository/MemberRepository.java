@@ -5,7 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.UUID;
 import java.util.List;
 import java.util.Optional;
-public interface MemberRepository extends JpaRepository<Member, UUID> {
+public interface MemberRepository extends JpaRepository<Member, UUID>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<Member> {
     List<Member> findAllByAccountId(UUID accountId);
 
     /**

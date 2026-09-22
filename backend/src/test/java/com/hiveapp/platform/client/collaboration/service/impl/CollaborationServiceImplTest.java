@@ -61,6 +61,7 @@ class CollaborationServiceImplTest {
     @Mock private DelegationCeilingService delegationCeilingService;
     @Mock private RegistryCatalogVersionService catalogVersionService;
     @Mock private Clock clock;
+    @Mock private com.hiveapp.platform.communication.BusinessNotifications notifications;
     @InjectMocks private CollaborationServiceImpl service;
 
     @AfterEach

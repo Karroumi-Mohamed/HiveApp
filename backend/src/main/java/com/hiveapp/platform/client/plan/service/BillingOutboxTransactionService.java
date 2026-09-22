@@ -40,6 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class BillingOutboxTransactionService {
+    private final com.hiveapp.platform.communication.BusinessNotifications notifications;
     private static final int MAX_ATTEMPTS = 5;
 
     private final BillingOutboxCommandRepository commands;
@@ -233,6 +234,9 @@ public class BillingOutboxTransactionService {
         }
         invoices.save(invoice);
         checkouts.save(checkout);
+        if (result.status() == PaymentStatus.FAILED || (result.status() == PaymentStatus.SUCCESS && trusted)) {
+            notifications.payment(invoice, payment.getId(), result.status() == PaymentStatus.SUCCESS);
+        }
     }
 
     private String reconcileChargeEvent(
@@ -285,6 +289,9 @@ public class BillingOutboxTransactionService {
         }
         invoices.save(invoice);
         checkouts.save(checkout);
+        if (event.getProviderStatus() == PaymentStatus.FAILED || event.getProviderStatus() == PaymentStatus.SUCCESS) {
+            notifications.payment(invoice, payment.getId(), event.getProviderStatus() == PaymentStatus.SUCCESS);
+        }
         return null;
     }
 

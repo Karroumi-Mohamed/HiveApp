@@ -2,7 +2,6 @@ package com.hiveapp.platform.communication;
 
 import static com.hiveapp.platform.communication.CommunicationModels.Purpose;
 
-import com.hiveapp.platform.client.account.domain.repository.AccountRepository;
 import com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery;
 import com.hiveapp.platform.client.plan.service.CommercialNoticeDeliverySource;
 import java.time.*;
@@ -17,7 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class CommunicationEmailSource implements CommercialNoticeDeliverySource {
   private final CommunicationEntryRepository entries;
   private final CommunicationPreferenceRepository preferences;
-  private final AccountRepository accounts;
+  private final NotificationAccess access;
+  private final NotificationPreferenceRepository notificationPreferences;
+  private final NotificationOfferEligibility offers;
   private final Clock clock;
 
   public List<UUID> due(Instant now, int limit) {
@@ -32,21 +33,26 @@ public class CommunicationEmailSource implements CommercialNoticeDeliverySource 
     if (!d.claimable(now)) return null;
     if (e.isCancelled()
         || e.isHidden()
+        || (e.getResolvedAt() != null
+            && (e.getKind() == CommunicationModels.Kind.WARNING
+                || e.getKind() == CommunicationModels.Kind.ACTION))
         || (e.getExpiresAt() != null && !e.getExpiresAt().isAfter(now))) {
       d.cancelAbandonedClaim();
       return null;
     }
     if (now.isBefore(e.getAvailableAt())) return null;
+    if (e.getNextEmailAttemptAt() != null && now.isBefore(e.getNextEmailAttemptAt())) return null;
     if (d.automaticAttemptsExhausted()) {
       d.fail();
       return null;
     }
-    var a = accounts.findById(e.getAccountId()).orElse(null);
-    if (a == null
-        || !a.isActive()
-        || a.getOwner() == null
-        || !a.getOwner().isActive()
-        || !a.getOwner().isEmailVerified()
+    var recipient = access.emailRecipient(e).orElse(null);
+    if (recipient == null
+        || (e.isOptional()
+            && notificationPreferences
+                .findByUserIdAndTopic(recipient.getId(), e.getTopic())
+                .filter(p -> !p.isEmailEnabled())
+                .isPresent())
         || (e.getPurpose() == Purpose.MARKETING
             && !preferences
                 .findById(e.getAccountId())
@@ -55,21 +61,37 @@ public class CommunicationEmailSource implements CommercialNoticeDeliverySource 
       d.suppress();
       return null;
     }
-    var claim = d.claim(a.getOwner().getId(), now);
+    if (e.getKind() == CommunicationModels.Kind.OFFER) {
+      try {
+        offers.requireAvailable(e.getAccountId(), e.getResourceId());
+      } catch (com.hiveapp.shared.exception.OfferNotAvailableException unavailable) {
+        d.suppress();
+        return null;
+      }
+    }
+    var claim = d.claim(recipient.getId(), now);
     entries.saveAndFlush(e);
     return new Claim(
         id,
         claim,
-        a.getOwner().getEmail(),
-        "HiveApp — " + e.getMessageTitle(),
+        recipient.getEmail(),
+        "HiveApp — Notification",
         e.getPurpose() == Purpose.MARKETING
             ? e.getMessageBody()
-            : "Une communication vous attend dans HiveApp → Communications. Connectez-vous pour la"
+            : "Une notification vous attend dans HiveApp → Notifications. Connectez-vous pour la"
                 + " consulter.");
   }
 
   @Transactional
   public void completeNotice(Claim claim, Delivery outcome) {
-    entries.lock(claim.noticeId()).orElseThrow().getDelivery().complete(claim.claimId(), outcome);
+    var e = entries.lock(claim.noticeId()).orElseThrow();
+    var d = e.getDelivery();
+    if (d.getDelivery() != Delivery.SENDING
+        || !java.util.Objects.equals(d.getClaimId(), claim.claimId())) return;
+    d.complete(claim.claimId(), outcome);
+    if (outcome == Delivery.FAILED && d.getAttempts() < 3 && !e.isCancelled()) {
+      d.retry();
+      e.setNextEmailAttemptAt(clock.instant().plusSeconds(60L << d.getAttempts()));
+    }
   }
 }

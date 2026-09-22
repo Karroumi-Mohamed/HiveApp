@@ -34,6 +34,7 @@ public class AccountShellServiceImpl extends ClientWorkspaceFeatureService imple
     private final MemberRepository memberRepository;
     private final TokenSessionService tokenSessionService;
     private final CommunicationService communications;
+    private final com.hiveapp.platform.communication.InternalNotificationService internalNotifications;
 
     @Override
     @PermissionNode(key = "read_communications", description = "Read own Account notices, warnings and messages")
@@ -42,17 +43,47 @@ public class AccountShellServiceImpl extends ClientWorkspaceFeatureService imple
     }
 
     @Override
+    @PermissionNode(key = "internal_notification_inbox", guard = PermissionNode.Guard.OFF)
+    public Page<Item> notificationInbox(Kind kind, Topic topic, boolean archived, boolean unread, Pageable page) {
+        requireCommunicationRead();
+        return communications.inbox(kind, topic, archived, unread, page, false);
+    }
+
+    @Override
+    @PermissionNode(key = "choose_notification_recipients", description = "Choose active own-account notification recipients")
+    public Page<MemberChoice> notificationRecipients(String search, Pageable page) {
+        return internalNotifications.recipients(search, page);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "send_notification", description = "Send one-way information to selected own-account members")
+    public void sendInternalNotification(InternalNotice notice) {
+        if (!dev.karroumi.permissionizer.PermissionGuard.has(new dev.karroumi.permissionizer.Permission("platform.workspace.choose_notification_recipients")))
+            throw new ForbiddenException("Notification recipient selection permission is required.");
+        internalNotifications.send(notice);
+    }
+
+    @Override
+    @PermissionNode(key = "internal_notification_settings", guard = PermissionNode.Guard.OFF)
+    public java.util.List<NotificationSetting> notificationSettings() {
+        requireCommunicationRead();
+        return communications.settings(false);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "notification_preferences", description = "Manage own optional notification preferences")
+    public NotificationSetting updateNotificationSetting(NotificationSetting setting) {
+        requireCommunicationRead();
+        return communications.setting(setting, false);
+    }
+
+    @Override
     @PermissionNode(key = "internal_communication_detail", guard = PermissionNode.Guard.OFF)
     public Item communicationDetail(UUID id) {
         requireCommunicationRead();
         return communications.detail(id);
-    }
-
-    @Override
-    @PermissionNode(key = "internal_communication_thread", guard = PermissionNode.Guard.OFF)
-    public Page<Reply> communicationThread(UUID id, Pageable page) {
-        requireCommunicationRead();
-        return communications.thread(id, false, page);
     }
 
     @Override
@@ -75,14 +106,6 @@ public class AccountShellServiceImpl extends ClientWorkspaceFeatureService imple
     public void archiveCommunication(UUID id, boolean archived) {
         requireCommunicationRead();
         communications.interact(id, archived ? Interaction.ARCHIVE : Interaction.RESTORE);
-    }
-
-    @Override
-    @PermissionNode(key = "reply_communication", description = "Reply in an own Account message thread")
-    @Transactional
-    public Reply replyCommunication(UUID id, ReplyRequest request) {
-        requireCommunicationRead();
-        return communications.reply(id, request, false);
     }
 
     @Override

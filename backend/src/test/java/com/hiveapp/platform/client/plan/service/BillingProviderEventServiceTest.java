@@ -69,7 +69,7 @@ class BillingProviderEventServiceTest {
     @BeforeEach
     void setUp() {
         transactions = new BillingOutboxTransactionService(
-                commands, payments, events, refunds, invoices, checkouts, operations,
+                org.mockito.Mockito.mock(com.hiveapp.platform.communication.BusinessNotifications.class), commands, payments, events, refunds, invoices, checkouts, operations,
                 activation, specialAgreements, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

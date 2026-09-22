@@ -12,22 +12,56 @@ import lombok.*;
 @Entity
 @Table(
     name = "communication_entries",
-    uniqueConstraints =
-        @UniqueConstraint(
-            name = "uk_communication_source",
-            columnNames = {"source", "source_id", "account_id"}),
+    uniqueConstraints = {
+      @UniqueConstraint(
+          name = "uk_communication_source",
+          columnNames = {"source", "source_id", "account_id"}),
+      @UniqueConstraint(name = "uk_communication_event", columnNames = "event_id")
+    },
     indexes = {
       @Index(name = "idx_communication_inbox", columnList = "account_id,available_at,id"),
       @Index(name = "idx_communication_publication", columnList = "publication_id,id"),
-      @Index(name = "idx_communication_delivery", columnList = "notice_delivery,available_at,id")
+      @Index(name = "idx_communication_delivery", columnList = "notice_delivery,available_at,id"),
+      @Index(
+          name = "idx_communication_personal",
+          columnList = "audience,recipient_user_id,account_id,available_at,id"),
+      @Index(name = "idx_communication_resource", columnList = "event_type,resource_id")
     })
 @Getter
 @Setter
+@org.hibernate.annotations.Check(
+    constraints =
+        "(audience='ACCOUNT' and account_id is not null and recipient_user_id is null) or"
+            + " (audience='MEMBER' and account_id is not null and recipient_user_id is not null) or"
+            + " (audience='PLATFORM' and account_id is null and recipient_user_id is null and"
+            + " company_id is null) or (audience='OPERATOR' and account_id is null and"
+            + " recipient_user_id is not null and company_id is null)")
 public class CommunicationEntry extends BaseEntity {
   @Version private long version;
 
-  @Column(name = "account_id", nullable = false, updatable = false)
+  @Column(name = "account_id", updatable = false)
   private UUID accountId;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false, length = 20)
+  private Audience audience = Audience.ACCOUNT;
+
+  private UUID recipientUserId;
+  private UUID companyId;
+  private UUID eventId;
+
+  @Column(length = 100)
+  private String eventType;
+
+  private UUID resourceId;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false, length = 24)
+  private Topic topic = Topic.GENERAL;
+
+  private Instant resolvedAt;
+  private Instant nextEmailAttemptAt;
+  private boolean optional;
 
   @Column(name = "publication_id", updatable = false)
   private UUID publicationId;

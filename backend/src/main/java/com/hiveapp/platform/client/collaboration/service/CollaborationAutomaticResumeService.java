@@ -23,6 +23,7 @@ public class CollaborationAutomaticResumeService {
     private final CollaborationRepository collaborationRepository;
     private final PlanEntitlementService planEntitlementService;
     private final Clock clock;
+    private final com.hiveapp.platform.communication.BusinessNotifications notifications;
 
     @Transactional
     @AuditedMutation(
@@ -48,6 +49,8 @@ public class CollaborationAutomaticResumeService {
             collaboration.setSuspensionReviewAt(null);
             collaboration.setAutomaticResumeAt(null);
             collaboration.setLifecycleReason("Automatically resumed at the provider-configured time");
+            collaborationRepository.saveAndFlush(collaboration);
+            notifications.collaboration(collaboration);
             resumed++;
         }
         return resumed;

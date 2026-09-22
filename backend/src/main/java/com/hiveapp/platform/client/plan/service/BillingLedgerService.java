@@ -30,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class BillingLedgerService {
+    private final com.hiveapp.platform.communication.BusinessNotifications notifications;
     private final BillingInvoiceRepository invoices;
     private final BillingPaymentAttemptRepository payments;
     private final BillingOutboxCommandRepository outbox;
@@ -194,6 +195,7 @@ public class BillingLedgerService {
         payment = payments.saveAndFlush(payment);
         invoice.settle(now);
         invoices.save(invoice);
+        notifications.payment(invoice, payment.getId(), true);
         return payment;
     }
 

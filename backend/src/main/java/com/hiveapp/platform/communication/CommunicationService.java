@@ -25,11 +25,13 @@ public class CommunicationService {
   private final CommunicationPublicationRepository publications;
   private final CommunicationEntryRepository entries;
   private final CommunicationInteractionRepository interactions;
-  private final CommunicationReplyRepository replies;
   private final CommunicationPreferenceRepository preferences;
   private final CommercialNoticeReadRepository reads;
   private final AccountRepository accounts;
   private final CommunicationSources sources;
+  private final NotificationAccess access;
+  private final NotificationPreferenceRepository notificationPreferences;
+  private final com.hiveapp.platform.client.plan.service.CommercialOfferService offers;
   private final Clock clock;
 
   public static Pageable page(int page, int size) {
@@ -46,14 +48,7 @@ public class CommunicationService {
   }
 
   private UUID ownAccount() {
-    var c = HiveAppContextHolder.getContext();
-    if (c == null
-        || c.isB2B()
-        || c.currentAccountId() == null
-        || !c.currentAccountId().equals(c.clientAccountId())
-        || !accounts.existsActiveById(c.currentAccountId()))
-      throw new ForbiddenException("Communications are private to the active own Account.");
-    return c.currentAccountId();
+    return access.viewer(false).accountId();
   }
 
   private void marketing(Purpose purpose) {
@@ -85,8 +80,15 @@ public class CommunicationService {
       throw new ForbiddenException("Recipient selection permission is required.");
     if (d.kind() == Kind.WARNING && d.purpose() == Purpose.MARKETING)
       throw new InvalidRequestException("Marketing cannot be a warning.");
-    if (d.replies() && d.kind() != Kind.MESSAGE)
-      throw new InvalidRequestException("Only messages allow replies.");
+    if (d.replies())
+      throw new InvalidRequestException("Notifications are one-way; replies are not supported.");
+    if (d.kind() == Kind.ACTION)
+      throw new InvalidRequestException(
+          "Action notifications require their originating business workflow.");
+    if ((d.kind() == Kind.OFFER) != (d.offerId() != null)
+        || (d.kind() == Kind.OFFER && d.purpose() != Purpose.MARKETING))
+      throw new InvalidRequestException(
+          "An Offer notification must reference an Offer and use marketing purpose.");
     if (new HashSet<>(d.accountIds()).size() != d.accountIds().size())
       throw new InvalidRequestException("Recipients must be unique.");
     var at = d.availableAt() == null ? clock.instant() : d.availableAt();
@@ -95,15 +97,17 @@ public class CommunicationService {
       throw new InvalidRequestException("Expiry must follow availability and be in the future.");
     if (accounts.findAllById(d.accountIds()).size() != d.accountIds().size())
       throw new InvalidRequestException("Choose existing Accounts.");
-    p.setKind(d.kind());
+    p.setKind(d.kind() == Kind.MESSAGE ? Kind.NOTICE : d.kind());
     p.setPurpose(d.purpose());
     p.setMessageTitle(d.messageTitle().trim());
     p.setMessageBody(d.messageBody().trim());
     p.setAccountIds(List.copyOf(d.accountIds()));
     p.setEmail(d.email());
-    p.setReplies(d.replies());
+    p.setReplies(false);
     p.setAvailableAt(at);
     p.setExpiresAt(d.expiresAt());
+    p.setOfferId(d.offerId());
+    validateOffer(p);
   }
 
   @Transactional
@@ -117,6 +121,7 @@ public class CommunicationService {
     var targets = accounts.findAllById(p.getAccountIds());
     if (targets.size() != p.getAccountIds().size() || targets.stream().anyMatch(a -> !a.isActive()))
       throw new InvalidStateException("All recipients must be active Accounts.");
+    validateOffer(p);
     for (var account : targets) {
       var e = new CommunicationEntry();
       e.setAccountId(account.getId());
@@ -129,7 +134,15 @@ public class CommunicationService {
       e.setMessageBody(p.getMessageBody());
       e.setAvailableAt(p.getAvailableAt());
       e.setExpiresAt(p.getExpiresAt());
-      e.setReplies(p.isReplies());
+      e.setReplies(false);
+      e.setOptional(p.getKind() != Kind.WARNING);
+      if (p.getKind() == Kind.OFFER) {
+        e.setTopic(Topic.COMMERCIAL);
+        e.setEventType(CoreNotification.OFFER_AVAILABLE.key());
+        e.setResourceId(p.getOfferId());
+        e.setRequiredPermission(CoreNotification.OFFER_AVAILABLE.requiredPermission());
+        e.setActionPath(CoreNotification.OFFER_AVAILABLE.actionPath(p.getOfferId()));
+      }
       e.getDelivery().publish(clock.instant(), p.isEmail());
       entries.save(e);
     }
@@ -198,7 +211,6 @@ public class CommunicationService {
     var ids = found.map(CommunicationEntry::getId).toList();
     var readCounts = counts(reads.counts(found.map(this::receiptId).toList()));
     var ackCounts = counts(interactions.counts(ids));
-    var replyCounts = counts(replies.counts(ids));
     var optedIn =
         preferences.findAllById(found.map(CommunicationEntry::getAccountId)).stream()
             .filter(CommunicationPreference::isMarketingInApp)
@@ -215,9 +227,7 @@ public class CommunicationService {
                 e.getDelivery().getDelivery(),
                 e.getDelivery().getAttempts(),
                 readCounts.getOrDefault(receiptId(e), 0L),
-                ackCounts.getOrDefault(e.getId(), 0L),
-                replyCounts.getOrDefault(e.getId(), 0L),
-                e.isClosed()));
+                ackCounts.getOrDefault(e.getId(), 0L)));
   }
 
   @Transactional(readOnly = true)
@@ -238,26 +248,48 @@ public class CommunicationService {
       throw new InvalidStateException("Only failed or suppressed email can be retried.");
   }
 
-  @Transactional
-  public void close(UUID id, boolean closed) {
-    var e = entries.lock(id).orElseThrow(() -> missing(id));
-    requireManual(e);
-    if (e.getKind() != Kind.MESSAGE || !e.isReplies())
-      throw new InvalidStateException("This communication has no reply thread.");
-    e.setClosed(closed);
+  @Transactional(readOnly = true)
+  public Page<Item> inbox(Kind kind, boolean archived, boolean unread, Pageable page) {
+    return inbox(kind, null, archived, unread, page, false);
   }
 
   @Transactional(readOnly = true)
-  public Page<Item> inbox(Kind kind, boolean archived, boolean unread, Pageable page) {
-    UUID account = ownAccount(), user = actor();
+  public Page<Item> inbox(
+      Kind kind, Topic topic, boolean archived, boolean unread, Pageable page, boolean platform) {
+    var viewer = access.viewer(platform);
+    UUID account = viewer.accountId(), user = viewer.userId();
     var now = clock.instant();
     boolean marketing =
-        preferences.findById(account).map(CommunicationPreference::isMarketingInApp).orElse(false);
+        account != null
+            && preferences
+                .findById(account)
+                .map(CommunicationPreference::isMarketingInApp)
+                .orElse(false);
     var allowed = sources.allowedPermissions();
+    var muted =
+        notificationPreferences.findAllByUserId(user).stream()
+            .filter(p -> !p.isInAppEnabled())
+            .map(NotificationPreference::getTopic)
+            .toList();
     Specification<CommunicationEntry> spec =
         (r, q, cb) -> {
           List<Predicate> terms = new ArrayList<>();
-          terms.add(cb.equal(r.get("accountId"), account));
+          terms.add(
+              platform ? cb.isNull(r.get("accountId")) : cb.equal(r.get("accountId"), account));
+          terms.add(
+              r.get("audience")
+                  .in(
+                      platform
+                          ? List.of(Audience.PLATFORM, Audience.OPERATOR)
+                          : List.of(Audience.ACCOUNT, Audience.MEMBER)));
+          terms.add(
+              cb.or(cb.isNull(r.get("recipientUserId")), cb.equal(r.get("recipientUserId"), user)));
+          terms.add(
+              viewer.companyId() == null
+                  ? cb.isNull(r.get("companyId"))
+                  : cb.or(
+                      cb.isNull(r.get("companyId")),
+                      cb.equal(r.get("companyId"), viewer.companyId())));
           terms.add(cb.isFalse(r.get("hidden")));
           terms.add(cb.lessThanOrEqualTo(r.get("availableAt"), now));
           terms.add(cb.or(cb.isNull(r.get("expiresAt")), cb.greaterThan(r.get("expiresAt"), now)));
@@ -265,7 +297,10 @@ public class CommunicationService {
               cb.or(
                   cb.isNull(r.get("requiredPermission")), r.get("requiredPermission").in(allowed)));
           if (!marketing) terms.add(cb.notEqual(r.get("purpose"), Purpose.MARKETING));
+          if (!muted.isEmpty())
+            terms.add(cb.or(cb.isFalse(r.get("optional")), cb.not(r.get("topic").in(muted))));
           if (kind != null) terms.add(cb.equal(r.get("kind"), kind));
+          if (topic != null) terms.add(cb.equal(r.get("topic"), topic));
           var archivedRows = q.subquery(UUID.class);
           var ar = archivedRows.from(CommunicationInteraction.class);
           archivedRows
@@ -285,11 +320,9 @@ public class CommunicationService {
                     cb.equal(
                         rr.get("noticeId"),
                         cb.<UUID>selectCase()
-                            .when(cb.equal(r.get("source"), "ADMIN"), r.get("id"))
-                            .otherwise(r.get("sourceId"))),
-                    cb.or(
-                        cb.isNull(r.get("lastReplyAt")),
-                        cb.greaterThanOrEqualTo(rr.get("readAt"), r.get("lastReplyAt"))));
+                            .when(
+                                r.get("source").in("PLAN_CONTENT", "REPRICING"), r.get("sourceId"))
+                            .otherwise(r.get("id"))));
             terms.add(cb.not(cb.exists(readRows)));
           }
           return cb.and(terms.toArray(Predicate[]::new));
@@ -313,7 +346,12 @@ public class CommunicationService {
 
   @Transactional(readOnly = true)
   public Item detail(UUID id) {
-    var e = ownEntry(id, false);
+    return detail(id, false);
+  }
+
+  @Transactional(readOnly = true)
+  public Item detail(UUID id, boolean platform) {
+    var e = ownEntry(id, false, platform);
     return item(
         e,
         interactions.findByEntryIdAndUserId(id, actor()).orElse(null),
@@ -328,7 +366,12 @@ public class CommunicationService {
 
   @Transactional
   public void interact(UUID id, Interaction action) {
-    var e = ownEntry(id, true);
+    interact(id, action, false);
+  }
+
+  @Transactional
+  public void interact(UUID id, Interaction action, boolean platform) {
+    var e = ownEntry(id, true, platform);
     UUID user = actor();
     var mark =
         interactions
@@ -354,41 +397,6 @@ public class CommunicationService {
     if (action == Interaction.RESTORE) mark.setArchivedAt(null);
     if (action == Interaction.READ || action == Interaction.ACKNOWLEDGE) markRead(e, user);
     interactions.save(mark);
-  }
-
-  @Transactional
-  public Reply reply(UUID id, ReplyRequest request, boolean admin) {
-    var e = admin ? entries.lock(id).orElseThrow(() -> missing(id)) : ownEntry(id, true);
-    if (admin) requireManual(e);
-    UUID actor = actor();
-    var previous = replies.findByEntryIdAndActorIdAndCommandId(id, actor, request.commandId());
-    if (previous.isPresent()) {
-      if (!previous.get().getReplyBody().equals(request.replyBody().trim()))
-        throw new InvalidRequestException("This command identifies a different reply.");
-      return replyView(previous.get());
-    }
-    if (e.getKind() != Kind.MESSAGE
-        || !e.isReplies()
-        || e.isClosed()
-        || e.isCancelled()
-        || !visible(e)) throw new InvalidStateException("This thread is not open for replies.");
-    var reply = new CommunicationReply();
-    reply.setEntryId(id);
-    reply.setActorId(actor);
-    reply.setCommandId(request.commandId());
-    reply.setFromAdmin(admin);
-    reply.setReplyBody(request.replyBody().trim());
-    e.setLastReplyAt(clock.instant());
-    interactions.unarchiveThread(id);
-    if (!admin) markRead(e, actor);
-    return replyView(replies.saveAndFlush(reply));
-  }
-
-  @Transactional(readOnly = true)
-  public Page<Reply> thread(UUID id, boolean admin, Pageable page) {
-    if (admin) requireManual(entries.findById(id).orElseThrow(() -> missing(id)));
-    else ownEntry(id, false);
-    return replies.findAllByEntryId(id, page).map(this::replyView);
   }
 
   @Transactional(readOnly = true)
@@ -418,13 +426,20 @@ public class CommunicationService {
     return request;
   }
 
-  private CommunicationEntry ownEntry(UUID id, boolean lock) {
-    UUID account = ownAccount();
+  private CommunicationEntry ownEntry(UUID id, boolean lock, boolean platform) {
+    var viewer = access.viewer(platform);
+    UUID account = viewer.accountId();
     // Account lock shares receipt serialization with legacy notices.
-    if (lock) accounts.findByIdForSubscriptionUpdate(account).orElseThrow();
-    var e =
-        (lock ? entries.lockOwn(id, account) : entries.findById(id)).orElseThrow(() -> missing(id));
-    if (!e.getAccountId().equals(account)
+    if (lock && account != null) accounts.findByIdForSubscriptionUpdate(account).orElseThrow();
+    var candidate =
+        entries.findById(id).filter(e -> access.matches(e, viewer)).orElseThrow(() -> missing(id));
+    var e = lock ? entries.lock(candidate.getId()).orElseThrow(() -> missing(id)) : candidate;
+    if (!access.matches(e, viewer)
+        || (e.isOptional()
+            && notificationPreferences
+                .findByUserIdAndTopic(viewer.userId(), e.getTopic())
+                .filter(p -> !p.isInAppEnabled())
+                .isPresent())
         || !visible(e)
         || (e.getRequiredPermission() != null
             && !PermissionGuard.has(new Permission(e.getRequiredPermission())))) throw missing(id);
@@ -452,16 +467,55 @@ public class CommunicationService {
     return e.getExpiresAt() != null && !clock.instant().isBefore(e.getExpiresAt());
   }
 
+  @Transactional(readOnly = true)
+  public List<NotificationSetting> settings(boolean platform) {
+    var v = access.viewer(platform);
+    var found =
+        notificationPreferences.findAllByUserId(v.userId()).stream()
+            .collect(Collectors.toMap(NotificationPreference::getTopic, p -> p));
+    return Arrays.stream(Topic.values())
+        .map(
+            topic -> {
+              var p = found.get(topic);
+              return new NotificationSetting(
+                  topic, p == null || p.isInAppEnabled(), p == null || p.isEmailEnabled());
+            })
+        .toList();
+  }
+
+  @Transactional
+  public NotificationSetting setting(NotificationSetting setting, boolean platform) {
+    var v = access.viewer(platform);
+    access.lockIdentity(v);
+    var p =
+        notificationPreferences
+            .findByUserIdAndTopic(v.userId(), setting.topic())
+            .orElseGet(
+                () -> {
+                  var value = new NotificationPreference();
+                  value.setUserId(v.userId());
+                  value.setTopic(setting.topic());
+                  return value;
+                });
+    p.setInAppEnabled(setting.inAppEnabled());
+    p.setEmailEnabled(setting.emailEnabled());
+    notificationPreferences.save(p);
+    return setting;
+  }
+
   private Item item(CommunicationEntry e, CommunicationInteraction m, boolean read, String state) {
-    boolean withdrawn = e.isCancelled() || sources.isInactiveState(state);
+    boolean withdrawn =
+        e.isCancelled() || sources.isInactiveState(state) || e.getResolvedAt() != null;
     return new Item(
         e.getId(),
-        e.getKind(),
+        e.getKind() == Kind.MESSAGE ? Kind.NOTICE : e.getKind(),
         e.getPurpose(),
         e.getMessageTitle(),
         e.getMessageBody(),
         e.getSource(),
-        e.isCancelled() ? "CANCELLED" : state == null ? "PUBLISHED" : state,
+        e.isCancelled()
+            ? "CANCELLED"
+            : e.getResolvedAt() != null ? "RESOLVED" : state == null ? "PUBLISHED" : state,
         e.getActionPath(),
         e.getAvailableAt(),
         e.getExpiresAt(),
@@ -470,12 +524,17 @@ public class CommunicationService {
         m != null && m.getArchivedAt() != null,
         e.getKind() == Kind.WARNING && !withdrawn,
         e.getKind() != Kind.WARNING || withdrawn,
-        e.getKind() == Kind.MESSAGE && e.isReplies() && !e.isClosed() && !withdrawn,
-        e.isClosed());
+        e.getTopic(),
+        e.getEventType(),
+        e.getResourceId(),
+        e.getAudience(),
+        withdrawn);
   }
 
   private UUID receiptId(CommunicationEntry e) {
-    return "ADMIN".equals(e.getSource()) ? e.getId() : e.getSourceId();
+    return Set.of("PLAN_CONTENT", "REPRICING").contains(e.getSource())
+        ? e.getSourceId()
+        : e.getId();
   }
 
   private void markRead(CommunicationEntry e, UUID user) {
@@ -496,7 +555,7 @@ public class CommunicationService {
   }
 
   private boolean isRead(CommunicationEntry e, Instant readAt) {
-    return readAt != null && (e.getLastReplyAt() == null || !readAt.isBefore(e.getLastReplyAt()));
+    return readAt != null;
   }
 
   private Map<UUID, Long> counts(List<Object[]> rows) {
@@ -522,11 +581,6 @@ public class CommunicationService {
     return new ResourceNotFoundException("Communication", "id", id);
   }
 
-  private Reply replyView(CommunicationReply r) {
-    return new Reply(
-        r.getId(), r.getCommandId(), r.isFromAdmin(), r.getReplyBody(), r.getCreatedAt());
-  }
-
   private Publication view(CommunicationPublication p) {
     return new Publication(
         p.getId(),
@@ -537,10 +591,32 @@ public class CommunicationService {
         p.getMessageBody(),
         p.getAccountIds(),
         p.isEmail(),
-        p.isReplies(),
+        false,
         p.getAvailableAt(),
         p.getExpiresAt(),
         p.getState(),
-        p.getCreatedAt());
+        p.getCreatedAt(),
+        p.getOfferId());
+  }
+
+  private void validateOffer(CommunicationPublication p) {
+    if (p.getOfferId() == null) return;
+    if (!PermissionGuard.has(new Permission("platform.offers.read")))
+      throw new ForbiddenException("Offer read permission is required.");
+    if (p.getAccountIds().size() > 100)
+      throw new InvalidRequestException(
+          "Offer announcements are limited to 100 reviewed Accounts.");
+    for (var id : p.getAccountIds()) {
+      try {
+        var offer = offers.detail(id, p.getOfferId());
+        if (p.getExpiresAt() == null || p.getExpiresAt().isAfter(offer.endsAt()))
+          p.setExpiresAt(offer.endsAt());
+      } catch (com.hiveapp.shared.exception.OfferNotAvailableException unavailable) {
+        throw new InvalidRequestException(
+            "The Offer must be currently available in the catalogue to every selected Account.");
+      }
+    }
+    if (!p.getExpiresAt().isAfter(p.getAvailableAt()))
+      throw new InvalidRequestException("The announcement must start before the Offer expires.");
   }
 }
