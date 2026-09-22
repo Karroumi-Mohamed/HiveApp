@@ -19,7 +19,7 @@ public class CommunicationSources {
   private final PlanContentNoticeRepository content;
   private final SubscriptionRepricingItemRepository pricing;
   private final NotificationCatalog catalog;
-  private final NotificationOfferEligibility offers;
+  private final org.springframework.beans.factory.ObjectProvider<NotificationOfferEligibility> offers;
 
   public List<String> allowedPermissions() {
     List<Permission> permissions = new ArrayList<>();
@@ -107,7 +107,7 @@ public class CommunicationSources {
       String state = offerStates.computeIfAbsent(key, ignored -> {
         if (entry.getAccountId() == null || entry.getResourceId() == null) return "UNAVAILABLE";
         try {
-          offers.requireAvailable(entry.getAccountId(), entry.getResourceId());
+          offers.getObject().requireAvailable(entry.getAccountId(), entry.getResourceId());
           return "PUBLISHED";
         } catch (com.hiveapp.shared.exception.OfferNotAvailableException unavailable) {
           return "UNAVAILABLE";

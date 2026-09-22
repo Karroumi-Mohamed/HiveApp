@@ -9,10 +9,13 @@ class NotificationOfferStateTest {
   @Test
   void currentEligibilityIsRecheckedAndDeduplicatedWithinEachPage() {
     var offers = mock(NotificationOfferEligibility.class);
+    @SuppressWarnings("unchecked")
+    var provider = (org.springframework.beans.factory.ObjectProvider<NotificationOfferEligibility>) mock(org.springframework.beans.factory.ObjectProvider.class);
+    when(provider.getObject()).thenReturn(offers);
     var sources = new CommunicationSources(mock(CommunicationEntryRepository.class),
         mock(com.hiveapp.platform.client.plan.domain.repository.PlanContentNoticeRepository.class),
         mock(com.hiveapp.platform.client.plan.domain.repository.SubscriptionRepricingItemRepository.class),
-        mock(NotificationCatalog.class), offers);
+        mock(NotificationCatalog.class), provider);
     UUID account = UUID.randomUUID(), offer = UUID.randomUUID();
     var first = entry(account, offer);
     var second = entry(account, offer);
