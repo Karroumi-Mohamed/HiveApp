@@ -29,6 +29,9 @@ public enum CoreNotification implements NotificationDefinition {
       Kind.NOTICE,
       PlatformPermissions.B2b.Read_detail.permission(),
       "/app/collaborations/"),
+  B2B_REQUEST_SENT(
+      "collaboration.request_sent", Topic.COLLABORATION, Kind.NOTICE,
+      PlatformPermissions.B2b.Read_detail.permission(), "/app/collaborations/"),
   PAYMENT_RECEIVED(
       "billing.payment_received",
       Topic.BILLING,

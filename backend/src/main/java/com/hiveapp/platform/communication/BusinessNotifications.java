@@ -23,8 +23,10 @@ public class BusinessNotifications {
         c.getStatus() == CollaborationStatus.PENDING
             ? CoreNotification.B2B_REQUEST
             : CoreNotification.B2B_CHANGED;
-    if (c.getStatus() != CollaborationStatus.PENDING)
+    if (c.getStatus() != CollaborationStatus.PENDING) {
       publisher.resolve(CoreNotification.B2B_REQUEST, c.getId());
+      publisher.resolve(CoreNotification.B2B_REQUEST_SENT, c.getId());
+    }
     String title =
         c.getStatus() == CollaborationStatus.PENDING
             ? "Demande de collaboration"
@@ -43,12 +45,15 @@ public class BusinessNotifications {
     for (var account :
         java.util.List.of(c.getClientAccount().getId(), c.getProviderAccount().getId()))
       publisher.publish(
-          type,
+          c.getStatus() == CollaborationStatus.PENDING && account.equals(c.getClientAccount().getId())
+              ? CoreNotification.B2B_REQUEST_SENT : type,
           occurrence,
           NotificationPublisher.Target.account(account),
           c.getId(),
-          title,
-          body,
+          c.getStatus() == CollaborationStatus.PENDING && account.equals(c.getClientAccount().getId())
+              ? "Demande envoyée" : title,
+          c.getStatus() == CollaborationStatus.PENDING && account.equals(c.getClientAccount().getId())
+              ? "Votre demande a été envoyée. La réponse du prestataire est en attente." : body,
           false,
           null,
           null);

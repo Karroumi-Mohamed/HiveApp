@@ -54,6 +54,7 @@ const copy = {
   ],
   resolved: ["Traité à la source", "تمت المعالجة في المصدر"],
   UNAVAILABLE: ["Offre indisponible", "العرض غير متاح"],
+  "collaboration.request_sent": ["Demande de collaboration envoyée", "تم إرسال طلب التعاون"],
   personal: ["Pour vous", "لك"],
   notifyMembers: ["Informer des membres", "إعلام الأعضاء"],
   internalHint: [
