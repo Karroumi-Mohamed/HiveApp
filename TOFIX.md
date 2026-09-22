@@ -607,6 +607,32 @@ Admins can expose unfinished plans, edit something intended as immutable history
 - PostgreSQL verification is opt-in and isolated in randomly named schemas: from `backend`, set `HIVEAPP_NOTIFICATION_TEST_PG_URL` to a JDBC PostgreSQL test-database URL, plus `HIVEAPP_NOTIFICATION_TEST_PG_USER`/`HIVEAPP_NOTIFICATION_TEST_PG_PASSWORD`, then run `mvn -Dtest=NotificationPostgresIntegrationTest,NotificationPostgresMigrationTest test`. The tests create/drop only their own schemas; the credentials must be for a disposable test database with schema-creation rights, never production. These tests are skipped without those variables. Docker/OrbStack was stopped locally; it was not started without the requested user approval.
 - Delivery commits: decision/scope `f4ba257`, backend `3cb970a`, frontend `412b0fa`. Only the existing Decisions/TOFIX planning files were updated. No subagents or remote push; temporary verification servers/tabs were stopped/closed.
 
+### COMMUNICATION-003 — Final integration audit and Permissionizer follow-up
+
+**Status:** `OPEN — ACCEPTED FOR IMPLEMENTATION 2026-09-22`
+
+The final read audit found gaps beyond the locally verified happy paths in COMMUNICATION-002. Fix each item in a separate tested commit, in dependency order; preserve tenant/source authorization and existing commercial consent boundaries.
+
+- [ ] **AUTH-1 — Typed permission references:** replace handwritten notification permission paths and concatenated guards with generated Permissionizer references; retain paths only at persistence/API boundaries.
+- [ ] **AUTH-2 — Explicit manual enforcement:** standardize methods that reuse an existing permission with automatic guarding disabled, and test every exposed notification operation's enforcement.
+- [ ] **AUTH-3 — Registry validation:** reject notification definitions with unknown/unregistered required permissions instead of silently hiding every resulting item.
+- [ ] **AUTH-4 — Mandatory policy ordering:** pin real fail-closed restriction-before-grant behavior; Permissionizer is first-decision-wins, not global deny-overrides. Keep runtime/plan restrictions and recipient-specific context intact.
+- [ ] **CONTRACT-1 — Action destinations:** reject actionable notifications without a valid code-owned destination/resource; test the future-module extension contract.
+- [ ] **LIFECYCLE-1 — Cancelled billing:** cancellation of a failed checkout/invoice must withdraw its client/operator payment warnings without claiming successful payment.
+- [ ] **DELIVERY-1 — Email-only preferences:** prevent emails that direct users to an inaccessible optional notification. Distinguish personal feed preferences from authorization, preserve marketing consent, and provide a useful authorized destination.
+- [ ] **DELIVERY-2 — Expired queue entries:** expired pending emails must enter a terminal state rather than remain pending forever, including after an outage/backoff.
+- [ ] **LIFECYCLE-2 — Offer availability:** inbox/detail presentation must reflect retired or otherwise unavailable Offers; an announcement never substitutes for current offer eligibility.
+- [ ] **FLOW-1 — B2B party-specific messages:** requester gets request-sent/waiting information; recipient gets an incoming action, without weakening source permissions.
+- [ ] **FLOW-2 — Internal provenance/history:** expose a trustworthy sender origin and authorized sender-owned sent history/results for reviewed internal announcements; no chat or cross-account recipient disclosure.
+- [ ] **OPS-1 — Diagnosable recovery:** show safe failure reasons, timing/correlation and permission-gated business context in delivery operations, without exposing private message bodies or recipient identities to transport-only operators.
+- [ ] **UI-1 — Live detail state:** refresh the selected notification as well as its list so obsolete warnings/actions do not linger.
+- [ ] **CONTRACT-2 — Priority:** implement the independent priority promised by COMMUNICATION-FLOW-002 without allowing marketing to impersonate mandatory urgency.
+- [ ] **CONTENT-1 — Localized automatic content:** replace fixed French producer copy with locale-aware typed templates for supported client languages, including outbound delivery.
+
+Additional UX checks: payment-failure links should lead to the relevant operational billing context, not merely a printable document; preference controls must explain supported/mandatory delivery; maintain accessible responsive sender/history/recovery screens.
+
+Production PostgreSQL/SMTP/load/retention gates in COMMUNICATION-002 remain open until actually exercised; no throughput, delivery or migration certification follows from source changes alone. Do not create additional planning documents or push commits.
+
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
 <!-- Shared notifications are tracked independently in COMMUNICATION-002; Plan notice delivery alone is not the communications product. -->
 
