@@ -39,8 +39,8 @@ public interface CommunicationEntryRepository
 
   @Query(
       "select e.id from CommunicationEntry e where e.source in ('ADMIN','EVENT') and"
-          + " ((e.cancelled=false and e.availableAt<=:now and (e.expiresAt is null or"
-          + " e.expiresAt>:now) and (e.nextEmailAttemptAt is null or e.nextEmailAttemptAt<=:now)"
+          + " ((e.availableAt<=:now and (e.cancelled=true or e.hidden=true or (e.resolvedAt is not null and e.kind in ('WARNING','ACTION'))"
+          + " or e.expiresAt<=:now or e.nextEmailAttemptAt is null or e.nextEmailAttemptAt<=:now)"
           + " and e.delivery.delivery=com.hiveapp.platform.client.plan.dto.RepricingModels$Delivery.PENDING)"
           + " or (e.delivery.delivery=com.hiveapp.platform.client.plan.dto.RepricingModels$Delivery.SENDING"
           + " and e.delivery.claimedAt<:stale)) order by e.availableAt,e.id")

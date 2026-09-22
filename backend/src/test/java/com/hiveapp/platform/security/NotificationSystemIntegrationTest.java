@@ -107,6 +107,29 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
   }
 
   @Test
+  void expiredEmailsBecomeTerminalEvenDuringBackoffOrAfterAnAbandonedLease() {
+    for (boolean claimed : List.of(false, true)) {
+      UUID event = transactions.execute(tx -> publisher.publish(CoreNotification.INTERNAL_INFORMATION,
+          UUID.randomUUID().toString(), NotificationPublisher.Target.account(account), null,
+          "Expired", "Do not deliver", true, null, null));
+      UUID id = deliver(event);
+      Instant now = Instant.now();
+      transactions.executeWithoutResult(tx -> {
+        var entry = entries.findById(id).orElseThrow();
+        entry.setAvailableAt(now.minusSeconds(2000));
+        entry.setExpiresAt(now.minusSeconds(1));
+        entry.setNextEmailAttemptAt(now.plusSeconds(3600));
+        if (claimed) entry.getDelivery().claim(owner, now.minusSeconds(1000));
+      });
+      assertThat(email.due(now, 100)).contains(id);
+      assertThat(email.claimNotice(id)).isNull();
+      assertThat(entries.findById(id).orElseThrow().getDelivery().getDelivery())
+          .isEqualTo(com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.CANCELLED);
+      assertThat(email.due(now, 100)).doesNotContain(id);
+    }
+  }
+
+  @Test
   void domainRollbackLeavesNoNotificationIntentOrInboxEntry() {
     long before = events.count();
     transactions.executeWithoutResult(
