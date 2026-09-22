@@ -42,6 +42,17 @@ public abstract class PlatformShellIntegrationTestSupport {
     @Autowired
     protected RegistryCatalogVersionService registryCatalogVersionService;
 
+    @Autowired
+    private com.hiveapp.shared.security.SecurityConfig securityConfig;
+
+    @org.junit.jupiter.api.BeforeEach
+    void bindPermissionPoliciesToThisTestContext() {
+        // PermissionGuard is process-static, while Spring caches multiple application contexts.
+        // Rebind to this context so its policies use this test's transactional repositories,
+        // rather than a previously executed context or a unit test's temporary policy list.
+        securityConfig.permissionsLoader();
+    }
+
     protected String registerClientAndGetToken() throws Exception {
         String email = "client-" + UUID.randomUUID() + "@example.com";
         RegisterRequest request = new RegisterRequest(

@@ -99,7 +99,8 @@ public class CommercialPolicySubscriptionTermsService {
                 catalogueSnapshot.planDefinitionVersion(), catalogueSnapshot.basePrice(),
                 catalogueSnapshot.currencyCode(), catalogueSnapshot.billingCycle(),
                 catalogueSnapshot.effectiveFrom(), catalogueSnapshot.effectiveUntil(),
-                features, addOns, packages, catalogueSnapshot.planPriceEntryId(), null);
+                features, addOns, packages, catalogueSnapshot.planPriceEntryId(), null,
+                null, catalogueSnapshot.financialPlanSource());
         Money cataloguePrice = billingCalculator.catalogueMoney(pricedCatalogue);
         Money fixedPrice = applyFixedPrice(
                 cataloguePrice, pricedCatalogue, evaluation.fixedPrice(), decisions, recordedEffects);

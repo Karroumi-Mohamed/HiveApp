@@ -258,11 +258,14 @@ public class BillingLedgerService {
     ) {
         Money total = Money.zero(snapshot.currencyCode());
         Money planPrice = Money.of(snapshot.basePrice(), snapshot.currencyCode());
+        // Content-only version changes retain the original financial definition. The checkout
+        // snapshot records effective content; invoice lines must identify the tariff's owner.
+        var financialSource = snapshot.financialPlanSource();
         invoice.addLine(BillingInvoiceLine.component(
                 BillingLineType.PLAN,
-                snapshot.planCode(),
+                financialSource == null ? snapshot.planCode() : financialSource.planCode(),
                 displayName(snapshot.planName(), snapshot.planCode()),
-                snapshot.planDefinitionVersion(),
+                financialSource == null ? snapshot.planDefinitionVersion() : financialSource.productVersionNumber(),
                 snapshot.planPriceEntryId(),
                 1,
                 planPrice));

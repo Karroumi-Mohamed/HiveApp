@@ -51,6 +51,12 @@ import com.hiveapp.platform.client.plan.dto.QuotaPackageDto;
 
 public interface PlanAdminService {
 
+    com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Preview previewVersionApplication(
+            UUID targetId, UUID accountId, com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Request request);
+
+    com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Result applyVersionNow(
+            UUID targetId, UUID accountId, com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.ApplyNow request);
+
     Page<com.hiveapp.platform.client.plan.dto.PlanVersionModels.Family> listPlanFamilies(String search, Pageable pageable);
 
     com.hiveapp.platform.client.plan.dto.PlanVersionModels.Versions listPlanVersions(UUID planId, Pageable pageable);

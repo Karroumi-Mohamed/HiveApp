@@ -202,7 +202,8 @@ public class CommercialSelectionFinalizer {
         }
         return productPriceRepository.findOwned(
                         com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN,
-                        plan.getId(), currentSnapshot.planPriceEntryId())
+                        currentSnapshot.financialPlanSource() == null ? plan.getId()
+                                : currentSnapshot.financialPlanSource().planId(), currentSnapshot.planPriceEntryId())
                 .orElseThrow(this::stale);
     }
 

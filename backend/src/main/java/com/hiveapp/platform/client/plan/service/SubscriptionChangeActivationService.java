@@ -42,6 +42,9 @@ public class SubscriptionChangeActivationService {
             action = "platform.client.subscription.change.activate",
             resourceType = "SUBSCRIPTION_CHANGE_OPERATION")
     public SubscriptionChangeOperation activate(SubscriptionChangeOperation operation, Instant startsAt) {
+        if (operation.getContentCommandId() != null) {
+            throw new IllegalStateException("Content-only changes cannot enter the billing activation flow.");
+        }
         UUID accountId = operation.getAccount().getId();
         if (accountRepository.findByIdForSubscriptionUpdate(accountId).isEmpty()) {
             return markNeedsAttention(operation, "The Account no longer exists.");
@@ -104,6 +107,7 @@ public class SubscriptionChangeActivationService {
         if (sameTermsRenewal && operation.getRepricingItemId() == null) {
             replacement.setCommercialTermsId(current.termsIdentity());
         }
+        if (retainedRenewal) replacement.setContentEvidenceId(current.getContentEvidenceId());
         replacement.setPlan(operation.getTargetPlan());
         replacement.setCustomOverrides(operation.getRequestedSelection());
         replacement.setEntitlementSnapshot(operation.getTargetSnapshot());

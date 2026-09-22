@@ -61,6 +61,33 @@ class CommercialCatalogResolverIntegrationTest {
     @Autowired private EntityManagerFactory entityManagerFactory;
 
     @Test
+    void contentVersionRetentionKeepsHeldSaleTermsButNeverWaivesTargetRestrictions() {
+        var flex = planRepository.findByCode("FLEX").orElseThrow();
+        var custom = addOnRepository.findByCode("CUSTOM_ROLES").orElseThrow();
+        custom.setStatus(AddOnStatus.INACTIVE);
+        entityManager.flush();
+        var retained = new CommercialCatalogResolver.RetainedSelection(Set.of(custom.getCode()), Map.of(),
+                null, CommercialCatalogResolver.RetentionMode.CONTENT_VERSION);
+        var tuple = new CommercialCatalogResolver.PriceTuple(flex.getCurrencyCode(), flex.getBillingCycle());
+        assertThat(resolver.resolveSelection(flex, tuple, Set.of(custom.getCode()), List.of(),
+                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR, retained).selectable()).isTrue();
+
+        custom.setAllowedPlanCodes(Set.of());
+        custom.setBlockedPlanCodes(Set.of(flex.getCode()));
+        entityManager.flush();
+        assertThat(reasons(resolver.resolveSelection(flex, tuple, Set.of(custom.getCode()), List.of(),
+                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR, retained)))
+                .contains(ExtensionAvailabilityReason.PLAN_EXPLICITLY_BLOCKED);
+        custom.setBlockedPlanCodes(Set.of());
+        var definition = featureRepository.findByCode(WorkspaceRolesFeature.CODE).orElseThrow();
+        definition.setRuntimeEnabled(false);
+        entityManager.flush();
+        assertThat(reasons(resolver.resolveSelection(flex, tuple, Set.of(custom.getCode()), List.of(),
+                CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR, retained)))
+                .contains(ExtensionAvailabilityReason.FEATURE_RUNTIME_DISABLED);
+    }
+
+    @Test
     void policyMatrixPreservesOpenDefaultsAndBlockedAlwaysWins() {
         var flex = planRepository.findByCode("FLEX").orElseThrow();
         var customRoles = addOnRepository.findByCode("CUSTOM_ROLES").orElseThrow();

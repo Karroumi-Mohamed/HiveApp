@@ -86,7 +86,8 @@ public class SubscriptionSnapshotFactory {
                 currentSnapshot.basePrice(), currentSnapshot.currencyCode(), currentSnapshot.billingCycle(),
                 currentSnapshot.planPriceEntryId());
         return fromPlan(plan, selectedAddOnCodes, selectedQuotaPackages,
-                planPrice, existingAddOns, existingPackages);
+                planPrice, existingAddOns, existingPackages)
+                .withFinancialPlanSource(currentSnapshot.financialPlanSource());
     }
 
     /**
@@ -197,7 +198,8 @@ public class SubscriptionSnapshotFactory {
                         .toList(),
                 addOns,
                 quotaPackages,
-                price.priceEntryId());
+                price.priceEntryId()).withFinancialPlanSource(
+                        preserveHeldPrices ? currentSnapshot.financialPlanSource() : null);
     }
 
     private ProductPrice requireExactPrice(List<ProductPrice> prices, String type, String code) {

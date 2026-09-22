@@ -1094,6 +1094,8 @@ Delivery slices, each separately verified and committed (never pushed):
 
 Delivery checkpoint (2026-09-22): version/catalogue backend and the dependent frontend foundation are delivered before subscriber-rollout work. The public-choice operation affects ordinary new-client discovery only; Versions/comparison screens do not yet apply content to subscribers. Implementation/verification evidence and remaining work are tracked under `PLAN-013`, `PLAN-007` and `PLAN-011` in `TOFIX.md`, not in a new planning document.
 
+Content-execution refinement (2026-09-22): scheduled version instructions belong to the durable population job, not the pending paid-change slot. At renewal, successful ordinary renewal is the prerequisite; a payment deadline alone does not activate the new content. A fixed-date instruction may survive ordinary same-financial-terms renewals and retains the then-current paid period. Each actual application records an applied operation and append-only content evidence linked to its unchanged billing period. Snapshot schema V5 records the original financial Plan separately from the effective content Plan; old snapshot schemas remain readable. An immediate single-Account preview/application API is the first delivery slice, not a substitute for the still-required audience, scheduling, notification and workflow UI.
+
 ---
 
 ## PLAN-FLOW-006 — Feature composition and add-ons

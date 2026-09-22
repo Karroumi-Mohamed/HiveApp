@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+@org.springframework.transaction.annotation.Transactional
 class PlanVersionManagementIntegrationTest extends PlatformShellIntegrationTestSupport {
     @Autowired PlanRepository plans;
     @Autowired ProductPriceRepository prices;
@@ -134,6 +135,7 @@ class PlanVersionManagementIntegrationTest extends PlatformShellIntegrationTestS
     void metadataEditCannotChangePublishedCompositionMoneyOrBusinessVersion() throws Exception {
         String token = loginAdminAndGetToken();
         Plan plan = plan(null, 1, PlanStatus.ACTIVE);
+        long priorVersion = plan.getVersion();
         mockMvc.perform(patch("/api/admin/plans/{id}/metadata", plan.getId())
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of("expectedVersion", plan.getVersion(),
@@ -143,10 +145,10 @@ class PlanVersionManagementIntegrationTest extends PlatformShellIntegrationTestS
                 .andExpect(jsonPath("$.productVersionNumber").value(1));
         Plan updated = plans.findById(plan.getId()).orElseThrow();
         assertThat(updated.getPrice()).isEqualByComparingTo("100");
-        assertThat(updated.getVersion()).isGreaterThan(plan.getVersion());
+        assertThat(updated.getVersion()).isGreaterThan(priorVersion);
         mockMvc.perform(patch("/api/admin/plans/{id}/metadata", plan.getId())
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("expectedVersion", plan.getVersion(),
+                        .content(objectMapper.writeValueAsString(Map.of("expectedVersion", priorVersion,
                                 "name", "Stale edit", "reason", "stale"))))
                 .andExpect(status().isConflict());
     }

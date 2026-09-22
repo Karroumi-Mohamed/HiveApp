@@ -92,7 +92,8 @@ public class SubscriptionRepricingRules {
             .toList(),
         plan ? target.getId() : s.planPriceEntryId(),
         s.commercialPolicyEvaluation(),
-        s.offerEvaluation());
+        s.offerEvaluation(),
+        s.financialPlanSource());
   }
 
   public Instant effectiveAt(

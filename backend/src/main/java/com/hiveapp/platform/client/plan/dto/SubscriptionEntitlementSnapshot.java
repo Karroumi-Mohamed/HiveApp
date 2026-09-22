@@ -25,17 +25,20 @@ public record SubscriptionEntitlementSnapshot(
     List<SubscriptionQuotaPackageSnapshot> quotaPackages,
     UUID planPriceEntryId,
     SubscriptionCommercialPolicyEvaluation commercialPolicyEvaluation,
-    SubscriptionOfferEvaluation offerEvaluation) {
+    SubscriptionOfferEvaluation offerEvaluation,
+    SubscriptionFinancialPlanSource financialPlanSource) {
   public static final int SCHEMA_VERSION_V1 = 1;
   public static final int SCHEMA_VERSION_V2 = 2;
   public static final int SCHEMA_VERSION_V3 = 3;
-  public static final int CURRENT_SCHEMA_VERSION = 4;
+  public static final int SCHEMA_VERSION_V4 = 4;
+  public static final int CURRENT_SCHEMA_VERSION = 5;
 
   public SubscriptionEntitlementSnapshot {
     schemaVersion = schemaVersion == 0 ? CURRENT_SCHEMA_VERSION : schemaVersion;
     if (schemaVersion != SCHEMA_VERSION_V1
         && schemaVersion != SCHEMA_VERSION_V2
         && schemaVersion != SCHEMA_VERSION_V3
+        && schemaVersion != SCHEMA_VERSION_V4
         && schemaVersion != CURRENT_SCHEMA_VERSION) {
       throw new IllegalArgumentException(
           "Unsupported subscription snapshot schema version: " + schemaVersion);
@@ -47,6 +50,22 @@ public record SubscriptionEntitlementSnapshot(
     features = features == null ? List.of() : List.copyOf(features);
     addOns = addOns == null ? List.of() : List.copyOf(addOns);
     quotaPackages = quotaPackages == null ? List.of() : List.copyOf(quotaPackages);
+    if (financialPlanSource != null && schemaVersion < CURRENT_SCHEMA_VERSION) {
+      throw new IllegalArgumentException("Financial Plan provenance requires snapshot schema V5");
+    }
+  }
+
+  /** Compatibility for schema V1–V4 callers: their content and financial Plan were the same. */
+  public SubscriptionEntitlementSnapshot(
+      int schemaVersion, String planCode, String planName, long planDefinitionVersion,
+      BigDecimal basePrice, String currencyCode, BillingCycle billingCycle,
+      Instant effectiveFrom, Instant effectiveUntil, List<SubscriptionFeatureSnapshot> features,
+      List<SubscriptionAddOnSnapshot> addOns, List<SubscriptionQuotaPackageSnapshot> quotaPackages,
+      UUID planPriceEntryId, SubscriptionCommercialPolicyEvaluation commercialPolicyEvaluation,
+      SubscriptionOfferEvaluation offerEvaluation) {
+    this(schemaVersion, planCode, planName, planDefinitionVersion, basePrice, currencyCode,
+        billingCycle, effectiveFrom, effectiveUntil, features, addOns, quotaPackages,
+        planPriceEntryId, commercialPolicyEvaluation, offerEvaluation, null);
   }
 
   /** Source-compatible constructor for schema V1/V2 callers that predate policy terms. */
@@ -171,7 +190,14 @@ public record SubscriptionEntitlementSnapshot(
         quotaPackages,
         planPriceEntryId,
         commercialPolicyEvaluation,
-        offerEvaluation);
+        offerEvaluation,
+        financialPlanSource);
+  }
+
+  public SubscriptionEntitlementSnapshot withFinancialPlanSource(SubscriptionFinancialPlanSource source) {
+    return new SubscriptionEntitlementSnapshot(CURRENT_SCHEMA_VERSION, planCode, planName,
+        planDefinitionVersion, basePrice, currencyCode, billingCycle, effectiveFrom, effectiveUntil,
+        features, addOns, quotaPackages, planPriceEntryId, commercialPolicyEvaluation, offerEvaluation, source);
   }
 
   public SubscriptionEntitlementSnapshot withCommercialPolicyEvaluation(
@@ -191,7 +217,8 @@ public record SubscriptionEntitlementSnapshot(
         quotaPackages,
         planPriceEntryId,
         evaluation,
-        offerEvaluation);
+        offerEvaluation,
+        financialPlanSource);
   }
 
   /** Source-compatible schema-V3 constructor for callers that predate Offer provenance. */
@@ -251,7 +278,8 @@ public record SubscriptionEntitlementSnapshot(
         quotaPackages,
         planPriceEntryId,
         commercialPolicyEvaluation,
-        offerEvaluation);
+        offerEvaluation,
+        financialPlanSource);
   }
 
   public SubscriptionEntitlementSnapshot withOfferProvenance(
@@ -271,7 +299,8 @@ public record SubscriptionEntitlementSnapshot(
         quotaPackages,
         planPriceEntryId,
         commercialPolicyEvaluation,
-        evaluation);
+        evaluation,
+        financialPlanSource);
   }
 
   private List<SubscriptionFeatureSnapshot> applyOfferQuotaBonuses(

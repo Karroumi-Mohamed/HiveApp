@@ -55,6 +55,20 @@ public class PlanAdminController {
 
     private final PlanAdminService planAdminService;
 
+    @PostMapping("/{planId}/subscribers/{accountId}/version-preview")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Preview previewVersionApplication(
+            @PathVariable UUID planId, @PathVariable UUID accountId,
+            @Valid @RequestBody com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Request request) {
+        return planAdminService.previewVersionApplication(planId, accountId, request);
+    }
+
+    @PostMapping("/{planId}/subscribers/{accountId}/apply-version")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Result applyVersionNow(
+            @PathVariable UUID planId, @PathVariable UUID accountId,
+            @Valid @RequestBody com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.ApplyNow request) {
+        return planAdminService.applyVersionNow(planId, accountId, request);
+    }
+
     @GetMapping("/families")
     public PageResponse<com.hiveapp.platform.client.plan.dto.PlanVersionModels.Family> families(
             @RequestParam(required = false) String search,

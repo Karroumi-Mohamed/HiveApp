@@ -120,6 +120,10 @@ public class SubscriptionChangeOperation extends BaseEntity {
     /** Price-only reviewed instruction, distinct from catalogue/entitlement selection changes. */
     private UUID repricingItemId;
 
+    /** Non-null only for an applied content-only version change; never owns a payment checkout. */
+    @Column(name = "content_command_id")
+    private UUID contentCommandId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "cancellation_origin", length = 32)
     private SubscriptionChangeOrigin cancellationOrigin;
@@ -149,6 +153,11 @@ public class SubscriptionChangeOperation extends BaseEntity {
         }
         if (effectiveAt == null || timing == null || status == null) {
             throw new IllegalStateException("Subscription change timing, status, and effective time are required");
+        }
+        if (contentCommandId != null && (status != SubscriptionChangeStatus.APPLIED || checkout != null
+                || repricingItemId != null || offerRedemptionId != null
+                || requestOrigin != SubscriptionChangeOrigin.PLATFORM_ADMIN)) {
+            throw new IllegalStateException("Content changes are applied without a payment or redemption operation.");
         }
         if (requestOrigin == null
                 || (requestOrigin != SubscriptionChangeOrigin.SYSTEM && requestedByUserId == null)

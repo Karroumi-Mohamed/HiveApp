@@ -67,6 +67,7 @@ public class CommercialCatalogResolver {
     private static final int MAX_CATALOG_PRICES = 1_200;
 
     public enum Audience { CLIENT_CATALOG, AUTHORIZED_OPERATOR }
+    public enum RetentionMode { ORDINARY, CONTENT_VERSION }
 
     private final PlanRepository planRepository;
     private final PlanFeatureRepository planFeatureRepository;
@@ -364,7 +365,8 @@ public class CommercialCatalogResolver {
                 ? RetainedSelection.none() : retained;
         PlanResolution planResolution = resolvePlan(data, authoritativePlan, audience, tuple,
                 authoritativePlan.getExtensionPolicy(), authoritativePlan.getSalesVisibility());
-        if (retainedSelection.heldPlanPriceEntryId() != null) {
+        if (retainedSelection.heldPlanPriceEntryId() != null
+                || retainedSelection.mode() == RetentionMode.CONTENT_VERSION) {
             planResolution = new PlanResolution(
                     planResolution.plan(),
                     planResolution.issues().stream()
@@ -451,8 +453,8 @@ public class CommercialCatalogResolver {
             boolean retainedPackage = retainedQuantity != null
                     && selection.quantity() == retainedQuantity;
             List<ExtensionAvailabilityIssue> effectiveIssues = result.issues().stream()
-                    .filter(issue -> !retainedPackage || !grandfatherable(issue.reason()))
-                    .filter(issue -> !retainedPackage
+                    .filter(issue -> !retainedPackage || !grandfatherable(issue.reason(), retainedSelection))
+                    .filter(issue -> !retainedPackage || retainedSelection.mode() == RetentionMode.CONTENT_VERSION
                             || (issue.reason() != ExtensionAvailabilityReason.QUOTA_NOT_FINITE
                             && issue.reason() != ExtensionAvailabilityReason.QUOTA_OWNER_MISSING))
                     .toList();
@@ -868,7 +870,7 @@ public class CommercialCatalogResolver {
             RetainedSelection retained,
             Set<String> selectedAddOns
     ) {
-        if (retained.addOnCodes().contains(productCode) && grandfatherable(issue.reason())) {
+        if (retained.addOnCodes().contains(productCode) && grandfatherable(issue.reason(), retained)) {
             return true;
         }
         return issue.reason() == ExtensionAvailabilityReason.DEPENDENCY_UNAVAILABLE
@@ -877,7 +879,14 @@ public class CommercialCatalogResolver {
                 && selectedAddOns.contains(issue.sourceCode());
     }
 
-    private boolean grandfatherable(ExtensionAvailabilityReason reason) {
+    private boolean grandfatherable(ExtensionAvailabilityReason reason, RetainedSelection retained) {
+        // Moving content to another version is not permission to grandfather new target-policy
+        // restrictions, registry vetoes or missing quota owners. Only held sale status/prices remain.
+        if (retained.mode() == RetentionMode.CONTENT_VERSION) {
+            return reason == ExtensionAvailabilityReason.PRODUCT_NOT_ACTIVE
+                    || reason == ExtensionAvailabilityReason.DIRECT_ONLY
+                    || reason == ExtensionAvailabilityReason.PRICE_UNAVAILABLE;
+        }
         return switch (reason) {
             case PLAN_EXTENSIONS_CLOSED,
                     PLAN_EXPLICITLY_BLOCKED,
@@ -1303,9 +1312,11 @@ public class CommercialCatalogResolver {
     public record RetainedSelection(
             Set<String> addOnCodes,
             Map<String, Integer> quotaPackageQuantities,
-            UUID heldPlanPriceEntryId
+            UUID heldPlanPriceEntryId,
+            RetentionMode mode
     ) {
         public RetainedSelection {
+            mode = mode == null ? RetentionMode.ORDINARY : mode;
             addOnCodes = Set.copyOf(addOnCodes == null ? Set.of() : addOnCodes);
             quotaPackageQuantities = Map.copyOf(
                     quotaPackageQuantities == null ? Map.of() : quotaPackageQuantities);
@@ -1316,7 +1327,12 @@ public class CommercialCatalogResolver {
         }
 
         public RetainedSelection(Set<String> addOnCodes, Map<String, Integer> quotaPackageQuantities) {
-            this(addOnCodes, quotaPackageQuantities, null);
+            this(addOnCodes, quotaPackageQuantities, null, RetentionMode.ORDINARY);
+        }
+
+        public RetainedSelection(Set<String> addOnCodes, Map<String, Integer> quotaPackageQuantities,
+                                 UUID heldPlanPriceEntryId) {
+            this(addOnCodes, quotaPackageQuantities, heldPlanPriceEntryId, RetentionMode.ORDINARY);
         }
 
         public static RetainedSelection none() {

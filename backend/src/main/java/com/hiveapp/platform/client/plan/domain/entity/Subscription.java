@@ -39,6 +39,9 @@ public class Subscription extends BaseEntity {
     @Column(name = "commercial_terms_id")
     private UUID commercialTermsId = UUID.randomUUID();
 
+    @Column(name = "content_evidence_id")
+    private UUID contentEvidenceId;
+
     public UUID termsIdentity() { return commercialTermsId == null ? getId() : commercialTermsId; }
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -147,6 +150,23 @@ public class Subscription extends BaseEntity {
         if (entitlementSnapshot != null && (snapshot == null || !entitlementSnapshot.withEffectivePeriod(null, null).equals(snapshot.withEffectivePeriod(null, null)))) commercialTermsId = UUID.randomUUID();
         this.entitlementSnapshot = snapshot;
         synchronizeCommercialProjection();
+    }
+
+    /** Only the dedicated reviewed content executor may preserve the financial identity here. */
+    public void applyContentVersion(Plan target, SubscriptionEntitlementSnapshot snapshot, UUID evidenceId) {
+        if (target == null || evidenceId == null || entitlementSnapshot == null
+                || !plan.getLineageId().equals(target.getLineageId())
+                || !target.getCode().equals(snapshot.planCode())
+                || snapshot.financialPlanSource() == null
+                || !java.util.Objects.equals(currentPeriodStart, snapshot.effectiveFrom())
+                || !java.util.Objects.equals(currentPeriodEnd, snapshot.effectiveUntil())) {
+            throw new IllegalStateException("Content application requires reviewed same-family evidence and unchanged period.");
+        }
+        UUID retainedTerms = termsIdentity();
+        setEntitlementSnapshot(snapshot);
+        plan = target;
+        contentEvidenceId = evidenceId;
+        commercialTermsId = retainedTerms;
     }
 
     public void setCustomOverrides(SubscriptionOverrides overrides) {

@@ -1451,6 +1451,7 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         appendFingerprint(state, snapshot.planCode());
         appendFingerprint(state, snapshot.planName());
         appendFingerprint(state, snapshot.planDefinitionVersion());
+        appendFingerprint(state, snapshot.financialPlanSource());
         appendFingerprint(state, snapshot.basePrice());
         appendFingerprint(state, snapshot.currencyCode());
         appendFingerprint(state, snapshot.billingCycle());
@@ -1716,7 +1717,8 @@ public class SubscriptionServiceImpl extends ClientWorkspaceFeatureService imple
         }
         ProductPrice retained = productPriceRepository.findOwned(
                         com.hiveapp.platform.client.plan.domain.constant.ProductPriceOwnerType.PLAN,
-                        targetPlan.getId(), snapshot.planPriceEntryId())
+                        snapshot.financialPlanSource() == null ? targetPlan.getId()
+                                : snapshot.financialPlanSource().planId(), snapshot.planPriceEntryId())
                 .orElseThrow(() -> new StaleResourceVersionException(
                         "The current subscription price no longer exists. Reload and retry."));
         if (requestedPrice != null && requestedPrice.currencyCode() != null

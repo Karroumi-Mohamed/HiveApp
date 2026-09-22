@@ -92,6 +92,21 @@ public class AdminMutationAuthorizer {
         return currentActor().getId();
     }
 
+    /** Re-evaluate a durable instruction's actor, including runtime vetoes, without impersonating
+     * a browser session or trusting the permissions captured when the job was created. */
+    public void requireBackgroundPermission(UUID userId, String permissionCode) {
+        adminUserRepository.findByUserId(userId)
+                .filter(AdminUser::isActive)
+                .filter(admin -> admin.getUser() != null && admin.getUser().isActive())
+                .orElseThrow(() -> new ForbiddenException("The requesting administrator is no longer active."));
+        var context = new com.hiveapp.shared.security.context.HiveAppPermissionContext(
+                userId, null, null, null, null, false);
+        if (!dev.karroumi.permissionizer.PermissionGuard.has(
+                new dev.karroumi.permissionizer.Permission(permissionCode), context)) {
+            throw new ForbiddenException("The requesting administrator no longer holds " + permissionCode + ".");
+        }
+    }
+
     private AdminUser currentActor() {
         var context = HiveAppContextHolder.getContext();
         if (context == null || context.actorUserId() == null) {

@@ -149,6 +149,7 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     private final PlanRepository planRepository;
     private final com.hiveapp.platform.client.plan.service.PlanVersionOperations planVersions;
+    private final com.hiveapp.platform.client.plan.service.PlanVersionApplicationOperations versionApplications;
     private final AdminMutationAuthorizer adminMutationAuthorizer;
     private final PlanAdminReadModels readModels;
     private final PlanFeatureRepository planFeatureRepository;
@@ -173,6 +174,23 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final PlanActivationAssessor planActivationAssessor;
     private final AddOnActivationAssessor addOnActivationAssessor;
     private final QuotaPackageActivationAssessor quotaPackageActivationAssessor;
+
+    @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "preview_version_application", description = "Review subscriber content-version changes and retained terms")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Preview previewVersionApplication(
+            UUID targetId, UUID accountId, com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Request request) {
+        return versionApplications.preview(targetId, accountId, request);
+    }
+
+    @Override
+    @Transactional
+    @PermissionNode(key = "apply_version", description = "Apply a reviewed Plan version without changing subscriber financial terms")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.Result applyVersionNow(
+            UUID targetId, UUID accountId, com.hiveapp.platform.client.plan.dto.PlanVersionApplicationModels.ApplyNow request) {
+        crossFeatureCommercialAuthorizer.require("platform.plans.preview_version_application", "Applying a Plan version");
+        return versionApplications.applyNow(targetId, accountId, request);
+    }
 
     @Override
     @Transactional(readOnly = true)

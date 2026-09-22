@@ -832,6 +832,18 @@ class ProductPriceControlPlaneIntegrationTest extends PlatformShellIntegrationTe
                 ProductPriceOwnerType.PLAN, revisionId, "MAD", BillingCycle.MONTHLY, Instant.now()))
                 .singleElement().satisfies(price -> assertThat(price.getId()).isNotEqualTo(sourcePriceId));
 
+        // Publication no longer implicitly switches a family's public version. Make the target
+        // visible before testing that a price belonging to its predecessor is rejected.
+        var versionsBody = mockMvc.perform(get("/api/admin/plans/{id}/versions", revisionId)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        long catalogueRevision = objectMapper.readTree(versionsBody).path("catalogRevision").asLong();
+        mockMvc.perform(post("/api/admin/plans/{id}/public-version", revisionId)
+                        .header("Authorization", bearer(adminToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(java.util.Map.of("expectedVersion", revision.getVersion(),
+                                "expectedCatalogRevision", catalogueRevision, "reason", "Offer this exact version"))))
+                .andExpect(status().isOk());
+
         String clientToken = registerClientAndGetToken();
         SubscriptionChangeRequest request = new SubscriptionChangeRequest(
                 revision.getCode(), Set.of(), List.of(), SubscriptionChangeTiming.IMMEDIATE,
