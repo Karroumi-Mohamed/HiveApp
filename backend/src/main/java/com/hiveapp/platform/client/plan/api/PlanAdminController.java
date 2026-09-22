@@ -239,6 +239,32 @@ public class PlanAdminController {
         return PageResponse.from(planAdminService.listPlanSubscribers(planId, search, status, pageable));
     }
 
+    @GetMapping("/{planId}/family-subscribers")
+    public PageResponse<com.hiveapp.platform.client.plan.dto.PlanSubscriberViewModels.Subscriber> familySubscribers(
+            @PathVariable UUID planId,
+            @RequestParam(defaultValue = "ALL") com.hiveapp.platform.client.plan.dto.PlanSubscriberViewModels.View view,
+            @RequestParam(required = false) String search, @RequestParam(required = false) SubscriptionStatus status,
+            @RequestParam(required = false) String currency,
+            @RequestParam(required = false) com.hiveapp.platform.client.plan.domain.constant.BillingCycle cycle,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        if (page < 0 || size < 1 || size > 100) throw new com.hiveapp.shared.exception.InvalidRequestException("Choose a valid page and size from 1 to 100.");
+        return PageResponse.from(planAdminService.listFamilySubscribers(planId, view, search, status, currency, cycle,
+                org.springframework.data.domain.PageRequest.of(page, size)));
+    }
+
+    @GetMapping("/{planId}/version-history")
+    public PageResponse<com.hiveapp.platform.client.plan.service.PlanVersionHistory.Event> versionHistory(
+            @PathVariable UUID planId,
+            @RequestParam(required = false) com.hiveapp.platform.client.plan.service.PlanVersionHistory.Kind kind,
+            @RequestParam(required = false) UUID actorId,
+            @RequestParam(required = false) java.time.Instant from,
+            @RequestParam(required = false) java.time.Instant until,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        if (page < 0 || size < 1 || size > 100) throw new com.hiveapp.shared.exception.InvalidRequestException("Choose a valid page and size from 1 to 100.");
+        return PageResponse.from(planAdminService.planVersionHistory(planId, kind, actorId, from, until,
+                org.springframework.data.domain.PageRequest.of(page, size)));
+    }
+
     @PostMapping("/{planId}/subscribers/by-owner-email")
     public PageResponse<PlanSubscriberOwnerLookupDto> subscribersByOwnerEmail(
             @PathVariable UUID planId,

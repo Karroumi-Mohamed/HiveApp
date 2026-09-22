@@ -100,7 +100,16 @@ public final class PlanVersionRolloutModels {
       String reason,
       long version) {}
 
-  public record ConflictGroup(String primaryReason, long accounts) {}
+  public enum ResolutionKind {
+    REVIEW_NOTICE,
+    REVIEW_CAPACITY,
+    REVIEW_PURCHASES,
+    REVIEW_COMMERCIAL_TERMS,
+    REVIEW_SUBSCRIPTION,
+    REVIEW_VERSION
+  }
+
+  public record ConflictGroup(String primaryReason, long accounts, ResolutionKind resolutionKind) {}
 
   public record Detail(
       Summary summary,

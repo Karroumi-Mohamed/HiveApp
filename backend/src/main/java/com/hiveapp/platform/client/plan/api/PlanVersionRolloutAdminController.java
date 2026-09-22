@@ -39,9 +39,10 @@ public class PlanVersionRolloutAdminController {
   public PageResponse<Item> results(
       @PathVariable UUID id,
       @RequestParam(required = false) SubscriptionChangeJobItemStatus status,
+      @RequestParam(required = false) String reason,
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "20") int size) {
-    return PageResponse.from(plans.versionRolloutResults(id, status, page(page, size)));
+    return PageResponse.from(plans.versionRolloutResults(id, status, reason, page(page, size)));
   }
 
   @PostMapping("/{id}/confirm")

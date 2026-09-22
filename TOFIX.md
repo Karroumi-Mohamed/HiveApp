@@ -645,6 +645,12 @@ Content-notification checkpoint (2026-09-22):
 - Verification: the full suite passed **923 tests**, with one opt-in benchmark skipped. A subsequent focused run passed 16 tests after adding recipient-verification rechecks and abandoned-mail lease/stale-completion coverage. Client scoping/read receipts, required-email failure/retry, optional suppressed email and cancelled future notices are covered; the frontend is not yet accepted.
 - The explicit pre-notification 100/1,000/10,000-Account benchmark passed on local H2: audience freeze **356/211/1,132 ms**, assessment **6,157/27,709/276,521 ms**, application **5,685/22,917/395,067 ms**. Scheduler passes were invoked without their normal delay. This measures the population engine before notice creation was added, not production PostgreSQL or VPS request capacity; final notice-inclusive performance remains a separate verification gate.
 
+Management-read checkpoint (2026-09-22):
+
+- Added separately authorized, bounded family-subscriber presets (all/current/other versions, confirmed pending changes, unresolved conflicts), including retained amount and period end. Family search escapes wildcard characters; projections and counts do not load every subscription snapshot.
+- Added family-wide version/application audit history with date/type/actor filters, batch actor labels and no raw audit payloads. Conflict groups now include a typed resolution category and result pages can filter by the primary blocker.
+- Verification: **19 rollout integration tests passed**, with the opt-in scale test skipped, including family isolation, client rejection, page bounds, pending/cancel/retry behavior, protected history payloads, system actors and conflict filtering. Guided UI and final end-to-end/load verification remain in progress; this checkpoint does not close the overall workflow.
+
 ---
 
 ### BILLING-001 — Client self-service activates paid plans without payment or approval

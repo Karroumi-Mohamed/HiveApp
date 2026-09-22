@@ -104,16 +104,20 @@ public class PlanVersionRolloutOperations {
   }
 
   @Transactional(readOnly = true)
-  public Page<Item> results(UUID jobId, SubscriptionChangeJobItemStatus status, Pageable pageable) {
+  public Page<Item> results(
+      UUID jobId, SubscriptionChangeJobItemStatus status, String reason, Pageable pageable) {
     find(jobId);
+    if (reason != null && reason.length() > 100)
+      throw new InvalidRequestException("Reason code is too long.");
     var result =
         items.findAll(
             (root, query, cb) ->
-                status == null
-                    ? cb.equal(root.get("job").get("id"), jobId)
-                    : cb.and(
-                        cb.equal(root.get("job").get("id"), jobId),
-                        cb.equal(root.get("status"), status)),
+                cb.and(
+                    cb.equal(root.get("job").get("id"), jobId),
+                    status == null ? cb.conjunction() : cb.equal(root.get("status"), status),
+                    reason == null || reason.isBlank()
+                        ? cb.conjunction()
+                        : cb.equal(root.get("outcomeCode"), reason)),
             bounded(pageable));
     var deliveries =
         notices.deliveryViews(result.stream().map(SubscriptionChangeJobItem::getId).toList());
@@ -312,6 +316,19 @@ public class PlanVersionRolloutOperations {
     return counts;
   }
 
+  private ResolutionKind resolutionKind(String code) {
+    if (code == null) return ResolutionKind.REVIEW_VERSION;
+    if (code.contains("NOTICE")) return ResolutionKind.REVIEW_NOTICE;
+    if (code.matches(".*(POLICY|BONUS|OFFER|AGREEMENT).*"))
+      return ResolutionKind.REVIEW_COMMERCIAL_TERMS;
+    if (code.matches(".*(QUOTA|CAPACITY|USAGE|LIMIT).*")) return ResolutionKind.REVIEW_CAPACITY;
+    if (code.matches(".*(ADD_ON|PACK|PURCHASE|DEPENDENC|DUPLICATE_PAID).*"))
+      return ResolutionKind.REVIEW_PURCHASES;
+    if (code.matches(".*(PENDING|PERIOD|TRIAL|ENTITLED|ACCOUNT).*"))
+      return ResolutionKind.REVIEW_SUBSCRIPTION;
+    return ResolutionKind.REVIEW_VERSION;
+  }
+
   private Detail detail(SubscriptionChangeJob job) {
     boolean stale =
         job.getCatalogRevision() != catalogue.currentRevision()
@@ -332,7 +349,10 @@ public class PlanVersionRolloutOperations {
               clock.instant());
     var conflicts =
         items.countPrimaryConflicts(job.getId()).stream()
-            .map(group -> new ConflictGroup(group.getCode(), group.getTotal()))
+            .map(
+                group ->
+                    new ConflictGroup(
+                        group.getCode(), group.getTotal(), resolutionKind(group.getCode())))
             .toList();
     return new Detail(
         summary(job, counts(job.getId())),

@@ -50,6 +50,7 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
   @Autowired PlanVersionRolloutWorker worker;
   @Autowired PlanContentNoticeRepository notices;
   @Autowired PlanContentNoticeDeliverySource noticeDelivery;
+  @Autowired com.hiveapp.shared.audit.domain.AuditLogRepository auditLogs;
   @Autowired SubscriptionChangeJobService legacyJobs;
   @Autowired CommercialCatalogVersionService catalogue;
   @Autowired PlatformTransactionManager transactionManager;
@@ -65,6 +66,66 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
     tx = new TransactionTemplate(transactionManager);
     clock.set(Instant.now());
     admin = loginAdminAndGetToken();
+  }
+
+  @Test
+  void familyHistoryIsBoundedPrivateAndIncludesSystemEvents() throws Exception {
+    var f = fixture(1);
+    var other = fixture(1);
+    var at = Instant.now().minusSeconds(10);
+    auditLogs.saveAndFlush(
+        com.hiveapp.shared.audit.domain.AuditLog.builder()
+            .occurredAt(at)
+            .actorSurface(com.hiveapp.shared.audit.domain.AuditActorSurface.SYSTEM)
+            .resourceType("PLAN")
+            .resourceId(f.target.toString())
+            .action("PLAN_VERSION_TEST")
+            .outcome(com.hiveapp.shared.audit.domain.AuditOutcome.SUCCEEDED)
+            .requestData("private request payload")
+            .resultData("private result payload")
+            .build());
+    var body =
+        mockMvc
+            .perform(
+                get("/api/admin/plans/{id}/version-history", f.source)
+                    .param("kind", "VERSION")
+                    .param("from", at.minusSeconds(1).toString())
+                    .param("until", at.plusSeconds(1).toString())
+                    .header("Authorization", bearer(admin)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("totalElements").value(1))
+            .andExpect(jsonPath("content[0].productVersionNumber").value(2))
+            .andExpect(jsonPath("content[0].actorLabel").doesNotExist())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    assertThat(body)
+        .doesNotContain("private request", "private result", "requestData", "resultData");
+    mockMvc
+        .perform(
+            get("/api/admin/plans/{id}/version-history", other.source)
+                .header("Authorization", bearer(admin)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("totalElements").value(0));
+    mockMvc
+        .perform(
+            get("/api/admin/plans/{id}/version-history", f.source)
+                .param("size", "101")
+                .header("Authorization", bearer(admin)))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            get("/api/admin/plans/{id}/version-history", f.source)
+                .header("Authorization", bearer(clientTokens.get(f.accounts.getFirst()))))
+        .andExpect(status().isForbidden());
+    var job = create(f, request(f, Audience.ALL, Timing.NOW, List.of()));
+    mockMvc
+        .perform(
+            get("/api/admin/plans/{id}/version-history", f.source)
+                .param("kind", "APPLICATION")
+                .header("Authorization", bearer(admin)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("content[0].resourceId").value(job.summary().id().toString()));
   }
 
   @Test
@@ -126,6 +187,15 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
         .containsEntry(SubscriptionChangeJobItemStatus.CONFLICT, 1L)
         .containsEntry(SubscriptionChangeJobItemStatus.EXCLUDED, 1L);
     confirm(review, false, 400);
+    assertThat(review.conflicts().getFirst().resolutionKind())
+        .isEqualTo(ResolutionKind.REVIEW_SUBSCRIPTION);
+    mockMvc
+        .perform(
+            get(BASE + "/{id}/results", review.summary().id())
+                .param("reason", "CANCELLATION_PENDING")
+                .header("Authorization", bearer(admin)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("totalElements").value(1));
     confirm(review, true, 200);
     processor.processDue(clock.instant());
     assertThat(detail(created.summary().id()).summary().status())
@@ -421,12 +491,30 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
       assertThat(review.summary().status()).isEqualTo(SubscriptionChangeJobStatus.COMPLETED);
       assertThat(review.summary().counts())
           .containsEntry(SubscriptionChangeJobItemStatus.APPLIED, (long) size);
+      assertThat(
+              entityManager
+                  .createQuery(
+                      "select count(n) from PlanContentNotice n where n.jobId = :job", Long.class)
+                  .setParameter("job", created.summary().id())
+                  .getSingleResult())
+          .isEqualTo(size);
+      long readStart = System.nanoTime();
+      mockMvc
+          .perform(
+              get("/api/admin/plans/{id}/family-subscribers", f.target)
+                  .param("size", "20")
+                  .header("Authorization", bearer(admin)))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("totalElements").value(size))
+          .andExpect(jsonPath("content.length()").value(20));
+      long readEnd = System.nanoTime();
       System.out.printf(
-          "CONTENT_SCALE accounts=%d freeze_ms=%d assess_ms=%d apply_ms=%d%n",
+          "CONTENT_SCALE accounts=%d freeze_ms=%d assess_ms=%d apply_ms=%d subscriber_page_ms=%d%n",
           size,
           (frozen - start) / 1_000_000,
           (assessed - frozen) / 1_000_000,
-          (applied - assessed) / 1_000_000);
+          (applied - assessed) / 1_000_000,
+          (readEnd - readStart) / 1_000_000);
     }
   }
 
@@ -645,6 +733,111 @@ class PlanVersionRolloutIntegrationTest extends PlatformShellIntegrationTestSupp
                 .getFirst()
                 .getId())
         .orElseThrow();
+  }
+
+  @Test
+  void familySubscriberPresetsKeepCoexistingVersionsAndOtherFamiliesSeparate() throws Exception {
+    var f = fixture(2);
+    fixture(1);
+    var selected = new Fixture(f.source, f.target, List.of(f.accounts.getFirst()));
+    var job = create(selected, request(selected, Audience.SELECTED, Timing.NOW, List.of()));
+    processor.processDue(clock.instant());
+    confirm(detail(job.summary().id()), false, 200);
+    processor.processDue(clock.instant());
+    assertThat(subscriberView(f.source, "ALL").path("totalElements").asLong()).isEqualTo(2);
+    var old = subscriberView(f.source, "CURRENT_VERSION");
+    assertThat(old.path("content").get(0).path("productVersionNumber").asLong()).isEqualTo(1);
+    assertThat(old.path("totalElements").asLong()).isEqualTo(1);
+    var newer = subscriberView(f.source, "OTHER_VERSIONS");
+    assertThat(newer.path("content").get(0).path("productVersionNumber").asLong()).isEqualTo(2);
+    assertThat(newer.path("content").get(0).path("retainedTotal").asText()).isEqualTo("100.0000");
+    assertThat(newer.path("totalElements").asLong()).isEqualTo(1);
+    assertThat(subscriberView(f.source, "PENDING").path("totalElements").asLong()).isZero();
+    mockMvc
+        .perform(
+            get("/api/admin/plans/{id}/family-subscribers", f.source)
+                .header("Authorization", bearer(registerClientAndGetToken())))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void pendingAndNeedsReviewPresetsTrackOnlyUnfinishedOrUnresolvedInstructions() throws Exception {
+    var f = fixture(1);
+    var job = create(f, request(f, Audience.SELECTED, Timing.AT_RENEWAL, List.of()));
+    processor.processDue(clock.instant());
+    assertThat(subscriberView(f.source, "PENDING").path("totalElements").asLong()).isZero();
+    confirm(detail(job.summary().id()), false, 200);
+    processor.processDue(clock.instant());
+    assertThat(subscriberView(f.source, "PENDING").path("totalElements").asLong()).isEqualTo(1);
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/cancel", job.summary().id())
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Change timing\"}"))
+        .andExpect(status().isOk());
+    assertThat(subscriberView(f.source, "PENDING").path("totalElements").asLong()).isZero();
+    var next = create(f, request(f, Audience.SELECTED, Timing.NOW, List.of()));
+    processor.processDue(clock.instant());
+    confirm(detail(next.summary().id()), false, 200);
+    transitions.claimOrResume(next.summary().id(), clock.instant());
+    var item =
+        items
+            .findAllByJobId(
+                next.summary().id(), org.springframework.data.domain.PageRequest.of(0, 10))
+            .getContent()
+            .getFirst();
+    worker.failed(next.summary().id(), item.getId(), new RuntimeException("Technical failure"));
+    worker.finishExecution(next.summary().id());
+    assertThat(subscriberView(f.source, "NEEDS_REVIEW").path("totalElements").asLong())
+        .isEqualTo(1);
+    mockMvc
+        .perform(
+            post(BASE + "/{id}/retry", next.summary().id())
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"Recovered\"}"))
+        .andExpect(status().isOk());
+    processor.processDue(clock.instant());
+    assertThat(subscriberView(f.source, "NEEDS_REVIEW").path("totalElements").asLong()).isZero();
+  }
+
+  @Test
+  void familySubscriberSearchEscapesWildcardsAndBoundsPages() throws Exception {
+    var f = fixture(2);
+    tx.executeWithoutResult(
+        ignored -> {
+          var account = accounts.findById(f.accounts.getFirst()).orElseThrow();
+          account.setName("50% local");
+          accounts.saveAndFlush(account);
+        });
+    mockMvc
+        .perform(
+            get("/api/admin/plans/{id}/family-subscribers", f.source)
+                .param("search", "%")
+                .header("Authorization", bearer(admin)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("totalElements").value(1));
+    mockMvc
+        .perform(
+            get("/api/admin/plans/{id}/family-subscribers", f.source)
+                .param("size", "101")
+                .header("Authorization", bearer(admin)))
+        .andExpect(status().isBadRequest());
+  }
+
+  private com.fasterxml.jackson.databind.JsonNode subscriberView(UUID planId, String view)
+      throws Exception {
+    return objectMapper.readTree(
+        mockMvc
+            .perform(
+                get("/api/admin/plans/{id}/family-subscribers", planId)
+                    .param("view", view)
+                    .header("Authorization", bearer(admin)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString());
   }
 
   private void verified(Fixture f, boolean value) {

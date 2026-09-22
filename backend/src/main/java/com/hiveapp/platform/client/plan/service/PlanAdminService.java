@@ -60,6 +60,7 @@ public interface PlanAdminService {
       versionRolloutResults(
           UUID jobId,
           com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobItemStatus status,
+          String reason,
           org.springframework.data.domain.Pageable pageable);
 
   com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Detail confirmVersionRollout(
@@ -157,6 +158,15 @@ public interface PlanAdminService {
       String search,
       com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus status,
       Pageable pageable);
+
+  Page<com.hiveapp.platform.client.plan.dto.PlanSubscriberViewModels.Subscriber> listFamilySubscribers(
+      UUID planId, com.hiveapp.platform.client.plan.dto.PlanSubscriberViewModels.View view, String search,
+      com.hiveapp.platform.client.plan.domain.constant.SubscriptionStatus status, String currency,
+      com.hiveapp.platform.client.plan.domain.constant.BillingCycle cycle, Pageable pageable);
+
+  Page<com.hiveapp.platform.client.plan.service.PlanVersionHistory.Event> planVersionHistory(UUID planId,
+      com.hiveapp.platform.client.plan.service.PlanVersionHistory.Kind kind, UUID actorId,
+      java.time.Instant from, java.time.Instant until, Pageable pageable);
 
   Page<PlanSubscriberOwnerLookupDto> findPlanSubscribersByOwnerEmail(
       UUID planId, String ownerEmail, Pageable pageable);

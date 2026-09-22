@@ -151,6 +151,24 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     private final com.hiveapp.platform.client.plan.service.PlanVersionOperations planVersions;
     private final com.hiveapp.platform.client.plan.service.PlanVersionApplicationOperations versionApplications;
     private final com.hiveapp.platform.client.plan.service.PlanVersionRolloutOperations versionRollouts;
+    private final com.hiveapp.platform.client.plan.service.PlanSubscriberViews subscriberViews;
+    private final com.hiveapp.platform.client.plan.service.PlanVersionHistory versionHistory;
+
+    @Override
+    @PermissionNode(key = "read_version_history", description = "Read bounded Plan family version/application audit with actor and date filters")
+    public Page<com.hiveapp.platform.client.plan.service.PlanVersionHistory.Event> planVersionHistory(UUID planId,
+            com.hiveapp.platform.client.plan.service.PlanVersionHistory.Kind kind, UUID actorId,
+            Instant from, Instant until, Pageable pageable) {
+        return versionHistory.list(planId, kind, actorId, from, until, pageable);
+    }
+
+    @Override
+    @PermissionNode(key = "list_family_subscribers", description = "Read current Plan-family subscribers and version/change presets")
+    public Page<com.hiveapp.platform.client.plan.dto.PlanSubscriberViewModels.Subscriber> listFamilySubscribers(
+            UUID planId, com.hiveapp.platform.client.plan.dto.PlanSubscriberViewModels.View view, String search,
+            SubscriptionStatus status, String currency, BillingCycle cycle, Pageable pageable) {
+        return subscriberViews.list(planId, view, search, status, currency, cycle, pageable);
+    }
     private final AdminMutationAuthorizer adminMutationAuthorizer;
     private final PlanAdminReadModels readModels;
     private final PlanFeatureRepository planFeatureRepository;
@@ -197,8 +215,8 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
 
     @Override
     @PermissionNode(key = "list_version_rollout_results", description = "Read per-subscriber content-version impact and outcomes")
-    public Page<com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Item> versionRolloutResults(UUID jobId, com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobItemStatus status, Pageable pageable) {
-        return versionRollouts.results(jobId, status, pageable);
+    public Page<com.hiveapp.platform.client.plan.dto.PlanVersionRolloutModels.Item> versionRolloutResults(UUID jobId, com.hiveapp.platform.client.plan.domain.constant.SubscriptionChangeJobItemStatus status, String reason, Pageable pageable) {
+        return versionRollouts.results(jobId, status, reason, pageable);
     }
 
     @Override
