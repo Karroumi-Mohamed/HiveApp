@@ -348,6 +348,7 @@ export function ProductShell({
   label,
   email,
   context,
+  headerActions,
   onLogout,
   children,
 }: {
@@ -355,6 +356,7 @@ export function ProductShell({
   label: string;
   email: string;
   context?: ReactNode;
+  headerActions?: ReactNode;
   onLogout: () => void;
   children: ReactNode;
 }) {
@@ -436,6 +438,7 @@ export function ProductShell({
             {context}
           </div>
           <div className="flex items-center gap-1">
+            {headerActions}
             <Button className="text-xs font-semibold" onClick={toggleLanguage} size="sm" variant="ghost">
               {language === "fr" ? t("common.arabic") : t("common.french")}
             </Button>

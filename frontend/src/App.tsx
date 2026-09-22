@@ -106,8 +106,12 @@ import { ClientRolesPage } from "@/features/client/roles/client-roles-page";
 import { ClientBillingDocumentPage } from "@/features/client/subscription/client-billing-document-page";
 import { ClientSubscriptionPage } from "@/features/client/subscription/client-subscription-page";
 import { CommunicationAdminDetail, CommunicationAdminHub } from "@/features/communications/admin-communication-pages";
-import { ClientCommunicationsPage } from "@/features/communications/client-communications-page";
+import {
+  ClientCommunicationsPage,
+  OperatorNotificationsPage,
+} from "@/features/communications/client-communications-page";
 import { CommunicationComposer } from "@/features/communications/communication-composer";
+import { NotificationDeliveryPage } from "@/features/communications/notification-delivery-page";
 import { DesignSystemPreview } from "@/features/design-system/design-system-preview";
 
 const router = createBrowserRouter([
@@ -484,6 +488,22 @@ const router = createBrowserRouter([
         element: (
           <AdminReadPermissionGate anyOf={adminActivitiesSurfacePermissions}>
             <AdminActivitiesPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "notifications",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.notificationsRead]}>
+            <OperatorNotificationsPage />
+          </AdminReadPermissionGate>
+        ),
+      },
+      {
+        path: "notifications/delivery",
+        element: (
+          <AdminReadPermissionGate allOf={[adminPermissions.notificationsDelivery]}>
+            <NotificationDeliveryPage />
           </AdminReadPermissionGate>
         ),
       },

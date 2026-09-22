@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { CommunicationDraft } from "@/api/communication-api";
-import { communicationDraftValid, localDateTime } from "./communication-rules";
+import type { CommunicationDraft, CommunicationItem } from "@/api/communication-api";
+import { communicationDraftValid, localDateTime, notificationAction } from "./communication-rules";
 
 const draft: CommunicationDraft = {
   kind: "NOTICE",
@@ -9,7 +9,7 @@ const draft: CommunicationDraft = {
   messageBody: "Details",
   accountIds: ["account-1"],
   email: false,
-  replies: false,
+  offerId: null,
   availableAt: null,
   expiresAt: null,
 };
@@ -25,10 +25,32 @@ describe("communication review", () => {
     ])
       expect(communicationDraftValid({ ...draft, ...patch })).toBe(false);
   });
-  test("warnings cannot be marketing and only messages can allow replies", () => {
+  test("warnings cannot be marketing and actionable notifications cannot be fabricated manually", () => {
     expect(communicationDraftValid({ ...draft, kind: "WARNING", purpose: "MARKETING" })).toBe(false);
-    expect(communicationDraftValid({ ...draft, replies: true })).toBe(false);
-    expect(communicationDraftValid({ ...draft, kind: "MESSAGE", replies: true })).toBe(true);
+    expect(communicationDraftValid({ ...draft, kind: "ACTION" })).toBe(false);
+    expect(communicationDraftValid({ ...draft, kind: "OFFER", purpose: "MARKETING" })).toBe(false);
+    expect(communicationDraftValid({ ...draft, kind: "OFFER", purpose: "MARKETING", offerId: "offer-1" })).toBe(true);
+    expect(
+      communicationDraftValid({
+        ...draft,
+        kind: "OFFER",
+        purpose: "MARKETING",
+        offerId: "offer-1",
+        accountIds: Array.from({ length: 101 }, (_, i) => String(i)),
+      }),
+    ).toBe(false);
+  });
+  test("source actions stay in the correct application and use contextual labels", () => {
+    const item = {
+      actionPath: "/app/offers/123",
+      kind: "OFFER",
+      topic: "COMMERCIAL",
+      source: "ADMIN",
+    } as CommunicationItem;
+    expect(notificationAction(item)).toEqual({ path: "/app/offers/123", label: "offerAction" });
+    expect(notificationAction(item, true)).toBeNull();
+    for (const path of ["https://evil.invalid", "//evil.invalid", "/app/\\evil", "/admin/invoices/1"])
+      expect(notificationAction({ ...item, actionPath: path })).toBeNull();
   });
   test("expiry must follow both availability and now", () => {
     const now = Date.parse("2026-09-22T00:00:00Z");

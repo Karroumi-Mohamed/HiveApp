@@ -21,6 +21,7 @@ import { type ProductNavigationGroup, ProductShell } from "@/components/patterns
 import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCommunicationCopy } from "@/features/communications/communication-copy";
+import { ClientNotificationShortcut } from "@/features/communications/notification-shortcut";
 
 export function ClientLayout() {
   const communicationCopy = useCommunicationCopy();
@@ -92,7 +93,7 @@ export function ClientLayout() {
         },
         { label: "Mon accès", to: "/app/me", icon: UserCircleIcon },
         {
-          label: communicationCopy("title"),
+          label: communicationCopy("notifications"),
           to: "/app/communications",
           icon: BellIcon,
           visible: !session.isB2B && session.can(clientPermissions.communicationsRead),
@@ -124,6 +125,7 @@ export function ClientLayout() {
   ) : null;
   return (
     <ProductShell
+      headerActions={<ClientNotificationShortcut />}
       context={context}
       email={session.account.name}
       groups={groups}

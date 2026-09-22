@@ -1,5 +1,6 @@
 import {
   ArrowsClockwiseIcon,
+  BellIcon,
   BuildingsIcon,
   ChartLineUpIcon,
   CreditCardIcon,
@@ -35,8 +36,11 @@ import {
 import { useAdminSession } from "@/auth/session-provider";
 import { type ProductNavigationGroup, ProductShell } from "@/components/patterns/product-shell";
 import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
+import { useCommunicationCopy } from "@/features/communications/communication-copy";
+import { OperatorNotificationShortcut } from "@/features/communications/notification-shortcut";
 
 export function AdminLayout() {
+  const communicationCopy = useCommunicationCopy();
   const session = useAdminSession();
   const location = useLocation();
   const navigate = useNavigate();
@@ -191,7 +195,7 @@ export function AdminLayout() {
           visible: adminActivitiesSurfacePermissions.some(session.can),
         },
         {
-          label: "Communications",
+          label: communicationCopy("title"),
           to: "/admin/communications",
           icon: EnvelopeSimpleIcon,
           visible: adminCommunicationsSurfacePermissions.some(session.can),
@@ -222,11 +226,20 @@ export function AdminLayout() {
     },
     {
       label: "Plateforme",
-      items: [{ label: "Mon accès", to: "/admin/me", icon: UserCircleIcon }],
+      items: [
+        {
+          label: communicationCopy("notifications"),
+          to: "/admin/notifications",
+          icon: BellIcon,
+          visible: session.can(adminPermissions.notificationsRead),
+        },
+        { label: "Mon accès", to: "/admin/me", icon: UserCircleIcon },
+      ],
     },
   ];
   return (
     <ProductShell
+      headerActions={<OperatorNotificationShortcut />}
       email={session.me.email}
       groups={groups}
       label="Administration plateforme"

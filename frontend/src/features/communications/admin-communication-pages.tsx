@@ -22,7 +22,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AdminCommunicationsPage } from "@/features/admin/operations/admin-communications-page";
 import { communicationDate, useCommunicationCopy } from "./communication-copy";
-import { CommunicationThread } from "./communication-thread";
 
 const publicationColumns = createDataColumns<CommunicationPublication>();
 const recipientColumns = createDataColumns<CommunicationRecipient>();
@@ -212,7 +211,6 @@ export function CommunicationAdminDetail() {
               [c("availableShort"), communicationDate(item.availableAt)],
               [c("expiry"), communicationDate(item.expiresAt)],
               [c("delivery"), c(item.email ? "inAppEmail" : "NOT_REQUESTED")],
-              [c("replies"), c(item.replies ? "enabled" : "disabled")],
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="text-muted-foreground">{label}</dt>
@@ -301,8 +299,7 @@ function PublicationResults({ publication }: { publication: CommunicationPublica
   const c = useCommunicationCopy(),
     session = useAdminSession(),
     cache = useQueryClient();
-  const [page, setPage] = useState(0),
-    [selected, setSelected] = useState<CommunicationRecipient | null>(null);
+  const [page, setPage] = useState(0);
   const query = useQuery({
     queryKey: ["admin", "communications", publication.id, "results", page],
     queryFn: () => communicationApi.results(publication.id, page),
@@ -310,13 +307,6 @@ function PublicationResults({ publication }: { publication: CommunicationPublica
   const retry = useMutation({
     mutationFn: communicationApi.retry,
     onSuccess: () => void cache.invalidateQueries({ queryKey: ["admin", "communications"] }),
-  });
-  const close = useMutation({
-    mutationFn: ({ id, closed }: { id: string; closed: boolean }) => communicationApi.close(id, closed),
-    onSuccess: (_, v) => {
-      setSelected((s) => (s?.id === v.id ? { ...s, closed: v.closed } : s));
-      void cache.invalidateQueries({ queryKey: ["admin", "communications"] });
-    },
   });
   const canRetry =
     session.can(p.customerCommunicationsRetry) &&
@@ -335,17 +325,11 @@ function PublicationResults({ publication }: { publication: CommunicationPublica
     ...(publication.kind === "WARNING"
       ? [recipientColumns.accessor("acknowledgements", { header: c("acknowledgements") })]
       : []),
-    ...(publication.kind === "MESSAGE" ? [recipientColumns.accessor("replies", { header: c("replies") })] : []),
     recipientColumns.display({
       id: "actions",
       header: c("actions"),
       cell: ({ row }) => (
         <div className="flex flex-wrap gap-2">
-          {publication.kind === "MESSAGE" && session.can(p.customerCommunicationsReadReplies) && (
-            <Button size="sm" variant="outline" onClick={() => setSelected(row.original)}>
-              {c("open")}
-            </Button>
-          )}
           {currentlyAvailable && canRetry && ["FAILED", "SUPPRESSED"].includes(row.original.emailDelivery) && (
             <Button size="sm" variant="ghost" disabled={retry.isPending} onClick={() => retry.mutate(row.original.id)}>
               {c("retry")}
@@ -376,53 +360,6 @@ function PublicationResults({ publication }: { publication: CommunicationPublica
           {retry.error.message}
         </p>
       )}
-      <Dialog
-        open={!!selected}
-        onOpenChange={(open) => {
-          if (!open) setSelected(null);
-        }}
-      >
-        <DialogContent closeLabel={c("dismiss")} className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{selected?.accountName}</DialogTitle>
-            <DialogDescription>{c("messageHint")}</DialogDescription>
-          </DialogHeader>
-          {selected && (
-            <>
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">{c(selected.closed ? "closed" : "privateThread")}</p>
-                {publication.replies && currentlyAvailable && session.can(p.customerCommunicationsClose) && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={close.isPending}
-                    onClick={() => close.mutate({ id: selected.id, closed: !selected.closed })}
-                  >
-                    {c(selected.closed ? "reopen" : "closeThread")}
-                  </Button>
-                )}
-              </div>
-              {close.isError && (
-                <p role="alert" className="text-sm text-destructive">
-                  {close.error.message}
-                </p>
-              )}
-              <CommunicationThread
-                key={selected.id}
-                id={selected.id}
-                admin
-                canReply={
-                  publication.replies &&
-                  !selected.closed &&
-                  currentlyAvailable &&
-                  selected.visible &&
-                  session.can(p.customerCommunicationsReply)
-                }
-              />
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </section>
   );
 }

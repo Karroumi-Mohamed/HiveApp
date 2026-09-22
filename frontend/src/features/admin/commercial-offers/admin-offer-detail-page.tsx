@@ -4,6 +4,7 @@ import {
   ArrowRightIcon,
   CopyIcon,
   EyeIcon,
+  MegaphoneIcon,
   PencilSimpleIcon,
   PlayIcon,
   StopIcon,
@@ -49,6 +50,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { adminCommercialKeys, commercialQueryEnabled } from "@/features/commercial/commercial-query";
+import { useCommunicationCopy } from "@/features/communications/communication-copy";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   OfferApplyAccountDialog,
@@ -75,6 +77,7 @@ const pageFrom = (value: string | null) => (value && /^\d+$/.test(value) ? Math.
 const validId = (value?: string | null): value is string => Boolean(value && /^[0-9a-f-]{36}$/i.test(value));
 
 function OfferActions({ offer }: { offer: OfferOperationState }) {
+  const communicationCopy = useCommunicationCopy();
   const session = useAdminSession();
   const visible = (action: OfferAction) => session.can(offerActionPermission[action]);
   const canApplyToAccount = visible("PREVIEW_FOR_ACCOUNT") && visible("APPLY_FOR_ACCOUNT");
@@ -97,6 +100,20 @@ function OfferActions({ offer }: { offer: OfferOperationState }) {
   };
   return (
     <div className="flex flex-wrap justify-end gap-1">
+      {offer.status === "PUBLISHED" &&
+        [
+          adminPermissions.offersRead,
+          adminPermissions.customerCommunicationsRead,
+          adminPermissions.customerCommunicationsCreate,
+          adminPermissions.customerCommunicationsChoose,
+        ].every(session.can) && (
+          <Button variant="ghost" size="sm" asChild>
+            <Link to={`/admin/communications/new?offer=${offer.id}`}>
+              <MegaphoneIcon />
+              {communicationCopy("outbound")}
+            </Link>
+          </Button>
+        )}
       {visible("UPDATE") ? (
         offer.availableActions.includes("UPDATE") &&
         session.can(adminPermissions.offersReadEditableDefinition) &&

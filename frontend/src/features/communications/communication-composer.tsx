@@ -1,7 +1,7 @@
-import { BellIcon, ChatCircleTextIcon, WarningIcon } from "@phosphor-icons/react";
+import { BellIcon, TagIcon, WarningIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Link, useBlocker, useNavigate, useParams } from "react-router";
+import { Link, useBlocker, useNavigate, useParams, useSearchParams } from "react-router";
 import { type CommunicationDraft, type CommunicationPublication, communicationApi } from "@/api/communication-api";
 import { adminPermissions as p } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
@@ -24,8 +24,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { communicationDate, useCommunicationCopy } from "./communication-copy";
 import { communicationDraftValid, localDateTime } from "./communication-rules";
+import { NotificationOfferPicker } from "./notification-offer-picker";
 
-const icons = { NOTICE: BellIcon, WARNING: WarningIcon, MESSAGE: ChatCircleTextIcon };
+const icons = { NOTICE: BellIcon, WARNING: WarningIcon, OFFER: TagIcon };
 const blank: CommunicationDraft = {
   kind: "NOTICE",
   purpose: "SERVICE",
@@ -33,7 +34,7 @@ const blank: CommunicationDraft = {
   messageBody: "",
   accountIds: [],
   email: false,
-  replies: false,
+  offerId: null,
   availableAt: null,
   expiresAt: null,
 };
@@ -58,9 +59,15 @@ export function CommunicationComposer() {
   return <ComposerForm key={communicationId ?? "new"} initial={query.data} />;
 }
 function ComposerForm({ initial }: { initial?: CommunicationPublication }) {
+  const session = useAdminSession();
   const c = useCommunicationCopy(),
     navigate = useNavigate();
-  const [draft, setDraft] = useState<CommunicationDraft>(initial ?? blank),
+  const [params] = useSearchParams();
+  const offerId = params.get("offer");
+  const prefillOffer = offerId && /^[0-9a-f-]{36}$/i.test(offerId) ? offerId : null;
+  const [draft, setDraft] = useState<CommunicationDraft>(
+      initial ?? (prefillOffer ? { ...blank, kind: "OFFER", purpose: "MARKETING", offerId: prefillOffer } : blank),
+    ),
     [step, setStep] = useState(0),
     [dirty, setDirty] = useState(false);
   const [search, setSearch] = useState(""),
@@ -110,7 +117,10 @@ function ComposerForm({ initial }: { initial?: CommunicationPublication }) {
         <Checkbox
           aria-label={`${c("select")} ${row.original.name}`}
           checked={draft.accountIds.includes(row.original.id)}
-          disabled={draft.accountIds.length >= 500 && !draft.accountIds.includes(row.original.id)}
+          disabled={
+            draft.accountIds.length >= (draft.kind === "OFFER" ? 100 : 500) &&
+            !draft.accountIds.includes(row.original.id)
+          }
           onCheckedChange={(checked) => {
             change({
               accountIds:
@@ -148,26 +158,27 @@ function ComposerForm({ initial }: { initial?: CommunicationPublication }) {
             <fieldset>
               <legend className="mb-3 text-sm font-medium">{c("type")}</legend>
               <div className="grid gap-3 sm:grid-cols-3">
-                {(["NOTICE", "WARNING", "MESSAGE"] as const).map((kind) => {
+                {(["NOTICE", "WARNING", "OFFER"] as const).map((kind) => {
                   const Icon = icons[kind];
                   return (
                     <button
                       type="button"
                       key={kind}
+                      disabled={kind === "OFFER" && !session.can(p.offersRead)}
                       aria-pressed={draft.kind === kind}
                       className={`rounded-lg border p-4 text-start focus-visible:ring-2 focus-visible:ring-ring ${draft.kind === kind ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
                       onClick={() =>
                         change({
                           kind,
-                          replies: kind === "MESSAGE" ? draft.replies : false,
-                          purpose: kind === "WARNING" ? "SERVICE" : draft.purpose,
+                          offerId: kind === "OFFER" ? draft.offerId : null,
+                          purpose: kind === "WARNING" ? "SERVICE" : kind === "OFFER" ? "MARKETING" : draft.purpose,
                         })
                       }
                     >
                       <Icon className={`mb-3 size-6 ${kind === "WARNING" ? "text-warning" : "text-primary"}`} />
                       <span className="block font-semibold">{c(kind)}</span>
                       <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-                        {c(kind === "NOTICE" ? "noticeHint" : kind === "WARNING" ? "warningHint" : "messageHint")}
+                        {c(kind === "NOTICE" ? "noticeHint" : kind === "WARNING" ? "warningHint" : "offerHint")}
                       </span>
                     </button>
                   );
@@ -182,7 +193,10 @@ function ComposerForm({ initial }: { initial?: CommunicationPublication }) {
                     type="radio"
                     name="purpose"
                     checked={draft.purpose === purpose}
-                    disabled={draft.kind === "WARNING" && purpose === "MARKETING"}
+                    disabled={
+                      (draft.kind === "WARNING" && purpose === "MARKETING") ||
+                      (draft.kind === "OFFER" && purpose === "SERVICE")
+                    }
                     onChange={() => change({ purpose })}
                   />
                   {c(purpose)}
@@ -209,15 +223,8 @@ function ComposerForm({ initial }: { initial?: CommunicationPublication }) {
                 onChange={(e) => change({ messageBody: e.target.value })}
               />
             </div>
-            {draft.kind === "MESSAGE" && (
-              <label htmlFor="comm-replies" className="flex min-h-11 items-center gap-3 text-sm">
-                <Checkbox
-                  id="comm-replies"
-                  checked={draft.replies}
-                  onCheckedChange={(value) => change({ replies: value === true })}
-                />
-                {c("allowReplies")}
-              </label>
+            {draft.kind === "OFFER" && (
+              <NotificationOfferPicker id={draft.offerId} onChange={(offerId) => change({ offerId })} />
             )}
             <label htmlFor="comm-email" className="flex min-h-11 items-center gap-3 text-sm">
               <Checkbox
@@ -324,10 +331,6 @@ function ComposerForm({ initial }: { initial?: CommunicationPublication }) {
               <div>
                 <dt className="text-muted-foreground">{c("delivery")}</dt>
                 <dd>{c(draft.email ? "inAppEmail" : "NOT_REQUESTED")}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{c("replies")}</dt>
-                <dd>{c(draft.replies ? "enabled" : "disabled")}</dd>
               </div>
             </dl>
             <p className="text-sm text-muted-foreground">{c("draftOnly")}</p>

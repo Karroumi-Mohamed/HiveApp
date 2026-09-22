@@ -1,6 +1,30 @@
 import type { PageResponse } from "./contracts";
 import { apiRequest, jsonBody } from "./http";
-export type CommunicationKind = "NOTICE" | "WARNING" | "MESSAGE";
+export type CommunicationKind = "NOTICE" | "WARNING" | "ACTION" | "OFFER";
+export type NotificationTopic =
+  | "GENERAL"
+  | "ACCOUNT"
+  | "BILLING"
+  | "COLLABORATION"
+  | "COMMERCIAL"
+  | "OPERATIONS"
+  | "TASKS";
+export type NotificationSetting = { topic: NotificationTopic; inAppEnabled: boolean; emailEnabled: boolean };
+export type InternalNotice = { commandId: string; messageTitle: string; messageBody: string; memberIds: string[] };
+export type NotificationEvent = {
+  id: string;
+  type: string;
+  state: "PENDING" | "DELIVERED" | "FAILED";
+  attempts: number;
+  nextAttemptAt: string;
+  failureCode: string | null;
+  version: number;
+};
+export type NotificationEmail = Omit<NotificationEvent, "state" | "nextAttemptAt" | "failureCode"> & {
+  state: "PENDING" | "SENDING" | "SENT" | "SUPPRESSED" | "FAILED" | "CANCELLED";
+  nextAttemptAt: string | null;
+  canRetry: boolean;
+};
 export type CommunicationPurpose = "SERVICE" | "MARKETING";
 export type CommunicationDraft = {
   kind: CommunicationKind;
@@ -9,7 +33,7 @@ export type CommunicationDraft = {
   messageBody: string;
   accountIds: string[];
   email: boolean;
-  replies: boolean;
+  offerId: string | null;
   availableAt: string | null;
   expiresAt: string | null;
 };
@@ -36,15 +60,11 @@ export type CommunicationItem = {
   archived: boolean;
   canAcknowledge: boolean;
   canArchive: boolean;
-  canReply: boolean;
-  closed: boolean;
-};
-export type CommunicationReply = {
-  id: string;
-  commandId: string;
-  fromAdmin: boolean;
-  replyBody: string;
-  createdAt: string;
+  topic: NotificationTopic;
+  eventType: string | null;
+  resourceId: string | null;
+  audience: "ACCOUNT" | "MEMBER" | "PLATFORM" | "OPERATOR";
+  resolved: boolean;
 };
 export type CommunicationRecipient = {
   id: string;
@@ -55,8 +75,6 @@ export type CommunicationRecipient = {
   emailAttempts: number;
   readers: number;
   acknowledgements: number;
-  replies: number;
-  closed: boolean;
 };
 export type CommunicationPreference = { marketingInApp: boolean; marketingEmail: boolean };
 const admin = <T>(path: string, options: Parameters<typeof apiRequest>[1] = {}) =>
@@ -64,6 +82,9 @@ const admin = <T>(path: string, options: Parameters<typeof apiRequest>[1] = {}) 
 const client = <T>(path: string, options: Parameters<typeof apiRequest>[1] = {}) =>
   apiRequest<T>(`/api/v1/communications${path}`, { ...options, audience: "client" });
 const body = (value: unknown, method = "POST") => ({ method, body: jsonBody(value) });
+const operator = <T>(path: string, options: Parameters<typeof apiRequest>[1] = {}) =>
+  apiRequest<T>(`/api/admin/notifications${path}`, { ...options, audience: "admin" });
+const inboxApi = (platform: boolean) => (platform ? operator : client);
 export const communicationApi = {
   list: (page = 0) => admin<PageResponse<CommunicationPublication>>("", { query: { page, size: 20 } }),
   detail: (id: string) => admin<CommunicationPublication>(`/${id}`),
@@ -80,21 +101,50 @@ export const communicationApi = {
   results: (id: string, page = 0) =>
     admin<PageResponse<CommunicationRecipient>>(`/${id}/results`, { query: { page, size: 20 } }),
   retry: (id: string) => admin<void>(`/entries/${id}/retry-email`, { method: "POST" }),
-  close: (id: string, closed: boolean) => admin<void>(`/entries/${id}/close`, { method: "POST", query: { closed } }),
-  inbox: (kind: CommunicationKind | undefined, archived: boolean, unread: boolean, page = 0) =>
-    client<PageResponse<CommunicationItem>>("", { query: { kind, archived, unread, page, size: 20 } }),
-  item: (id: string) => client<CommunicationItem>(`/${id}`),
-  interact: (id: string, action: "read" | "acknowledge" | "archive", archived = true) =>
-    client<void>(`/${id}/${action}`, { method: "POST", query: action === "archive" ? { archived } : undefined }),
-  thread: (id: string, isAdmin: boolean, page = 0) =>
-    (isAdmin ? admin : client)<PageResponse<CommunicationReply>>(`${isAdmin ? "/entries" : ""}/${id}/replies`, {
-      query: { page, size: 20 },
+  inbox: (
+    kind: CommunicationKind | undefined,
+    archived: boolean,
+    unread: boolean,
+    page = 0,
+    topic?: NotificationTopic,
+    platform = false,
+    companyId?: string | null,
+  ) =>
+    inboxApi(platform)<PageResponse<CommunicationItem>>("", {
+      query: { kind, topic, archived, unread, page, size: 20 },
+      context: { companyId },
     }),
-  reply: (id: string, isAdmin: boolean, commandId: string, replyBody: string) =>
-    (isAdmin ? admin : client)<CommunicationReply>(
-      `${isAdmin ? "/entries" : ""}/${id}/replies`,
-      body({ commandId, replyBody }),
-    ),
+  item: (id: string, platform = false, companyId?: string | null) =>
+    inboxApi(platform)<CommunicationItem>(`/${id}`, { context: { companyId } }),
+  summary: (platform = false, companyId?: string | null) =>
+    inboxApi(platform)<{ unread: number }>("/summary", { context: { companyId } }),
+  interact: (
+    id: string,
+    action: "read" | "acknowledge" | "archive",
+    archived = true,
+    platform = false,
+    companyId?: string | null,
+  ) =>
+    inboxApi(platform)<void>(`/${id}/${action}`, {
+      method: "POST",
+      context: { companyId },
+      query: action === "archive" ? { archived } : undefined,
+    }),
+  settings: (platform = false) => inboxApi(platform)<NotificationSetting[]>(platform ? "/preferences" : "/settings"),
+  setting: (setting: NotificationSetting, platform = false) =>
+    inboxApi(platform)<NotificationSetting>(platform ? "/preferences" : "/settings", body(setting, "PUT")),
+  members: (search: string, page = 0) =>
+    client<PageResponse<{ id: string; name: string }>>("/recipients", { query: { search, page, size: 20 } }),
+  sendInternal: (notice: InternalNotice) =>
+    client<{ commandId: string; recipients: number }>("/internal", body(notice)),
+  events: (state: NotificationEvent["state"] | undefined, page = 0) =>
+    operator<PageResponse<NotificationEvent>>("/delivery", { query: { state, page, size: 20 } }),
+  retryEvent: (id: string, version: number, reason: string) =>
+    operator<void>(`/delivery/${id}/retry`, body({ version, reason })),
+  notificationEmails: (state: NotificationEmail["state"] | undefined, page = 0) =>
+    operator<PageResponse<NotificationEmail>>("/delivery/emails", { query: { state, page, size: 20 } }),
+  retryNotificationEmail: (id: string, version: number, reason: string) =>
+    operator<void>(`/delivery/emails/${id}/retry`, body({ version, reason })),
   preferences: () => client<CommunicationPreference>("/preferences"),
   updatePreferences: (value: CommunicationPreference) =>
     client<CommunicationPreference>("/preferences", body(value, "PUT")),
