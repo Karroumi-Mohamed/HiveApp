@@ -206,11 +206,16 @@ test("refresh updates selected detail and removes obsolete acknowledge actions",
     const u = new URL(String(input));
     return response(u.pathname.endsWith("/entry-1") ? current : page([current]));
   }) as typeof fetch;
-  const view = mount(true, [p.communicationsRead, p.communicationsAcknowledge],
-    "/app/communications?item=entry-1", <ClientCommunicationsPage />);
+  const view = mount(
+    true,
+    [p.communicationsRead, p.communicationsAcknowledge],
+    "/app/communications?item=entry-1",
+    <ClientCommunicationsPage />,
+  );
   await waitFor(() => expect(view.getByRole("button", { name: "J’ai vu" })).toBeTruthy());
   current = { ...warning, sourceState: "RESOLVED", resolved: true, canAcknowledge: false };
-  await userEvent.setup({ document: browser.document as unknown as Document })
+  await userEvent
+    .setup({ document: browser.document as unknown as Document })
     .click(view.getByRole("button", { name: "Actualiser" }));
   await waitFor(() => expect(view.queryByRole("button", { name: "J’ai vu" })).toBeNull());
 });

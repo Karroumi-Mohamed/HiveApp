@@ -436,11 +436,6 @@ public class CommunicationService {
         entries.findById(id).filter(e -> access.matches(e, viewer)).orElseThrow(() -> missing(id));
     var e = lock ? entries.lock(candidate.getId()).orElseThrow(() -> missing(id)) : candidate;
     if (!access.matches(e, viewer)
-        || (e.isOptional()
-            && notificationPreferences
-                .findByUserIdAndTopic(viewer.userId(), e.getTopic())
-                .filter(p -> !p.isInAppEnabled())
-                .isPresent())
         || !visible(e)
         || (e.getRequiredPermission() != null
             && !PermissionGuard.has(new Permission(e.getRequiredPermission())))) throw missing(id);

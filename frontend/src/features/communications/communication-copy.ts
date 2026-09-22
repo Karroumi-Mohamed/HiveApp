@@ -25,8 +25,8 @@ const copy = {
   outbound: ["Communiquer aux clients", "التواصل مع العملاء"],
   personalSettings: ["Mes préférences", "تفضيلاتي"],
   requiredHint: [
-    "Ces choix concernent les informations facultatives. Les avertissements et actions nécessaires restent visibles.",
-    "تخص هذه الخيارات المعلومات الاختيارية. تبقى التحذيرات والإجراءات الضرورية ظاهرة.",
+    "Ces choix filtrent les informations facultatives du flux, sans bloquer leur lien direct. L’email est envoyé seulement si l’événement le prévoit. Les avertissements obligatoires et le consentement commercial restent séparés.",
+    "تخفي هذه الخيارات المعلومات الاختيارية من القائمة دون منع رابطها المباشر. يرسل البريد فقط عندما يدعمه الحدث. التنبيهات الإلزامية والموافقة التجارية مستقلة.",
   ],
   topic: ["Domaine", "المجال"],
   GENERAL: ["Général", "عام"],

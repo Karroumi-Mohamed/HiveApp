@@ -19,6 +19,7 @@ public class CommunicationEmailSource implements CommercialNoticeDeliverySource 
   private final NotificationAccess access;
   private final NotificationPreferenceRepository notificationPreferences;
   private final NotificationOfferEligibility offers;
+  private final com.hiveapp.shared.config.ActivationProperties links;
   private final Clock clock;
 
   public List<UUID> due(Instant now, int limit) {
@@ -77,9 +78,12 @@ public class CommunicationEmailSource implements CommercialNoticeDeliverySource 
         recipient.getEmail(),
         "HiveApp — Notification",
         e.getPurpose() == Purpose.MARKETING
-            ? e.getMessageBody()
+            ? e.getMessageBody() + "\n\n" + links.getValidatedOrigin() + (e.getActionPath() == null ? "" : e.getActionPath())
             : "Une notification vous attend dans HiveApp → Notifications. Connectez-vous pour la"
-                + " consulter.");
+                + " consulter.\n\n" + links.getValidatedOrigin()
+                + (e.getAccountId() == null ? "/admin/notifications" : "/app/communications")
+                + "?item=" + e.getId()
+                + (e.getCompanyId() == null ? "" : "&company=" + e.getCompanyId()));
   }
 
   @Transactional

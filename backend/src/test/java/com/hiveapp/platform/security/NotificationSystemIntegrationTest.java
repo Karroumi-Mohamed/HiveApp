@@ -336,6 +336,28 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
   }
 
   @Test
+  void emailOnlyOptionalNoticeHasAnAuthorizedDirectLinkButIsAbsentFromTheFeed() throws Exception {
+    transactions.executeWithoutResult(tx -> accounts.findById(account).orElseThrow().getOwner().setEmailVerified(true));
+    UUID event = transactions.execute(tx -> publisher.publish(CoreNotification.INTERNAL_INFORMATION,
+        UUID.randomUUID().toString(), NotificationPublisher.Target.member(account, owner), null,
+        "Information", "Optional information", true, null, null));
+    UUID id = deliver(event);
+    mockMvc.perform(put(CLIENT + "/settings").header("Authorization", bearer(client))
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"topic\":\"ACCOUNT\",\"inAppEnabled\":false,\"emailEnabled\":true}"))
+        .andExpect(status().isOk());
+    var claim = email.claimNotice(id);
+    assertThat(claim).isNotNull();
+    assertThat(claim.body()).contains("/app/communications?item=" + id);
+    mockMvc.perform(get(CLIENT + "/" + id).header("Authorization", bearer(client))).andExpect(status().isOk());
+    mockMvc.perform(get(CLIENT + "/" + id).header("Authorization", bearer(other))).andExpect(status().isNotFound());
+    mockMvc.perform(get(CLIENT).param("topic", "ACCOUNT").header("Authorization", bearer(client)))
+        .andExpect(status().isOk()).andExpect(jsonPath("totalElements").value(0));
+    assertThat(CoreNotification.PAYMENT_FAILED.actionPath(UUID.randomUUID()))
+        .startsWith("/app/subscription?tab=invoices&invoice=").doesNotContain("/document");
+  }
+
+  @Test
   void optionalPreferencesDoNotMuteRequiredWarnings() throws Exception {
     UUID optional =
         deliver(
@@ -353,7 +375,9 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
         .andExpect(status().isOk());
     mockMvc
         .perform(get(CLIENT + "/" + optional).header("Authorization", bearer(client)))
-        .andExpect(status().isNotFound());
+        .andExpect(status().isOk());
+    mockMvc.perform(get(CLIENT).param("topic", "ACCOUNT").header("Authorization", bearer(client)))
+        .andExpect(status().isOk()).andExpect(jsonPath("totalElements").value(0));
     mockMvc
         .perform(
             put(CLIENT + "/settings")

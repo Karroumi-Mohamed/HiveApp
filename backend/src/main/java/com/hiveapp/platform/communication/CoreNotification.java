@@ -39,8 +39,8 @@ public enum CoreNotification implements NotificationDefinition {
       "billing.payment_failed",
       Topic.BILLING,
       Kind.WARNING,
-      PlatformPermissions.Subscription.Read_invoice_document.permission(),
-      "/app/subscription/invoices/"),
+      PlatformPermissions.Subscription.Read_invoice.permission(),
+      "/app/subscription?tab=invoices&invoice="),
   BILLING_ATTENTION(
       "operations.billing_attention",
       Topic.OPERATIONS,
@@ -101,6 +101,10 @@ public enum CoreNotification implements NotificationDefinition {
 
   public String actionPath(UUID id) {
     if (path == null) return null;
+    if (this == PAYMENT_FAILED) {
+      if (id == null) throw new IllegalArgumentException("This event requires an invoice.");
+      return path + id;
+    }
     if (!path.endsWith("/")) return path;
     if (id == null) throw new IllegalArgumentException("This event requires a business resource.");
     return path + id + (this == PAYMENT_RECEIVED || this == PAYMENT_FAILED ? "/document" : "");

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useSearchParams } from "react-router";
 import { type CommunicationPreference, communicationApi } from "@/api/communication-api";
 import { adminPermissions, clientPermissions } from "@/auth/permissions";
 import { useAdminSession, useClientSession } from "@/auth/session-provider";
@@ -72,12 +73,15 @@ export function MarketingPreferences() {
 
 export function ClientCommunicationsPage() {
   const session = useClientSession();
+  const [params] = useSearchParams();
+  // Deep links carry source scope; the API still verifies own-account company access.
+  const companyId = params.get("item") && params.get("company") ? params.get("company") : session.selectedCompanyId;
   return (
     <NotificationInbox
       context={{
         platform: false,
-        companyId: session.selectedCompanyId,
-        identity: [session.account?.id, session.permissions?.memberId, session.selectedCompanyId].join(":"),
+        companyId,
+        identity: [session.account?.id, session.permissions?.memberId, companyId].join(":"),
         allowed: !session.isB2B && session.can(clientPermissions.communicationsRead),
         read: session.can(clientPermissions.communicationsMarkRead),
         acknowledge: session.can(clientPermissions.communicationsAcknowledge),
