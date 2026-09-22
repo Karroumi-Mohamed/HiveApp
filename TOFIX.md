@@ -579,7 +579,7 @@ Admins can expose unfinished plans, edit something intended as immutable history
 
 ### COMMUNICATION-001 — Unify notices, warnings and private messages
 
-**Status:** `IMPLEMENTED AND VERIFIED 2026-09-22 — PRODUCTION SCHEMA/SMTP GATES REMAIN OPEN`
+**Status:** `HISTORICAL DELIVERY — CONVERSATION INTERPRETATION SUPERSEDED BY COMMUNICATION-002`
 
 - Shared `NOTICE`, `WARNING`, and `MESSAGE` channels are implemented with independent service/marketing purpose and in-app/email transport. Client actions are read/archive, acknowledge-seeing, and optional private reply; none execute a subscription change, accept a price or resolve a business problem.
 - Admin API `/api/admin/customer-communications` supports drafts, version-checked edits, selected-Account lookup/audience review, explicit publish/schedule, withdrawal, paginated delivery/read/acknowledgement/reply results, failed/suppressed-email retry, replies and thread closure/reopening. Client API `/api/v1/communications` supports the own-Account inbox, detail, per-user interactions, private replies and owner-controlled marketing opt-ins. Authorities are distinct from the existing credential-email monitor.
@@ -588,6 +588,17 @@ Admins can expose unfinished plans, edit something intended as immutable history
 - Live verification in a disposable H2 environment: save/publish a message, client receipt/reply, admin reply/close, client unread/closed state, Arabic dark mode at a narrow viewport with no horizontal overflow. Temporary servers/tabs are removed after verification; no email is sent to real recipients.
 - Verification: clean full backend suite **945 passed, 1 skipped, no failures/errors**. After the final source-warning/recipient-state fixes, focused communication, Plan application/rollout and repricing regressions passed **63 tests, 1 skipped**; the combined Surefire inventory is **946 passed, 1 skipped**. Frontend **435 tests passed**, with lint, typecheck and production build passing. Security coverage includes cross-Account and B2B isolation, separate publish/marketing authorities, source-specific read permissions, private reply/audit boundaries, idempotent receipt/reply commands, stale versions, cancelled/expired delivery claims and marketing opt-outs.
 - Production schema migration/validation and real SMTP deployment remain explicit gates; this is not a promise of automatic Campaign/Offer sends, push/SMS, attachments, client-initiated tickets, real-time chat, legal consent evidence or a throughput benchmark.
+
+### COMMUNICATION-002 — Contextual, scoped and event-driven notifications (not conversations)
+
+**Status:** `OPEN — ACCEPTED IMPLEMENTATION 2026-09-22`
+
+- Correct COMMUNICATION-001's product interpretation: remove live chat/replies/threads and reuse its durable delivery and per-user interaction infrastructure for one-way information, warnings, offers and contextual business notifications.
+- Expand beyond account broadcasts: personal/member, own-account and platform-operator recipients, source-authorized content/actions, account-internal sending and separate B2B-party notifications. Freeze bounded audiences for sends; recheck live membership/authorization on visibility and dispatch. Notifications never confer authority or execute their source action.
+- Implement typed, idempotent transactional event publishing with actual membership/B2B/billing/operational integrations, retaining Plan/repricing notices and source receipt identities. Future tasks/approvals integrate through the same contract; their business modules are not fabricated here.
+- Add contextual sending/history, notification inboxes for clients and operators, source-aware presentation/actions and scoped preferences. Retain opt-in marketing and normal security-email boundaries. Do not equate an acknowledged warning with a resolved domain problem.
+- Verification required: cross-account/admin-client/B2B isolation, revoked membership/permissions, rollback and duplicate events, concurrent fan-out/read/delivery, scheduled/expired/cancelled entries, retry/lease recovery, source-action authorization, schema upgrade and database constraints, bounded paging, frontend tests/build and real browser flows. Record actual production deployment gates rather than treating H2 tests as a production certification.
+- Implementation evidence will be added here after each verified slice. Only existing Decisions/TOFIX planning files are changed.
 
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
 <!-- Shared communications are tracked independently in COMMUNICATION-001; Plan notice delivery alone is not the communications product. -->
