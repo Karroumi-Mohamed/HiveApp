@@ -577,7 +577,18 @@ Admins can expose unfinished plans, edit something intended as immutable history
 
 ---
 
+### COMMUNICATION-001 — Unify notices, warnings and private messages
+
+**Status:** `OPEN — ACCEPTED REWORK IN PROGRESS 2026-09-22`
+
+- Current content/repricing notices and credential-email monitoring are separate narrow surfaces, not a reusable client communication product.
+- Implement `COMMUNICATION-FLOW-001`: distinct kinds/interactions, purpose versus transport, private inbox, draft/publish/schedule/cancel, delivery/retry/results, per-Account message replies, per-user read/acknowledge/archive and owner-controlled marketing preferences.
+- Integrate existing commercial notices without changing required-email gates or exposing private accepted terms; retain legacy paths and use bounded idempotent source indexing.
+- Verify own-Account/B2B/permission isolation, published immutability, schedule/expiry/cancellation, concurrent/idempotent interactions, warning semantics, private replies, opt-in/revocation and stale email claims. Use shared UI components with accessible French/Arabic, light/dark and narrow layouts.
+- Completion evidence and residual limits belong here, not in another specification file.
+
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
+<!-- Shared communications are tracked independently below; Plan notice delivery is not the complete communications product. -->
 
 **Status:** `PLAN VERSION APPLICATION WORKFLOW RESOLVED 2026-09-22 — BROADER RENEWAL/GRACE AND PRODUCTION DEPLOYMENT GATES REMAIN OPEN`
 

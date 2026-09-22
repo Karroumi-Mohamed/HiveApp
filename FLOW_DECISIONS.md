@@ -1544,6 +1544,20 @@ Commercial policies provide reusable operator tools without hard-coding a busine
 
 # Account subscription administration
 
+## COMMUNICATION-FLOW-001 — Shared client notices, warnings and messages
+
+**Status:** `DECIDED — IMPLEMENTATION IN PROGRESS (2026-09-22)`
+
+- Communication kind is distinct from transport: `NOTICE` (read/archive), `WARNING` (explicit acknowledgement; acknowledgement is not resolution), and `MESSAGE` (read and optionally reply in an Account-private thread). The client inbox presents these as separate channels. A future kind must declare its allowed interactions; do not infer behavior from a color or free-form label.
+- Purpose (`SERVICE` or `MARKETING`), source, lifecycle, delivery and per-user interaction are independent. A warning cannot disguise marketing. Viewing, acknowledging, archiving or replying never purchases, accepts a tariff/contract, grants access, resolves a domain problem or changes a subscription.
+- Reuse one bounded inbox/read model and the durable email dispatcher. Existing content-version and repricing notices retain their authoritative domain records, receipt identities, required-dispatch gates and legacy APIs; a shared inbox entry links to their separately authorized details. Credential emails remain a separate security-delivery surface without stored tokens/bodies or generic replay.
+- Admin-authored communications have an editable draft, an explicit frozen selected-Account audience (maximum 500 per publication), previewable content/timing, publish/schedule, expiry, cancellation, delivery results, retry and message-thread close/reply operations. Already published content/audience are immutable. Cancellation cannot recall email already claimed by transport and never erases prior history. Plain text only; no arbitrary HTML or external action URLs.
+- Recipients are Accounts, not arbitrary email strings. Only active own-Account client context may read/interact; B2B delegates cannot access another Account's inbox. Replies are private per Account even when one publication targets many Accounts. Read, acknowledge, archive, reply, preferences, admin content management, publication, marketing publication and results are separately permissioned.
+- Reads, acknowledgements and archives are per user, not global Account consent. Warnings remain visible until the authorized sender/domain withdraws them or they expire. Messages accept replies only while explicitly enabled and open. Posting a reply uses a client command identifier for safe retry and does not silently imply administrative consent.
+- Marketing requires explicit Account-owner opt-in independently for in-app and email; service notices remain independent. Eligibility is rechecked on visibility/email dispatch. Marketing uses this same composition/delivery system, not a second campaign messaging engine. Campaign/Offer acceptance and automation remain separately authorized business flows.
+- Existing notices are indexed without copying private billing/authorization payloads. Source-backed entries cannot be edited, cancelled or resent through generic admin commands: use their owning workflow. Backfill is bounded and idempotent; no inbox GET performs migrations. Future business workflows publish through the same typed service.
+- Delivery order: document; backend and isolation/interaction/lifecycle/retry tests; shared client inbox and admin composer/results; UI tests and live browser validation; final evidence in `TOFIX.md`. Production schema/SMTP deployment remains a separate explicit gate. No new planning document and no subagents.
+
 ## SUBSCRIPTION-FLOW-001 — Finding the correct account
 
 **Status:** `DECIDED`
