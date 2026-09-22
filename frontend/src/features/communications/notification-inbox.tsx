@@ -71,6 +71,8 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
   const detail = useQuery({
     queryKey: [...key, "item", selected],
     enabled: context.allowed && !!selected,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
     queryFn: () => communicationApi.item(selected ?? "", context.platform, context.companyId),
   });
   const act = useMutation({
@@ -81,7 +83,7 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
     },
   });
   if (!context.allowed) return <PermissionState />;
-  const item = detail.data,
+  const item = detail.isError ? undefined : detail.data,
     action = item ? notificationAction(item, context.platform) : null;
   return (
     <div className="space-y-5">

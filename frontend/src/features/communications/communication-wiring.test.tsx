@@ -200,6 +200,20 @@ test("automatic email recovery uses the email endpoint and requires a reviewed r
   expect(submitted).toEqual({ version: 4, reason: "Transport rétabli" });
   expect(calls.some((c) => c.includes("/api/v1/"))).toBe(false);
 });
+test("refresh updates selected detail and removes obsolete acknowledge actions", async () => {
+  let current = warning;
+  globalThis.fetch = (async (input) => {
+    const u = new URL(String(input));
+    return response(u.pathname.endsWith("/entry-1") ? current : page([current]));
+  }) as typeof fetch;
+  const view = mount(true, [p.communicationsRead, p.communicationsAcknowledge],
+    "/app/communications?item=entry-1", <ClientCommunicationsPage />);
+  await waitFor(() => expect(view.getByRole("button", { name: "J’ai vu" })).toBeTruthy());
+  current = { ...warning, sourceState: "RESOLVED", resolved: true, canAcknowledge: false };
+  await userEvent.setup({ document: browser.document as unknown as Document })
+    .click(view.getByRole("button", { name: "Actualiser" }));
+  await waitFor(() => expect(view.queryByRole("button", { name: "J’ai vu" })).toBeNull());
+});
 test("reading and acknowledging are separate actions and active warnings cannot be archived", async () => {
   clientFetch();
   const view = mount(

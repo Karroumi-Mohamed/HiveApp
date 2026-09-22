@@ -625,7 +625,7 @@ The final read audit found gaps beyond the locally verified happy paths in COMMU
 - [ ] **FLOW-1 — B2B party-specific messages:** requester gets request-sent/waiting information; recipient gets an incoming action, without weakening source permissions.
 - [ ] **FLOW-2 — Internal provenance/history:** expose a trustworthy sender origin and authorized sender-owned sent history/results for reviewed internal announcements; no chat or cross-account recipient disclosure.
 - [ ] **OPS-1 — Diagnosable recovery:** show safe failure reasons, timing/correlation and permission-gated business context in delivery operations, without exposing private message bodies or recipient identities to transport-only operators.
-- [ ] **UI-1 — Live detail state:** refresh the selected notification as well as its list so obsolete warnings/actions do not linger.
+- [x] **UI-1 — Live detail state:** selected detail now polls in the foreground alongside the list and hides stale content on a failed refresh. A UI regression verifies refresh removes obsolete acknowledgement actions (communication wiring suite passed).
 - [ ] **CONTRACT-2 — Priority:** implement the independent priority promised by COMMUNICATION-FLOW-002 without allowing marketing to impersonate mandatory urgency.
 - [ ] **CONTENT-1 — Localized automatic content:** replace fixed French producer copy with locale-aware typed templates for supported client languages, including outbound delivery.
 
