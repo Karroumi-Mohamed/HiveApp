@@ -18,6 +18,7 @@ import {
   adminPriceBookDetailSurfacePermissions,
   adminSubscriptionDetailSurfacePermissions,
   adminSubscriptionJobDetailSurfacePermissions,
+  clientNotificationSurfacePermissions,
   clientOfferSurfacePermissions,
   clientPermissions,
   clientSubscriptionSurfacePermissions,
@@ -580,7 +581,7 @@ const router = createBrowserRouter([
       {
         path: "communications",
         element: (
-          <ClientReadPermissionGate allOf={[clientPermissions.communicationsRead]}>
+          <ClientReadPermissionGate anyOf={clientNotificationSurfacePermissions}>
             <ClientCommunicationsPage />
           </ClientReadPermissionGate>
         ),

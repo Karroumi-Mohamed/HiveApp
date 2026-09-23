@@ -45,7 +45,12 @@ const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query
 const { createMemoryRouter, RouterProvider } = await import("react-router");
 const { ClientSessionProvider, AdminSessionProvider } = await import("@/auth/session-provider");
 const { writeSession, clearSession } = await import("@/auth/session-store");
-const { clientPermissions: p, adminPermissions: a } = await import("@/auth/permissions");
+const {
+  clientPermissions: p,
+  adminPermissions: a,
+  clientNotificationSurfacePermissions,
+} = await import("@/auth/permissions");
+const { ClientReadPermissionGate } = await import("@/components/patterns/permission-gate");
 const { ClientCommunicationsPage, OperatorNotificationsPage } = await import("./client-communications-page");
 const { CommunicationAdminHub } = await import("./admin-communication-pages");
 const { CommunicationComposer } = await import("./communication-composer");
@@ -261,7 +266,14 @@ test("sent history is separately authorized and never loads another sender's rec
       ]),
     );
   }) as typeof fetch;
-  const view = mount(true, [p.notificationsSent], "/app/communications", <ClientCommunicationsPage />);
+  const view = mount(
+    true,
+    [p.notificationsSent],
+    "/app/communications",
+    <ClientReadPermissionGate anyOf={clientNotificationSurfacePermissions}>
+      <ClientCommunicationsPage />
+    </ClientReadPermissionGate>,
+  );
   await waitFor(() => expect(view.getByText("Team update")).toBeTruthy());
   expect(calls.every((url) => new URL(url).pathname.endsWith("/communications/internal"))).toBe(true);
   expect(view.queryByRole("button", { name: "Informer des membres" })).toBeNull();

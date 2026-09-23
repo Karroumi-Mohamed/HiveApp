@@ -12,6 +12,7 @@ import {
 } from "@phosphor-icons/react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import {
+  clientNotificationSurfacePermissions,
   clientOfferSurfacePermissions,
   clientPermissions,
   clientSubscriptionSurfacePermissions,
@@ -96,7 +97,7 @@ export function ClientLayout() {
           label: communicationCopy("notifications"),
           to: "/app/communications",
           icon: BellIcon,
-          visible: !session.isB2B && session.can(clientPermissions.communicationsRead),
+          visible: !session.isB2B && clientNotificationSurfacePermissions.some(session.can),
         },
       ],
     },

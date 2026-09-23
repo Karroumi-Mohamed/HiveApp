@@ -16,6 +16,7 @@ import {
   adminProfileCan,
   adminSubscriptionDetailSurfacePermissions,
   adminSubscriptionJobDetailSurfacePermissions,
+  clientNotificationSurfacePermissions,
   clientOfferSurfacePermissions,
   clientPermissions,
   clientProfileCan,
@@ -56,6 +57,13 @@ describe("session permission bypasses", () => {
       clientPermissions.subscriptionListInvoices,
       clientPermissions.subscriptionReadFinancialTimeline,
       clientPermissions.subscriptionReadBillingProfile,
+    ]);
+  });
+
+  test("notification route and navigation preserve independently readable sent history", () => {
+    expect(clientNotificationSurfacePermissions).toEqual([
+      clientPermissions.communicationsRead,
+      clientPermissions.notificationsSent,
     ]);
   });
 
