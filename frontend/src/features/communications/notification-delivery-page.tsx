@@ -24,14 +24,16 @@ import { communicationDate, useCommunicationCopy } from "./communication-copy";
 
 type DeliveryRow = NotificationEvent | NotificationEmail;
 const columns = createDataColumns<DeliveryRow>();
-export function NotificationDeliveryPage() {
+export function NotificationDeliveryPage({ embedded = false }: { embedded?: boolean }) {
   const c = useCommunicationCopy();
   const [email, setEmail] = useState(false);
   return (
     <div className="space-y-5">
-      <Link to="/admin/notifications" className="text-sm text-primary">
-        ← {c("notifications")}
-      </Link>
+      {!embedded && (
+        <Link to="/admin/communications?channel=notifications" className="text-sm text-primary">
+          ← {c("title")}
+        </Link>
+      )}
       <PageHeader title={c("deliveryQueue")} />
       <fieldset className="flex gap-2">
         <legend className="sr-only">{c("deliveryChannel")}</legend>

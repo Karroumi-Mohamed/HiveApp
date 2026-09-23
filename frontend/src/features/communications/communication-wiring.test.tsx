@@ -48,13 +48,16 @@ const { writeSession, clearSession } = await import("@/auth/session-store");
 const {
   clientPermissions: p,
   adminPermissions: a,
-  clientNotificationSurfacePermissions,
+  clientCommunicationSurfacePermissions,
 } = await import("@/auth/permissions");
 const { ClientReadPermissionGate } = await import("@/components/patterns/permission-gate");
 const { ClientCommunicationsPage, OperatorNotificationsPage } = await import("./client-communications-page");
 const { CommunicationAdminHub } = await import("./admin-communication-pages");
 const { CommunicationComposer } = await import("./communication-composer");
 const { NotificationDeliveryPage } = await import("./notification-delivery-page");
+const { InternalCommunicationsPage } = await import("./internal-communications-page");
+const { ClientSettingsPage } = await import("./personal-settings-page");
+const { ClientNotificationShortcut } = await import("./notification-shortcut");
 const { i18n } = await import("@/app/i18n");
 const response = (value: unknown) =>
   new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });
@@ -152,7 +155,7 @@ test("inbox refresh discovers asynchronously delivered notifications without a p
   let delivered = false;
   globalThis.fetch = (async (_input, _init) => response(page(delivered ? [warning] : []))) as typeof fetch;
   const view = mount(true, [p.communicationsRead], "/app/communications", <ClientCommunicationsPage />);
-  await waitFor(() => expect(view.getByRole("heading", { name: "Aucune communication" })).toBeTruthy());
+  await waitFor(() => expect(view.getByRole("heading", { name: "Aucune notification" })).toBeTruthy());
   delivered = true;
   await userEvent
     .setup({ document: browser.document as unknown as Document })
@@ -269,12 +272,12 @@ test("sent history is separately authorized and never loads another sender's rec
   const view = mount(
     true,
     [p.notificationsSent],
-    "/app/communications",
-    <ClientReadPermissionGate anyOf={clientNotificationSurfacePermissions}>
-      <ClientCommunicationsPage />
+    "/app/announcements",
+    <ClientReadPermissionGate anyOf={clientCommunicationSurfacePermissions}>
+      <InternalCommunicationsPage />
     </ClientReadPermissionGate>,
   );
-  await waitFor(() => expect(view.getByText("Team update")).toBeTruthy());
+  await waitFor(() => expect(view.getAllByText("Team update").length).toBeGreaterThan(0));
   expect(calls.every((url) => new URL(url).pathname.endsWith("/communications/internal"))).toBe(true);
   expect(view.queryByRole("button", { name: "Informer des membres" })).toBeNull();
 });
@@ -294,12 +297,11 @@ test("notification preferences save an explicit email language and requests carr
   const view = mount(
     true,
     [p.communicationsRead, p.notificationsPreferences],
-    "/app/communications",
-    <ClientCommunicationsPage />,
+    "/app/settings?section=notifications",
+    <ClientSettingsPage />,
   );
   const user = userEvent.setup({ document: browser.document as unknown as Document });
-  await user.click(view.getByRole("button", { name: "Mes préférences" }));
-  const picker = await view.findByRole("combobox", { name: "Langue des emails automatiques" });
+  const picker = await view.findByRole("combobox", { name: "Langue des emails reçus" });
   await waitFor(() => expect((picker as HTMLButtonElement).disabled).toBe(false));
   await user.click(picker);
   await user.click(view.getByRole("option", { name: "العربية" }));
@@ -349,9 +351,9 @@ test("account-internal send stages a named audience, then sends a stable command
   }) as typeof fetch;
   const view = mount(
     true,
-    [p.communicationsRead, p.notificationsSend, p.notificationsChoose],
-    "/app/communications",
-    <ClientCommunicationsPage />,
+    [p.notificationsSend, p.notificationsChoose],
+    "/app/announcements",
+    <InternalCommunicationsPage />,
   );
   const user = userEvent.setup({ document: browser.document as unknown as Document });
   await user.click(view.getByRole("button", { name: "Informer des membres" }));
@@ -399,4 +401,108 @@ test("composer stages content and recipients without saving before review", asyn
   await user.click(view.getByRole("button", { name: "Continuer" }));
   expect(view.getByRole("button", { name: "Enregistrer le brouillon" })).toBeTruthy();
   expect(calls).toEqual(["/api/admin/customer-communications/recipients"]);
+});
+
+test("receiving has no sending, preference or delivery controls, even for a fully authorized actor", async () => {
+  clientFetch();
+  const view = mount(true, Object.values(p), "/app/communications", <ClientCommunicationsPage />);
+  await view.findByText("Capacity warning");
+  expect(view.queryByRole("button", { name: "Informer des membres" })).toBeNull();
+  expect(view.queryByRole("combobox")).toBeNull();
+  expect(view.queryByRole("table")).toBeNull();
+  expect(calls).toEqual(["GET /api/v1/communications"]);
+});
+
+test("bell opens a lazy receiving panel without navigating or marking messages read", async () => {
+  globalThis.fetch = (async (input) => {
+    const path = new URL(String(input)).pathname;
+    calls.push(path);
+    if (path.endsWith("/summary")) return response({ unread: 1 });
+    return response(page([warning]));
+  }) as typeof fetch;
+  const view = mount(true, [p.communicationsRead], "/app", <ClientNotificationShortcut />);
+  await waitFor(() => expect(calls).toEqual(["/api/v1/communications/summary"]));
+  expect(view.queryByRole("dialog")).toBeNull();
+  const user = userEvent.setup({ document: browser.document as unknown as Document });
+  await user.click(view.getByRole("button", { name: /Notifications/ }));
+  await view.findByRole("dialog");
+  await view.findByText("Capacity warning");
+  expect(view.getByRole("link", { name: "Voir toutes les notifications" }).getAttribute("href")).toBe(
+    "/app/communications",
+  );
+  expect(view.getByRole("link", { name: "Mes préférences" }).getAttribute("href")).toBe(
+    "/app/settings?section=notifications",
+  );
+  expect(calls).toEqual(["/api/v1/communications/summary", "/api/v1/communications"]);
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+});
+
+test("a delivery-only operator can reach diagnostics without fetching their inbox or customer publications", async () => {
+  globalThis.fetch = (async (input) => {
+    calls.push(new URL(String(input)).pathname);
+    return response(page([]));
+  }) as typeof fetch;
+  mount(false, [a.notificationsDelivery], "/admin/communications", <CommunicationAdminHub />);
+  await waitFor(() => expect(calls).toEqual(["/api/admin/notifications/delivery"]));
+});
+
+test("personal notification settings do not fetch account marketing consent or receiving history", async () => {
+  globalThis.fetch = (async (input) => {
+    const path = new URL(String(input)).pathname;
+    calls.push(path);
+    return response(path.endsWith("/language") ? { language: "fr" } : []);
+  }) as typeof fetch;
+  const view = mount(true, [p.communicationsRead], "/app/settings?section=notifications", <ClientSettingsPage />);
+  const language = await view.findByRole("combobox", { name: "Langue des emails reçus" });
+  expect((language as HTMLButtonElement).disabled).toBe(true);
+  await waitFor(() =>
+    expect(calls.sort()).toEqual(["/api/v1/communications/language", "/api/v1/communications/settings"]),
+  );
+  expect(view.queryByText("Préférences du compte")).toBeNull();
+});
+
+test("manual translation requires complete content and is reviewed and sent in the same command", async () => {
+  let sent: Record<string, unknown> | undefined;
+  globalThis.fetch = (async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith("/recipients")) return response(page([{ id: "member-1", name: "Sara" }]));
+    sent = JSON.parse(String(init?.body));
+    return response({ commandId: "accepted", recipients: 1 });
+  }) as typeof fetch;
+  const view = mount(
+    true,
+    [p.notificationsSend, p.notificationsChoose],
+    "/app/announcements",
+    <InternalCommunicationsPage />,
+  );
+  const user = userEvent.setup({ document: browser.document as unknown as Document });
+  await user.click(view.getByRole("button", { name: "Informer des membres" }));
+  await user.type(view.getByLabelText("Titre", { exact: true }), "Bonjour");
+  await user.type(view.getByLabelText("Message", { exact: true }), "Message original");
+  await user.click(await view.findByRole("checkbox", { name: "Sélectionner Sara" }));
+  await user.click(view.getByRole("button", { name: /Ajouter une autre langue/ }));
+  expect((view.getByRole("button", { name: "Vérifier l’envoi" }) as HTMLButtonElement).disabled).toBe(true);
+  await user.type(view.getByLabelText("Titre · العربية"), "مرحبا");
+  await user.type(view.getByLabelText("Message · العربية"), "نص عربي");
+  await user.click(view.getByRole("button", { name: "Vérifier l’envoi" }));
+  expect(view.getByRole("heading", { name: "مرحبا" })).toBeTruthy();
+  expect(view.getByRole("heading", { name: "Bonjour" })).toBeTruthy();
+  expect(sent).toBeUndefined();
+  await user.click(view.getByRole("button", { name: "Envoyer l’information" }));
+  await waitFor(() =>
+    expect(sent).toMatchObject({
+      originalLanguage: "fr",
+      messageTitle: "Bonjour",
+      translations: { ar: { messageTitle: "مرحبا", messageBody: "نص عربي" } },
+      memberIds: ["member-1"],
+    }),
+  );
+});
+
+test("a sending permission without recipient selection never exposes the composer or makes requests", async () => {
+  clientFetch();
+  const view = mount(true, [p.notificationsSend], "/app/announcements", <InternalCommunicationsPage />);
+  expect(view.getByText("Accès indisponible")).toBeTruthy();
+  expect(calls).toEqual([]);
 });

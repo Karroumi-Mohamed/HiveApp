@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/patterns/status-badge";
 import { Button } from "@/components/ui/button";
 import { announceEmailDelivery } from "@/features/admin/operators/operator-email-delivery";
 
-export function AdminMePage() {
+export function AdminMePage({ embedded = false }: { embedded?: boolean }) {
   const { me, retry } = useAdminSession();
   const verification = useMutation({
     mutationFn: adminApi.sendMyEmailVerification,
@@ -23,7 +23,7 @@ export function AdminMePage() {
   if (!me) return null;
   return (
     <div className="space-y-7">
-      <PageHeader title="Mon accès" />
+      {!embedded && <PageHeader title="Mon accès" />}
 
       {!me.emailVerified ? (
         <section className="max-w-3xl border-y border-warning/35 bg-warning-subtle/35 py-4">

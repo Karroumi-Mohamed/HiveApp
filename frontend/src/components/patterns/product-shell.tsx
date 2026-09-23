@@ -256,6 +256,8 @@ function Sidebar({
   onLogout,
   onToggleCollapse,
   onNavigate,
+  profilePath,
+  profileLabel,
 }: {
   groups: ProductNavigationGroup[];
   label: string;
@@ -265,6 +267,8 @@ function Sidebar({
   onLogout: () => void;
   onToggleCollapse?: () => void;
   onNavigate?: () => void;
+  profilePath: string;
+  profileLabel: string;
 }) {
   const { t } = useTranslation();
   const initials = email.slice(0, 2).toUpperCase();
@@ -290,16 +294,23 @@ function Sidebar({
           <div className="flex flex-col items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Avatar className="size-9 border border-sidebar-border">
-                  <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
+                <NavLink
+                  to={profilePath}
+                  aria-label={profileLabel}
+                  onClick={onNavigate}
+                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Avatar className="size-9 border border-sidebar-border">
+                    <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                </NavLink>
               </TooltipTrigger>
               <TooltipContent side={direction === "rtl" ? "left" : "right"}>
                 <div className="text-xs">
                   <p className="font-semibold">{email}</p>
-                  <p className="text-[10px] text-muted-foreground">{t("common.activeSession")}</p>
+                  <p className="text-[10px] text-muted-foreground">{profileLabel}</p>
                 </div>
               </TooltipContent>
             </Tooltip>
@@ -320,13 +331,20 @@ function Sidebar({
           </div>
         ) : (
           <div className="flex w-full items-center gap-3 rounded-lg border border-sidebar-border/60 bg-background/50 p-2 text-start">
-            <Avatar className="size-8 border border-sidebar-border">
-              <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
-            </Avatar>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[10px] text-muted-foreground">{t("common.activeSession")}</span>
-              <span className="block truncate text-xs font-semibold text-foreground">{email}</span>
-            </span>
+            <NavLink
+              to={profilePath}
+              aria-label={profileLabel}
+              onClick={onNavigate}
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Avatar className="size-8 border border-sidebar-border">
+                <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback>
+              </Avatar>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[10px] text-muted-foreground">{profileLabel}</span>
+                <span className="block truncate text-xs font-semibold text-foreground">{email}</span>
+              </span>
+            </NavLink>
             <Button
               aria-label={t("common.signOut")}
               className="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
@@ -349,6 +367,8 @@ export function ProductShell({
   email,
   context,
   headerActions,
+  profilePath,
+  profileLabel,
   onLogout,
   children,
 }: {
@@ -357,6 +377,8 @@ export function ProductShell({
   email: string;
   context?: ReactNode;
   headerActions?: ReactNode;
+  profilePath: string;
+  profileLabel: string;
   onLogout: () => void;
   children: ReactNode;
 }) {
@@ -395,6 +417,8 @@ export function ProductShell({
     >
       <aside className="sticky top-0 hidden h-dvh border-e border-sidebar-border lg:block">
         <Sidebar
+          profilePath={profilePath}
+          profileLabel={profileLabel}
           collapsed={isCollapsed}
           direction={direction}
           email={email}
@@ -423,6 +447,8 @@ export function ProductShell({
                   <SheetDescription>{t("common.openNavigation")}</SheetDescription>
                 </SheetHeader>
                 <Sidebar
+                  profilePath={profilePath}
+                  profileLabel={profileLabel}
                   collapsed={false}
                   direction={direction}
                   email={email}

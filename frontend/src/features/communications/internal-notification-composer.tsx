@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { communicationApi } from "@/api/communication-api";
+import { useTranslation } from "react-i18next";
+import { type AuthoredNotification, communicationApi } from "@/api/communication-api";
+import { normalizeLanguage } from "@/app/i18n";
 import { useClientSession } from "@/auth/session-provider";
 import { createDataColumns, DataTable } from "@/components/patterns/data-table";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
@@ -17,9 +19,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useCommunicationCopy } from "./communication-copy";
+import { ManualNotificationEditor, ManualNotificationPreview } from "./manual-notification-editor";
+import { manualNotificationValid } from "./manual-notification-rules";
 
 const columns = createDataColumns<{ id: string; name: string }>();
 export function InternalNotificationComposer({ onClose }: { onClose: () => void }) {
@@ -27,9 +30,15 @@ export function InternalNotificationComposer({ onClose }: { onClose: () => void 
     cache = useQueryClient(),
     session = useClientSession();
   const [commandId] = useState(() => crypto.randomUUID());
-  const [title, setTitle] = useState(""),
-    [body, setBody] = useState(""),
-    [search, setSearch] = useState("");
+  const { i18n } = useTranslation();
+  const [message, setMessage] = useState<AuthoredNotification>({
+    messageTitle: "",
+    messageBody: "",
+    originalLanguage: normalizeLanguage(i18n.language),
+    translations: {},
+  });
+  const [search, setSearch] = useState("");
+  const dirty = !!message.messageTitle || !!message.messageBody || Object.keys(message.translations ?? {}).length > 0;
   const [selected, setSelected] = useState<Record<string, string>>({}),
     [page, setPage] = useState(0),
     [review, setReview] = useState(false),
@@ -41,27 +50,28 @@ export function InternalNotificationComposer({ onClose }: { onClose: () => void 
     enabled: !review,
   });
   useEffect(() => {
-    if (!title && !body && !Object.keys(selected).length) return;
+    if (!dirty && !Object.keys(selected).length) return;
     const warn = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [title, body, selected]);
+  }, [dirty, selected]);
   const send = useMutation({
     mutationFn: () =>
       communicationApi.sendInternal({
         commandId,
-        messageTitle: title.trim(),
-        messageBody: body.trim(),
+        ...message,
+        messageTitle: message.messageTitle.trim(),
+        messageBody: message.messageBody.trim(),
         memberIds: Object.keys(selected),
       }),
     onSuccess: () => void cache.invalidateQueries({ queryKey: ["client", "notifications"] }),
   });
   const close = () => {
     if (send.isPending) return;
-    if (!send.isSuccess && (title || body || Object.keys(selected).length)) setDiscard(true);
+    if (!send.isSuccess && (dirty || Object.keys(selected).length)) setDiscard(true);
     else onClose();
   };
   const choices = columns.columns([
@@ -115,12 +125,7 @@ export function InternalNotificationComposer({ onClose }: { onClose: () => void 
           <>
             {review ? (
               <div className="space-y-4">
-                <h3 dir="auto" className="font-semibold">
-                  {title}
-                </h3>
-                <p dir="auto" className="max-w-prose whitespace-pre-wrap break-words">
-                  {body}
-                </p>
+                <ManualNotificationPreview value={message} />
                 <div className="border-t pt-4">
                   <p className="text-sm font-medium">
                     {Object.keys(selected).length} {c("selectedMembers")}
@@ -134,20 +139,7 @@ export function InternalNotificationComposer({ onClose }: { onClose: () => void 
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="internal-title">{c("subject")}</Label>
-                  <Input id="internal-title" maxLength={160} value={title} onChange={(e) => setTitle(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="internal-body">{c("body")}</Label>
-                  <Textarea
-                    id="internal-body"
-                    rows={4}
-                    maxLength={10000}
-                    value={body}
-                    onChange={(e) => setBody(e.target.value)}
-                  />
-                </div>
+                <ManualNotificationEditor prefix="internal" value={message} onChange={setMessage} />
                 <div className="space-y-2">
                   <Label htmlFor="internal-search">{c("memberSearch")}</Label>
                   <Input
@@ -208,7 +200,7 @@ export function InternalNotificationComposer({ onClose }: { onClose: () => void 
                 {c(review ? "back" : "dismiss")}
               </Button>
               <Button
-                disabled={send.isPending || !title.trim() || !body.trim() || !Object.keys(selected).length}
+                disabled={send.isPending || !manualNotificationValid(message) || !Object.keys(selected).length}
                 onClick={() => (review ? send.mutate() : setReview(true))}
               >
                 {c(review ? "send" : "reviewSend")}

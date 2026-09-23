@@ -44,19 +44,14 @@ export function EmptyState({
   title,
   description,
   action,
+  icon = <FolderOpenIcon className="size-8" />,
 }: {
   title: string;
   description?: string;
   action?: ReactNode;
+  icon?: ReactNode;
 }) {
-  return (
-    <StateSurface
-      action={action}
-      description={description}
-      icon={<FolderOpenIcon className="size-8" />}
-      title={title}
-    />
-  );
+  return <StateSurface action={action} description={description} icon={icon} title={title} />;
 }
 
 export function ErrorState({

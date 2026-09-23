@@ -19,7 +19,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
-export function ClientMePage() {
+export function ClientMePage({
+  embedded = false,
+  accountSettings = false,
+}: {
+  embedded?: boolean;
+  accountSettings?: boolean;
+}) {
   const session = useClientSession();
   const navigate = useNavigate();
   const [confirmation, setConfirmation] = useState("");
@@ -33,7 +39,7 @@ export function ClientMePage() {
   });
   return (
     <div className="space-y-7">
-      <PageHeader title="Mon accès" />
+      {!embedded && <PageHeader title="Mon accès" />}
       <section className="max-w-4xl divide-y rounded-xl border bg-card">
         <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -60,7 +66,10 @@ export function ClientMePage() {
           <PermissionInventory permissions={session.permissions?.permissions ?? []} />
         </div>
       </section>
-      {session.permissions?.isOwner && session.can(clientPermissions.workspaceDelete) ? (
+      {accountSettings &&
+      !session.isB2B &&
+      session.permissions?.isOwner &&
+      session.can(clientPermissions.workspaceDelete) ? (
         <section className="max-w-4xl border-t pt-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>

@@ -1,32 +1,18 @@
-import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  ArrowsClockwiseIcon,
-  BellIcon,
-  CheckCircleIcon,
-  GearIcon,
-  ListChecksIcon,
-  TagIcon,
-  WarningIcon,
-} from "@phosphor-icons/react";
+import { ArrowLeftIcon, ArrowRightIcon, ArrowsClockwiseIcon, BellIcon, CheckCircleIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router";
 import { communicationApi } from "@/api/communication-api";
 import { PageHeader } from "@/components/patterns/page-header";
-import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { EmptyState, ErrorState, LoadingState, PermissionState } from "@/components/patterns/remote-state";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { communicationDate, useCommunicationCopy } from "./communication-copy";
 import { notificationAction, notificationTopics } from "./communication-rules";
-import { InternalNotificationComposer } from "./internal-notification-composer";
-import { InternalNotificationHistory } from "./internal-notification-history";
-import { NotificationSettings } from "./notification-settings";
+import { NotificationFeed } from "./notification-feed";
 
-const icons = { NOTICE: BellIcon, WARNING: WarningIcon, ACTION: ListChecksIcon, OFFER: TagIcon };
 const kinds = ["NOTICE", "WARNING", "ACTION", "OFFER"] as const;
 export type NotificationContext = {
   platform: boolean;
@@ -42,14 +28,18 @@ export type NotificationContext = {
   delivery: boolean;
 };
 
-export function NotificationInbox({ context, marketing }: { context: NotificationContext; marketing?: ReactNode }) {
+export function NotificationInbox({ context, panel = false }: { context: NotificationContext; panel?: boolean }) {
   const { i18n } = useTranslation();
   const c = useCommunicationCopy(),
     cache = useQueryClient();
-  const [params, setParams] = useSearchParams();
-  const [settings, setSettings] = useState(false),
-    [compose, setCompose] = useState(false),
-    [sent, setSent] = useState(false);
+  const [routeParams, setRouteParams] = useSearchParams();
+  const [panelParams, setPanelParams] = useState(new URLSearchParams());
+  const [filters, setFilters] = useState(false);
+  const params = panel ? panelParams : routeParams;
+  const setParams = (update: (previous: URLSearchParams) => URLSearchParams) => {
+    if (panel) setPanelParams(update);
+    else setRouteParams(update);
+  };
   const selected = params.get("item");
   const kind = kinds.find((k) => k === params.get("kind"));
   const topic = notificationTopics.find((t) => t === params.get("topic"));
@@ -68,14 +58,14 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
     });
   const query = useQuery({
     queryKey: [...key, kind, topic, archived, unread, page],
-    enabled: context.allowed && !sent,
+    enabled: context.allowed,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
     queryFn: () => communicationApi.inbox(kind, archived, unread, page, topic, context.platform, context.companyId),
   });
   const detail = useQuery({
     queryKey: [...key, "item", selected],
-    enabled: context.allowed && !sent && !!selected,
+    enabled: context.allowed && !!selected,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
     queryFn: () => communicationApi.item(selected ?? "", context.platform, context.companyId),
@@ -87,175 +77,134 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
       void cache.invalidateQueries({ queryKey: [key[0], "notifications"] });
     },
   });
-  if (context.sent && (sent || !context.allowed))
-    return (
-      <div className="space-y-5">
-        <PageHeader
-          title={c("sent")}
-          actions={
-            context.allowed && (
-              <Button variant="ghost" onClick={() => setSent(false)}>
-                {c("inbox")}
-              </Button>
-            )
-          }
-        />
-        <InternalNotificationHistory identity={context.identity} />
-      </div>
-    );
   if (!context.allowed) return <PermissionState />;
   const item = detail.isError ? undefined : detail.data,
     action = item ? notificationAction(item, context.platform) : null;
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title={c(context.platform ? "operatorInbox" : "notifications")}
-        actions={
-          <>
-            {context.delivery && (
-              <Button asChild variant="ghost">
-                <Link to="/admin/notifications/delivery">{c("deliveryQueue")}</Link>
-              </Button>
-            )}
-            <Button variant="ghost" aria-expanded={settings} onClick={() => setSettings((v) => !v)}>
-              <GearIcon />
-              {c("personalSettings")}
+    <div className={panel ? "space-y-5" : "mx-auto max-w-6xl space-y-5"}>
+      {!panel && <PageHeader title={c(context.platform ? "operatorInbox" : "notifications")} />}
+      {(!panel || !selected) && (
+        <div className="flex flex-wrap items-center gap-2 border-b pb-3">
+          <nav aria-label={c("notifications")} className="flex gap-1">
+            <Button
+              variant={!unread ? "secondary" : "ghost"}
+              aria-pressed={!unread}
+              onClick={() => change({ unread: null, page: null, item: null })}
+            >
+              {c("all")}
             </Button>
-            {context.send && <Button onClick={() => setCompose(true)}>{c("notifyMembers")}</Button>}
-            {context.sent && (
-              <Button variant="ghost" onClick={() => setSent(true)}>
-                {c("sent")}
-              </Button>
-            )}
-          </>
-        }
-      />
-      {settings && (
-        <div className="grid gap-4 xl:grid-cols-2">
-          <NotificationSettings context={context} />
-          {marketing}
+            <Button
+              variant={unread ? "secondary" : "ghost"}
+              aria-pressed={unread}
+              onClick={() => change({ unread: "true", page: null, item: null })}
+            >
+              {c("unread")}
+            </Button>
+          </nav>
+          {!panel && (
+            <Button variant="ghost" aria-expanded={filters} onClick={() => setFilters((v) => !v)}>
+              {c("filters")}
+              {kind || topic || archived ? " ·" : ""}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="ms-auto"
+            aria-label={c("refresh")}
+            disabled={query.isFetching}
+            onClick={() => void cache.invalidateQueries({ queryKey: [key[0], "notifications"] })}
+          >
+            <ArrowsClockwiseIcon />
+          </Button>
         </div>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
-        <nav aria-label={c("type")} className="flex flex-wrap gap-1">
-          {(["ALL", ...kinds] as const).map((value) => {
-            const Icon = value === "ALL" ? BellIcon : icons[value];
-            return (
-              <Button
-                key={value}
-                variant={(kind ?? "ALL") === value ? "secondary" : "ghost"}
-                aria-pressed={(kind ?? "ALL") === value}
-                onClick={() => change({ kind: value === "ALL" ? null : value, page: null, item: null })}
-              >
-                <Icon />
-                {c(value === "ALL" ? "all" : value)}
-              </Button>
-            );
-          })}
-        </nav>
-        <Select
-          value={topic ?? "ALL"}
-          onValueChange={(v) => change({ topic: v === "ALL" ? null : v, page: null, item: null })}
-        >
-          <SelectTrigger aria-label={c("topic")} className="w-full sm:w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">
-              {c("topic")} · {c("all")}
-            </SelectItem>
-            {notificationTopics.map((t) => (
-              <SelectItem key={t} value={t}>
-                {c(t)}
+      {!panel && filters && (
+        <div className="flex flex-wrap gap-4 rounded-lg border bg-muted/30 p-4">
+          <Select
+            value={kind ?? "ALL"}
+            onValueChange={(v) => change({ kind: v === "ALL" ? null : v, page: null, item: null })}
+          >
+            <SelectTrigger aria-label={c("type")} className="w-full sm:w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">{c("all")}</SelectItem>
+              {kinds.map((k) => (
+                <SelectItem key={k} value={k}>
+                  {c(k)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={topic ?? "ALL"}
+            onValueChange={(v) => change({ topic: v === "ALL" ? null : v, page: null, item: null })}
+          >
+            <SelectTrigger aria-label={c("topic")} className="w-full sm:w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">
+                {c("topic")} · {c("all")}
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-wrap gap-5 text-sm">
-        {(["unread", "archives"] as const).map((filter) => (
-          <label key={filter} htmlFor={`filter-${filter}`} className="flex min-h-11 items-center gap-2">
+              {notificationTopics.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {c(t)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <label htmlFor="notification-archives" className="flex min-h-11 items-center gap-2 text-sm">
             <Checkbox
-              id={`filter-${filter}`}
-              checked={filter === "unread" ? unread : archived}
-              onCheckedChange={(v) =>
-                change({
-                  [filter === "archives" ? "archived" : "unread"]: v === true ? "true" : null,
-                  page: null,
-                  item: null,
-                })
-              }
+              id="notification-archives"
+              checked={archived}
+              onCheckedChange={(v) => change({ archived: v === true ? "true" : null, page: null, item: null })}
             />
-            {c(filter)}
+            {c("archives")}
           </label>
-        ))}
-        <Button
-          variant="ghost"
-          className="ms-auto"
-          disabled={query.isFetching}
-          onClick={() => {
-            void cache.invalidateQueries({ queryKey: [key[0], "notifications"] });
-          }}
-        >
-          <ArrowsClockwiseIcon />
-          {c("refresh")}
-        </Button>
-      </div>
-      <div className={selected ? "grid gap-5 lg:grid-cols-[minmax(260px,1fr)_minmax(0,2fr)]" : ""}>
+        </div>
+      )}
+      <div className={selected && !panel ? "grid gap-5 lg:grid-cols-[minmax(260px,1fr)_minmax(0,2fr)]" : ""}>
         <section
           aria-label={c("notifications")}
-          className={`self-start overflow-hidden rounded-xl border bg-card ${selected ? "hidden lg:block" : ""}`}
+          className={`self-start overflow-hidden ${panel ? "" : "rounded-xl border bg-card"} ${selected ? (panel ? "hidden" : "hidden lg:block") : ""}`}
         >
           {query.isLoading ? (
             <LoadingState />
           ) : query.isError ? (
             <ErrorState retry={() => void query.refetch()} />
           ) : !query.data?.content.length ? (
-            <EmptyState title={c("empty")} />
+            <EmptyState
+              title={c(unread ? "noUnreadNotifications" : "noNotifications")}
+              icon={<BellIcon className="size-8" />}
+            />
           ) : (
-            <ul className="divide-y">
-              {query.data.content.map((row) => {
-                const Icon = icons[row.kind] ?? BellIcon;
-                return (
-                  <li key={row.id}>
-                    <button
-                      type="button"
-                      aria-current={selected === row.id ? "true" : undefined}
-                      className={`flex min-h-20 w-full items-start gap-4 p-5 text-start transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${selected === row.id ? "bg-muted/60" : ""}`}
-                      onClick={() => change({ item: row.id })}
-                    >
-                      <Icon
-                        className={`mt-1 size-5 shrink-0 ${row.kind === "WARNING" ? "text-warning" : "text-primary"}`}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-baseline justify-between gap-2">
-                          <span dir="auto" className={row.read ? "font-medium" : "font-semibold"}>
-                            {["PLAN_CONTENT", "REPRICING"].includes(row.source) ? c(row.source) : row.messageTitle}
-                          </span>
-                          <span className="text-xs text-muted-foreground">{communicationDate(row.availableAt)}</span>
-                        </span>
-                        <span className="mt-1 flex flex-wrap gap-x-2 text-sm text-muted-foreground">
-                          <span>{c(row.topic)}</span>
-                          <span>· {c(row.kind)}</span>
-                          {!row.read && <span className="font-medium text-primary">· {c("unread")}</span>}
-                          {row.priority === "HIGH" && !row.resolved && (
-                            <span className="font-semibold text-warning">· {c("highPriority")}</span>
-                          )}
-                          {row.resolved && <span>· {c("resolved")}</span>}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            <NotificationFeed items={query.data.content} selected={selected} onSelect={(id) => change({ item: id })} />
           )}
-          {query.data && (
-            <PaginationBar {...query.data} onPageChange={(p) => change({ page: String(p), item: null })} />
+          {query.data && query.data.totalPages > 1 && (
+            <div className="flex justify-between gap-2 border-t p-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={page === 0}
+                onClick={() => change({ page: String(page - 1), item: null })}
+              >
+                {c("newer")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={page + 1 >= query.data.totalPages}
+                onClick={() => change({ page: String(page + 1), item: null })}
+              >
+                {c("older")}
+              </Button>
+            </div>
           )}
         </section>
         {selected && (
-          <section className="min-w-0 self-start rounded-xl border bg-card p-5 sm:p-6">
+          <section className={panel ? "min-w-0" : "min-w-0 self-start rounded-xl border bg-card p-5 sm:p-6"}>
             <Button variant="ghost" size="sm" onClick={() => change({ item: null })}>
               <ArrowLeftIcon className="rtl:rotate-180" />
               {c("back")}
@@ -359,7 +308,6 @@ export function NotificationInbox({ context, marketing }: { context: Notificatio
           </section>
         )}
       </div>
-      {compose && context.send && <InternalNotificationComposer onClose={() => setCompose(false)} />}
     </div>
   );
 }

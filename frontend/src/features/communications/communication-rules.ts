@@ -1,12 +1,10 @@
 import type { CommunicationDraft, CommunicationItem } from "@/api/communication-api";
+import { manualNotificationValid } from "./manual-notification-rules";
 export function communicationDraftValid(draft: CommunicationDraft, now = Date.now()) {
   const start = draft.availableAt ? new Date(draft.availableAt).getTime() : now;
   const end = draft.expiresAt ? new Date(draft.expiresAt).getTime() : null;
   return (
-    !!draft.messageTitle.trim() &&
-    draft.messageTitle.length <= 160 &&
-    !!draft.messageBody.trim() &&
-    draft.messageBody.length <= 10000 &&
+    manualNotificationValid(draft) &&
     draft.accountIds.length > 0 &&
     draft.accountIds.length <= (draft.kind === "OFFER" ? 100 : 500) &&
     new Set(draft.accountIds).size === draft.accountIds.length &&

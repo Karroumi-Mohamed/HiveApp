@@ -1,62 +1,82 @@
-import { BellIcon } from "@phosphor-icons/react";
+import { BellIcon, GearIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router";
 import { communicationApi } from "@/api/communication-api";
-import { adminPermissions, clientPermissions } from "@/auth/permissions";
-import { useAdminSession, useClientSession } from "@/auth/session-provider";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useCommunicationCopy } from "./communication-copy";
+import { useClientNotificationContext, useOperatorNotificationContext } from "./notification-context";
+import { type NotificationContext, NotificationInbox } from "./notification-inbox";
 
-function NotificationShortcut({
-  platform,
-  identity,
-  companyId,
-  allowed,
-}: {
-  platform: boolean;
-  identity: string;
-  companyId?: string | null;
-  allowed: boolean;
-}) {
+function NotificationShortcut({ context }: { context: NotificationContext }) {
   const c = useCommunicationCopy();
+  const [open, setOpen] = useState(false);
+  const location = useLocation();
+  useEffect(() => {
+    void location.pathname;
+    void context.identity;
+    setOpen(false);
+  }, [location.pathname, context.identity]);
   const query = useQuery({
-    queryKey: [platform ? "admin" : "client", "notifications", identity, "summary"],
-    queryFn: () => communicationApi.summary(platform, companyId),
-    enabled: allowed,
+    queryKey: [context.platform ? "admin" : "client", "notifications", context.identity, "summary"],
+    queryFn: () => communicationApi.summary(context.platform, context.companyId),
+    enabled: context.allowed,
     staleTime: 15000,
     refetchInterval: 60000,
     refetchIntervalInBackground: false,
   });
-  if (!allowed) return null;
+  if (!context.allowed) return null;
   const count = query.data?.unread ?? 0;
+  const root = context.platform ? "/admin" : "/app";
   return (
-    <Button asChild variant="ghost" size="sm" className="min-h-11 min-w-11">
-      <Link
-        to={platform ? "/admin/notifications" : "/app/communications"}
-        aria-label={`${c("notifications")}${count ? ` · ${count} ${c("unread")}` : ""}`}
-      >
-        <BellIcon />
-        {count > 0 && (
-          <span className="min-w-4 text-xs font-semibold tabular-nums text-primary">{count > 99 ? "99+" : count}</span>
-        )}
-      </Link>
-    </Button>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="min-h-11 min-w-11"
+          aria-label={`${c("notifications")}${count ? ` · ${count} ${c("unread")}` : ""}`}
+        >
+          <BellIcon />
+          {count > 0 && (
+            <span className="min-w-4 text-xs font-semibold tabular-nums text-primary">
+              {count > 99 ? "99+" : count}
+            </span>
+          )}
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="w-full gap-0 sm:max-w-md" closeLabel={c("dismiss")}>
+        <SheetHeader className="shrink-0 border-b pe-12">
+          <SheetTitle>{c("notifications")}</SheetTitle>
+          <SheetDescription className="sr-only">{c("inbox")}</SheetDescription>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {open && <NotificationInbox key={context.identity} context={context} panel />}
+        </div>
+        <footer className="flex shrink-0 items-center justify-between gap-3 border-t p-4">
+          <Button asChild variant="ghost">
+            <Link onClick={() => setOpen(false)} to={context.platform ? "/admin/notifications" : "/app/communications"}>
+              {c("viewAll")}
+            </Link>
+          </Button>
+          <Button asChild variant="ghost" size="icon">
+            <Link
+              aria-label={c("personalSettings")}
+              onClick={() => setOpen(false)}
+              to={`${root}/settings?section=notifications`}
+            >
+              <GearIcon />
+            </Link>
+          </Button>
+        </footer>
+      </SheetContent>
+    </Sheet>
   );
 }
 export function ClientNotificationShortcut() {
-  const s = useClientSession();
-  return (
-    <NotificationShortcut
-      platform={false}
-      companyId={s.selectedCompanyId}
-      identity={[s.account?.id, s.permissions?.memberId, s.selectedCompanyId].join(":")}
-      allowed={!s.isB2B && s.can(clientPermissions.communicationsRead)}
-    />
-  );
+  return <NotificationShortcut context={useClientNotificationContext()} />;
 }
 export function OperatorNotificationShortcut() {
-  const s = useAdminSession();
-  return (
-    <NotificationShortcut platform identity={s.me?.id ?? ""} allowed={s.can(adminPermissions.notificationsRead)} />
-  );
+  return <NotificationShortcut context={useOperatorNotificationContext()} />;
 }

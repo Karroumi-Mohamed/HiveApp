@@ -10,8 +10,14 @@ export type NotificationTopic =
   | "OPERATIONS"
   | "TASKS";
 export type NotificationSetting = { topic: NotificationTopic; inAppEnabled: boolean; emailEnabled: boolean };
-export type InternalNotice = { commandId: string; messageTitle: string; messageBody: string; memberIds: string[] };
-export type SentNotice = {
+export type NotificationLanguage = "fr" | "ar";
+export type NotificationContent = { messageTitle: string; messageBody: string };
+export type AuthoredNotification = NotificationContent & {
+  originalLanguage?: NotificationLanguage | null;
+  translations?: Partial<Record<NotificationLanguage, NotificationContent>> | null;
+};
+export type InternalNotice = AuthoredNotification & { commandId: string; memberIds: string[] };
+export type SentNotice = AuthoredNotification & {
   commandId: string;
   messageTitle: string;
   messageBody: string;
@@ -41,7 +47,7 @@ export type NotificationEmail = Omit<NotificationEvent, "state" | "nextAttemptAt
   eventId?: string;
 };
 export type CommunicationPurpose = "SERVICE" | "MARKETING";
-export type CommunicationDraft = {
+export type CommunicationDraft = AuthoredNotification & {
   kind: CommunicationKind;
   purpose: CommunicationPurpose;
   messageTitle: string;

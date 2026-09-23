@@ -26,10 +26,11 @@ export function NotificationSettings({ context }: { context: NotificationContext
   });
   return (
     <section className="rounded-xl border bg-card p-5">
-      <h2 className="font-semibold">{c("personalSettings")}</h2>
+      <h2 className="font-semibold">{c("notifications")}</h2>
       <p className="my-3 max-w-prose text-sm text-muted-foreground">{c("requiredHint")}</p>
       <div className="my-4 space-y-2">
         <Label htmlFor="notification-language">{c("emailLanguage")}</Label>
+        <p className="max-w-prose text-sm text-muted-foreground">{c("emailLanguageHint")}</p>
         {language.isError ? (
           <ErrorState retry={() => void language.refetch()} />
         ) : (

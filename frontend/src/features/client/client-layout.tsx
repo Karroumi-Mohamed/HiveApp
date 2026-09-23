@@ -1,8 +1,9 @@
 import {
-  BellIcon,
   BuildingsIcon,
   CreditCardIcon,
+  EnvelopeSimpleIcon,
   GaugeIcon,
+  GearIcon,
   GitBranchIcon,
   HandshakeIcon,
   ShieldCheckIcon,
@@ -12,7 +13,6 @@ import {
 } from "@phosphor-icons/react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import {
-  clientNotificationSurfacePermissions,
   clientOfferSurfacePermissions,
   clientPermissions,
   clientSubscriptionSurfacePermissions,
@@ -92,12 +92,25 @@ export function ClientLayout() {
           icon: TagIcon,
           visible: clientOfferSurfacePermissions.some(session.can),
         },
-        { label: "Mon accès", to: "/app/me", icon: UserCircleIcon },
         {
-          label: communicationCopy("notifications"),
-          to: "/app/communications",
-          icon: BellIcon,
-          visible: !session.isB2B && clientNotificationSurfacePermissions.some(session.can),
+          label: communicationCopy("title"),
+          to: "/app/announcements",
+          icon: EnvelopeSimpleIcon,
+          visible:
+            !session.isB2B &&
+            (session.can(clientPermissions.notificationsSent) ||
+              (session.can(clientPermissions.notificationsSend) && session.can(clientPermissions.notificationsChoose))),
+        },
+      ],
+    },
+    {
+      items: [
+        { label: communicationCopy("profileSettings"), to: "/app/settings", icon: UserCircleIcon },
+        {
+          label: communicationCopy("accountSettings"),
+          to: "/app/account-settings",
+          icon: GearIcon,
+          visible: !session.isB2B && session.permissions?.isOwner,
         },
       ],
     },
@@ -127,6 +140,8 @@ export function ClientLayout() {
   return (
     <ProductShell
       headerActions={<ClientNotificationShortcut />}
+      profilePath="/app/settings"
+      profileLabel={communicationCopy("profileSettings")}
       context={context}
       email={session.account.name}
       groups={groups}

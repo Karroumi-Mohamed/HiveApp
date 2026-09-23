@@ -1,6 +1,5 @@
 import {
   ArrowsClockwiseIcon,
-  BellIcon,
   BuildingsIcon,
   ChartLineUpIcon,
   CreditCardIcon,
@@ -225,21 +224,14 @@ export function AdminLayout() {
       ],
     },
     {
-      label: "Plateforme",
-      items: [
-        {
-          label: communicationCopy("notifications"),
-          to: "/admin/notifications",
-          icon: BellIcon,
-          visible: session.can(adminPermissions.notificationsRead),
-        },
-        { label: "Mon accès", to: "/admin/me", icon: UserCircleIcon },
-      ],
+      items: [{ label: communicationCopy("profileSettings"), to: "/admin/settings", icon: UserCircleIcon }],
     },
   ];
   return (
     <ProductShell
       headerActions={<OperatorNotificationShortcut />}
+      profilePath="/admin/settings"
+      profileLabel={communicationCopy("profileSettings")}
       email={session.me.email}
       groups={groups}
       label="Administration plateforme"

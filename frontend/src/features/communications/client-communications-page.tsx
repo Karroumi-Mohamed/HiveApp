@@ -2,12 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { type CommunicationPreference, communicationApi } from "@/api/communication-api";
-import { adminPermissions, clientPermissions } from "@/auth/permissions";
-import { useAdminSession, useClientSession } from "@/auth/session-provider";
+import { clientPermissions } from "@/auth/permissions";
+import { useClientSession } from "@/auth/session-provider";
 import { ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useCommunicationCopy } from "./communication-copy";
+import { useClientNotificationContext, useOperatorNotificationContext } from "./notification-context";
 import { NotificationInbox } from "./notification-inbox";
 export function MarketingPreferences() {
   const c = useCommunicationCopy(),
@@ -72,44 +73,18 @@ export function MarketingPreferences() {
 }
 
 export function ClientCommunicationsPage() {
-  const session = useClientSession();
+  const context = useClientNotificationContext();
   const [params] = useSearchParams();
-  // Deep links carry source scope; the API still verifies own-account company access.
-  const companyId = params.get("item") && params.get("company") ? params.get("company") : session.selectedCompanyId;
+  // A source deep link carries its company scope; the server revalidates access.
+  const companyId = params.get("item") && params.get("company") ? params.get("company") : context.companyId;
   return (
     <NotificationInbox
-      context={{
-        platform: false,
-        companyId,
-        identity: [session.account?.id, session.permissions?.memberId, companyId].join(":"),
-        allowed: !session.isB2B && session.can(clientPermissions.communicationsRead),
-        read: session.can(clientPermissions.communicationsMarkRead),
-        acknowledge: session.can(clientPermissions.communicationsAcknowledge),
-        archive: session.can(clientPermissions.communicationsArchive),
-        preferences: session.can(clientPermissions.notificationsPreferences),
-        send: session.can(clientPermissions.notificationsSend) && session.can(clientPermissions.notificationsChoose),
-        sent: session.can(clientPermissions.notificationsSent),
-        delivery: false,
-      }}
-      marketing={<MarketingPreferences />}
+      key={context.identity}
+      context={{ ...context, companyId, identity: `${context.identity}:${companyId}` }}
     />
   );
 }
 export function OperatorNotificationsPage() {
-  const session = useAdminSession();
-  return (
-    <NotificationInbox
-      context={{
-        platform: true,
-        identity: session.me?.id ?? "",
-        allowed: session.can(adminPermissions.notificationsRead),
-        read: session.can(adminPermissions.notificationsMarkRead),
-        acknowledge: session.can(adminPermissions.notificationsAcknowledge),
-        archive: session.can(adminPermissions.notificationsArchive),
-        preferences: session.can(adminPermissions.notificationsPreferences),
-        send: false,
-        delivery: session.can(adminPermissions.notificationsDelivery),
-      }}
-    />
-  );
+  const context = useOperatorNotificationContext();
+  return <NotificationInbox key={context.identity} context={context} />;
 }

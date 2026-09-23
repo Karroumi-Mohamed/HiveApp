@@ -22,6 +22,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AdminCommunicationsPage } from "@/features/admin/operations/admin-communications-page";
 import { communicationDate, useCommunicationCopy } from "./communication-copy";
+import { ManualNotificationPreview } from "./manual-notification-editor";
+import { NotificationDeliveryPage } from "./notification-delivery-page";
 
 const publicationColumns = createDataColumns<CommunicationPublication>();
 const recipientColumns = createDataColumns<CommunicationRecipient>();
@@ -30,28 +32,35 @@ export function CommunicationAdminHub() {
   const c = useCommunicationCopy(),
     session = useAdminSession();
   const [params, setParams] = useSearchParams();
-  const canClients = session.can(p.customerCommunicationsRead),
-    canSecurity = session.can(p.communicationsRead);
-  const security = canSecurity && (!canClients || params.get("channel") === "security");
+  const channels = [
+    { key: "clients", label: "clients", allowed: session.can(p.customerCommunicationsRead) },
+    { key: "security", label: "security", allowed: session.can(p.communicationsRead) },
+    { key: "notifications", label: "deliveryQueue", allowed: session.can(p.notificationsDelivery) },
+  ] as const;
+  const permitted = channels.filter((ch) => ch.allowed);
+  const selected = permitted.find((ch) => ch.key === params.get("channel"))?.key ?? permitted[0]?.key;
+  if (!selected) return <PermissionState />;
   return (
     <div className="space-y-5">
       <nav aria-label={c("title")} className="flex flex-wrap gap-2 border-b pb-3">
-        {canClients && (
-          <Button variant={!security ? "secondary" : "ghost"} aria-pressed={!security} onClick={() => setParams({})}>
-            {c("clients")}
-          </Button>
-        )}
-        {canSecurity && (
+        {permitted.map((ch) => (
           <Button
-            variant={security ? "secondary" : "ghost"}
-            aria-pressed={security}
-            onClick={() => setParams({ channel: "security" })}
+            key={ch.key}
+            variant={selected === ch.key ? "secondary" : "ghost"}
+            aria-pressed={selected === ch.key}
+            onClick={() => setParams({ channel: ch.key })}
           >
-            {c("security")}
+            {c(ch.label)}
           </Button>
-        )}
+        ))}
       </nav>
-      {security ? <AdminCommunicationsPage /> : canClients ? <PublicationList /> : <PermissionState />}
+      {selected === "clients" ? (
+        <PublicationList />
+      ) : selected === "security" ? (
+        <AdminCommunicationsPage />
+      ) : (
+        <NotificationDeliveryPage embedded />
+      )}
     </div>
   );
 }
@@ -202,7 +211,7 @@ export function CommunicationAdminDetail() {
       />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(250px,1fr)]">
         <article className="rounded-xl border bg-card p-6">
-          <p className="max-w-prose whitespace-pre-wrap break-words leading-relaxed">{item.messageBody}</p>
+          <ManualNotificationPreview value={item} />
         </article>
         <aside className="rounded-xl border bg-card p-5">
           <dl className="space-y-4 text-sm">

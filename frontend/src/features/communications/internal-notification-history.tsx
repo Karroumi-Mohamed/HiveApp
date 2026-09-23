@@ -6,6 +6,8 @@ import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { ErrorState } from "@/components/patterns/remote-state";
 import { communicationDate, useCommunicationCopy } from "./communication-copy";
 
+import { ManualNotificationPreview } from "./manual-notification-editor";
+
 const columns = createDataColumns<SentNotice>();
 export function InternalNotificationHistory({ identity }: { identity: string }) {
   const c = useCommunicationCopy();
@@ -24,9 +26,9 @@ export function InternalNotificationHistory({ identity }: { identity: string }) 
           <summary className="cursor-pointer font-medium text-primary" dir="auto">
             {row.original.messageTitle}
           </summary>
-          <p className="mt-2 max-w-prose whitespace-pre-wrap break-words" dir="auto">
-            {row.original.messageBody}
-          </p>
+          <div className="mt-3">
+            <ManualNotificationPreview value={row.original} />
+          </div>
         </details>
       ),
     }),

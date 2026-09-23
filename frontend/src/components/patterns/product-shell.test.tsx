@@ -60,7 +60,14 @@ function renderShell() {
       <ThemeProvider>
         <TooltipProvider>
           <MemoryRouter initialEntries={["/admin/plans"]}>
-            <ProductShell email="admin@hiveapp.test" groups={groups} label="Administration" onLogout={() => {}}>
+            <ProductShell
+              email="admin@hiveapp.test"
+              groups={groups}
+              label="Administration"
+              onLogout={() => {}}
+              profilePath="/admin/settings"
+              profileLabel={i18n.language.startsWith("ar") ? "الملف الشخصي والإعدادات" : "Profil et paramètres"}
+            >
               <p>Contenu</p>
             </ProductShell>
           </MemoryRouter>
@@ -79,6 +86,13 @@ beforeEach(async () => {
 afterEach(() => cleanup());
 
 describe("product shell navigation", () => {
+  test("profile settings remain directly reachable in expanded and compact navigation", async () => {
+    const screen = renderShell();
+    expect(screen.getByRole("link", { name: "Profil et paramètres" }).getAttribute("href")).toBe("/admin/settings");
+    const user = userEvent.setup({ document: browser.document as unknown as Document });
+    await user.click(screen.getByRole("button", { name: "Réduire la navigation" }));
+    expect(screen.getByRole("link", { name: "Profil et paramètres" }).getAttribute("href")).toBe("/admin/settings");
+  });
   test("group disclosure exposes its state and hides its links when collapsed", async () => {
     const screen = renderShell();
     const user = userEvent.setup({ document: browser.document as unknown as Document });
@@ -115,7 +129,7 @@ describe("product shell navigation", () => {
 
     expect(screen.getByRole("button", { name: "طيّ قائمة التنقل" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "تسجيل الخروج" })).toBeTruthy();
-    expect(screen.getByText("جلسة نشطة")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "الملف الشخصي والإعدادات" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "طيّ قائمة التنقل" }));
     expect(screen.getAllByRole("button", { name: "توسيع قائمة التنقل" })).toHaveLength(1);

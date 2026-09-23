@@ -16,6 +16,7 @@ import {
   adminProfileCan,
   adminSubscriptionDetailSurfacePermissions,
   adminSubscriptionJobDetailSurfacePermissions,
+  clientCommunicationSurfacePermissions,
   clientNotificationSurfacePermissions,
   clientOfferSurfacePermissions,
   clientPermissions,
@@ -60,9 +61,10 @@ describe("session permission bypasses", () => {
     ]);
   });
 
-  test("notification route and navigation preserve independently readable sent history", () => {
-    expect(clientNotificationSurfacePermissions).toEqual([
-      clientPermissions.communicationsRead,
+  test("receiving and sending have independently authorized routes", () => {
+    expect(clientNotificationSurfacePermissions).toEqual([clientPermissions.communicationsRead]);
+    expect(clientCommunicationSurfacePermissions).toEqual([
+      clientPermissions.notificationsSend,
       clientPermissions.notificationsSent,
     ]);
   });
@@ -88,6 +90,7 @@ describe("session permission bypasses", () => {
     expect(adminCommunicationsSurfacePermissions).toEqual([
       adminPermissions.communicationsRead,
       adminPermissions.customerCommunicationsRead,
+      adminPermissions.notificationsDelivery,
     ]);
   });
 

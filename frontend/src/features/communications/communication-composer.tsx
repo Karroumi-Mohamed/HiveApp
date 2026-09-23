@@ -1,8 +1,10 @@
 import { BellIcon, TagIcon, WarningIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useBlocker, useNavigate, useParams, useSearchParams } from "react-router";
 import { type CommunicationDraft, type CommunicationPublication, communicationApi } from "@/api/communication-api";
+import { normalizeLanguage } from "@/app/i18n";
 import { adminPermissions as p } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { createDataColumns, DataTable } from "@/components/patterns/data-table";
@@ -21,9 +23,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { communicationDate, useCommunicationCopy } from "./communication-copy";
 import { communicationDraftValid, localDateTime } from "./communication-rules";
+import { ManualNotificationEditor, ManualNotificationPreview } from "./manual-notification-editor";
 import { NotificationOfferPicker } from "./notification-offer-picker";
 
 const icons = { NOTICE: BellIcon, WARNING: WarningIcon, OFFER: TagIcon };
@@ -59,6 +61,8 @@ export function CommunicationComposer() {
   return <ComposerForm key={communicationId ?? "new"} initial={query.data} />;
 }
 function ComposerForm({ initial }: { initial?: CommunicationPublication }) {
+  const { i18n } = useTranslation();
+  const localizedBlank = { ...blank, originalLanguage: normalizeLanguage(i18n.language), translations: {} };
   const session = useAdminSession();
   const c = useCommunicationCopy(),
     navigate = useNavigate();
@@ -66,7 +70,10 @@ function ComposerForm({ initial }: { initial?: CommunicationPublication }) {
   const offerId = params.get("offer");
   const prefillOffer = offerId && /^[0-9a-f-]{36}$/i.test(offerId) ? offerId : null;
   const [draft, setDraft] = useState<CommunicationDraft>(
-      initial ?? (prefillOffer ? { ...blank, kind: "OFFER", purpose: "MARKETING", offerId: prefillOffer } : blank),
+      initial ??
+        (prefillOffer
+          ? { ...localizedBlank, kind: "OFFER", purpose: "MARKETING", offerId: prefillOffer }
+          : localizedBlank),
     ),
     [step, setStep] = useState(0),
     [dirty, setDirty] = useState(false);
@@ -204,25 +211,7 @@ function ComposerForm({ initial }: { initial?: CommunicationPublication }) {
               ))}
             </fieldset>
             {draft.purpose === "MARKETING" && <p className="text-sm text-muted-foreground">{c("marketingHint")}</p>}
-            <div className="space-y-2">
-              <Label htmlFor="comm-title">{c("subject")}</Label>
-              <Input
-                id="comm-title"
-                maxLength={160}
-                value={draft.messageTitle}
-                onChange={(e) => change({ messageTitle: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="comm-body">{c("body")}</Label>
-              <Textarea
-                id="comm-body"
-                rows={7}
-                maxLength={10000}
-                value={draft.messageBody}
-                onChange={(e) => change({ messageBody: e.target.value })}
-              />
-            </div>
+            <ManualNotificationEditor prefix="comm" value={draft} onChange={change} />
             {draft.kind === "OFFER" && (
               <NotificationOfferPicker id={draft.offerId} onChange={(offerId) => change({ offerId })} />
             )}
@@ -317,8 +306,7 @@ function ComposerForm({ initial }: { initial?: CommunicationPublication }) {
                 {draft.accountIds.length} {c("selected")}
               </span>
             </div>
-            <h2 className="text-xl font-semibold">{draft.messageTitle}</h2>
-            <p className="max-w-prose whitespace-pre-wrap break-words leading-relaxed">{draft.messageBody}</p>
+            <ManualNotificationPreview value={draft} />
             <dl className="grid gap-4 border-t pt-5 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-muted-foreground">{c("availableShort")}</dt>

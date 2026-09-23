@@ -18,6 +18,7 @@ import {
   adminPriceBookDetailSurfacePermissions,
   adminSubscriptionDetailSurfacePermissions,
   adminSubscriptionJobDetailSurfacePermissions,
+  clientCommunicationSurfacePermissions,
   clientNotificationSurfacePermissions,
   clientOfferSurfacePermissions,
   clientPermissions,
@@ -61,7 +62,6 @@ import {
   AdminCommercialSegmentCreatePage,
   AdminCommercialSegmentEditPage,
 } from "@/features/admin/commercial-segments/commercial-segment-editor";
-import { AdminMePage } from "@/features/admin/me/admin-me-page";
 import { AdminActivitiesPage } from "@/features/admin/operations/admin-activities-page";
 import { AdminObservabilityPage } from "@/features/admin/operations/admin-observability-page";
 import { AdminOperatorDetailPage } from "@/features/admin/operators/admin-operator-detail-page";
@@ -98,7 +98,6 @@ import {
 import { ClientLayout } from "@/features/client/client-layout";
 import { ClientCollaborationsPage } from "@/features/client/collaborations/client-collaborations-page";
 import { ClientCompaniesPage } from "@/features/client/companies/client-companies-page";
-import { ClientMePage } from "@/features/client/me/client-me-page";
 import { ClientMembersPage } from "@/features/client/members/client-members-page";
 import { ClientOffersPage } from "@/features/client/offers/client-offers-page";
 import { ClientOrganizationPage } from "@/features/client/organization/client-organization-page";
@@ -112,7 +111,13 @@ import {
   OperatorNotificationsPage,
 } from "@/features/communications/client-communications-page";
 import { CommunicationComposer } from "@/features/communications/communication-composer";
+import { InternalCommunicationsPage } from "@/features/communications/internal-communications-page";
 import { NotificationDeliveryPage } from "@/features/communications/notification-delivery-page";
+import {
+  AccountSettingsPage,
+  ClientSettingsPage,
+  OperatorSettingsPage,
+} from "@/features/communications/personal-settings-page";
 import { DesignSystemPreview } from "@/features/design-system/design-system-preview";
 
 const router = createBrowserRouter([
@@ -556,7 +561,8 @@ const router = createBrowserRouter([
           </AdminReadPermissionGate>
         ),
       },
-      { path: "me", element: <AdminMePage /> },
+      { path: "me", element: <Navigate replace to="/admin/settings" /> },
+      { path: "settings", element: <OperatorSettingsPage /> },
     ],
   },
   { path: "/app/login", element: <ClientLoginPage /> },
@@ -583,6 +589,14 @@ const router = createBrowserRouter([
         element: (
           <ClientReadPermissionGate anyOf={clientNotificationSurfacePermissions}>
             <ClientCommunicationsPage />
+          </ClientReadPermissionGate>
+        ),
+      },
+      {
+        path: "announcements",
+        element: (
+          <ClientReadPermissionGate anyOf={clientCommunicationSurfacePermissions}>
+            <InternalCommunicationsPage />
           </ClientReadPermissionGate>
         ),
       },
@@ -626,7 +640,9 @@ const router = createBrowserRouter([
           </ClientReadPermissionGate>
         ),
       },
-      { path: "me", element: <ClientMePage /> },
+      { path: "me", element: <Navigate replace to="/app/settings" /> },
+      { path: "settings", element: <ClientSettingsPage /> },
+      { path: "account-settings", element: <AccountSettingsPage /> },
     ],
   },
   {

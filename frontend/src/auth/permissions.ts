@@ -476,9 +476,10 @@ export const clientSubscriptionSurfacePermissions = [
   clientPermissions.subscriptionReadBillingProfile,
 ] as const;
 
-/** Inbox and the actor's own sent history are independently authorized surfaces. */
-export const clientNotificationSurfacePermissions = [
-  clientPermissions.communicationsRead,
+/** Receiving never depends on the permission to send or inspect sent messages. */
+export const clientNotificationSurfacePermissions = [clientPermissions.communicationsRead] as const;
+export const clientCommunicationSurfacePermissions = [
+  clientPermissions.notificationsSend,
   clientPermissions.notificationsSent,
 ] as const;
 
@@ -504,6 +505,7 @@ export const adminActivitiesSurfacePermissions = [adminPermissions.activitiesRea
 export const adminCommunicationsSurfacePermissions = [
   adminPermissions.communicationsRead,
   adminPermissions.customerCommunicationsRead,
+  adminPermissions.notificationsDelivery,
 ] as const;
 
 export const adminObservabilitySurfacePermissions = [

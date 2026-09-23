@@ -2,6 +2,43 @@ import { useTranslation } from "react-i18next";
 import { i18n } from "@/app/i18n";
 
 const copy = {
+  noNotifications: ["Aucune notification", "لا توجد إشعارات"],
+  noUnreadNotifications: ["Vous êtes à jour", "لا توجد إشعارات غير مقروءة"],
+  today: ["Aujourd’hui", "اليوم"],
+  earlier: ["Plus tôt", "سابقا"],
+  viewAll: ["Voir toutes les notifications", "عرض جميع الإشعارات"],
+  filters: ["Filtres", "الفلاتر"],
+  older: ["Plus anciennes", "الأقدم"],
+  newer: ["Plus récentes", "الأحدث"],
+  profileSettings: ["Profil et paramètres", "الملف الشخصي والإعدادات"],
+  profileAccess: ["Profil et accès", "الملف والصلاحيات"],
+  appearance: ["Langue et apparence", "اللغة والمظهر"],
+  interfaceLanguage: ["Langue de l’interface", "لغة الواجهة"],
+  light: ["Clair", "فاتح"],
+  dark: ["Sombre", "داكن"],
+  devicePreferences: [
+    "Ces préférences d’affichage sont conservées dans ce navigateur.",
+    "تُحفظ تفضيلات العرض في هذا المتصفح.",
+  ],
+  accountSettings: ["Paramètres du compte", "إعدادات الحساب"],
+  accountSettingsHint: [
+    "Ces choix concernent tout le compte, pas seulement votre profil.",
+    "تخص هذه الخيارات الحساب بأكمله وليس ملفك فقط.",
+  ],
+  originalLanguage: ["Langue du message original", "لغة الرسالة الأصلية"],
+  addLanguage: ["Ajouter une autre langue", "إضافة لغة أخرى"],
+  removeLanguage: ["Retirer la traduction", "إزالة الترجمة"],
+  translationHint: [
+    "Le destinataire voit sa langue si elle est disponible, sinon le message original. Aucune traduction automatique.",
+    "يرى المستلم لغته إن توفرت، وإلا يرى الرسالة الأصلية. لا توجد ترجمة تلقائية.",
+  ],
+  incompleteTranslation: ["Complétez le titre et le message de chaque langue.", "أكمل عنوان ونص كل لغة."],
+  original: ["Original", "الأصل"],
+  translation: ["Traduction", "الترجمة"],
+  emailLanguageHint: [
+    "Pour les emails que vous recevez. Dans l’application, les notifications suivent la langue de l’interface lorsqu’une version existe.",
+    "للبريد الذي تستقبله. تتبع الإشعارات داخل التطبيق لغة الواجهة عند توفر نسخة بها.",
+  ],
   status: ["État", "الحالة"],
   actions: ["Actions", "إجراءات"],
   availableShort: ["Disponibilité", "الإتاحة"],
@@ -24,7 +61,7 @@ const copy = {
   operatorInbox: ["Mes notifications", "إشعاراتي"],
   outbound: ["Communiquer aux clients", "التواصل مع العملاء"],
   personalSettings: ["Mes préférences", "تفضيلاتي"],
-  emailLanguage: ["Langue des emails automatiques", "لغة الرسائل التلقائية"],
+  emailLanguage: ["Langue des emails reçus", "لغة البريد المستلم"],
   requiredHint: [
     "Ces choix filtrent les informations facultatives du flux, sans bloquer leur lien direct. L’email est envoyé seulement si l’événement le prévoit. Les avertissements obligatoires et le consentement commercial restent séparés.",
     "تخفي هذه الخيارات المعلومات الاختيارية من القائمة دون منع رابطها المباشر. يرسل البريد فقط عندما يدعمه الحدث. التنبيهات الإلزامية والموافقة التجارية مستقلة.",
