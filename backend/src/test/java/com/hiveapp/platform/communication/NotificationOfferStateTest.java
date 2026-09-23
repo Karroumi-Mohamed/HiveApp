@@ -27,13 +27,12 @@ class NotificationOfferStateTest {
             mock(NotificationCatalog.class),
             provider);
     UUID account = UUID.randomUUID(), offer = UUID.randomUUID();
+    when(offers.available(account, offer)).thenReturn(true);
     var first = entry(account, offer);
     var second = entry(account, offer);
     assertThat(sources.states(List.of(first, second)).values()).containsOnly("PUBLISHED");
-    verify(offers, times(1)).requireAvailable(account, offer);
-    doThrow(new com.hiveapp.shared.exception.OfferNotAvailableException())
-        .when(offers)
-        .requireAvailable(account, offer);
+    verify(offers, times(1)).available(account, offer);
+    when(offers.available(account, offer)).thenReturn(false);
     assertThat(sources.states(List.of(first)).get(first.getId())).isEqualTo("UNAVAILABLE");
     assertThat(sources.inactive(first)).isTrue();
     assertThat(sources.states(List.of(entry(account, null))).values()).containsOnly("UNAVAILABLE");

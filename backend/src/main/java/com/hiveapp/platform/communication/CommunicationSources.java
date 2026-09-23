@@ -113,12 +113,9 @@ public class CommunicationSources {
               ignored -> {
                 if (entry.getAccountId() == null || entry.getResourceId() == null)
                   return "UNAVAILABLE";
-                try {
-                  offers.getObject().requireAvailable(entry.getAccountId(), entry.getResourceId());
-                  return "PUBLISHED";
-                } catch (com.hiveapp.shared.exception.OfferNotAvailableException unavailable) {
-                  return "UNAVAILABLE";
-                }
+                return offers.getObject().available(entry.getAccountId(), entry.getResourceId())
+                    ? "PUBLISHED"
+                    : "UNAVAILABLE";
               });
       result.put(entry.getId(), state);
     }

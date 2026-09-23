@@ -103,6 +103,19 @@ public class CommercialOfferServiceImpl implements CommercialOfferService {
   }
 
   @Override
+  @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+  public boolean isCatalogueAvailable(UUID accountId, UUID offerId) {
+    // An expected eligibility rejection is a value, not a transaction failure.
+    // The self-call shares this boundary and never needs a second pooled connection.
+    try {
+      detail(accountId, offerId);
+      return true;
+    } catch (OfferNotAvailableException unavailable) {
+      return false;
+    }
+  }
+
+  @Override
   @Transactional(readOnly = true)
   public CommercialOfferViews.CodeResolution resolveCode(
       UUID accountId, UUID actor, CommercialOfferRequests.ResolveCode r) {

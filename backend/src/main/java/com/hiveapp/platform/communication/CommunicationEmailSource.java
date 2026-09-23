@@ -68,14 +68,11 @@ public class CommunicationEmailSource implements CommercialNoticeDeliverySource 
       e.setEmailFailureCode(recipient == null ? "RECIPIENT_UNAVAILABLE" : "PREFERENCE_DISABLED");
       return null;
     }
-    if (e.getKind() == CommunicationModels.Kind.OFFER) {
-      try {
-        offers.requireAvailable(e.getAccountId(), e.getResourceId());
-      } catch (com.hiveapp.shared.exception.OfferNotAvailableException unavailable) {
-        d.suppress();
-        e.setEmailFailureCode("OFFER_UNAVAILABLE");
-        return null;
-      }
+    if (e.getKind() == CommunicationModels.Kind.OFFER
+        && !offers.available(e.getAccountId(), e.getResourceId())) {
+      d.suppress();
+      e.setEmailFailureCode("OFFER_UNAVAILABLE");
+      return null;
     }
     var claim = d.claim(recipient.getId(), now);
     e.setEmailFailureCode(null);

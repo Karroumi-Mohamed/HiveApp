@@ -9,6 +9,8 @@ public interface CommercialOfferService {
 
   CommercialOfferViews.ClientOffer detail(UUID accountId, UUID offerId);
 
+  boolean isCatalogueAvailable(UUID accountId, UUID offerId);
+
   CommercialOfferViews.CodeResolution resolveCode(
       UUID accountId, UUID actor, CommercialOfferRequests.ResolveCode r);
 

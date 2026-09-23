@@ -101,6 +101,11 @@ class CommercialOfferControlPlaneIntegrationTest extends PlatformShellIntegratio
     });
     var entry=communicationEntries.findAll().stream().filter(e -> fixture.offer().getId().equals(e.getResourceId()) && account.equals(e.getAccountId())).findFirst().orElseThrow();
     assertThat(communicationEmail.claimNotice(entry.getId())).isNull();
+    mockMvc.perform(get("/api/v1/communications/" + entry.getId()).header("Authorization", bearer(client)))
+        .andExpect(status().isOk()).andExpect(jsonPath("sourceState").value("UNAVAILABLE"))
+        .andExpect(jsonPath("actionPath").isEmpty());
+    assertThat(communicationEntries.findById(entry.getId()).orElseThrow().getDelivery().getDelivery())
+        .isEqualTo(com.hiveapp.platform.client.plan.dto.RepricingModels.Delivery.SUPPRESSED);
   }
 
   @Test
