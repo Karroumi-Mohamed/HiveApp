@@ -641,6 +641,17 @@ Final verification (2026-09-23):
 
 Production PostgreSQL/SMTP/load/retention gates in COMMUNICATION-002 remain open until actually exercised; no throughput, delivery or migration certification follows from source changes alone. Do not create additional planning documents or push commits.
 
+### COMMUNICATION-004 — Separate receiving/settings/sending and support authored translations
+
+**Status:** `OPEN — ACCEPTED 2026-09-23`
+
+Decision: COMMUNICATION-FLOW-003. The inbox currently exposes management-style filters, personal preferences, sending/history and delivery navigation together. Reorganize by user intent without weakening permission/consent boundaries.
+
+- [ ] Backend: optional validated French/Arabic manual variants, original-language fallback, durable publication/event/entry/send snapshots, immutable/idempotent content, locale-aware inbox/email selection and upgrade SQL. Cover legacy content, invalid variants, both languages/fallback, frozen retries, tenant isolation and one delivery/receipt across languages.
+- [ ] Frontend: bell receiving panel plus simple grouped feed/history; remove creation/settings/operations from receiving; shared Profile & settings with grouped existing personal controls; separate owner-only Account consent; dedicated internal sending/history workspace and operational delivery entry point.
+- [ ] Composition: original-language choice with optional Add another language, complete title/body validation, review each version, shared form for admin/internal sends; preserve drafts and show authored versions in sent/publication history.
+- [ ] Verify lint/types/tests/build and real admin/client browser flows in both themes, French/Arabic and narrow layouts. Record actual evidence; PostgreSQL/SMTP/load/retention gates remain open. Separate tested commits, no push.
+
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
 <!-- Shared notifications are tracked independently in COMMUNICATION-002; Plan notice delivery alone is not the communications product. -->
 
