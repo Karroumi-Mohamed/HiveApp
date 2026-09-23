@@ -643,14 +643,21 @@ Production PostgreSQL/SMTP/load/retention gates in COMMUNICATION-002 remain open
 
 ### COMMUNICATION-004 — Separate receiving/settings/sending and support authored translations
 
-**Status:** `OPEN — ACCEPTED 2026-09-23`
+**Status:** `IMPLEMENTED AND LOCALLY VERIFIED 2026-09-23 — COMMUNICATION-002 PRODUCTION GATES REMAIN OPEN`
 
 Decision: COMMUNICATION-FLOW-003. The inbox currently exposes management-style filters, personal preferences, sending/history and delivery navigation together. Reorganize by user intent without weakening permission/consent boundaries.
 
 - [x] Backend: optional validated French/Arabic manual variants, original-language fallback, durable publication/event/entry/send snapshots, immutable/idempotent content, locale-aware inbox/email selection and additive upgrade SQL. Legacy content, invalid variants, both languages/fallback, frozen retries, tenant isolation and one delivery/receipt across languages are covered. Targeted suite: 25 passed; full-suite evidence follows with the frontend verification below.
-- [ ] Frontend: bell receiving panel plus simple grouped feed/history; remove creation/settings/operations from receiving; shared Profile & settings with grouped existing personal controls; separate owner-only Account consent; dedicated internal sending/history workspace and operational delivery entry point.
-- [ ] Composition: original-language choice with optional Add another language, complete title/body validation, review each version, shared form for admin/internal sends; preserve drafts and show authored versions in sent/publication history.
-- [ ] Verify lint/types/tests/build and real admin/client browser flows in both themes, French/Arabic and narrow layouts. Record actual evidence; PostgreSQL/SMTP/load/retention gates remain open. Separate tested commits, no push.
+- [x] Frontend: bell receiving panel plus simple grouped feed/history; remove creation/settings/operations from receiving; shared Profile & settings with grouped existing personal controls; separate owner-only Account consent; dedicated internal sending/history workspace and operational delivery entry point.
+- [x] Composition: original-language choice with optional Add another language, complete title/body validation, review each version, shared form for admin/internal sends; preserve drafts and show authored versions in sent/publication history. Changing the original language swaps the authored versions without discarding either.
+- [x] Verify lint/types/tests/build and real admin/client browser flows in both themes, French/Arabic and narrow layouts. PostgreSQL/SMTP/load/retention gates remain open. Separate tested commits, no push.
+
+Verification evidence:
+
+- Backend: `mvn -q -f backend/pom.xml test` exited 0; 984 passed, 23 skipped, no failures/errors. The 25-test language/security target also passed. Additive PostgreSQL upgrade SQL is provided but was not exercised against PostgreSQL.
+- Frontend: 454 tests passed; Biome, TypeScript and production build passed. Tests cover the lazy bell, separate sending/read permissions, delivery-only operator navigation, personal/account preference separation, incomplete translation blocking, reviewed bilingual payloads and the profile shortcut in both navigation modes.
+- Disposable H2 browser run: admin login, profile notification settings, dark/light and Arabic RTL/narrow layouts; real bilingual admin draft saved and displayed with both authored versions; published test information received in Arabic and marked read, then switched to French without losing its read state; internal reviewed send accepted and shown as delivered in sender history and the receiving feed. Browser console error checks were empty. Temporary tabs and servers were closed; no external email was sent.
+- Commits: `b2d4588` design, `f7b5568` backend, `ee2ee73` frontend. No new planning document and no remote push. These checks do not certify PostgreSQL migration, real SMTP, throughput or retention.
 
 ### PLAN-007 — Active plan edits have no revision or subscriber-effect workflow
 <!-- Shared notifications are tracked independently in COMMUNICATION-002; Plan notice delivery alone is not the communications product. -->

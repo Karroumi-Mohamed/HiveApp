@@ -1590,7 +1590,7 @@ Implemented boundaries:
 
 ## COMMUNICATION-FLOW-003 — Receiving experience, personal settings and authored language versions
 
-**Status:** `DECIDED — IMPLEMENTATION IN PROGRESS 2026-09-23`
+**Status:** `IMPLEMENTED AND LOCALLY VERIFIED 2026-09-23 — PRODUCTION GATES TRACKED IN COMMUNICATION-002`
 
 - The header bell opens a compact receiving panel without leaving the current task. Recent notifications are grouped by date, with All/Unread, brief previews and source-aware details/actions. A secondary full-history view preserves deep links, pagination and advanced filters without presenting a CRUD table. Reading is not acknowledgement or domain completion; do not mark everything read merely by opening the panel.
 - Personal Profile & settings groups existing identity/access information, interface language/appearance, and notification preferences. Email language belongs here and is labelled explicitly; it selects recipient email text, not composition language. Settings are personal, not platform configuration. Account-wide marketing consent stays in separately labelled Account settings with its existing owner/permission checks.
@@ -1599,6 +1599,16 @@ Implemented boundaries:
 - Inbox/detail choose an available authored version matching the receiver's interface language, otherwise the original. Email chooses the recipient's saved email language, otherwise the original authored version; privacy-safe service emails remain generic and link to authorized content. No automatic/AI translation is introduced, and sender UI language does not override receiver selection. Publication and sent-history management show the original plus variants for review.
 - All authored variants are frozen when published/sent; idempotency includes the original language and every variant, so retrying a command cannot change a translation or widen the audience. Existing tenant/source authorization, consent, audit privacy, scheduling/expiry, acknowledgement and cancellation rules are unchanged.
 - Delivery sequence: decisions/TOFIX commit, backend contracts/storage/selection and tests, shared UI redesign and tests, actual browser verification, final evidence in these existing documents. Never push; production PostgreSQL/SMTP gates remain open until exercised.
+
+Implemented entry points:
+
+- Header bell: lazy receiving panel with Today/Earlier feed, All/Unread, details and permitted recipient actions. View all retains the existing `/admin/notifications` and `/app/communications` deep links; optional advanced filters are collapsed initially.
+- Profile shortcut: `/admin/settings` or `/app/settings`, grouped into Profile/access, Language/appearance and Notifications. Existing `/me` routes redirect here. Appearance/UI language are browser preferences; received-email language is a server-side recipient preference, not an automatic translation service.
+- `/app/account-settings`: own-account owner controls, including account-wide marketing consent and the existing permission-checked suspension flow. These controls are not personal notification settings.
+- `/app/announcements`: independently authorized internal composition and the actor's own sent history. Platform Communications keeps customer publications, security-email evidence and notification delivery diagnostics in separate authorized sections. Receiving permission never grants sending or delivery-operations access.
+- Backend authored language variants are frozen onto the same publication/event/entry/send identity. In-app selection follows the request language; marketing email selects the stored receiver language with original-content fallback. Service email retains the privacy-safe generic prompt/deep link. Existing automatic typed templates are unchanged.
+
+Local evidence is recorded under TOFIX COMMUNICATION-004: 984 backend tests passed (23 skipped), 454 frontend tests passed, lint/types/build and real admin/client FR/AR, light/dark, narrow receiving/composition flows verified. Additive PostgreSQL SQL, actual SMTP, load and retention still require their separate deployment checks.
 
 ## SUBSCRIPTION-FLOW-001 — Finding the correct account
 
