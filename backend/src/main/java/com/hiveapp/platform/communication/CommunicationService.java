@@ -105,6 +105,7 @@ public class CommunicationService {
     p.setPurpose(d.purpose());
     p.setMessageTitle(d.messageTitle().trim());
     p.setMessageBody(d.messageBody().trim());
+    p.setLanguages(ManualNotificationLanguages.validated(d.originalLanguage(), d.translations()));
     p.setAccountIds(List.copyOf(d.accountIds()));
     p.setEmail(d.email());
     p.setReplies(false);
@@ -137,6 +138,7 @@ public class CommunicationService {
       e.setPurpose(p.getPurpose());
       e.setMessageTitle(p.getMessageTitle());
       e.setMessageBody(p.getMessageBody());
+      e.setLanguages(p.getLanguages() == null ? null : p.getLanguages().snapshot());
       e.setAvailableAt(p.getAvailableAt());
       e.setExpiresAt(p.getExpiresAt());
       e.setReplies(false);
@@ -517,6 +519,10 @@ public class CommunicationService {
               .filter(Objects::nonNull)
               .findFirst()
               .orElse(null);
+    if (content == null)
+      content =
+          ManualNotificationLanguages.select(
+              e.getLanguages(), e.getMessageTitle(), e.getMessageBody(), locale);
     return new Item(
         e.getId(),
         e.getKind() == Kind.MESSAGE ? Kind.NOTICE : e.getKind(),
@@ -629,7 +635,9 @@ public class CommunicationService {
         p.getExpiresAt(),
         p.getState(),
         p.getCreatedAt(),
-        p.getOfferId());
+        p.getOfferId(),
+        ManualNotificationLanguages.original(p.getLanguages()),
+        ManualNotificationLanguages.variants(p.getLanguages()));
   }
 
   private void validateOffer(CommunicationPublication p) {

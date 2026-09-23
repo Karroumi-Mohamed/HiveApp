@@ -58,7 +58,9 @@ public class InternalNotificationService {
               command.getRecipients(),
               result.getOrDefault(NotificationEvent.State.DELIVERED, 0L),
               result.getOrDefault(NotificationEvent.State.FAILED, 0L),
-              result.getOrDefault(NotificationEvent.State.PENDING, 0L));
+              result.getOrDefault(NotificationEvent.State.PENDING, 0L),
+              ManualNotificationLanguages.original(command.getLanguages()),
+              ManualNotificationLanguages.variants(command.getLanguages()));
         });
   }
 
@@ -97,12 +99,20 @@ public class InternalNotificationService {
       throw new InvalidRequestException("Recipients must be unique.");
     String key = v.accountId() + ":" + v.userId() + ":" + request.commandId();
     String fingerprint;
+    var languages =
+        ManualNotificationLanguages.validated(request.originalLanguage(), request.translations());
     try {
-      var payload =
-          List.of(
-              request.messageTitle().trim(),
-              request.messageBody().trim(),
-              request.memberIds().stream().sorted().toList());
+      List<Object> payload =
+          new ArrayList<>(
+              List.of(
+                  request.messageTitle().trim(),
+                  request.messageBody().trim(),
+                  request.memberIds().stream().sorted().toList()));
+      // Preserve pre-language command hashes for the unchanged default single-language shape.
+      if (!"fr".equals(languages.getOriginalLanguage()) || !languages.getTranslations().isEmpty()) {
+        payload.add(languages.getOriginalLanguage());
+        payload.add(languages.getTranslations());
+      }
       fingerprint =
           HexFormat.of()
               .formatHex(
@@ -146,6 +156,7 @@ public class InternalNotificationService {
               null);
       var event = entities.find(NotificationEvent.class, id);
       event.setSenderUserId(v.userId());
+      event.setLanguages(languages.snapshot());
       event.setSenderName(sender.getDisplayName() == null ? "Membre" : sender.getDisplayName());
     }
   }

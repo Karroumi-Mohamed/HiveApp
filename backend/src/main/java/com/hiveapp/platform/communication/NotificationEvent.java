@@ -62,6 +62,8 @@ public class NotificationEvent extends BaseEntity {
   @Column(nullable = false, length = 10000)
   private String messageBody;
 
+  @Embedded private ManualNotificationLanguages languages;
+
   private boolean email;
 
   @Column(nullable = false)

@@ -31,6 +31,8 @@ public class CommunicationPublication extends BaseEntity {
   @Column(nullable = false, length = 10000)
   private String messageBody;
 
+  @Embedded private ManualNotificationLanguages languages;
+
   @JdbcTypeCode(SqlTypes.JSON)
   @Column(nullable = false)
   private List<UUID> accountIds;

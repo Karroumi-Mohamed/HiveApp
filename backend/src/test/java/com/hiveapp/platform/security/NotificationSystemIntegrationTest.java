@@ -199,6 +199,157 @@ class NotificationSystemIntegrationTest extends PlatformShellIntegrationTestSupp
   }
 
   @Test
+  void authoredVariantsShareOneDeliveryAndReceiptAndCannotChangeOnRetry() throws Exception {
+    UUID member =
+        transactions.execute(
+            tx -> members.findByAccountIdAndUserId(account, owner).orElseThrow().getId());
+    UUID command = UUID.randomUUID();
+    var notice =
+        new InternalNotice(
+            command,
+            "Bonjour",
+            "Texte original",
+            List.of(member),
+            "fr",
+            Map.of("ar", new Translation("مرحبا", "نص عربي")));
+    for (int i = 0; i < 2; i++)
+      mockMvc
+          .perform(
+              post(CLIENT + "/internal")
+                  .header("Authorization", bearer(client))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(objectMapper.writeValueAsString(notice)))
+          .andExpect(status().isAccepted());
+    var found = events.findAll().stream().filter(e -> command.equals(e.getResourceId())).toList();
+    assertThat(found).hasSize(1);
+    UUID id = deliver(found.get(0).getId());
+    mockMvc
+        .perform(
+            get(CLIENT + "/" + id)
+                .header("Authorization", bearer(client))
+                .header("Accept-Language", "ar-MA"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("messageTitle").value("مرحبا"));
+    mockMvc
+        .perform(post(CLIENT + "/" + id + "/read").header("Authorization", bearer(client)))
+        .andExpect(status().isNoContent());
+    mockMvc
+        .perform(
+            get(CLIENT + "/" + id)
+                .header("Authorization", bearer(client))
+                .header("Accept-Language", "fr"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("messageTitle").value("Bonjour"))
+        .andExpect(jsonPath("read").value(true));
+    mockMvc
+        .perform(get(CLIENT + "/" + id).header("Authorization", bearer(other)))
+        .andExpect(status().isNotFound());
+    mockMvc
+        .perform(get(CLIENT + "/internal").header("Authorization", bearer(client)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("content[0].translations.ar.messageBody").value("نص عربي"));
+    var changed =
+        new InternalNotice(
+            command,
+            "Bonjour",
+            "Texte original",
+            List.of(member),
+            "fr",
+            Map.of("ar", new Translation("مرحبا", "changed")));
+    mockMvc
+        .perform(
+            post(CLIENT + "/internal")
+                .header("Authorization", bearer(client))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(changed)))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void manualPublicationVariantsAreFrozenAndMarketingEmailUsesRecipientLanguage() throws Exception {
+    transactions.executeWithoutResult(
+        tx -> accounts.findById(account).orElseThrow().getOwner().setEmailVerified(true));
+    mockMvc
+        .perform(
+            put(CLIENT + "/preferences")
+                .header("Authorization", bearer(client))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"marketingInApp\":true,\"marketingEmail\":true}"))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            put(CLIENT + "/language")
+                .header("Authorization", bearer(client))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"language\":\"ar\"}"))
+        .andExpect(status().isOk());
+    String endpoint = "/api/admin/customer-communications";
+    var draft =
+        new Draft(
+            Kind.NOTICE,
+            Purpose.MARKETING,
+            "Original",
+            "Original body",
+            List.of(account),
+            true,
+            false,
+            null,
+            null,
+            null,
+            "fr",
+            Map.of("ar", new Translation("عرض", "نص العرض")));
+    var created =
+        objectMapper.readTree(
+            mockMvc
+                .perform(
+                    post(endpoint)
+                        .header("Authorization", bearer(admin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(draft)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+    UUID publication = UUID.fromString(created.get("id").asText());
+    mockMvc
+        .perform(
+            post(endpoint + "/" + publication + "/publish")
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new Command(created.get("version").asLong(), "QA"))))
+        .andExpect(status().isOk());
+    var entry = entries.findAllByPublicationIdOrderById(publication).get(0);
+    assertThat(email.claimNotice(entry.getId()).body())
+        .contains("نص العرض")
+        .doesNotContain("Original body");
+    mockMvc
+        .perform(
+            get(CLIENT + "/" + entry.getId())
+                .header("Authorization", bearer(client))
+                .header("Accept-Language", "ar"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("messageTitle").value("عرض"));
+    var current =
+        objectMapper.readTree(
+            mockMvc
+                .perform(get(endpoint + "/" + publication).header("Authorization", bearer(admin)))
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+    mockMvc
+        .perform(
+            put(endpoint + "/" + publication)
+                .header("Authorization", bearer(admin))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new Edit(current.get("version").asLong(), draft))))
+        .andExpect(status().isConflict());
+  }
+
+  @Test
   void automaticContentUsesRequestLocaleAndEmailUsesRecipientPreference() throws Exception {
     transactions.executeWithoutResult(
         tx -> accounts.findById(account).orElseThrow().getOwner().setEmailVerified(true));

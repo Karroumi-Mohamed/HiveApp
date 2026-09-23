@@ -88,7 +88,12 @@ public class CommunicationEmailSource implements CommercialNoticeDeliverySource 
         recipient.getEmail(),
         NotificationText.emailSubject(language),
         e.getPurpose() == Purpose.MARKETING
-            ? e.getMessageBody()
+            ? ManualNotificationLanguages.select(
+                        e.getLanguages(),
+                        e.getMessageTitle(),
+                        e.getMessageBody(),
+                        Locale.forLanguageTag(language))
+                    .body()
                 + "\n\n"
                 + links.getValidatedOrigin()
                 + (e.getActionPath() == null ? "" : e.getActionPath())

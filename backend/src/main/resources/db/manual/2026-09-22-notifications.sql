@@ -127,4 +127,14 @@ CREATE INDEX IF NOT EXISTS idx_notification_event_due ON notification_events(sta
 CREATE INDEX IF NOT EXISTS idx_notification_event_resource ON notification_events(definition_key,resource_id);
 
 -- Idempotency keys/history are not purged by this upgrade. No business grants or source data change.
+-- Nullable metadata preserves legacy authored text without guessing its language.
+DO $$ DECLARE target_table text; BEGIN
+ FOREACH target_table IN ARRAY ARRAY['communication_publications','communication_entries','notification_events','notification_send_commands'] LOOP
+  EXECUTE format('ALTER TABLE %I ADD COLUMN IF NOT EXISTS original_language varchar(5)',target_table);
+  EXECUTE format('ALTER TABLE %I ADD COLUMN IF NOT EXISTS language_variants jsonb',target_table);
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=target_table::regclass AND conname='ck_'||target_table||'_language') THEN
+   EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I CHECK (original_language IS NULL OR original_language IN (''fr'',''ar''))',target_table,'ck_'||target_table||'_language');
+  END IF;
+ END LOOP;
+END $$;
 COMMIT;

@@ -32,6 +32,8 @@ public class NotificationSendCommand {
   @Column(length = 10000)
   private String messageBody;
 
+  @Embedded private ManualNotificationLanguages languages;
+
   private int recipients;
 
   public NotificationSendCommand(String commandKey, String payloadHash, Instant createdAt) {
@@ -53,6 +55,8 @@ public class NotificationSendCommand {
     senderUserId = sender;
     messageTitle = notice.messageTitle().trim();
     messageBody = notice.messageBody().trim();
+    languages =
+        ManualNotificationLanguages.validated(notice.originalLanguage(), notice.translations());
     recipients = notice.memberIds().size();
   }
 }

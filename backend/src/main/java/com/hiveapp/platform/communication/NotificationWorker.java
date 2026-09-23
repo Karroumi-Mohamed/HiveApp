@@ -84,6 +84,7 @@ public class NotificationWorker {
             e.setActionPath(definition.actionPath(event.getResourceId()));
             e.setMessageTitle(event.getMessageTitle());
             e.setMessageBody(event.getMessageBody());
+            e.setLanguages(event.getLanguages() == null ? null : event.getLanguages().snapshot());
             e.setAvailableAt(event.getAvailableAt());
             e.setExpiresAt(event.getExpiresAt());
             e.setResolvedAt(event.getResolvedAt());

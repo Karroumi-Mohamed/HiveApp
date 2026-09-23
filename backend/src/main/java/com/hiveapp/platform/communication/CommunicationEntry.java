@@ -96,6 +96,8 @@ public class CommunicationEntry extends BaseEntity {
   @Column(nullable = false, length = 10000)
   private String messageBody;
 
+  @Embedded private ManualNotificationLanguages languages;
+
   private String requiredPermission;
   private String actionPath;
 

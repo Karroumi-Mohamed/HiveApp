@@ -57,6 +57,10 @@ public final class CommunicationModels {
     RESTORE
   }
 
+  public record Translation(
+      @NotBlank @Size(max = 160) String messageTitle,
+      @NotBlank @Size(max = 10000) String messageBody) {}
+
   public record Draft(
       @NotNull Kind kind,
       @NotNull Purpose purpose,
@@ -68,7 +72,27 @@ public final class CommunicationModels {
           boolean replies,
       Instant availableAt,
       Instant expiresAt,
-      UUID offerId) {}
+      UUID offerId,
+      @Pattern(regexp = "fr|ar") String originalLanguage,
+      @Size(max = 1)
+          Map<@Pattern(regexp = "fr|ar") String, @NotNull @jakarta.validation.Valid Translation>
+              translations) {
+    public Draft(
+        Kind kind,
+        Purpose purpose,
+        String title,
+        String body,
+        List<UUID> accounts,
+        boolean email,
+        boolean replies,
+        Instant at,
+        Instant expires,
+        UUID offerId) {
+      this(
+          kind, purpose, title, body, accounts, email, replies, at, expires, offerId, "fr",
+          Map.of());
+    }
+  }
 
   public record Edit(@NotNull Long version, @NotNull @jakarta.validation.Valid Draft draft) {}
 
@@ -90,7 +114,9 @@ public final class CommunicationModels {
       Instant expiresAt,
       State state,
       Instant createdAt,
-      UUID offerId) {}
+      UUID offerId,
+      String originalLanguage,
+      Map<String, Translation> translations) {}
 
   public record Item(
       UUID id,
@@ -132,7 +158,15 @@ public final class CommunicationModels {
       @NotNull UUID commandId,
       @NotBlank @Size(max = 160) String messageTitle,
       @NotBlank @Size(max = 10000) String messageBody,
-      @NotEmpty @Size(max = 100) List<@NotNull UUID> memberIds) {}
+      @NotEmpty @Size(max = 100) List<@NotNull UUID> memberIds,
+      @Pattern(regexp = "fr|ar") String originalLanguage,
+      @Size(max = 1)
+          Map<@Pattern(regexp = "fr|ar") String, @NotNull @jakarta.validation.Valid Translation>
+              translations) {
+    public InternalNotice(UUID id, String title, String body, List<UUID> members) {
+      this(id, title, body, members, "fr", Map.of());
+    }
+  }
 
   public record InboxSummary(long unread) {}
 
@@ -146,7 +180,9 @@ public final class CommunicationModels {
       int recipients,
       long delivered,
       long failed,
-      long pending) {}
+      long pending,
+      String originalLanguage,
+      Map<String, Translation> translations) {}
 
   public record NotificationSetting(
       @NotNull Topic topic, boolean inAppEnabled, boolean emailEnabled) {}
