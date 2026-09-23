@@ -19,7 +19,7 @@ import java.util.UUID;
 public interface CommercialAvailabilityService {
     Page<ExtensionCompatibilityDto> inspect(
             UUID planId, String search, CommercialProductType type, Boolean available,
-            String currencyCode, BillingCycle billingCycle, Pageable pageable);
+            String currencyCode, BillingCycle billingCycle, String featureCode, Pageable pageable);
 
     PlanAvailabilityPreviewDto previewPlan(UUID planId, PlanAvailabilityPreviewRequest request);
     PlanDto updatePlan(UUID planId, PlanAvailabilityMutationRequest request);

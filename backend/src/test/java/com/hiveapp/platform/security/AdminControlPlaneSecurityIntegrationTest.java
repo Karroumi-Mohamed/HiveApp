@@ -2802,6 +2802,27 @@ class AdminControlPlaneSecurityIntegrationTest extends PlatformShellIntegrationT
                 .andExpect(jsonPath("$.state").value("DRAFT"));
     }
 
+    @Test
+    void catalogueComparisonHasIndependentGuardAndDoesNotLeakPrices() throws Exception {
+        LimitedAdmin versionsOnly = createLimitedAdmin("platform.plans.compare_versions");
+        mockMvc.perform(get("/api/admin/plans/comparison")
+                        .param("ids", UUID.randomUUID().toString(), UUID.randomUUID().toString())
+                        .header("Authorization", bearer(versionsOnly.token())))
+                .andExpect(status().isForbidden());
+        LimitedAdmin compareOnly = createLimitedAdmin("platform.plans.compare_plans");
+        String root = loginAdminAndGetToken();
+        JsonNode families = objectMapper.readTree(mockMvc.perform(get("/api/admin/plans/families")
+                        .header("Authorization", bearer(root)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("content");
+        mockMvc.perform(get("/api/admin/plans/comparison")
+                        .param("ids", families.get(0).path("publicVersion").path("id").asText(),
+                                families.get(1).path("publicVersion").path("id").asText())
+                        .header("Authorization", bearer(compareOnly.token())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.pricesVisible").value(false))
+                .andExpect(jsonPath("$.plans[0].currentPrices").isEmpty())
+                .andExpect(jsonPath("$.plans[0].scheduledPrices").isEmpty());
+    }
+
     private LimitedAdmin createLimitedAdmin(String... permissionCodes) throws Exception {
         String superToken = loginAdminAndGetToken();
         String email = operatorEmail();

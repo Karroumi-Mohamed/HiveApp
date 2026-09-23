@@ -66,6 +66,7 @@ export const adminPermissions = {
   plansListFamilies: permission("plans", "list_families"),
   plansListVersions: permission("plans", "list_versions"),
   plansCompareVersions: permission("plans", "compare_versions"),
+  plansCompare: permission("plans", "compare_plans"),
   plansSelectPublicVersion: permission("plans", "select_public_version"),
   plansUpdateMetadata: permission("plans", "update_metadata"),
   plansPreviewApplication: permission("plans", "preview_version_application"),

@@ -400,6 +400,8 @@ export const adminApi = {
     admin<PlanVersions>(`/plans/${id}/versions`, { query }),
   comparePlanVersions: (source: UUID, target: UUID) =>
     admin<PlanVersionComparison>(`/plans/${source}/compare/${target}`),
+  comparePlans: (ids: UUID[]) =>
+    admin<import("./contracts").PlanCatalogComparison>("/plans/comparison", { query: { ids } }),
   selectPlanPublicVersion: (
     id: UUID,
     input: { expectedCatalogRevision: number; expectedVersion: number; reason: string },
@@ -580,6 +582,7 @@ export const adminApi = {
     id: UUID,
     query: {
       search?: string;
+      featureCode?: string;
       type?: CommercialProductType;
       available?: boolean;
       currencyCode?: string;

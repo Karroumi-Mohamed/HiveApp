@@ -1650,6 +1650,19 @@ export type PlanVersionComparison = {
   pricesVisible: boolean;
 };
 
+export type ComparedPlan = {
+  plan: PlanVersion;
+  features: PlanFeature[];
+  currentPrices: PlanVersionPrice[];
+  scheduledPrices: PlanVersionPrice[];
+};
+export type PlanCatalogComparison = {
+  catalogRevision: number;
+  asOf: string;
+  plans: ComparedPlan[];
+  pricesVisible: boolean;
+};
+
 export type CommercialOperationalItem = {
   id: UUID;
   code: string;

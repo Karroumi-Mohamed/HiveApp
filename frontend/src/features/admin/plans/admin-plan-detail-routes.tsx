@@ -4,10 +4,19 @@ import { AdminReadPermissionGate } from "@/components/patterns/permission-gate";
 import { AdminPlansPage } from "./admin-plans-page";
 import { PlanApplicationCreatePage } from "./plan-application-create-page";
 import { PlanApplicationDetailPage } from "./plan-application-detail-page";
+import { PlanComparisonPage } from "./plan-comparison-page";
 import { PlanVersionComparisonPage, PlanVersionsPage } from "./plan-versions-page";
 
 /** Shared with routing tests so static URLs and their permission gates are exercised together. */
 export const adminPlanDetailRoutes: RouteObject[] = [
+  {
+    path: "plans/compare",
+    element: (
+      <AdminReadPermissionGate allOf={[adminPermissions.plansCompare]}>
+        <PlanComparisonPage />
+      </AdminReadPermissionGate>
+    ),
+  },
   {
     path: "plans/:planId/apply",
     element: (

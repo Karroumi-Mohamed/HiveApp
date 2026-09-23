@@ -74,6 +74,38 @@ public class PlanVersionOperations {
                         operations.listPlans(null, null, null, null, plan.getLineageId(), pageable)));
     }
 
+    public CatalogComparison comparePlans(List<UUID> ids) {
+        if (ids == null || ids.size() < 2 || ids.size() > 3 || ids.contains(null)
+                || new HashSet<>(ids).size() != ids.size()) {
+            throw new InvalidRequestException("Select two or three distinct Plan versions.");
+        }
+        var selected = ids.stream().map(this::requirePlan).toList();
+        var rows = features.findAllByPlanIds(new HashSet<>(ids));
+        boolean pricesVisible = allowed("platform.price_books.list");
+        var at = clock.instant();
+        var schedule = pricesVisible
+                ? prices.findCurrentAndScheduledByPlanIds(ids, at, PageRequest.of(0, 1201))
+                : List.<ProductPrice>of();
+        if (schedule.size() > 1200) {
+            throw new InvalidStateException("Too many prices for comparison. Use the paginated price book.");
+        }
+        var columns = selected.stream().map(plan -> {
+            var planPrices = schedule.stream().filter(price -> price.getPlan().getId().equals(plan.getId())).toList();
+            return new ComparedPlan(version(plan), featureMap(rows, plan.getId()).values().stream()
+                    .sorted(Comparator.comparing(PlanFeatureDto::featureCode)).toList(),
+                    planPrices.stream().filter(price -> !price.getEffectiveFrom().isAfter(at))
+                            .map(this::comparisonPrice).toList(),
+                    planPrices.stream().filter(price -> price.getEffectiveFrom().isAfter(at))
+                            .map(this::comparisonPrice).toList());
+        }).toList();
+        return new CatalogComparison(catalogVersion.currentRevision(), at, columns, pricesVisible);
+    }
+
+    private Price comparisonPrice(ProductPrice price) {
+        return new Price(price.getId(), price.getAmount(), price.getCurrencyCode(), price.getBillingCycle(),
+                price.getEffectiveFrom(), price.getEffectiveUntil());
+    }
+
     public Comparison compare(UUID sourceId, UUID targetId) {
         Plan source = requirePlan(sourceId);
         Plan target = requirePlan(targetId);

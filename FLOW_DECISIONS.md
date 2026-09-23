@@ -972,6 +972,15 @@ Creation should be guided rather than one large form:
 - Use canonical administrator-facing **Version / Créer une version**, with backend business names, API contracts and frontend copy aligned through compatibility-safe changes. Preserve the separate meanings of product versions, price versions and concurrency counters; this naming work must not change purchase, publication or subscriber-effect rules.
 - The consolidated implementation plan below is accepted. Reuse existing product-lineage and capacity-package revision capabilities rather than introducing a second versioning model.
 
+### Cross-plan administrator comparison — accepted (2026-09-23)
+
+- Add a read-only **Comparer les forfaits** destination from the Plan catalogue, selecting two or three exact Plan versions across independent families. Keep same-family version comparison and subscriber-impact preview as separate operations.
+- Compare feature availability (included / optional through named add-ons / blocked or absent), feature-owned resource limits, current and scheduled active tariffs, lifecycle, sales visibility and extension policy. Expand details for registry permissions and server-resolved add-ons/capacity packs, quantities, dependencies, restrictions and their prices.
+- Use aligned columns with sticky Plan headings and feature labels, grouped sections, and a differences-only control for composition, tariffs and sales conditions. Extension details remain independently consultable rather than being silently excluded by that filter. Keep exact product-version labels visible. Do not infer a total ordering of Plans or label a change as a safe customer upgrade.
+- Missing quota configuration, explicit unlimited, zero, non-applicable and unavailable registry data are distinct. Optional capabilities and purchasable capacity are never counted as included. Compare exact currency/cycle tuples without conversion, guessed yearly discounts, or customer-specific campaigns/negotiated prices.
+- The core comparison has its own guarded read action, validates two or three distinct IDs before repository reads, and reads composition/pricing under the catalogue consistency boundary. Price, registry and compatibility data retain independent read authorization. Restricted, failed and paginated data must never appear as empty or complete.
+- Selection is bounded and URL-addressable. Extensions are loaded on demand with pagination, reusing backend compatibility rather than recreating eligibility in the browser. No subscription, publication, pricing, notification or catalogue mutation occurs. Track delivery in `PLAN-014` in `TOFIX.md`; no separate specification document.
+
 ### Applying Plan versions to existing subscribers — reopened discussion (2026-09-21)
 
 **Status:** `DECIDED — PLAN CONTENT WORKFLOW IMPLEMENTED AND VERIFIED (2026-09-22)`

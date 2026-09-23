@@ -47,6 +47,7 @@ public class CommercialAvailabilityAdminController {
             @RequestParam(required = false) Boolean available,
             @RequestParam(required = false) String currencyCode,
             @RequestParam(required = false) BillingCycle billingCycle,
+            @RequestParam(required = false) String featureCode,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @PageableDefault(size = 20, sort = "code", direction = Sort.Direction.ASC) Pageable pageable
@@ -56,7 +57,7 @@ public class CommercialAvailabilityAdminController {
                     "Compatibility page must be non-negative with a size between 1 and 100.");
         }
         return PageResponse.from(service.inspect(
-                planId, search, type, available, currencyCode, billingCycle, pageable));
+                planId, search, type, available, currencyCode, billingCycle, featureCode, pageable));
     }
 
     @PostMapping("/plans/{planId}/commercial-availability/preview")

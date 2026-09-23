@@ -98,6 +98,8 @@ public interface PlanAdminService {
   com.hiveapp.platform.client.plan.dto.PlanVersionModels.Comparison comparePlanVersions(
       UUID sourceId, UUID targetId);
 
+  com.hiveapp.platform.client.plan.dto.PlanVersionModels.CatalogComparison comparePlans(List<UUID> ids);
+
   com.hiveapp.platform.client.plan.dto.PlanVersionModels.Version selectPublicVersion(
       UUID planId, com.hiveapp.platform.client.plan.dto.PlanVersionModels.SelectPublic request);
 

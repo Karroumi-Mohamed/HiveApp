@@ -200,6 +200,75 @@ class PlanVersionManagementIntegrationTest extends PlatformShellIntegrationTestS
         assertThat(publicSelection.isPublicChoice(first)).isTrue();
     }
 
+    @Test
+    void catalogueComparisonSupportsThreeIndependentPlansAndSchedulesWithoutMutation() throws Exception {
+        String token = loginAdminAndGetToken();
+        Plan first = plan(null, 1, PlanStatus.ACTIVE);
+        Plan second = plan(null, 1, PlanStatus.DRAFT);
+        Plan third = plan(null, 1, PlanStatus.INACTIVE);
+        feature(first, "platform.staff", PlanFeatureMode.INCLUDED,
+                List.of(new QuotaLimitEntry("members", QuotaLimitMode.FINITE, 0L)));
+        feature(second, "platform.staff", PlanFeatureMode.INCLUDED,
+                List.of(new QuotaLimitEntry("members", QuotaLimitMode.UNLIMITED, null)));
+        feature(third, "platform.staff", PlanFeatureMode.OPTIONAL_ADD_ON, List.of());
+        var future = ProductPrice.draft(first, Money.of(new BigDecimal("900"), "MAD"),
+                BillingCycle.YEARLY, Instant.now().plusSeconds(86400), null);
+        future.activate();
+        prices.saveAndFlush(future);
+        long count = plans.count();
+        long version = first.getVersion();
+        mockMvc.perform(get("/api/admin/plans/comparison").header("Authorization", bearer(token))
+                        .param("ids", third.getId().toString(), first.getId().toString(), second.getId().toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.plans.length()").value(3))
+                .andExpect(jsonPath("$.plans[0].plan.id").value(third.getId().toString()))
+                .andExpect(jsonPath("$.plans[0].features[0].mode").value("OPTIONAL_ADD_ON"))
+                .andExpect(jsonPath("$.plans[1].features[0].quotaConfigs[0].limit").value(0))
+                .andExpect(jsonPath("$.plans[1].currentPrices.length()").value(1))
+                .andExpect(jsonPath("$.plans[1].scheduledPrices[0].billingCycle").value("YEARLY"))
+                .andExpect(jsonPath("$.plans[2].features[0].quotaConfigs[0].mode").value("UNLIMITED"))
+                .andExpect(jsonPath("$.pricesVisible").value(true));
+        assertThat(plans.count()).isEqualTo(count);
+        assertThat(plans.findById(first.getId()).orElseThrow().getVersion()).isEqualTo(version);
+    }
+
+    @Test
+    void catalogueComparisonRejectsInvalidSelectionsAndSupportsTwoPlans() throws Exception {
+        String token = loginAdminAndGetToken();
+        String a = plan(null, 1, PlanStatus.ACTIVE).getId().toString();
+        String b = plan(null, 1, PlanStatus.ACTIVE).getId().toString();
+        for (String[] ids : List.of(new String[]{a}, new String[]{a, a},
+                new String[]{a, b, UUID.randomUUID().toString(), UUID.randomUUID().toString()},
+                new String[]{a, "invalid"})) {
+            mockMvc.perform(get("/api/admin/plans/comparison").header("Authorization", bearer(token))
+                    .param("ids", ids)).andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(get("/api/admin/plans/comparison").header("Authorization", bearer(token))
+                .param("ids", a, b)).andExpect(status().isOk()).andExpect(jsonPath("$.plans.length()").value(2));
+        mockMvc.perform(get("/api/admin/plans/comparison").header("Authorization", bearer(token))
+                .param("ids", a, UUID.randomUUID().toString())).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/plans/comparison").param("ids", a, b))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/admin/plans/comparison").param("ids", a, b)
+                .header("Authorization", bearer(registerClientAndGetToken()))).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void featureCompatibilityFilterRunsBeforePaginationAndIncludesCapacityPacks() throws Exception {
+        String token = loginAdminAndGetToken();
+        Plan flex = plans.findByCode("FLEX").orElseThrow();
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", flex.getId())
+                        .header("Authorization", bearer(token)).param("featureCode", "platform.staff")
+                        .param("type", "QUOTA_PACKAGE").param("size", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content[0].quotaFeatureCode").value("platform.staff"));
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", flex.getId())
+                        .header("Authorization", bearer(token)).param("featureCode", "platform.rbac")
+                        .param("type", "ADD_ON").param("size", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content[0].name").value("Custom Roles"));
+        mockMvc.perform(get("/api/admin/plans/{id}/extensions/compatibility", flex.getId())
+                        .header("Authorization", bearer(token)).param("featureCode", "unknown"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
+    }
+
     private org.springframework.test.web.servlet.ResultActions lifecycle(String token, Plan plan, String action) throws Exception {
         return mockMvc.perform(post("/api/admin/plans/{id}/lifecycle", plan.getId())
                 .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)

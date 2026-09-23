@@ -73,6 +73,7 @@ const queries: InstanceType<typeof QueryClient>[] = [];
 const requests: string[] = [];
 const writes: { path: string; body: Record<string, unknown> }[] = [];
 let applicationConfirmed = false;
+let extraComparisonFamilies = false;
 const secondId = "d777b6cb-a4b2-4ffe-99a8-cd7e1fb21652";
 const firstVersion = {
   ...plan,
@@ -152,6 +153,28 @@ function renderPage(path: string, permissions: string[], isSuperAdmin = false) {
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
       });
     }
+    if (url.pathname === "/api/admin/plans/comparison")
+      return response({
+        catalogRevision: 7,
+        asOf: "2026-09-23T00:00:00Z",
+        pricesVisible: false,
+        plans: [versionRef, { ...versionRef, id: secondId, name: "Flex" }].map((item, index) => ({
+          plan: item,
+          currentPrices: [],
+          scheduledPrices: [],
+          features: [
+            {
+              id: `${index}-staff`,
+              featureCode: "platform.staff",
+              mode: "INCLUDED",
+              quotaConfigs: [{ resource: "members", mode: "FINITE", limit: index ? 5 : 3 }],
+            },
+            { id: `${index}-workspace`, featureCode: "platform.workspace", mode: "INCLUDED", quotaConfigs: [] },
+          ],
+        })),
+      });
+    if (url.pathname.endsWith("/extensions/compatibility"))
+      return response({ content: [], page: 0, size: 10, totalElements: 0, totalPages: 0 });
     if (url.pathname === `/api/admin/plans/${planId}`) return response(plan);
     if (url.pathname === `/api/admin/plans/${secondId}`) return response(secondVersion);
     if (url.pathname.endsWith("/versions"))
@@ -201,6 +224,21 @@ function renderPage(path: string, permissions: string[], isSuperAdmin = false) {
             pricesVisible: false,
             currentPrices: [],
           },
+          ...(extraComparisonFamilies
+            ? [1, 2, 3].map((number) => ({
+                lineageId: `family-${number}`,
+                publicVersion: {
+                  ...versionRef,
+                  id: `7f31acf0-5101-4341-ac59-7ac88d29ce4${number}`,
+                  name: `Plan ${number}`,
+                },
+                draft: null,
+                versionCount: 1,
+                currentSubscriberCount: null,
+                pricesVisible: false,
+                currentPrices: [],
+              }))
+            : []),
         ],
         totalPages: 1,
         totalElements: 1,
@@ -283,6 +321,7 @@ beforeEach(async () => {
   requests.length = 0;
   writes.length = 0;
   applicationConfirmed = false;
+  extraComparisonFamilies = false;
   clearSession("admin");
   writeSession("admin", {
     accessToken: "admin-token",
@@ -299,6 +338,65 @@ afterEach(() => {
 });
 
 describe("plan detail route rendering and authorization", () => {
+  test("catalogue selection enables at two, caps at three, and opens exact version IDs", async () => {
+    extraComparisonFamilies = true;
+    const view = renderPage("/admin/plans", [adminPermissions.plansListFamilies, adminPermissions.plansCompare]);
+    const user = userEvent.setup({ document: browser.document as unknown as Document });
+    await waitFor(() => expect(view.getByRole("heading", { name: "Enterprise" })).toBeTruthy());
+    await user.click(view.getByRole("button", { name: "Comparer les forfaits" }));
+    await user.click(view.getByRole("checkbox", { name: "Sélectionner Enterprise" }));
+    expect(view.getByRole("button", { name: "Choisir 2 ou 3 forfaits" }).hasAttribute("disabled")).toBe(true);
+    await user.click(view.getByRole("checkbox", { name: "Sélectionner Plan 1" }));
+    expect(view.getByRole("link", { name: "Comparer" })).toBeTruthy();
+    await user.click(view.getByRole("checkbox", { name: "Sélectionner Plan 2" }));
+    expect(view.getByRole("checkbox", { name: "Sélectionner Plan 3" }).hasAttribute("disabled")).toBe(true);
+    await user.click(view.getByRole("link", { name: "Comparer" }));
+    await waitFor(() => expect(view.router.state.location.pathname).toBe("/admin/plans/compare"));
+    expect(new URLSearchParams(view.router.state.location.search).get("ids")?.split(",")).toHaveLength(3);
+  });
+  test("cross-plan comparison renders differences and expands details without secondary reads", async () => {
+    const view = renderPage(`/admin/plans/compare?ids=${planId},${secondId}`, [adminPermissions.plansCompare]);
+    await waitFor(() => expect(view.getByText("platform.staff")).toBeTruthy());
+    expect(view.getByText("platform.workspace")).toBeTruthy();
+    const user = userEvent.setup({ document: browser.document as unknown as Document });
+    await user.click(view.getByRole("checkbox", { name: "Différences uniquement" }));
+    expect(view.queryByText("platform.workspace")).toBeNull();
+    await user.click(view.getByRole("button", { name: "Détails de platform.staff" }));
+    expect(view.getByText("Permissions de la fonctionnalité")).toBeTruthy();
+    expect(view.getAllByText("Compatibilité non autorisée")).toHaveLength(2);
+    expect(requests).toEqual(["/api/admin/plans/comparison"]);
+    expect(writes).toEqual([]);
+    await user.click(view.getByRole("button", { name: "Actualiser" }));
+    await waitFor(() => expect(requests.filter((path) => path === "/api/admin/plans/comparison")).toHaveLength(2));
+    expect(view.getByRole("button", { name: "Réduire platform.staff" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("compatibility details are lazy, feature-filtered and read-only", async () => {
+    const view = renderPage(`/admin/plans/compare?ids=${planId},${secondId}`, [
+      adminPermissions.plansCompare,
+      adminPermissions.commercialInspectCompatibility,
+    ]);
+    await waitFor(() => expect(view.getByText("platform.staff")).toBeTruthy());
+    expect(requests).toEqual(["/api/admin/plans/comparison"]);
+    const user = userEvent.setup({ document: browser.document as unknown as Document });
+    await user.click(view.getByRole("button", { name: "Détails de platform.staff" }));
+    await waitFor(() => expect(view.getAllByText("Aucun résultat")).toHaveLength(2));
+    expect(requests.filter((path) => path.endsWith("/extensions/compatibility"))).toHaveLength(2);
+    expect(writes).toEqual([]);
+  });
+
+  test("comparison rejects malformed URLs and the independent route guard makes no requests", async () => {
+    const view = renderPage("/admin/plans/compare?ids=invalid", [adminPermissions.plansCompare]);
+    await waitFor(() => expect(view.getByText("Sélectionnez deux ou trois versions distinctes.")).toBeTruthy());
+    expect(requests).toEqual([]);
+    cleanup();
+    const denied = renderPage(`/admin/plans/compare?ids=${planId},${secondId}`, [
+      adminPermissions.plansCompareVersions,
+    ]);
+    await waitFor(() => expect(denied.getByText("Accès indisponible")).toBeTruthy());
+    expect(requests).toEqual([]);
+  });
+
   test("result rows refetch and the conflict filter clears after a successful job action", async () => {
     const view = renderPage(`${base}/applications/job-1`, [
       adminPermissions.plansReadApplication,

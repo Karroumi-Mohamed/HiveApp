@@ -130,13 +130,19 @@ public class CommercialAvailabilityServiceImpl extends PlatformControlFeatureSer
             Boolean available,
             String currencyCode,
             BillingCycle billingCycle,
+            String featureCode,
             Pageable pageable
     ) {
+        if (featureCode != null && (featureCode.isBlank() || featureCode.length() > 160)) {
+            throw new InvalidRequestException("Feature code must contain between 1 and 160 characters.");
+        }
         CommercialCatalogResolver.PriceTuple tuple = priceTuple(currencyCode, billingCycle);
         CommercialCatalogResolver.PlanResolution resolution = catalogResolver.resolvePlan(
                 planId, CommercialCatalogResolver.Audience.AUTHORIZED_OPERATOR, tuple);
         Pageable bounded = compatibilityPage(pageable);
         List<ExtensionCompatibilityDto> items = extensionDtos(resolution).stream()
+                .filter(item -> featureCode == null || item.featureCodes().contains(featureCode)
+                        || featureCode.equals(item.quotaFeatureCode()))
                 .filter(item -> type == null || item.productType() == type)
                 .filter(item -> available == null || item.operatorSelectable() == available)
                 .filter(item -> matches(item, search))

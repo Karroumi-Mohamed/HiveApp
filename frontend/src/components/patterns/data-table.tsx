@@ -128,6 +128,8 @@ export type DataTableProps<T extends RowData> = {
   getRowCanExpand?: (row: T) => boolean;
   /** Renders a full-width detail panel directly after an expanded row. */
   renderExpandedRow?: (row: T) => ReactNode;
+  /** Keep stable-id details open across background refreshes when explicitly disabled. */
+  autoResetExpanded?: boolean;
 };
 
 export function DataTable<T extends RowData>({
@@ -144,6 +146,7 @@ export function DataTable<T extends RowData>({
   bulkRow,
   getRowCanExpand,
   renderExpandedRow,
+  autoResetExpanded = true,
 }: DataTableProps<T>) {
   const table = useTable({
     features: dataTableFeatures,
@@ -153,6 +156,7 @@ export function DataTable<T extends RowData>({
     // Sorting is applied by the server across the whole result set. Letting the table sort as
     // well would reorder only the rows on screen and call the result sorted.
     manualSorting: true,
+    autoResetExpanded,
     ...(renderExpandedRow
       ? { getRowCanExpand: (row: { original: T }) => getRowCanExpand?.(row.original) ?? true }
       : {}),

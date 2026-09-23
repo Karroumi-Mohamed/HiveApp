@@ -1,14 +1,17 @@
 import { GitBranchIcon, MagnifyingGlassIcon, PlusIcon, UsersIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router";
 import { adminApi } from "@/api/admin-api";
+import type { PlanVersion } from "@/api/contracts";
 import { adminPermissions } from "@/auth/permissions";
 import { useAdminSession } from "@/auth/session-provider";
 import { PageHeader } from "@/components/patterns/page-header";
 import { PaginationBar } from "@/components/patterns/pagination-bar";
 import { EmptyState, ErrorState, LoadingState } from "@/components/patterns/remote-state";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ProductPriceOptions } from "@/features/admin/price-books/product-price-summary";
 import { adminCommercialKeys } from "@/features/commercial/commercial-query";
@@ -19,6 +22,9 @@ export function PlanFamilyCatalogue() {
   const { t } = useTranslation();
   const session = useAdminSession();
   const [params, setParams] = useSearchParams();
+  const [comparing, setComparing] = useState(params.get("compare") === "1");
+  const [selection, setSelection] = useState<PlanVersion[]>([]);
+  const canCompare = session.can(adminPermissions.plansCompare);
   const search = params.get("search") ?? "";
   const page = Math.max(0, Number(params.get("page")) || 0);
   const debounced = useDebouncedValue(search);
@@ -32,16 +38,59 @@ export function PlanFamilyCatalogue() {
       <PageHeader
         title={t("planVersions.plans")}
         actions={
-          session.can(adminPermissions.plansCreate) && (
-            <Button asChild>
-              <Link to="/admin/plans/new">
-                <PlusIcon />
-                {t("planVersions.create")}
-              </Link>
-            </Button>
-          )
+          <>
+            {canCompare && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setComparing(!comparing);
+                  setSelection([]);
+                }}
+              >
+                {t(comparing ? "planComparison.cancel" : "planComparison.title")}
+              </Button>
+            )}
+            {session.can(adminPermissions.plansCreate) && (
+              <Button asChild>
+                <Link to="/admin/plans/new">
+                  <PlusIcon />
+                  {t("planVersions.create")}
+                </Link>
+              </Button>
+            )}
+          </>
         }
       />
+      {comparing && canCompare && (
+        <section
+          className="sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-xl border bg-card p-4 shadow-sm"
+          aria-label={t("planComparison.choose")}
+        >
+          <p className="text-sm font-medium">{t("planComparison.selected", { count: selection.length })}</p>
+          {selection.map((plan) => (
+            <Button
+              key={plan.id}
+              size="sm"
+              variant="secondary"
+              aria-label={t("planComparison.remove", { name: plan.name })}
+              onClick={() => setSelection(selection.filter((item) => item.id !== plan.id))}
+            >
+              {plan.name} · V{plan.productVersionNumber} ×
+            </Button>
+          ))}
+          <div className="ms-auto">
+            {selection.length >= 2 ? (
+              <Button asChild>
+                <Link to={`/admin/plans/compare?ids=${selection.map((plan) => plan.id).join(",")}`}>
+                  {t("planComparison.compare")}
+                </Link>
+              </Button>
+            ) : (
+              <Button disabled>{t("planComparison.choose")}</Button>
+            )}
+          </div>
+        </section>
+      )}
       <div className="relative max-w-md">
         <MagnifyingGlassIcon className="pointer-events-none absolute start-3 top-3 size-4 text-muted-foreground" />
         <Input
@@ -78,6 +127,28 @@ export function PlanFamilyCatalogue() {
                   className="flex min-w-0 flex-col rounded-xl border bg-card"
                 >
                   <div className="space-y-5 p-6">
+                    {comparing && canCompare && (
+                      <label
+                        htmlFor={`compare-${plan.id}`}
+                        className="flex min-h-11 cursor-pointer items-center gap-3 text-sm"
+                      >
+                        <Checkbox
+                          id={`compare-${plan.id}`}
+                          checked={selection.some((item) => item.id === plan.id)}
+                          disabled={selection.length >= 3 && !selection.some((item) => item.id === plan.id)}
+                          onCheckedChange={(checked) =>
+                            setSelection((current) =>
+                              checked
+                                ? current.some((item) => item.id === plan.id) || current.length >= 3
+                                  ? current
+                                  : [...current, plan]
+                                : current.filter((item) => item.id !== plan.id),
+                            )
+                          }
+                        />
+                        {t("planComparison.select", { name: plan.name })}
+                      </label>
+                    )}
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <h2 className="text-xl font-semibold tracking-tight">{plan.name}</h2>
                       <PlanStatusTag status={plan.status} />

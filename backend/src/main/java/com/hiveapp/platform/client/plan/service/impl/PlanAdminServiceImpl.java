@@ -292,6 +292,13 @@ public class PlanAdminServiceImpl extends PlatformControlFeatureService implemen
     }
 
     @Override
+    @Transactional(readOnly = true)
+    @PermissionNode(key = "compare_plans", description = "Compare two or three Plan catalogue configurations")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionModels.CatalogComparison comparePlans(List<UUID> ids) {
+        return commercialCatalogVersionService.readConsistently(ignored -> planVersions.comparePlans(ids));
+    }
+
+    @Override
     @Transactional
     @CommercialCatalogMutation
     @PermissionNode(key = "select_public_version", description = "Choose a Plan family's public version without moving subscribers")

@@ -33,6 +33,10 @@ public final class PlanVersionModels {
                              List<Price> targetPrices, boolean pricesVisible) {}
     public record SelectPublic(@NotNull Long expectedCatalogRevision, @NotNull Long expectedVersion,
                                @NotBlank @Size(max = 1000) String reason) {}
+    public record ComparedPlan(Version plan, List<PlanFeatureDto> features,
+                               List<Price> currentPrices, List<Price> scheduledPrices) {}
+    public record CatalogComparison(long catalogRevision, Instant asOf,
+                                    List<ComparedPlan> plans, boolean pricesVisible) {}
     public record Metadata(@NotNull Long expectedVersion, @NotBlank @Size(max = 255) String name,
                            @Size(max = 255) String description,
                            @NotBlank @Size(max = 1000) String reason) {}

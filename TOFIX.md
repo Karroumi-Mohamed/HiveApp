@@ -1243,6 +1243,19 @@ A copied plan can become sellable before review, admins cannot understand its or
 
 ---
 
+### PLAN-014 — Read-only comparison of two or three independent Plans
+
+**Status:** `RESOLVED — IMPLEMENTED AND VERIFIED 2026-09-23`
+
+- Delivered `Forfaits → Comparer les forfaits → select 2–3 → Comparer`, with exact selected version IDs in the URL and visible version labels. Existing same-family version comparison is unchanged.
+- Added the independently guarded `platform.plans.compare_plans` action and `GET /api/admin/plans/comparison`. It validates distinct IDs, preserves requested order and reads composition/current/scheduled tariffs under the catalogue consistency boundary. Tariffs require their separate read permission; oversized price results are rejected rather than truncated.
+- Shared-table aligned columns show sales conditions, pricing by currency/cycle and feature-owned limits. Zero, unlimited, undefined, non-applicable and unavailable definitions remain distinct. The differences filter covers these core rows, not extension eligibility; its scope is explicit.
+- Registry permissions and server-resolved add-ons/packs load on demand under independent authorization, with retry/error/restricted states and paginated compatibility results. Feature filtering occurs before backend pagination. No publication, subscription, price or communication writes occur.
+- Verification: complete backend suite **988 passed / 23 skipped / 0 failed**; frontend **463 passed / 0 failed**, Biome, TypeScript and production build green. Tests cover cross-family two/three plans, duplicate/invalid/oversized/missing IDs, permission-before-existence, concealed tariffs, current/scheduled prices, quota distinctions, bounded selection, lazy details and refresh-preserved expansion.
+- Browser verification used a separate ephemeral dev database: two- and three-plan selection, differences, named Custom Roles eligibility, Staff capacity packs, refresh, desktop and 400-CSS-pixel narrow layout, French/Arabic and light/dark. Sticky headings/feature labels and table-contained horizontal scrolling verified; no browser console errors. Registry-provided names/descriptions retain their existing source language.
+
+---
+
 ### PLAN-011 — Admin subscriber management is a collection of single-record endpoints, not the decided operational flow
 
 **Status:** `PARTIALLY RESOLVED — CONTENT-VERSION POPULATIONS AND WORKFLOWS DELIVERED 2026-09-22; BROADER LIFECYCLE WORK REMAINS`

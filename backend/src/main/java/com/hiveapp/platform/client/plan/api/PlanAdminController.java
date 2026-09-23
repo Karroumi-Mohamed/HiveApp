@@ -93,6 +93,12 @@ public class PlanAdminController {
         return planAdminService.comparePlanVersions(planId, targetId);
     }
 
+    @GetMapping("/comparison")
+    public com.hiveapp.platform.client.plan.dto.PlanVersionModels.CatalogComparison comparePlans(
+            @RequestParam List<UUID> ids) {
+        return planAdminService.comparePlans(ids);
+    }
+
     @PostMapping("/{planId}/public-version")
     public com.hiveapp.platform.client.plan.dto.PlanVersionModels.Version selectPublic(@PathVariable UUID planId,
             @Valid @RequestBody com.hiveapp.platform.client.plan.dto.PlanVersionModels.SelectPublic request) {
