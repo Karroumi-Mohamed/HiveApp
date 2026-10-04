@@ -352,16 +352,6 @@ export type AdminUser = {
   roles: AdminRoleSummary[];
 };
 
-export type CreateAdminUserInput = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  initialAccessMethod: "EMAIL_LINK" | "TEMPORARY_PASSWORD";
-  isSuperAdmin: boolean;
-  /** Assigned atomically before activation delivery; omitted preserves earlier callers. */
-  roleIds?: UUID[];
-};
-
 /**
  * Returned once, when an operator is created. `temporaryPassword` is never readable again —
  * the administrator must hand it over before leaving the screen.
@@ -2741,9 +2731,7 @@ export type SubscriptionChangeInput = {
   addOnCodes: string[];
   quotaPackages: QuotaPackageSelection[];
   timing: "IMMEDIATE" | "AT_RENEWAL";
-  planPriceSelection?: ProductPriceSelection | null;
-  addOnPriceEntryIds?: Record<string, UUID>;
-  quotaPackagePriceEntryIds?: Record<string, UUID>;
+  planPriceSelection: ProductPriceSelection;
 };
 
 export type SubscriptionChangeJobStatus =

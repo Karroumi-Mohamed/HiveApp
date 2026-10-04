@@ -14,28 +14,17 @@ import { can } from "@/data/session";
 import { adminPermissions as p } from "@/auth/permissions";
 import { money, number, date, label } from "@/lib/format";
 import { destination } from "@/lib/destination";
-import { paymentEnabled } from "@/lib/capabilities";
-import { withReturnTo } from "@/lib/navigation";
 const route = useRoute(),
   router = useRouter(),
   days = computed(() => (Number(route.query.days) === 7 ? 7 : 30));
 const reportAccess = computed(
   () =>
-    (paymentEnabled && can(p.analyticsReadFinancialSeries)) ||
+    can(p.analyticsReadFinancialSeries) ||
     can(p.analyticsReadSubscriptionSeries) ||
     can(p.analyticsReadOfferSeries),
 );
 const view = computed(() =>
-  reportAccess.value &&
-  (route.query.view === "reports" ||
-    !can(
-      p.plansOverview,
-      p.analyticsReadSummary,
-      p.analyticsReadOperations,
-      p.activitiesRead,
-    ))
-    ? "reports"
-    : "overview",
+  reportAccess.value && route.query.view === "reports" ? "reports" : "overview",
 );
 const overview = useResource(() =>
     can(p.plansOverview) ? gateway.overview() : Promise.resolve(undefined),
@@ -49,7 +38,7 @@ const overview = useResource(() =>
   ),
   series = useResource(
     () =>
-      paymentEnabled && can(p.analyticsReadFinancialSeries)
+      can(p.analyticsReadFinancialSeries)
         ? gateway.series(days.value)
         : Promise.resolve(undefined),
     [days],
@@ -78,9 +67,7 @@ const dimensions = computed(() => {
   const values = [
     ...(s.value?.dimensions.map((x) => x.dimension) || []),
     ...(a.value?.configuredRecurringValues.map((x) => x.dimension) || []),
-    ...(paymentEnabled
-      ? a.value?.financialTotals.map((x) => x.dimension) || []
-      : []),
+    ...(a.value?.financialTotals.map((x) => x.dimension) || []),
   ];
   return values.filter(
     (x, i) =>
@@ -126,10 +113,7 @@ const totals = computed(() =>
   />
   <AnalyticsReport v-if="view === 'reports'" />
   <template v-else>
-    <div
-      v-if="can(p.plansOverview, p.analyticsReadSummary)"
-      class="report-summary"
-    >
+    <div class="report-summary">
       <div>
         <span>Active subscriptions</span
         ><strong>{{
@@ -140,7 +124,7 @@ const totals = computed(() =>
             : "—"
         }}</strong>
       </div>
-      <div v-if="can(p.analyticsReadSummary)">
+      <div>
         <span>Recurring value</span
         ><strong>{{
           recurring
@@ -149,32 +133,21 @@ const totals = computed(() =>
         }}</strong
         ><small v-if="recurring">{{
           label(recurring.dimension.billingCycle)
-        }}</small
-        ><select
-          v-if="dimensions.length > 1"
-          v-model="dimension"
-          aria-label="Recurring value currency and billing cycle"
-        >
-          <option v-for="(d, i) in dimensions" :key="i" :value="i">
-            {{ d.currencyCode }} · {{ label(d.billingCycle) }}
-          </option>
-        </select>
+        }}</small>
       </div>
-      <div v-if="paymentEnabled">
+      <div>
         <span>Collected</span
         ><strong>{{
           totals ? money(totals.collected, totals.dimension.currencyCode) : "—"
         }}</strong>
       </div>
       <div>
-        <span>{{
-          can(p.analyticsReadOperations) ? "Work queue" : "Changes to review"
-        }}</span
-        ><RouterLink
-          v-if="can(p.analyticsReadOperations)"
-          to="/operations?view=queue"
-          ><strong>{{ t?.totalElements ?? "—" }}</strong></RouterLink
-        ><strong v-else>{{ o?.changesNeedingAttention ?? "—" }}</strong>
+        <span>Needs attention</span
+        ><RouterLink to="/operations?view=attention"
+          ><strong>{{
+            a?.operationsNeedingAttention ?? o?.changesNeedingAttention ?? "—"
+          }}</strong></RouterLink
+        >
       </div>
     </div>
     <p
@@ -193,10 +166,7 @@ const totals = computed(() =>
         Retry
       </button>
     </p>
-    <section
-      v-if="paymentEnabled && can(p.analyticsReadFinancialSeries)"
-      class="report-section"
-    >
+    <section v-if="can(p.analyticsReadFinancialSeries)" class="report-section">
       <header class="section-heading">
         <h2>Revenue</h2>
         <div class="row">
@@ -241,8 +211,8 @@ const totals = computed(() =>
     </section>
     <section v-if="can(p.analyticsReadOperations)" class="report-section">
       <header class="section-heading">
-        <h2>Work queue</h2>
-        <RouterLink class="text-link" to="/operations?view=queue"
+        <h2>Attention</h2>
+        <RouterLink class="text-link" to="/operations?view=attention"
           >View all</RouterLink
         >
       </header>
@@ -269,16 +239,11 @@ const totals = computed(() =>
                 <td>
                   <RouterLink
                     class="text-link"
-                    :to="
-                      withReturnTo(
-                        '/customers/' + row.accountId,
-                        route.fullPath,
-                      )
-                    "
+                    :to="'/customers/' + row.accountId"
                     >{{ row.accountName }}</RouterLink
                   >
                 </td>
-                <td>{{ label(row.type) }}</td>
+                <td>{{ row.reason || label(row.type) }}</td>
                 <td><StatusBadge :status="row.status" /></td>
                 <td>{{ date(row.dueAt) }}</td>
                 <td>
@@ -291,9 +256,7 @@ const totals = computed(() =>
                 <td>
                   <RouterLink
                     class="text-link"
-                    :to="
-                      withReturnTo(destination(row.destination), route.fullPath)
-                    "
+                    :to="destination(row.destination)"
                     >Review</RouterLink
                   >
                 </td>
@@ -325,12 +288,7 @@ const totals = computed(() =>
           ><RouterLink
             v-if="event.targetAccountId"
             class="text-link"
-            :to="
-              withReturnTo(
-                '/customers/' + event.targetAccountId,
-                route.fullPath,
-              )
-            "
+            :to="'/customers/' + event.targetAccountId"
             >{{ "Customer" }}</RouterLink
           ><time>{{ date(event.occurredAt, true) }}</time>
         </div></ResourceState

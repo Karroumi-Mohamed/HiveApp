@@ -25,23 +25,11 @@ import { read, write } from "@/data/gateway";
 import { can, notify } from "@/data/session";
 import { useResource } from "@/composables/useResource";
 import { destination } from "@/lib/destination";
-import { safeReturnTo, withReturnTo, contextualPath } from "@/lib/navigation";
-import OfferDefinitionSummary from "@/components/OfferDefinitionSummary.vue";
-import OfferWorkbench from "@/components/OfferWorkbench.vue";
-import ExecutionSummary from "@/components/ExecutionSummary.vue";
-import ExecutionResults from "@/components/ExecutionResults.vue";
-import PlanComparison from "@/components/PlanComparison.vue";
-import PlanFeatureInspector from "@/components/PlanFeatureInspector.vue";
-import SegmentActivations from "@/components/SegmentActivations.vue";
-import OperatorCreateFlow from "@/components/settings/OperatorCreateFlow.vue";
 import { date, money, errorMessage, label } from "@/lib/format";
 const route = useRoute(),
   router = useRouter();
 const key = computed(() => String(route.meta.resource)),
   resource = computed(() => resources[key.value]!);
-const returnPath = computed(
-  () => safeReturnTo(route.query.returnTo) || resource.value.base,
-);
 const id = computed(() => String(route.params.id || ""));
 const creating = computed(() => id.value === "new"),
   editing = computed(() => creating.value || route.query.edit === "1");
@@ -105,16 +93,6 @@ watch(
     }
     if (creating.value && key.value === "messages" && route.query.account)
       form.accountIds = [String(route.query.account)];
-    if (
-      creating.value &&
-      key.value === "campaigns" &&
-      typeof route.query.segment === "string" &&
-      typeof route.query.activation === "string"
-    ) {
-      form.audience = { ...form.audience, mode: "SEGMENT" };
-      form.segmentSelection =
-        route.query.segment + ":" + route.query.activation;
-    }
     pristine = JSON.stringify(form);
     dirty.value = false;
     saved.value = false;
@@ -144,8 +122,7 @@ async function save() {
   try {
     const result = (await write(
       creating.value
-        ? resource.value.creationPermission?.(form) ||
-            resource.value.createPermission!
+        ? resource.value.createPermission!
         : resource.value.editPermission!,
       () =>
         resource.value.save!(
@@ -158,7 +135,6 @@ async function save() {
     saved.value = true;
     notify("Saved.");
     const next =
-      campaignReturn(result) ||
       resource.value.saveDestination?.(result) ||
       resource.value.base +
         "/" +
@@ -168,49 +144,17 @@ async function save() {
           result.campaignId ||
           id.value);
     if (result.temporaryPassword || result.emailDelivery) {
-      savedPath = contextualPath(next, route);
+      savedPath = next;
       accessResult.value = result;
       return;
     }
-    await router.push(
-      campaignReturn(result) ? next : contextualPath(next, route),
-    );
+    await router.push(next);
     await loaded.refresh();
   } catch (e) {
     error.value = errorMessage(e);
   } finally {
     busy.value = false;
   }
-}
-function campaignReturn(result: RecordData): string | undefined {
-  const source = safeReturnTo(route.query.returnTo);
-  if (!creating.value || key.value !== "campaigns" || !source) return undefined;
-  const url = new URL(source, window.location.origin);
-  if (url.pathname !== "/commercial/offers/new") return undefined;
-  url.searchParams.set("campaign", result.campaignId || result.id);
-  return url.pathname + url.search;
-}
-async function finishCustomSave(result: RecordData) {
-  dirty.value = false;
-  saved.value = true;
-  notify("Saved.");
-  const next =
-    key.value === "operators" && !can(resource.value.readPermission)
-      ? safeReturnTo(route.query.returnTo) || "/settings/profile"
-      : contextualPath(
-          resource.value.saveDestination?.(result) ||
-            resource.value.base +
-              "/" +
-              (result.id || result.operator?.id || result.offerId || id.value),
-          route,
-        );
-  if (result.temporaryPassword || result.emailDelivery) {
-    savedPath = next;
-    accessResult.value = result;
-    return;
-  }
-  await router.push(next);
-  await loaded.refresh();
 }
 async function finishAccess() {
   accessResult.value = undefined;
@@ -255,22 +199,11 @@ const selectedTab = computed(() => {
   if (!group) return view.value;
   return sections.value.find((x) => x.group?.key === group)?.key || view.value;
 });
-const sectionPage = computed({
-  get: () => Math.max(0, Number(route.query.sectionPage) || 0),
-  set: (value) => {
-    void router.replace({
-      query: { ...route.query, sectionPage: value || undefined },
-    });
-  },
-});
-const executionResults = computed(
-  () =>
-    ["repricing", "rollouts"].includes(key.value) &&
-    section.value?.key === "results",
-);
+const sectionPage = ref(0);
+watch(view, () => (sectionPage.value = 0));
 const sectionData = useResource(
   () =>
-    section.value && data.value && !executionResults.value
+    section.value && data.value
       ? read(section.value.permission, () =>
           section.value!.load(data.value!, sectionPage.value),
         )
@@ -284,21 +217,16 @@ const records = computed<any>(() => {
 const sectionRows = computed(() => rows(records.value));
 const canEdit = computed(
   () =>
-    !!resource.value.save &&
-    (creating.value
-      ? (
-          resource.value.createPermissions || [
-            resource.value.createPermission || "",
-          ]
-        ).some((permission) => can(permission))
-      : can(resource.value.editPermission || "")) &&
+    can(
+      creating.value
+        ? resource.value.createPermission || ""
+        : resource.value.editPermission || "",
+    ) &&
     (!creating.value ||
       (resource.value.createRequirements || []).every((x) => can(x))) &&
     (creating.value ||
-      (!data.value?._operationsOnly &&
-        !data.value?._restrictedSummary &&
-        (!resource.value.editable ||
-          (!!data.value && resource.value.editable(data.value))))),
+      !resource.value.editable ||
+      (!!data.value && resource.value.editable(data.value))),
 );
 const availableActions = computed(
   () =>
@@ -348,8 +276,6 @@ const details = computed(() => {
               "sourceSegmentId",
               "_accountId",
               "_restrictedSummary",
-              "_operationsOnly",
-              "_editableDefinition",
             ].includes(k),
         ),
       );
@@ -391,8 +317,8 @@ function leave(allow: boolean) {
 }
 </script>
 <template>
-  <RouterLink class="back-link" :to="returnPath">{{
-    route.query.returnTo ? "Back to previous view" : resource.title
+  <RouterLink class="back-link" :to="resource.base">{{
+    resource.title
   }}</RouterLink
   ><PageHeading
     :title="
@@ -408,8 +334,6 @@ function leave(allow: boolean) {
         v-if="
           resource.editPermission &&
           can(resource.editPermission) &&
-          !data._operationsOnly &&
-          !data._restrictedSummary &&
           (!resource.editable || resource.editable(data))
         "
         class="button"
@@ -448,44 +372,13 @@ function leave(allow: boolean) {
     ><p v-if="editing && !canEdit" class="notice error">
       You cannot edit this record.
     </p>
-    <OfferWorkbench
-      v-else-if="editing && key === 'offers'"
-      :key="id"
-      :resource="resource"
-      :id="creating ? undefined : id"
-      :data="data"
-      :creating="creating"
-      @saved="finishCustomSave"
-      @cancel="router.push(returnPath)" />
-    <OperatorCreateFlow
-      v-else-if="creating && key === 'operators'"
-      @created="finishCustomSave"
-      @dirty="dirty = $event" />
     <form
       v-else-if="editing"
       @submit.prevent="save"
       @input="changed"
       @change="changed"
     >
-      <template v-if="resource.formGroups?.length"
-        ><fieldset
-          v-for="group in resource.formGroups"
-          :key="group.label"
-          class="form-section"
-        >
-          <legend>{{ group.label }}</legend>
-          <div class="editor-grid">
-            <FieldInput
-              v-for="field in resource.fields?.filter((f) =>
-                group.keys.includes(f.key),
-              )"
-              :key="field.key"
-              :field="field"
-              :data="form"
-            />
-          </div></fieldset
-      ></template>
-      <div v-else class="editor-grid">
+      <div class="editor-grid">
         <FieldInput
           v-for="field in resource.fields"
           :key="field.key + field.label"
@@ -499,11 +392,7 @@ function leave(allow: boolean) {
       <div class="dialog-actions">
         <RouterLink
           class="button"
-          :to="
-            creating
-              ? returnPath
-              : contextualPath(resource.base + '/' + id, route)
-          "
+          :to="creating ? resource.base : resource.base + '/' + id"
           >Cancel</RouterLink
         ><button class="button primary" :disabled="busy">
           {{ busy ? "Saving…" : "Save" }}
@@ -518,128 +407,65 @@ function leave(allow: boolean) {
             can('platform.price_books.create')
           "
           class="text-link"
-          :to="
-            withReturnTo(
-              '/catalog/prices/new?product=' +
-                id +
-                '&type=' +
-                (key === 'plans'
+          :to="{
+            path: '/catalog/prices/new',
+            query: {
+              product: id,
+              type:
+                key === 'plans'
                   ? 'PLAN'
                   : key === 'addons'
                     ? 'ADD_ON'
-                    : 'QUOTA_PACKAGE'),
-              route.fullPath,
-            )
-          "
+                    : 'QUOTA_PACKAGE',
+            },
+          }"
           >Add price</RouterLink
         ><RouterLink
           v-if="key === 'plans' && can('platform.plans.create_version_rollout')"
           class="text-link"
-          :to="
-            withReturnTo(
-              '/operations/rollouts/new?targetPlan=' + id,
-              route.fullPath,
-            )
-          "
+          :to="{ path: '/operations/rollouts/new', query: { plan: id } }"
           >Apply revision</RouterLink
         ><RouterLink
           v-if="
             key === 'prices' && can('platform.subscriptions.preview_repricing')
           "
           class="text-link"
-          :to="
-            withReturnTo(
-              '/operations/repricing/new?price=' + id,
-              route.fullPath,
-            )
-          "
+          :to="{ path: '/operations/repricing/new', query: { price: id } }"
           >Reprice subscribers</RouterLink
         >
       </div>
-      <div v-if="resource.links?.(data).length" class="related-actions">
-        <RouterLink
-          v-for="link in resource.links?.(data) || []"
-          :key="link.to"
-          class="text-link"
-          :to="withReturnTo(link.to, route.fullPath)"
-          >{{ link.label }}</RouterLink
-        >
-      </div>
       <ViewTabs :tabs="sectionTabs" :current="selectedTab" />
-      <nav
-        v-if="sectionChoices.length > 1"
-        class="section-switches"
-        aria-label="Related views"
-      >
-        <RouterLink
-          v-for="s in sectionChoices"
-          :key="s.key"
-          :to="{
-            query: { ...route.query, view: s.key, sectionPage: undefined },
-          }"
-          :class="{ selected: view === s.key }"
-          :aria-current="view === s.key ? 'page' : undefined"
-          >{{ s.label }}</RouterLink
+      <div v-if="sectionChoices.length > 1" class="resource-toolbar">
+        <select
+          :value="view"
+          aria-label="Record view"
+          @change="
+            router.replace({
+              query: {
+                ...route.query,
+                view: ($event.target as HTMLSelectElement).value,
+              },
+            })
+          "
         >
-      </nav>
+          <option v-for="s in sectionChoices" :key="s.key" :value="s.key">
+            {{ s.label }}
+          </option>
+        </select>
+      </div>
       <template v-if="!section"
-        ><ExecutionSummary
-          v-if="['repricing', 'rollouts'].includes(key)"
-          :data="data"
-          :kind="key" />
-        <dl
-          v-if="!['repricing', 'rollouts'].includes(key)"
-          class="record-summary"
-        >
-          <div
-            v-for="fact in resource.facts || resource.columns"
-            :key="fact.key"
-          >
+        ><dl v-if="resource.facts" class="record-summary">
+          <div v-for="fact in resource.facts" :key="fact.key">
             <dt>{{ fact.label }}</dt>
             <dd>{{ formatted(data, fact) }}</dd>
           </div>
         </dl>
-        <OfferDefinitionSummary v-if="key === 'offers'" :data="data" />
-        <details v-if="!data._restrictedSummary" class="evidence-disclosure">
-          <summary>Record details</summary>
-          <Facts :data="details" /></details
-      ></template>
-      <PlanComparison
-        v-if="
-          key === 'plans' &&
-          ['comparison', 'revision-comparison'].includes(section?.key || '')
-        "
-        :plan-id="id"
-        :mode="
-          section?.key === 'revision-comparison' ? 'revisions' : 'catalog'
-        " />
-      <PlanFeatureInspector
-        v-else-if="key === 'plans' && section?.key === 'feature-map'"
-        :plan-id="id" />
-      <SegmentActivations
-        v-else-if="key === 'segments' && section?.key === 'activations'"
-        :segment-id="id" />
-      <ExecutionResults
-        v-else-if="executionResults"
-        :id="id"
-        :kind="key as 'repricing' | 'rollouts'"
-        :detail="data"
-        :actions="section?.actions"
-        @changed="loaded.refresh()" />
+        <Facts v-if="!data._restrictedSummary" :data="details"
+      /></template>
       <OwnerLookup
         v-if="section?.key === 'subscribers' && key === 'plans'"
         :plan-id="id" /><ResourceState
-        v-if="
-          section &&
-          !executionResults &&
-          !(
-            key === 'plans' &&
-            ['comparison', 'revision-comparison', 'feature-map'].includes(
-              section.key,
-            )
-          ) &&
-          !(key === 'segments' && section.key === 'activations')
-        "
+        v-if="section"
         :loading="sectionData.loading.value"
         :error="sectionData.error.value"
         :empty="
@@ -666,7 +492,7 @@ function leave(allow: boolean) {
                   /><RouterLink
                     v-else-if="column.link?.(row)"
                     class="text-link"
-                    :to="withReturnTo(column.link!(row)!, route.fullPath)"
+                    :to="column.link!(row)!"
                     >{{ formatted(row, column) }}</RouterLink
                   ><CellValue
                     v-else

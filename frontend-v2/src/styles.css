@@ -1819,8 +1819,7 @@ body {
   border-radius: 5px;
   padding: 6px;
 }
-.action-menu button,
-.action-menu a {
+.action-menu button {
   display: block;
   width: 100%;
   text-align: left;
@@ -1828,11 +1827,8 @@ body {
   background: transparent;
   padding: 10px;
   font-size: 13px;
-  color: var(--text);
-  text-decoration: none;
 }
-.action-menu button:hover,
-.action-menu a:hover {
+.action-menu button:hover {
   background: var(--surface-soft);
 }
 .related-actions {

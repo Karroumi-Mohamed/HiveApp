@@ -1,30 +1,23 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { useRoute } from "vue-router";
+import { ref } from "vue";
 import PageHeading from "@/components/PageHeading.vue";
-import ViewTabs from "@/components/ViewTabs.vue";
-import AccessResult from "@/components/AccessResult.vue";
-import PersonalNotificationSettings from "@/components/settings/PersonalNotificationSettings.vue";
-import PersonalPermissionInventory from "@/components/settings/PersonalPermissionInventory.vue";
-import PersonalAppearanceSettings from "@/components/settings/PersonalAppearanceSettings.vue";
-import { session, can, notify } from "@/data/session";
+import { session, notify, can } from "@/data/session";
 import { adminApi } from "@/api/admin-api";
+import { communicationApi } from "@/api/communication-api";
 import { adminPermissions as p } from "@/auth/permissions";
+import { read, write } from "@/data/gateway";
+import { useResource } from "@/composables/useResource";
+import ResourceState from "@/components/ResourceState.vue";
+import AccessResult from "@/components/AccessResult.vue";
 import { errorMessage } from "@/lib/format";
 import type { RecordData } from "@/resources/types";
-const route = useRoute();
 const result = ref<RecordData>(),
   busy = ref(false),
   error = ref("");
-const tabs = computed(() => [
-  { key: "access", label: "My access" },
-  ...(can(p.notificationsRead)
-    ? [{ key: "notifications", label: "Notifications" }]
-    : []),
-  { key: "appearance", label: "Appearance" },
-]);
-const view = computed(
-  () => tabs.value.find((tab) => tab.key === route.query.view)?.key || "access",
+const language = useResource(() =>
+  can(p.notificationsPreferences)
+    ? read(p.notificationsPreferences, () => communicationApi.language(true))
+    : Promise.resolve(undefined),
 );
 async function verify() {
   busy.value = true;
@@ -37,12 +30,13 @@ async function verify() {
     busy.value = false;
   }
 }
-async function refresh() {
+async function saveLanguage(value: string) {
   busy.value = true;
-  error.value = "";
   try {
-    session.me = await adminApi.me();
-    notify("Profile refreshed.");
+    await write(p.notificationsPreferences, () =>
+      communicationApi.setLanguage(value as "fr" | "ar", true),
+    );
+    notify("Language saved.");
   } catch (e) {
     error.value = errorMessage(e);
   } finally {
@@ -51,43 +45,48 @@ async function refresh() {
 }
 </script>
 <template>
-  <PageHeading title="Profile"
-    ><button class="button" :disabled="busy" @click="refresh">
-      Refresh access
-    </button></PageHeading
+  <PageHeading title="Profile" />
+  <dl class="record-summary">
+    <div>
+      <dt>Email</dt>
+      <dd>{{ session.me?.email }}</dd>
+    </div>
+    <div>
+      <dt>Access</dt>
+      <dd>{{ session.me?.isSuperAdmin ? "Administrator" : "Operator" }}</dd>
+    </div>
+    <div>
+      <dt>Email verification</dt>
+      <dd>{{ session.me?.emailVerified ? "Verified" : "Not verified" }}</dd>
+    </div>
+  </dl>
+  <button
+    v-if="!session.me?.emailVerified"
+    class="button"
+    :disabled="busy"
+    @click="verify"
   >
-  <ViewTabs :tabs="tabs" :current="view" />
-  <PersonalNotificationSettings v-if="view === 'notifications'" />
-  <PersonalAppearanceSettings v-else-if="view === 'appearance'" />
-  <template v-else>
-    <section v-if="!session.me?.emailVerified" class="notice warning">
-      <strong>Verify your email to enable password recovery.</strong>
-      <button class="button small" :disabled="busy" @click="verify">
-        {{ busy ? "Processing…" : "Send verification" }}
-      </button>
-    </section>
-    <dl class="record-summary">
-      <div>
-        <dt>Email</dt>
-        <dd>{{ session.me?.email }}</dd>
-      </div>
-      <div>
-        <dt>Access level</dt>
-        <dd>
-          {{ session.me?.isSuperAdmin ? "Platform administrator" : "Operator" }}
-        </dd>
-      </div>
-      <div>
-        <dt>Access state</dt>
-        <dd>{{ session.me?.isActive ? "Active" : "Inactive" }}</dd>
-      </div>
-      <div>
-        <dt>Email verification</dt>
-        <dd>{{ session.me?.emailVerified ? "Verified" : "Not verified" }}</dd>
-      </div>
-    </dl>
-    <PersonalPermissionInventory :permissions="session.me?.permissions || []" />
-  </template>
-  <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+    Verify email
+  </button>
+  <section v-if="can(p.notificationsPreferences)" class="report-section">
+    <h2>Notification language</h2>
+    <ResourceState
+      :loading="language.loading.value"
+      :error="language.error.value"
+      @retry="language.refresh()"
+      ><select
+        aria-label="Notification language"
+        :value="language.data.value?.language"
+        :disabled="busy"
+        @change="saveLanguage(($event.target as HTMLSelectElement).value)"
+      >
+        <option value="fr">French</option>
+        <option value="ar">Arabic</option>
+      </select></ResourceState
+    ><RouterLink class="text-link" to="/settings?view=preferences"
+      >Notification preferences</RouterLink
+    >
+  </section>
+  <p v-if="error" class="notice error">{{ error }}</p>
   <AccessResult :result="result" @close="result = undefined" />
 </template>

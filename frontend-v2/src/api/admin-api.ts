@@ -105,7 +105,6 @@ import type {
   CommercialSegmentWriteInput,
   CommercialSubscriptionSeries,
   CreatePlanInput,
-  CreateAdminUserInput,
   ExtensionCompatibility,
   FeatureCatalogAudience,
   FeatureOperationalChange,
@@ -307,7 +306,13 @@ export const adminApi = {
       body: jsonBody({ ids }),
     }),
   user: (id: UUID) => admin<AdminUser>(`/users/${id}`),
-  createUser: (input: CreateAdminUserInput) =>
+  createUser: (input: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    initialAccessMethod: "EMAIL_LINK" | "TEMPORARY_PASSWORD";
+    isSuperAdmin: boolean;
+  }) =>
     admin<AdminUserCreation>("/users", {
       method: "POST",
       body: jsonBody(input),
@@ -1544,7 +1549,6 @@ export const adminApi = {
     accountActive?: boolean;
     subscriptionStatus?: SubscriptionStatus;
     hasSubscription?: boolean;
-    planCode?: string;
     page?: number;
     size?: number;
     sort?: "name" | "slug" | "active" | "createdAt";

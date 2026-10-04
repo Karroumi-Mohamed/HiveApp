@@ -2,7 +2,6 @@
 import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { signIn } from "@/data/session";
-import { safeReturnTo, firstWorkspace } from "@/lib/navigation";
 import { errorMessage } from "@/lib/format";
 const route = useRoute(),
   router = useRouter(),
@@ -19,8 +18,10 @@ async function login() {
       await router.push("/auth/initial-password");
       return;
     }
-    const next = safeReturnTo(route.query.returnTo);
-    await router.push(next === "/overview" || !next ? firstWorkspace() : next);
+    const next = String(route.query.returnTo || "/overview");
+    await router.push(
+      next.startsWith("/") && !next.startsWith("//") ? next : "/overview",
+    );
   } catch (e) {
     error.value = errorMessage(e);
   } finally {

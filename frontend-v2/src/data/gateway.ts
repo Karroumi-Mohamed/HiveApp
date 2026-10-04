@@ -170,16 +170,11 @@ export const gateway = {
     read(p.subscriptionsReadChangeJob, () =>
       adminApi.subscriptionChangeJob(id),
     ),
-  jobResults: (
-    id: string,
-    pageIndex = 0,
-    query: Parameters<typeof adminApi.subscriptionChangeJobResults>[1] = {},
-  ) =>
+  jobResults: (id: string, pageIndex = 0) =>
     read(p.subscriptionsReadChangeJobResults, () =>
       adminApi.subscriptionChangeJobResults(id, {
         page: pageIndex,
         size: 20,
-        ...query,
       }),
     ),
   jobIdentities: (id: string, ids: string[]) =>

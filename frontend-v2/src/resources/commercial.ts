@@ -75,42 +75,23 @@ const choose = (
     };
   },
 });
-const ownerField: Field = {
-  ...choose(
-    "ownerAdminUserId",
-    "Owner",
-    p.campaignsChooseOwners,
-    (query, page) =>
-      api.commercialCampaignOwnerChoices({ query, page, size: 20 }),
-    (owner) => owner.adminUserId,
-  ),
-  resolve: (ids) =>
-    !ids.length || !can(p.campaignsResolveOwnerChoices)
-      ? Promise.resolve([])
-      : read(p.campaignsResolveOwnerChoices, () =>
-          api.resolveCommercialCampaignOwnerChoices(ids),
-        ).then((owners) =>
-          owners.map((owner) => ({
-            value: owner.adminUserId,
-            label: owner.displayName || owner.email,
-          })),
-        ),
-};
+const ownerField = choose(
+  "ownerAdminUserId",
+  "Owner",
+  p.campaignsChooseOwners,
+  (query, page) =>
+    api.commercialCampaignOwnerChoices({ query, page, size: 20 }),
+);
 const ownerAction = (
   permission: string,
   load: (id: string) => Promise<any>,
   save: (id: string, i: any) => Promise<any>,
   field: Field = ownerField,
-  readPermission: string = p.campaignsOwner,
-  chooserPermission: string = p.campaignsChooseOwners,
 ): Action => ({
   key: "owner",
   label: "Change owner",
   permission,
-  visible: (d) =>
-    allowed("REASSIGN_OWNER")(d) &&
-    can(readPermission) &&
-    can(chooserPermission),
+  visible: allowed("REASSIGN_OWNER"),
   fields: [field],
   preview: (d) => load(d.id),
   execute: (d, i, r) =>
@@ -254,22 +235,6 @@ const campaignFields: Field[] = [
         api.commercialCampaignSegmentChoices({ query, page, size: 20 }),
       (r) => r.id + ":" + r.activationId,
     ),
-    resolve: async (ids) =>
-      Promise.all(
-        ids.map(async (reference) => {
-          const [segmentId, activationId] = reference.split(":");
-          const selected = await read(p.campaignsResolveSegmentChoices, () =>
-            api.resolveCommercialCampaignSegmentChoice(
-              segmentId!,
-              activationId!,
-            ),
-          );
-          return {
-            value: reference,
-            label: selected.name + " · activation " + selected.activationNumber,
-          };
-        }),
-      ),
     show: (d) => d.audience?.mode === "SEGMENT",
   },
 ];
@@ -284,70 +249,16 @@ const campaigns: Resource = {
   detail: api.commercialCampaign,
   alternateDetail: [
     {
-      permission: p.campaignsReadOperations,
-      load: async (id) => {
-        const state = await api.commercialCampaignOperations(id);
-        return state.status === "DRAFT" &&
-          can(p.campaignsReadEditableDefinition)
-          ? {
-              ...(await read(p.campaignsReadEditableDefinition, () =>
-                api.commercialCampaignEditableDefinition(id),
-              )),
-              ...state,
-              _editableDefinition: true,
-            }
-          : { ...state, _operationsOnly: true };
-      },
-    },
-    {
       permission: p.campaignsReadEditableDefinition,
-      load: async (id) => ({
-        ...(await api.commercialCampaignEditableDefinition(id)),
-        _editableDefinition: true,
-      }),
+      load: api.commercialCampaignEditableDefinition,
     },
   ],
   normalize: (d) => ({
     ...root(d),
-    id: d.id || d.summary?.id || d.campaignId,
     segmentSelection:
-      d.audience?.segmentId && d.audience?.segmentActivationId
-        ? d.audience.segmentId + ":" + d.audience.segmentActivationId
-        : null,
+      d.audience?.segmentId + ":" + d.audience?.segmentActivationId,
   }),
   columns,
-  facts: [
-    { key: "code", label: "Campaign" },
-    { key: "status", label: "Status", format: "status" },
-    { key: "revisionNumber", label: "Revision" },
-    { key: "audience.mode", label: "Audience" },
-    { key: "startsAt", label: "Starts", format: "date" },
-    { key: "endsAt", label: "Ends", format: "date" },
-  ],
-  links: (d) => [
-    ...(can(p.offersCreate) && can(p.offersChooseCampaigns)
-      ? [
-          {
-            label: "Create offer",
-            to: "/commercial/offers/new?campaign=" + d.id,
-          },
-        ]
-      : []),
-    ...(d.audience?.segmentId && can(p.segmentsRead, p.segmentsReadActivations)
-      ? [
-          {
-            label: "Audience definition",
-            to:
-              "/commercial/segments/" +
-              d.audience.segmentId +
-              "?view=activations" +
-              (d.audience.segmentActivationId
-                ? "&activation=" + d.audience.segmentActivationId
-                : ""),
-          },
-        ]
-      : []),
-  ],
   createPermission: p.campaignsCreate,
   editPermission: p.campaignsUpdate,
   editable: allowed("UPDATE"),
@@ -425,24 +336,6 @@ const campaigns: Resource = {
     ),
   ],
   sections: [
-    {
-      key: "offers",
-      label: "Offers",
-      group: { key: "outcomes", label: "Offers and outcomes" },
-      permission: p.offersList,
-      load: (d, page) => offers.list({ campaignId: d.id, page, size: 20 }),
-      columns: [
-        {
-          key: "name",
-          label: "Offer",
-          link: (row) => "/commercial/offers/" + row.id,
-        },
-        { key: "status", label: "Status", format: "status" },
-        { key: "discovery", label: "Discovery" },
-        { key: "startsAt", label: "Starts", format: "date" },
-        { key: "endsAt", label: "Ends", format: "date" },
-      ],
-    },
     history(p.campaignsHistory, api.commercialCampaignHistory),
     revisions(
       "/commercial/campaigns",
@@ -618,8 +511,6 @@ const segments: Resource = {
       p.segmentsReassignOwner,
       (id) => read(p.segmentsReadOwner, () => api.commercialSegmentOwner(id)),
       api.reassignCommercialSegmentOwner,
-      ownerField,
-      p.segmentsReadOwner,
     ),
   ],
   sections: [
@@ -929,8 +820,6 @@ const policies: Resource = {
           api.commercialPolicyOwner(id),
         ),
       api.reassignCommercialPolicyOwner,
-      ownerField,
-      p.commercialPoliciesReadOwner,
     ),
   ],
   sections: [
@@ -1091,7 +980,7 @@ export const quotaSelection: Field = {
   defaults: { quantity: 1, pricingMode: "PAID" },
   full: true,
 };
-export const offerFields: Field[] = [
+const offerFields: Field[] = [
   text("name", "Name", true),
   { key: "description", label: "Description", type: "textarea", full: true },
   {
@@ -1102,16 +991,6 @@ export const offerFields: Field[] = [
       (search, page) => offers.campaignChoices({ search, page, size: 20 }),
     ),
     show: (d) => !d.id,
-    resolve: (ids) =>
-      read(p.offersResolveCampaignChoices, () =>
-        offers.resolveCampaignChoices(ids),
-      ).then((campaigns) =>
-        campaigns.map((campaign) => ({
-          value: campaign.id,
-          label: campaign.name + " · " + campaign.code,
-          record: campaign,
-        })),
-      ),
     emptyLink: () =>
       can(p.campaignsCreate)
         ? { label: "Create campaign", to: "/commercial/campaigns/new" }
@@ -1131,19 +1010,9 @@ export const offerFields: Field[] = [
     show: (d) => !d.id || d.lineageTermsEditable,
   },
   {
-    ...select("customerCodeMode", "Private code", [
-      "KEEP",
-      "REPLACE",
-      "REMOVE",
-    ]),
-    show: (d) => !!d.id && d.lineageTermsEditable,
-    help: "Keep the current code, replace it, or remove private-code access.",
-  },
-  {
     ...text("customerCode", "Customer code"),
     show: (d) =>
-      (!d.id && d.discovery === "CODE_ONLY") ||
-      (!!d.id && d.lineageTermsEditable && d.customerCodeMode === "REPLACE"),
+      d.discovery === "CODE_ONLY" && (!d.id || d.lineageTermsEditable),
   },
   {
     ...num("globalLimit", "Total redemptions"),
@@ -1203,52 +1072,6 @@ export const offerFields: Field[] = [
     full: true,
   },
 ];
-export function offerDefinitionInput(
-  id: string | undefined,
-  input: RecordData,
-  data?: RecordData,
-): RecordData {
-  const {
-    customerCodeMode,
-    customerCode,
-    discovery,
-    acceptance,
-    globalLimit,
-    perAccountLimit,
-    ...definition
-  } = input;
-  if (!id)
-    return {
-      ...definition,
-      discovery,
-      acceptance,
-      globalLimit,
-      perAccountLimit,
-      customerCode,
-    };
-  return {
-    name: definition.name,
-    description: definition.description,
-    startsAt: definition.startsAt,
-    endsAt: definition.endsAt,
-    selection: definition.selection,
-    effects: definition.effects,
-    version: data!.version,
-    lineageTerms: data!.lineageTermsEditable
-      ? {
-          expectedLineageVersion: data!.lineageVersion,
-          discovery,
-          acceptance,
-          globalLimit,
-          perAccountLimit,
-          customerCodeChange: {
-            mode: customerCodeMode || "KEEP",
-            value: customerCodeMode === "REPLACE" ? customerCode || null : null,
-          },
-        }
-      : null,
-  };
-}
 const offerResource: Resource = {
   key: "offers",
   title: "Offers",
@@ -1257,68 +1080,26 @@ const offerResource: Resource = {
   listPermission: p.offersList,
   readPermission: p.offersRead,
   list: (q) => offers.list(q),
-  detail: async (id) => {
-    const detail = await offers.detail(id);
-    return detail.status === "DRAFT" && can(p.offersReadEditableDefinition)
-      ? {
-          ...detail,
-          ...(await read(p.offersReadEditableDefinition, () =>
-            offers.editableDefinition(id),
-          )),
-          _editableDefinition: true,
-        }
-      : detail;
-  },
+  detail: async (id) => ({
+    ...(await offers.detail(id)),
+    ...(can(p.offersReadEditableDefinition)
+      ? await read(p.offersReadEditableDefinition, () =>
+          offers.editableDefinition(id),
+        )
+      : {}),
+  }),
   columns,
-  facts: [
-    { key: "businessCode", label: "Offer" },
-    { key: "status", label: "Status", format: "status" },
-    { key: "revisionNumber", label: "Revision" },
-  ],
   alternateDetail: [
     {
-      permission: p.offersReadOperations,
-      load: async (id) => {
-        const state = await offers.operations(id);
-        return state.status === "DRAFT" && can(p.offersReadEditableDefinition)
-          ? {
-              ...(await read(p.offersReadEditableDefinition, () =>
-                offers.editableDefinition(id),
-              )),
-              ...state,
-              _editableDefinition: true,
-            }
-          : { ...state, _operationsOnly: true };
-      },
-    },
-    {
       permission: p.offersReadEditableDefinition,
-      load: async (id) => ({
-        ...(await offers.editableDefinition(id)),
-        _editableDefinition: true,
-      }),
+      load: offers.editableDefinition,
     },
   ],
-  links: (d) =>
-    d.campaign?.id &&
-    can(
-      p.campaignsRead,
-      p.campaignsReadOperations,
-      p.campaignsReadEditableDefinition,
-    )
-      ? [
-          {
-            label: "Campaign",
-            to: "/commercial/campaigns/" + d.campaign.id + "?view=offers",
-          },
-        ]
-      : [],
   createPermission: p.offersCreate,
   editPermission: p.offersUpdate,
   editable: allowed("UPDATE"),
   fields: offerFields,
   defaults: {
-    customerCodeMode: "KEEP",
     discovery: "CATALOG",
     acceptance: "OPERATOR_ONLY",
     selection: { timing: "AT_RENEWAL", addOns: [], quotaPackages: [] },
@@ -1331,7 +1112,25 @@ const offerResource: Resource = {
     },
   },
   save: async (id, i, d) => {
-    const body = offerDefinitionInput(id, i, d);
+    const body = id
+      ? {
+          ...i,
+          version: d!.version,
+          lineageTerms: d!.lineageTermsEditable
+            ? {
+                expectedLineageVersion: d!.lineageVersion,
+                discovery: i.discovery,
+                acceptance: i.acceptance,
+                globalLimit: i.globalLimit,
+                perAccountLimit: i.perAccountLimit,
+                customerCodeChange: {
+                  mode: i.customerCode ? "REPLACE" : "KEEP",
+                  value: i.customerCode || null,
+                },
+              }
+            : null,
+        }
+      : i;
     const assessment = await read(
       id ? p.offersPreviewUpdateDefinition : p.offersPreviewCreateDefinition,
       () =>
@@ -1391,7 +1190,7 @@ const offerResource: Resource = {
           (x) => x.adminUserId,
         ),
         resolve: (ids) =>
-          read(p.offersResolveOwnerChoices, () =>
+          read(p.offersChooseOwners, () =>
             offers.resolveOwnerChoices(ids),
           ).then((items) =>
             items.map((x) => ({
@@ -1400,8 +1199,6 @@ const offerResource: Resource = {
             })),
           ),
       },
-      p.offersReadOwner,
-      p.offersChooseOwners,
     ),
     {
       key: "apply",

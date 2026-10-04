@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { computed, reactive, ref } from "vue";
+import { useRoute } from "vue-router";
 import PageHeading from "@/components/PageHeading.vue";
 import ViewTabs from "@/components/ViewTabs.vue";
 import Icon from "@/components/Icon.vue";
@@ -14,29 +14,12 @@ import ActionDialog from "@/components/ActionDialog.vue";
 import Facts from "@/components/Facts.vue";
 import Pagination from "@/components/Pagination.vue";
 import type { Action, RecordData } from "@/resources/types";
-import { withReturnTo, safeReturnTo } from "@/lib/navigation";
+import { text } from "@/resources/fields";
 import { useResource } from "@/composables/useResource";
 import { date, money, label, initials, errorMessage } from "@/lib/format";
 import { can, notify } from "@/data/session";
 import { adminPermissions as p } from "@/auth/permissions";
-const route = useRoute(),
-  router = useRouter();
-const returnPath = computed(
-  () => safeReturnTo(route.query.returnTo) || "/customers",
-);
-const canChange = computed(
-  () =>
-    can(p.subscriptionsChooseChangeOptions) &&
-    can(p.subscriptionsPreviewChange, p.subscriptionsPreviewChangeJob),
-);
-const canExecuteChange = computed(() =>
-  can(p.subscriptionsPreviewChange)
-    ? can(p.subscriptionsApplyChange)
-    : can(p.subscriptionsConfirmChangeJob),
-);
-const changePath = computed(() =>
-  withReturnTo(`/changes/new?accounts=${id.value}`, route.fullPath),
-);
+const route = useRoute();
 const id = computed(() => String(route.params.id));
 const invoicePage = ref(0),
   changePage = ref(0),
@@ -46,11 +29,7 @@ const invoicePage = ref(0),
   actionData = ref<RecordData>({});
 const tabs = computed(() =>
   [
-    {
-      key: "overview",
-      label: "Subscription",
-      allowed: can(p.subscriptionsRead),
-    },
+    { key: "overview", label: "Overview", allowed: can(p.subscriptionsRead) },
     {
       key: "billing",
       label: "Billing",
@@ -87,19 +66,6 @@ const subscription = useResource(
   [id],
 );
 const s = subscription.data;
-const identity = useResource(
-  () =>
-    can(p.subscriptionsResolveAccountChoices)
-      ? gateway.resolveAccounts([id.value])
-      : Promise.resolve([]),
-  [id],
-);
-const accountName = computed(
-  () =>
-    s.value?.accountName ||
-    identity.data.value?.[0]?.name ||
-    "Customer workspace",
-);
 const profile = useResource(
   () =>
     view.value === "billing" && can(p.billingReadAccountProfile)
@@ -177,56 +143,21 @@ function cancelChange(row: RecordData) {
       adminApi.cancelSubscriptionChange(id.value, row.id, input.reason),
   };
 }
+function settleCheckout(row: RecordData) {
+  actionData.value = row;
+  action.value = {
+    key: "settle",
+    label: "Confirm settlement",
+    permission: p.subscriptionsConfirmCheckout,
+    fields: [text("reference", "Payment reference", true)],
+    execute: (_, input) =>
+      adminApi.confirmCheckout(row.checkout.id, input as any),
+  };
+}
 const profileData = profile.data;
 const invoiceData = invoices.data;
 const changeData = changes.data;
 const agreementData = agreements.data;
-const selectedChange = ref<RecordData>();
-function openChange(change: RecordData) {
-  selectedChange.value = change;
-  void router.replace({ query: { ...route.query, change: change.id } });
-}
-function closeChange() {
-  selectedChange.value = undefined;
-  const query = { ...route.query };
-  delete query.change;
-  void router.replace({ query });
-}
-let lookupGeneration = 0;
-watch(
-  [id, () => route.query.change, view],
-  async () => {
-    const generation = ++lookupGeneration;
-    const target = String(route.query.change || "");
-    if (
-      !target ||
-      view.value !== "changes" ||
-      !can(p.subscriptionsReadChanges)
-    ) {
-      selectedChange.value = undefined;
-      return;
-    }
-    if (selectedChange.value?.id === target) return;
-    try {
-      let page = 0;
-      do {
-        const response = await gateway.changes(id.value, page);
-        if (generation !== lookupGeneration) return;
-        const match = response.content.find((change) => change.id === target);
-        if (match) {
-          selectedChange.value = match;
-          changePage.value = page;
-          return;
-        }
-        if ((page + 1) * response.size >= response.totalElements) break;
-        page++;
-      } while (true);
-    } catch (e) {
-      notify(errorMessage(e));
-    }
-  },
-  { immediate: true },
-);
 const activityData = activity.data;
 const edit = ref(false);
 const busy = ref(false);
@@ -257,7 +188,6 @@ async function saveProfile() {
     await gateway.saveProfile(id.value, form);
     edit.value = false;
     notify("Billing profile updated.");
-    await profile.refresh();
   } catch (e) {
     formError.value = errorMessage(e);
   } finally {
@@ -266,36 +196,34 @@ async function saveProfile() {
 }
 </script>
 <template>
-  <RouterLink class="back-link" :to="returnPath"
-    ><Icon name="back" :size="14" />Back</RouterLink
+  <RouterLink class="back-link" to="/customers"
+    ><Icon name="back" :size="14" />All customers</RouterLink
   >
   <div class="customer-heading">
-    <span class="avatar customer-mark">{{ initials(accountName) }}</span
-    ><PageHeading :title="accountName"
+    <span class="avatar customer-mark">{{
+      initials(s?.accountName || "Customer")
+    }}</span
+    ><PageHeading :title="s?.accountName || 'Customer workspace'"
       ><StatusBadge v-if="s" :status="s.status" /><RouterLink
         v-if="can(p.customerCommunicationsCreate)"
         class="button"
-        :to="
-          withReturnTo(
-            '/customers/communications/new?account=' + id,
-            route.fullPath,
-          )
-        "
+        :to="'/operations/messages/new?account=' + id"
         >Message</RouterLink
       ><RouterLink
         v-if="can(p.offersList)"
         class="button"
-        :to="
-          withReturnTo('/commercial?view=offers&account=' + id, route.fullPath)
-        "
+        :to="'/commercial?view=offers&account=' + id"
         >Offers</RouterLink
       ><SubscriptionActions :account-id="id" /><RouterLink
-        v-if="canChange"
+        v-if="
+          can(
+            p.subscriptionsChooseChangeOptions,
+            p.subscriptionsPreviewChangeJob,
+          )
+        "
         class="button primary"
-        :to="changePath"
-        ><Icon name="plus" :size="15" />{{
-          canExecuteChange ? "Change subscription" : "Review change"
-        }}</RouterLink
+        :to="{ path: '/changes/new', query: { accounts: id } }"
+        ><Icon name="plus" :size="15" />Change subscription</RouterLink
       ></PageHeading
     >
   </div>
@@ -313,13 +241,10 @@ async function saveProfile() {
       <div>
         <strong>This account has an outstanding balance.</strong>
         <p>
-          Grace ends {{ date(s.graceEndsAt, true) }}. Payment handling is not
-          available yet.
+          Grace ends {{ date(s.graceEndsAt, true) }}. Review billing before
+          preparing further changes.
         </p>
-        <RouterLink
-          v-if="tabs.some((tab) => tab.key === 'billing')"
-          class="text-link"
-          :to="{ query: { ...route.query, view: 'billing' } }"
+        <RouterLink class="text-link" :to="{ query: { view: 'billing' } }"
           >Open billing<Icon name="right" :size="13"
         /></RouterLink>
       </div>
@@ -384,7 +309,9 @@ async function saveProfile() {
             </dl>
             <div class="divider" />
             <div class="row spread">
-              <RouterLink v-if="canChange" class="text-link" :to="changePath"
+              <RouterLink
+                class="text-link"
+                :to="{ path: '/changes/new', query: { accounts: id } }"
                 >Prepare a change<Icon name="right" :size="14"
               /></RouterLink>
             </div>
@@ -431,10 +358,38 @@ async function saveProfile() {
           </div>
         </section>
       </div>
+      <aside class="stack">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Account</h2>
+            <Icon name="building" :size="17" />
+          </div>
+          <div class="panel-body">
+            <dl class="detail-list">
+              <div>
+                <dt>Customer</dt>
+                <dd>{{ s?.accountName }}</dd>
+              </div>
+              <div>
+                <dt>Account ID</dt>
+                <dd class="identifier">{{ id }}</dd>
+              </div>
+              <div>
+                <dt>Billing currency</dt>
+                <dd>{{ s?.currentPriceCurrencyCode }}</dd>
+              </div>
+              <div>
+                <dt>Access status</dt>
+                <dd><StatusBadge v-if="s" :status="s.status" /></dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+      </aside>
     </div>
   </ResourceState>
   <div v-else-if="view === 'billing'" class="customer-grid">
-    <section v-if="can(p.billingListInvoices)" class="panel">
+    <section class="panel">
       <div class="panel-header">
         <h2>Invoices</h2>
         <span class="muted small"
@@ -460,11 +415,9 @@ async function saveProfile() {
             <tbody>
               <tr v-for="i in invoiceData?.content" :key="i.id">
                 <td>
-                  <RouterLink
-                    class="text-link"
-                    :to="withReturnTo(`/billing/${i.id}`, route.fullPath)"
-                    >{{ i.invoiceNumber }}</RouterLink
-                  >
+                  <RouterLink class="text-link" :to="`/billing/${i.id}`">{{
+                    i.invoiceNumber
+                  }}</RouterLink>
                 </td>
                 <td><StatusBadge :status="i.status" /></td>
                 <td class="numeric">
@@ -483,7 +436,7 @@ async function saveProfile() {
           @change="invoicePage = $event"
       /></ResourceState>
     </section>
-    <section v-if="can(p.billingReadAccountProfile)" class="panel">
+    <section class="panel">
       <div class="panel-header">
         <h2>Billing profile</h2>
         <button
@@ -553,11 +506,7 @@ async function saveProfile() {
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="change in changeData?.content"
-              :key="change.id"
-              :class="{ selected: selectedChange?.id === change.id }"
-            >
+            <tr v-for="change in changeData?.content" :key="change.id">
               <td>{{ change.sourcePlanCode }} → {{ change.targetPlanCode }}</td>
               <td><StatusBadge :status="change.status" /></td>
               <td>{{ label(change.timing) }}</td>
@@ -572,10 +521,16 @@ async function saveProfile() {
                   class="text-link"
                   @click="cancelChange(change)"
                 >
-                  Cancel
-                </button>
-                <button class="text-link" @click="openChange(change)">
-                  Details
+                  Cancel</button
+                ><button
+                  v-if="
+                    can(p.subscriptionsConfirmCheckout) &&
+                    change.checkout?.status === 'PENDING_CONFIRMATION'
+                  "
+                  class="text-link"
+                  @click="settleCheckout(change)"
+                >
+                  Confirm settlement
                 </button>
               </td>
             </tr>
@@ -599,9 +554,7 @@ async function saveProfile() {
           can(p.subscriptionsCreateSpecialAgreement)
         "
         class="button primary"
-        :to="
-          withReturnTo('/customers/' + id + '/agreements/new', route.fullPath)
-        "
+        :to="'/customers/' + id + '/agreements/new'"
         >New agreement</RouterLink
       >
     </div>
@@ -627,12 +580,7 @@ async function saveProfile() {
               <td>
                 <RouterLink
                   class="text-link"
-                  :to="
-                    withReturnTo(
-                      '/customers/' + id + '/agreements/' + a.id,
-                      route.fullPath,
-                    )
-                  "
+                  :to="'/customers/' + id + '/agreements/' + a.id"
                   >{{ a.planName }}</RouterLink
                 >
               </td>
@@ -671,10 +619,6 @@ async function saveProfile() {
           <div>
             <strong>{{ label(a.action.replaceAll(".", " ")) }}</strong>
             <p>{{ a.actorIdentity?.displayName || label(a.actorSurface) }}</p>
-            <details>
-              <summary class="text-link">Details</summary>
-              <Facts :data="a" />
-            </details>
           </div>
           <time>{{ date(a.occurredAt, true) }}</time
           ><StatusBadge :status="a.outcome" /></div></ResourceState
@@ -696,41 +640,7 @@ async function saveProfile() {
       :loading="timeline.loading.value"
       :error="timeline.error.value"
       @retry="timeline.refresh()"
-      ><div class="table-scroll">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Event</th>
-              <th>Invoice</th>
-              <th>Status</th>
-              <th>Amount</th>
-              <th>Recorded</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="event in timeline.data.value?.content"
-              :key="event.recordId"
-            >
-              <td>{{ label(event.type) }}</td>
-              <td>
-                <RouterLink
-                  v-if="can(p.billingReadInvoice)"
-                  class="text-link"
-                  :to="
-                    withReturnTo('/billing/' + event.invoiceId, route.fullPath)
-                  "
-                  >{{ event.invoiceNumber }}</RouterLink
-                ><span v-else>{{ event.invoiceNumber }}</span>
-              </td>
-              <td><StatusBadge :status="event.status" /></td>
-              <td>{{ money(event.amount, event.currencyCode) }}</td>
-              <td>{{ date(event.occurredAt, true) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <Pagination
+      ><Facts :data="timeline.data.value?.content" /><Pagination
         v-if="timeline.data.value"
         :page="timeline.data.value.page"
         :size="timeline.data.value.size"
@@ -747,25 +657,7 @@ async function saveProfile() {
       :loading="lifecycle.loading.value"
       :error="lifecycle.error.value"
       @retry="lifecycle.refresh()"
-      ><div
-        v-for="event in lifecycle.data.value?.content"
-        :key="event.id"
-        class="lifecycle-row"
-      >
-        <div class="row spread">
-          <strong>{{ label(event.action) }}</strong
-          ><time class="small muted">{{ date(event.effectiveAt, true) }}</time>
-        </div>
-        <p class="small section-gap">
-          {{ label(event.beforeStatus) }} → {{ label(event.afterStatus) }} ·
-          {{ event.actorEmail }}
-        </p>
-        <p class="small muted">{{ event.reason }}</p>
-        <p v-if="event.nextGraceEndsAt" class="small muted">
-          Grace ends {{ date(event.nextGraceEndsAt, true) }}
-        </p>
-      </div>
-      <Pagination
+      ><Facts :data="lifecycle.data.value?.content" /><Pagination
         v-if="lifecycle.data.value"
         :page="lifecycle.data.value.page"
         :size="lifecycle.data.value.size"
@@ -773,103 +665,6 @@ async function saveProfile() {
         @change="lifecyclePage = $event"
     /></ResourceState>
   </section>
-  <AppDialog
-    :open="!!selectedChange"
-    title="Subscription change"
-    @close="closeChange"
-  >
-    <template v-if="selectedChange">
-      <div class="row spread">
-        <strong
-          >{{ selectedChange.sourcePlanCode }} →
-          {{ selectedChange.targetPlanCode }}</strong
-        ><StatusBadge :status="selectedChange.status" />
-      </div>
-      <dl class="detail-list section-gap">
-        <div>
-          <dt>Effective</dt>
-          <dd>
-            {{
-              selectedChange.effectiveAt
-                ? date(selectedChange.effectiveAt, true)
-                : label(selectedChange.timing)
-            }}
-          </dd>
-        </div>
-        <div>
-          <dt>Requested</dt>
-          <dd>
-            {{ date(selectedChange.createdAt, true) }} ·
-            {{ label(selectedChange.requestOrigin) }}
-          </dd>
-        </div>
-        <div>
-          <dt>Requester</dt>
-          <dd class="identifier">
-            {{ selectedChange.requestedByUserId || "System" }}
-          </dd>
-        </div>
-        <div>
-          <dt>Reason</dt>
-          <dd>{{ selectedChange.requestReason || "—" }}</dd>
-        </div>
-        <div v-if="selectedChange.attentionReason">
-          <dt>Needs attention</dt>
-          <dd>{{ selectedChange.attentionReason }}</dd>
-        </div>
-        <div v-if="selectedChange.cancelledAt">
-          <dt>Cancelled</dt>
-          <dd>
-            {{ date(selectedChange.cancelledAt, true) }} ·
-            {{ label(selectedChange.cancellationOrigin) }}
-          </dd>
-        </div>
-        <div v-if="selectedChange.cancelledByUserId">
-          <dt>Cancelled by</dt>
-          <dd class="identifier">{{ selectedChange.cancelledByUserId }}</dd>
-        </div>
-        <div v-if="selectedChange.cancellationReason">
-          <dt>Cancellation reason</dt>
-          <dd>{{ selectedChange.cancellationReason }}</dd>
-        </div>
-        <div>
-          <dt>Operation ID</dt>
-          <dd class="identifier">{{ selectedChange.id }}</dd>
-        </div>
-      </dl>
-      <p
-        v-if="selectedChange.status === 'AWAITING_CONFIRMATION'"
-        class="notice warning section-gap"
-      >
-        This change is awaiting confirmation. Payment actions are not available
-        yet.
-      </p>
-      <details
-        v-if="selectedChange.commercialPolicyEvaluation"
-        class="section-gap"
-      >
-        <summary>Accepted policy terms</summary>
-        <Facts :data="selectedChange.commercialPolicyEvaluation" />
-      </details>
-      <details v-if="selectedChange.checkout" class="section-gap">
-        <summary>Recorded checkout evidence</summary>
-        <Facts :data="selectedChange.checkout" />
-      </details>
-      <div class="form-actions">
-        <button class="button" @click="closeChange">Close</button
-        ><button
-          v-if="
-            can(p.subscriptionsCancelChange) &&
-            ['PENDING', 'AWAITING_CONFIRMATION'].includes(selectedChange.status)
-          "
-          class="button danger"
-          @click="cancelChange(selectedChange)"
-        >
-          Cancel change
-        </button>
-      </div>
-    </template>
-  </AppDialog>
   <ActionDialog
     :action="action"
     :data="actionData"
@@ -877,7 +672,6 @@ async function saveProfile() {
     @done="
       changes.refresh();
       subscription.refresh();
-      closeChange();
     "
   /><AppDialog
     :open="edit"
@@ -923,13 +717,6 @@ async function saveProfile() {
   >
 </template>
 <style scoped>
-.lifecycle-row {
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border);
-}
-.data-table tr.selected {
-  background: var(--accent-soft);
-}
 .customer-heading {
   display: flex;
   gap: 18px;

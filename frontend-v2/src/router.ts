@@ -1,19 +1,16 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { session } from "./data/session";
-import { firstWorkspace } from "./lib/navigation";
 import { resources } from "./resources";
 const hub = (path: string, title: string, keys: string[]) => ({
   path,
   component: () => import("./views/HubView.vue"),
   meta: { title, resources: keys },
 });
-const scrollPositions = new Map<string, { top: number }>();
 export const router = createRouter({
   history: createWebHistory(),
-  scrollBehavior: (to, _from, saved) =>
-    saved || scrollPositions.get(to.fullPath) || { top: 0 },
+  scrollBehavior: () => ({ top: 0 }),
   routes: [
-    { path: "/", redirect: () => firstWorkspace() },
+    { path: "/", redirect: "/overview" },
     {
       path: "/overview",
       component: () => import("./views/OverviewView.vue"),
@@ -26,7 +23,7 @@ export const router = createRouter({
     },
     {
       path: "/customers",
-      component: () => import("./views/CustomersWorkspaceView.vue"),
+      component: () => import("./views/CustomersView.vue"),
       meta: { title: "Customers" },
     },
     {
@@ -36,59 +33,20 @@ export const router = createRouter({
     },
     hub("/catalog", "Catalog", ["plans", "addons", "capacity", "prices"]),
     hub("/commercial", "Commercial", [
-      "offers",
       "campaigns",
+      "offers",
       "segments",
       "policies",
     ]),
     {
       path: "/billing",
-      redirect: (to) => ({
-        path: "/customers",
-        query: {
-          ...to.query,
-          view: to.query.view === "agreements" ? "agreements" : "invoices",
-        },
-      }),
+      component: () => import("./views/BillingView.vue"),
+      meta: { title: "Billing" },
     },
     {
       path: "/billing/:id",
-      redirect: (to) => ({
-        path: "/customers/invoices/" + to.params.id,
-        query: to.query,
-      }),
-    },
-    {
-      path: "/customers/invoices/:id",
       component: () => import("./views/InvoiceView.vue"),
       meta: { title: "Invoice" },
-    },
-    hub("/inbox", "Inbox", ["inbox"]),
-    {
-      path: "/operations/messages/:id",
-      redirect: (to) => ({
-        path: "/customers/communications/" + to.params.id,
-        query: to.query,
-      }),
-    },
-    {
-      path: "/operations/messages",
-      redirect: (to) => ({
-        path: "/customers",
-        query: { ...to.query, view: "messages" },
-      }),
-    },
-    {
-      path: "/operations/inbox/:id",
-      redirect: (to) => ({ path: "/inbox/" + to.params.id, query: to.query }),
-    },
-    {
-      path: "/settings/preferences",
-      redirect: "/settings/profile?view=notifications",
-    },
-    {
-      path: "/settings/preferences/:id",
-      redirect: "/settings/profile?view=notifications",
     },
     {
       path: "/operations",
@@ -100,7 +58,12 @@ export const router = createRouter({
       component: () => import("./views/ProfileView.vue"),
       meta: { title: "Profile" },
     },
-    hub("/settings", "Settings", ["operators", "roles", "features"]),
+    hub("/settings", "Settings", [
+      "operators",
+      "roles",
+      "features",
+      "preferences",
+    ]),
     {
       path: "/changes/new",
       component: () => import("./views/ChangeView.vue"),
@@ -118,30 +81,20 @@ export const router = createRouter({
       },
     })),
     ...Object.values(resources)
-      .filter((r) => r.key !== "invoices" && r.key !== "preferences")
+      .filter((r) => r.key !== "invoices")
       .flatMap((r) => [
-        ...(r.key === "inbox"
-          ? []
-          : [
-              {
-                path: r.base,
-                redirect: (to: any) => ({
-                  path: "/" + r.base.split("/")[1],
-                  query: ["jobs", "repricing", "rollouts"].includes(r.key)
-                    ? { ...to.query, view: "executions", kind: r.key }
-                    : { ...to.query, view: r.key },
-                }),
-              },
-            ]),
-        ...(!r.listOnly
-          ? [
-              {
-                path: r.base + "/:id",
-                component: () => import("./views/ResourceView.vue"),
-                meta: { title: r.singular, resource: r.key },
-              },
-            ]
-          : []),
+        {
+          path: r.base,
+          redirect: () => ({
+            path: "/" + r.base.split("/")[1],
+            query: { view: r.key },
+          }),
+        },
+        {
+          path: r.base + "/:id",
+          component: () => import("./views/ResourceView.vue"),
+          meta: { title: r.singular, resource: r.key },
+        },
       ]),
     {
       path: "/operations/:id",
@@ -182,31 +135,7 @@ export const router = createRouter({
     },
   ],
 });
-router.beforeEach((to, from) => {
-  scrollPositions.set(from.fullPath, { top: window.scrollY });
-  if (to.path === "/operations") {
-    const view = String(to.query.view || "");
-    if (view === "inbox")
-      return { path: "/inbox", query: { ...to.query, view: undefined } };
-    if (view === "messages")
-      return { path: "/customers", query: { ...to.query, view: "messages" } };
-    if (view === "health")
-      return { path: "/settings", query: { ...to.query, view: "health" } };
-    if (["jobs", "repricing", "rollouts"].includes(view))
-      return {
-        path: to.path,
-        query: { ...to.query, view: "executions", kind: view },
-      };
-    if (view === "attention")
-      return { path: to.path, query: { ...to.query, view: "queue" } };
-    if (["notification-events", "notification-emails"].includes(view))
-      return {
-        path: to.path,
-        query: { ...to.query, view: "delivery", delivery: view },
-      };
-  }
-  if (to.path === "/settings" && to.query.view === "preferences")
-    return "/settings/profile?view=notifications";
+router.beforeEach((to) => {
   if (!session.token && !to.meta.public)
     return { path: "/login", query: { returnTo: to.fullPath } };
   if (session.initialAccessToken && !session.token && to.path === "/login")
