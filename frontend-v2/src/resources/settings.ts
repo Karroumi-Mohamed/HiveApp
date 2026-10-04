@@ -1,10 +1,21 @@
 import { adminApi as api } from "@/api/admin-api";
 import { communicationApi } from "@/api/communication-api";
 import { adminPermissions as p } from "@/auth/permissions";
-import { can } from "@/data/session";
-import { read } from "@/data/gateway";
+import { can, session } from "@/data/session";
+import { read, write } from "@/data/gateway";
 import type { Resource, Field, Action } from "./types";
-import { text, select, permissionField, compactHistory } from "./fields";
+import { text, select, compactHistory, allowed } from "./fields";
+const canModifyOperator = (d: Record<string, any>) =>
+  !!session.me?.isSuperAdmin || !d.isSuperAdmin;
+const canModifyOperatorRoles = (d: Record<string, any>) =>
+  canModifyOperator(d) && (session.me?.isSuperAdmin || session.me?.id !== d.id);
+const roleChoices = new Map<string, { value: string; label: string }>();
+const rolePermissions = (): Field => ({
+  key: "permissionIds",
+  label: "Permissions",
+  type: "permissions",
+  full: true,
+});
 const roleField: Field = {
   key: "roleIds",
   label: "Roles",
@@ -12,12 +23,48 @@ const roleField: Field = {
   full: true,
   load: async (search, page) => {
     const x = await read(p.rolesRead, () =>
-      api.roles({ search, page, size: 20 }),
+      api.roles({
+        search,
+        page,
+        size: 20,
+        active: true,
+        sort: "name",
+        direction: "asc",
+      }),
     );
+    const options = x.content
+      .filter((r) => r.availableActions.includes("ASSIGN_TO_OPERATOR"))
+      .map((r) => ({ value: r.id, label: r.name }));
+    options.forEach((choice) => roleChoices.set(choice.value, choice));
     return {
-      options: x.content.map((r) => ({ value: r.id, label: r.name })),
+      options,
       totalPages: x.totalPages,
     };
+  },
+  resolve: async (ids) => {
+    const missing = ids.filter((id) => !roleChoices.has(id));
+    if (missing.length && can(p.rolesReadDetail)) {
+      const values = await Promise.all(
+        missing.map((id) => read(p.rolesReadDetail, () => api.role(id))),
+      );
+      values.forEach((r) =>
+        roleChoices.set(r.id, { value: r.id, label: r.name }),
+      );
+    } else if (missing.length && can(p.rolesRead)) {
+      let page = 0;
+      let more = true;
+      while (more && missing.some((id) => !roleChoices.has(id))) {
+        const result = await read(p.rolesRead, () =>
+          api.roles({ page, size: 100 }),
+        );
+        result.content.forEach((r) =>
+          roleChoices.set(r.id, { value: r.id, label: r.name }),
+        );
+        more = !result.last;
+        page++;
+      }
+    }
+    return ids.map((id) => roleChoices.get(id)).filter((r) => !!r);
   },
 };
 const operators: Resource = {
@@ -26,8 +73,17 @@ const operators: Resource = {
   singular: "Operator",
   base: "/settings/operators",
   listPermission: p.usersRead,
-  readPermission: p.usersRead,
-  list: (q) => api.users(q),
+  readPermission: p.usersReadDetail,
+  list: (q) =>
+    api.users({
+      ...q,
+      active:
+        q.active === "ACTIVE" || q.active === "true"
+          ? true
+          : q.active === "INACTIVE" || q.active === "false"
+            ? false
+            : undefined,
+    }),
   detail: api.user,
   normalize: (d) => ({ ...d, name: d.firstName + " " + d.lastName }),
   columns: [
@@ -38,6 +94,22 @@ const operators: Resource = {
     { key: "credentialState", label: "Access state" },
     { key: "roles", label: "Roles" },
   ],
+  detailKeys: [
+    "email",
+    "isActive",
+    "isSuperAdmin",
+    "credentialState",
+    "emailVerified",
+  ],
+  filters: [
+    { key: "active", label: "Access states", values: ["ACTIVE", "INACTIVE"] },
+  ],
+  sortable: [
+    { key: "email", label: "Email" },
+    { key: "createdAt", label: "Created" },
+    { key: "active", label: "Access" },
+    { key: "superAdmin", label: "Administrator level" },
+  ],
   createPermission: p.usersCreate,
   fields: [
     text("firstName", "First name", true),
@@ -47,7 +119,12 @@ const operators: Resource = {
       "EMAIL_LINK",
       "TEMPORARY_PASSWORD",
     ]),
-    { key: "isSuperAdmin", label: "Platform administrator", type: "checkbox" },
+    {
+      key: "isSuperAdmin",
+      label: "Platform administrator",
+      type: "checkbox",
+      show: () => !!session.me?.isSuperAdmin,
+    },
   ],
   defaults: { initialAccessMethod: "EMAIL_LINK", isSuperAdmin: false },
   save: (_, i) => api.createUser(i as any),
@@ -66,6 +143,7 @@ const operators: Resource = {
       label: "Assign role",
       permission: p.usersBulkAssignRole,
       reason: false,
+      visible: () => can(p.rolesRead),
       fields: [
         { ...roleField, key: "adminRoleId", type: "choice", required: true },
       ],
@@ -85,6 +163,7 @@ const operators: Resource = {
       label: "Edit name",
       permission: p.usersRename,
       reason: false,
+      visible: canModifyOperator,
       fields: [
         text("firstName", "First name", true),
         text("lastName", "Last name", true),
@@ -97,6 +176,7 @@ const operators: Resource = {
       label: "Change email",
       permission: p.usersChangeEmail,
       reason: false,
+      visible: canModifyOperator,
       fields: [text("email", "Email", true)],
       defaults: (d) => d,
       execute: (d, i) => api.changeOperatorEmail(d.id, i.email),
@@ -106,9 +186,15 @@ const operators: Resource = {
       label: "Edit roles",
       permission: p.usersAssignRole,
       reason: false,
-      visible: () => can(p.usersRemoveRole),
+      visible: (d) =>
+        canModifyOperatorRoles(d) && can(p.usersRemoveRole) && can(p.rolesRead),
       fields: [roleField],
-      defaults: (d) => ({ roleIds: d.roles.map((r: any) => r.id) }),
+      defaults: (d) => {
+        d.roles.forEach((r: any) =>
+          roleChoices.set(r.id, { value: r.id, label: r.name }),
+        );
+        return { roleIds: d.roles.map((r: any) => r.id) };
+      },
       execute: (d, i) => api.replaceUserRoles(d.id, i.roleIds),
     },
     {
@@ -116,29 +202,56 @@ const operators: Resource = {
       label: "Add role",
       permission: p.usersAssignRole,
       reason: false,
-      fields: [{ ...roleField, key: "roleId", type: "choice", required: true }],
+      visible: (d) => canModifyOperatorRoles(d) && can(p.rolesRead),
+      fields: [
+        {
+          ...roleField,
+          key: "roleId",
+          type: "choice",
+          required: true,
+          load: async (search, page, input) => {
+            const result = await roleField.load!(search, page, input);
+            return {
+              ...result,
+              options: result.options.filter(
+                (option) => !input._assignedRoleIds?.includes(option.value),
+              ),
+            };
+          },
+        },
+      ],
+      defaults: (d) => ({ _assignedRoleIds: d.roles.map((r: any) => r.id) }),
       execute: (d, i) => api.assignUserRole(d.id, i.roleId),
     },
-    {
-      key: "active",
-      label: "Change access",
+    ...([true, false] as const).map<Action>((active) => ({
+      key: active ? "activate" : "deactivate",
+      label: active ? "Activate access" : "Deactivate access",
       permission: p.usersMutate,
       reason: false,
-      destructive: true,
+      destructive: !active,
+      visible: (d) =>
+        canModifyOperator(d) &&
+        d.isActive !== active &&
+        (active || session.me?.id !== d.id),
       execute: (d) => api.toggleUser(d.id),
-    },
+    })),
     {
       key: "activation",
-      label: "Send activation",
+      label: "Resend activation",
       permission: p.usersResendActivation,
       reason: false,
+      visible: (d) => canModifyOperator(d) && d.credentialState !== "ACTIVE",
       execute: (d) => api.resendOperatorActivation(d.id),
     },
     {
       key: "verification",
-      label: "Verify email",
+      label: "Send email verification",
       permission: p.usersSendEmailVerification,
       reason: false,
+      visible: (d) =>
+        canModifyOperator(d) &&
+        !d.emailVerified &&
+        d.credentialState !== "EMAIL_ACTIVATION_PENDING",
       execute: (d) => api.sendOperatorEmailVerification(d.id),
     },
     {
@@ -146,6 +259,7 @@ const operators: Resource = {
       label: "Temporary access",
       permission: p.usersTemporaryAccess,
       reason: false,
+      visible: canModifyOperator,
       execute: (d) => api.generateOperatorTemporaryAccess(d.id),
     },
   ],
@@ -153,7 +267,7 @@ const operators: Resource = {
     {
       key: "roles",
       label: "Roles",
-      permission: p.usersRead,
+      permission: p.usersReadDetail,
       load: (d) => Promise.resolve(d.roles),
       columns: [
         { key: "name", label: "Role", link: (r) => "/settings/roles/" + r.id },
@@ -166,6 +280,7 @@ const operators: Resource = {
           permission: p.usersRemoveRole,
           reason: false,
           destructive: true,
+          visible: () => canModifyOperatorRoles(d),
           execute: () => api.removeUserRole(d.id, r.id),
         },
       ],
@@ -196,13 +311,48 @@ const roles: Resource = {
     { key: "description", label: "Description" },
     { key: "status", label: "Status", format: "status" },
   ],
+  detailKeys: [
+    "description",
+    "status",
+    "assignedOperatorCount",
+    "createdAt",
+    "updatedAt",
+  ],
+  sortable: [
+    { key: "name", label: "Name" },
+    { key: "status", label: "Status" },
+    { key: "updatedAt", label: "Updated" },
+    { key: "assignedOperatorCount", label: "Operator count" },
+  ],
   createPermission: p.rolesCreate,
+  get createPermissions() {
+    return [
+      p.rolesCreate,
+      ...(can(p.rolesListPresets) ? [p.rolesCreateFromPreset] : []),
+    ];
+  },
+  creationPermission: (i) =>
+    i.creationMode === "PRESET" ? p.rolesCreateFromPreset : p.rolesCreate,
   editPermission: p.rolesUpdate,
+  editable: allowed("EDIT_METADATA"),
   fields: [
     {
-      ...select("creationMode", "Create from", ["CUSTOM", "PRESET"]),
-      show: (d) =>
-        !d.id && can(p.rolesListPresets) && can(p.rolesCreateFromPreset),
+      key: "creationMode",
+      label: "Create from",
+      type: "select",
+      required: true,
+      options: [
+        { value: "CUSTOM", label: "Custom permissions" },
+        { value: "PRESET", label: "Role preset" },
+      ],
+      show: (d) => !d.id,
+      get hidden() {
+        return !(
+          can(p.rolesCreate) &&
+          can(p.rolesListPresets) &&
+          can(p.rolesCreateFromPreset)
+        );
+      },
     },
     {
       key: "presetCode",
@@ -226,15 +376,28 @@ const roles: Resource = {
       },
       onSelect: (d, c) => {
         d.permissionIds = c.record?.permissions.map((x: any) => x.id) || [];
+        d._permissionDetails = c.record?.permissions || [];
         if (!d.name) d.name = c.record?.name;
         if (!d.description) d.description = c.record?.description;
       },
     },
     text("name", "Name", true),
     { key: "description", label: "Description", type: "textarea" },
-    { ...permissionField(), show: (d) => !d.id },
+    {
+      ...rolePermissions(),
+      max: 500,
+      show: (d) => !d.id,
+      get hidden() {
+        return !can(p.rolesListGrantable);
+      },
+    },
   ],
-  defaults: { permissionIds: [], creationMode: "CUSTOM" },
+  get defaults() {
+    return {
+      permissionIds: [],
+      creationMode: can(p.rolesCreate) ? "CUSTOM" : "PRESET",
+    };
+  },
   bulkActions: [
     ...([true, false] as const).map<Action>((active) => ({
       key: String(active),
@@ -252,16 +415,23 @@ const roles: Resource = {
           expectedVersion: d!.version,
         })
       : i.creationMode === "PRESET"
-        ? api.createRoleFromPreset(i as any)
-        : api.createRole(i as any),
+        ? write(p.rolesCreateFromPreset, () =>
+            api.createRoleFromPreset(i as any),
+          )
+        : write(p.rolesCreate, () => api.createRole(i as any)),
   actions: [
     {
       key: "permissions",
       label: "Edit permissions",
       permission: p.rolesReplacePermissions,
-      fields: [permissionField()],
+      visible: (d) =>
+        allowed("EDIT_PERMISSIONS")(d) &&
+        can(p.rolesPreviewImpact) &&
+        can(p.rolesListGrantable),
+      fields: [rolePermissions()],
       defaults: (d) => ({
         permissionIds: d.permissions?.map((r: any) => r.id) || [],
+        _permissionDetails: d.permissions || [],
       }),
       reason: false,
       preview: (d, i) =>
@@ -271,16 +441,50 @@ const roles: Resource = {
       execute: (d, i, r) =>
         api.replaceRolePermissions(d.id, {
           permissionIds: i.permissionIds,
-          expectedVersion: d.version,
+          expectedVersion: r!.version,
           confirmedAssignmentCount: r!.assignmentCount,
         }),
     },
-    {
-      key: "status",
-      label: "Change status",
+    ...[
+      {
+        key: "activate",
+        label: "Activate role",
+        status: "ACTIVE",
+        from: ["INACTIVE"],
+      },
+      {
+        key: "deactivate",
+        label: "Deactivate role",
+        status: "INACTIVE",
+        from: ["ACTIVE"],
+      },
+      {
+        key: "archive",
+        label: "Archive role",
+        status: "ARCHIVED",
+        from: ["ACTIVE", "INACTIVE"],
+      },
+      {
+        key: "restore",
+        label: "Restore role",
+        status: "INACTIVE",
+        from: ["ARCHIVED"],
+      },
+    ].map<Action>((transition) => ({
+      key: transition.key,
+      label: transition.label,
       permission: p.rolesTransitionStatus,
-      fields: [select("status", "Status", ["ACTIVE", "INACTIVE", "ARCHIVED"])],
-      defaults: (d) => ({ status: d.status }),
+      reason: false,
+      destructive:
+        transition.key === "deactivate" || transition.key === "archive",
+      visible: (d) =>
+        allowed("TRANSITION_STATUS")(d) &&
+        can(p.rolesPreviewImpact) &&
+        transition.from.includes(d.status),
+      fields: [
+        { ...select("status", "Status", [transition.status]), hidden: true },
+      ],
+      defaults: () => ({ status: transition.status }),
       preview: (d, i) =>
         read(p.rolesPreviewImpact, () =>
           api.previewRoleImpact(d.id, { status: i.status }),
@@ -288,14 +492,15 @@ const roles: Resource = {
       execute: (d, i, r) =>
         api.transitionRoleStatus(d.id, {
           status: i.status,
-          expectedVersion: d.version,
+          expectedVersion: r!.version,
           confirmedAssignmentCount: r!.assignmentCount,
         }),
-    },
+    })),
     {
       key: "duplicate",
       label: "Duplicate",
       permission: p.rolesDuplicate,
+      visible: allowed("DUPLICATE"),
       fields: [text("name", "Name", true)],
       defaults: (d) => ({ name: d.name + " copy" }),
       reason: false,
@@ -306,7 +511,7 @@ const roles: Resource = {
       key: "delete",
       label: "Delete role",
       permission: p.rolesDelete,
-      visible: (d) => d.deletable,
+      visible: (d) => d.deletable && allowed("DELETE")(d),
       destructive: true,
       execute: (d) => api.deleteRole(d.id),
       destination: () => "/settings?view=roles",
@@ -474,8 +679,8 @@ const preferences: Resource = {
   title: "Notification preferences",
   singular: "Notification preference",
   base: "/settings/preferences",
-  listPermission: p.notificationsPreferences,
-  readPermission: p.notificationsPreferences,
+  listPermission: p.notificationsRead,
+  readPermission: p.notificationsRead,
   list: async () =>
     (await communicationApi.settings(true)).map((r) => ({ ...r, id: r.topic })),
   detail: async (id) => {

@@ -1,22 +1,45 @@
+<script lang="ts">
+const rememberedViews = new Map<string, Record<string, any>>();
+</script>
 <script setup lang="ts">
-import { useRoute, useRouter } from "vue-router";
+import { watch } from "vue";
+import { useRoute } from "vue-router";
+import { session } from "@/data/session";
 const props = defineProps<{
   tabs: { key: string; label: string; count?: number }[];
   current: string;
   parameter?: string;
 }>();
 const route = useRoute();
-const router = useRouter();
-const link = (key: string) => ({
-  path: route.path,
-  query: {
-    ...route.query,
-    [props.parameter || "view"]: key,
-    page: undefined,
-    q: undefined,
-    status: undefined,
+const stateKey = (view: string) =>
+  (session.me?.id || "") +
+  ":" +
+  route.path +
+  ":" +
+  (props.parameter || "view") +
+  ":" +
+  view;
+watch(
+  () => route.fullPath,
+  () => {
+    rememberedViews.set(stateKey(props.current), { ...route.query });
   },
-});
+  { immediate: true },
+);
+const link = (key: string) => {
+  const remembered = rememberedViews.get(stateKey(key));
+  return {
+    path: route.path,
+    query: {
+      ...(remembered || {}),
+      returnTo: route.query.returnTo,
+      account: route.query.account,
+      [props.parameter || "view"]: key,
+      sectionPage: undefined,
+      edit: undefined,
+    },
+  };
+};
 </script>
 <template>
   <nav class="view-tabs" aria-label="Section views">

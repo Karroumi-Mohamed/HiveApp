@@ -46,6 +46,7 @@ export const adminPermissions = {
   repricingEmail: permission("subscriptions", "email_repricing"),
   accessOverview: permission("admin_users", "overview"),
   usersRead: permission("admin_users", "read"),
+  usersReadDetail: permission("admin_users", "read_detail"),
   usersCreate: permission("admin_users", "create"),
   usersMutate: permission("admin_users", "toggle_active"),
   usersRename: permission("admin_users", "rename"),

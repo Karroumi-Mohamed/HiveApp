@@ -5,11 +5,12 @@ export function date(value?: string | null, time = false, timezone?: string) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "short",
+    year: "numeric",
     ...(timezone ? { timeZone: timezone } : {}),
     ...(time ? { hour: "2-digit", minute: "2-digit" } : {}),
   }).formatToParts(new Date(value));
   const part = (key: string) => parts.find((p) => p.type === key)?.value;
-  return `${part("day")} ${part("month")}${time ? `, ${part("hour")}:${part("minute")}` : ""}`;
+  return `${part("day")} ${part("month")} ${part("year")}${time ? `, ${part("hour")}:${part("minute")}` : ""}`;
 }
 export const label = (value?: string | null) =>
   value

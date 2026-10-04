@@ -15,7 +15,8 @@ export type Field = {
     | "choices"
     | "choice"
     | "array"
-    | "password";
+    | "password"
+    | "permissions";
   required?: boolean;
   hidden?: boolean;
   contextKeys?: string[];
@@ -95,6 +96,8 @@ export type Resource = {
   bulkActions?: Action[];
   listActions?: Action[];
   createPermission?: string;
+  createPermissions?: string[];
+  creationPermission?: (input: RecordData) => string;
   createRequirements?: string[];
   editPermission?: string;
   fields?: Field[];
@@ -108,6 +111,9 @@ export type Resource = {
   saveDestination?: (result: RecordData) => string;
   actions?: Action[];
   sections?: Section[];
+  sortable?: { key: string; label: string }[];
+  links?: (data: RecordData) => { label: string; to: string }[];
+  formGroups?: { label: string; keys: string[] }[];
 };
 export function get(data: RecordData | undefined, path: string) {
   return path.split(".").reduce((value, key) => value?.[key], data as any);

@@ -1,6 +1,7 @@
 import { adminApi as api } from "@/api/admin-api";
 import { adminPermissions as p } from "@/auth/permissions";
 import { read } from "@/data/gateway";
+import { paymentEnabled } from "@/lib/capabilities";
 import type { Action, Resource } from "./types";
 import { text, decimal, select, currencies, root, allowed } from "./fields";
 export const invoiceActions: Action[] = [
@@ -83,7 +84,7 @@ const invoices: Resource = {
   key: "invoices",
   title: "Invoices",
   singular: "Invoice",
-  base: "/billing",
+  base: "/customers/invoices",
   listPermission: p.billingListInvoices,
   readPermission: p.billingReadInvoice,
   list: (q) => api.billingInvoices(q),
@@ -133,7 +134,7 @@ export const agreementActions: Action[] = [
     key: "settle",
     label: "Confirm settlement",
     permission: p.subscriptionsConfirmCheckout,
-    visible: (d) => d.availableActions?.settleManually,
+    visible: (d) => paymentEnabled && d.availableActions?.settleManually,
     fields: [text("reference", "Settlement reference", true)],
     execute: (d, i) => api.confirmCheckout(d.checkout.id, { ...i } as any),
   },
@@ -142,13 +143,13 @@ const agreements: Resource = {
   key: "agreements",
   title: "Agreements",
   singular: "Agreement",
-  base: "/billing/agreements",
+  base: "/customers/agreements",
   listPermission: p.subscriptionsSearchSpecialAgreements,
   readPermission: p.subscriptionsReadSpecialAgreement,
   list: (q) => api.allSpecialAgreements(q),
   detail: async () => undefined,
   listOnly: true,
-  searchable: false,
+  searchable: true,
   filters: [
     {
       key: "status",

@@ -3,105 +3,50 @@ import { computed, ref, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "@/components/Icon.vue";
 import AppDialog from "@/components/AppDialog.vue";
+import CommandSearch from "@/components/CommandSearch.vue";
+import {
+  workspaceNavigation,
+  workspacePath,
+  settingsPermissions,
+  firstWorkspace,
+} from "@/lib/navigation";
 import { session, toast, can, signOut } from "@/data/session";
 import { adminPermissions as p } from "@/auth/permissions";
 const route = useRoute(),
   router = useRouter();
-const navigation = [
-  {
-    path: "/overview",
-    title: "Overview",
-    icon: "overview",
-    permissions: [
-      p.plansOverview,
-      p.analyticsReadSummary,
-      p.analyticsReadFinancialSeries,
-      p.analyticsReadSubscriptionSeries,
-      p.analyticsReadOfferSeries,
-    ],
-  },
-  {
-    path: "/customers",
-    title: "Customers",
-    icon: "customers",
-    permissions: [p.subscriptionsSearch],
-  },
-  {
-    path: "/catalog",
-    title: "Catalog",
-    icon: "catalog",
-    permissions: [
-      p.plansList,
-      p.plansListFamilies,
-      p.addOnsList,
-      p.quotaPackagesList,
-      p.priceBooksList,
-    ],
-  },
-  {
-    path: "/commercial",
-    title: "Commercial",
-    icon: "commercial",
-    permissions: [
-      p.campaignsList,
-      p.segmentsList,
-      p.commercialPoliciesList,
-      p.offersList,
-    ],
-  },
-  {
-    path: "/billing",
-    title: "Billing",
-    icon: "billing",
-    permissions: [
-      p.billingListInvoices,
-      p.subscriptionsSearchSpecialAgreements,
-      p.billingListReconciliation,
-      p.billingListProviderEvents,
-    ],
-  },
-  {
-    path: "/operations",
-    title: "Operations",
-    icon: "operations",
-    permissions: [
-      p.subscriptionsListChangeJobs,
-      p.activitiesRead,
-      p.observabilityReadHealth,
-      p.observabilityReadBacklogs,
-      p.observabilityReadLogAccess,
-      p.registrySync,
-      p.communicationsRead,
-      p.repricingList,
-      p.plansListApplications,
-      p.analyticsReadOperations,
-      p.customerCommunicationsRead,
-      p.notificationsRead,
-      p.notificationsDelivery,
-    ],
-  },
-] as const;
+const navigationError = ref(false);
+const stopRouterError = router.onError(() => {
+  navigationError.value = true;
+});
+const stopAfterNavigation = router.afterEach((_to, _from, failure) => {
+  if (!failure) navigationError.value = false;
+});
+function reloadView() {
+  window.location.reload();
+}
+const navigation = workspaceNavigation;
 const visibleNavigation = computed(() =>
   navigation.filter((n) => can(...n.permissions)),
 );
+const ownedArea = computed(() =>
+  workspacePath(route.path, route.query.returnTo),
+);
 const area = computed(
   () =>
-    navigation.find((n) => route.path.startsWith(n.path))?.title ||
-    String(route.meta.title || "Settings"),
+    navigation.find((n) => n.path === ownedArea.value)?.title ||
+    (ownedArea.value === "/inbox"
+      ? "Inbox"
+      : route.path.startsWith("/settings/profile")
+        ? "Profile"
+        : "Settings"),
 );
 const publicPage = computed(() => route.meta.public || !session.token);
 const searchOpen = ref(false),
-  search = ref(""),
   mobileOpen = ref(false),
   sidebar = ref<HTMLElement>(),
   menuButton = ref<HTMLButtonElement>();
 const mobileQuery = window.matchMedia("(max-width: 700px)"),
   isMobile = ref(mobileQuery.matches);
-const searchLinks = computed(() =>
-  visibleNavigation.value.filter((n) =>
-    n.title.toLowerCase().includes(search.value.toLowerCase()),
-  ),
-);
 function resizeNavigation() {
   isMobile.value = mobileQuery.matches;
   if (!isMobile.value) mobileOpen.value = false;
@@ -110,13 +55,21 @@ watch(mobileOpen, async (open) => {
   document.body.style.overflow = open ? "hidden" : "";
   await nextTick();
   if (open) sidebar.value?.querySelector<HTMLElement>("a,button")?.focus();
-  else if (isMobile.value) menuButton.value?.focus();
+  else if (
+    isMobile.value &&
+    !document.getElementById("main-content")?.contains(document.activeElement)
+  )
+    menuButton.value?.focus();
 });
 watch(
   () => route.fullPath,
-  () => {
+  async (to, from) => {
     mobileOpen.value = false;
     searchOpen.value = false;
+    if (to.split("?")[0] !== from?.split("?")[0]) {
+      await nextTick();
+      document.getElementById("main-content")?.focus({ preventScroll: true });
+    }
   },
 );
 function navigate(path: string) {
@@ -162,6 +115,8 @@ onMounted(() => {
   mobileQuery.addEventListener("change", resizeNavigation);
 });
 onUnmounted(() => {
+  stopRouterError();
+  stopAfterNavigation();
   window.removeEventListener("keydown", keyHandler);
   window.removeEventListener("hive-session-expired", expired);
   mobileQuery.removeEventListener("change", resizeNavigation);
@@ -187,7 +142,11 @@ onUnmounted(() => {
         :aria-modal="mobileOpen || undefined"
         :aria-label="mobileOpen ? 'Navigation' : undefined"
       >
-        <RouterLink class="brand" to="/overview" aria-label="Hive overview"
+        <RouterLink
+          class="brand"
+          :to="firstWorkspace()"
+          @click="mobileOpen = false"
+          aria-label="Hive workspace"
           ><img src="/hive.svg" alt="" /><span
             >hive<span class="brand-period">.</span></span
           ></RouterLink
@@ -214,20 +173,24 @@ onUnmounted(() => {
             v-for="item in visibleNavigation"
             :key="item.path"
             :to="item.path"
-            :class="{ active: route.path.startsWith(item.path) }"
-            :aria-current="
-              route.path.startsWith(item.path) ? 'page' : undefined
-            "
+            @click="mobileOpen = false"
+            :class="{ active: ownedArea === item.path }"
+            :aria-current="ownedArea === item.path ? 'page' : undefined"
             ><Icon :name="item.icon" /><span>{{ item.title }}</span></RouterLink
           >
         </nav>
         <div class="sidebar-bottom">
           <RouterLink
+            v-if="can(...settingsPermissions)"
             class="nav-secondary"
             to="/settings"
+            @click="mobileOpen = false"
             :class="{ active: route.path.startsWith('/settings') }"
             ><Icon name="settings" />Settings</RouterLink
-          ><RouterLink class="user-profile" to="/settings/profile"
+          ><RouterLink
+            class="user-profile"
+            to="/settings/profile"
+            @click="mobileOpen = false"
             ><span class="avatar user-avatar">{{
               session.me?.email.slice(0, 2).toUpperCase()
             }}</span>
@@ -256,7 +219,17 @@ onUnmounted(() => {
             ><strong>{{ area }}</strong>
           </div>
           <div class="topbar-actions">
-            <RouterLink class="topbar-link" to="/operations?view=health"
+            <RouterLink
+              v-if="
+                can(
+                  p.observabilityReadHealth,
+                  p.observabilityReadBacklogs,
+                  p.observabilityReadLogAccess,
+                  p.registrySync,
+                )
+              "
+              class="topbar-link"
+              to="/settings?view=health"
               >System status</RouterLink
             ><button
               class="icon-button"
@@ -265,47 +238,28 @@ onUnmounted(() => {
             >
               <Icon name="search" /></button
             ><RouterLink
+              v-if="can(p.notificationsRead)"
               class="icon-button"
-              to="/operations?view=inbox"
+              to="/inbox"
               aria-label="Notifications"
               ><Icon name="bell"
             /></RouterLink>
           </div>
         </header>
         <main id="main-content" class="main-content" tabindex="-1">
+          <p v-if="navigationError" class="notice error" role="alert">
+            This view could not be loaded.
+            <button class="text-link" @click="reloadView">
+              Reload to retry
+            </button>
+          </p>
           <RouterView />
         </main>
       </div>
     </div>
     <AppDialog :open="searchOpen" title="Search" @close="searchOpen = false"
-      ><form
-        @submit.prevent="navigate('/customers?q=' + encodeURIComponent(search))"
-      >
-        <label class="search-field command-search"
-          ><Icon name="search" /><input
-            v-model="search"
-            autofocus
-            aria-label="Search customers or pages"
-            placeholder="Customers or pages"
-        /></label>
-      </form>
-      <div class="command-results">
-        <button
-          v-for="item in searchLinks"
-          :key="item.path"
-          class="command-item"
-          @click="navigate(item.path)"
-        >
-          <Icon :name="item.icon" />{{ item.title }}</button
-        ><button
-          v-if="search && can(p.subscriptionsSearch)"
-          class="command-item"
-          @click="navigate('/customers?q=' + encodeURIComponent(search))"
-        >
-          Search customers for “{{ search }}”
-        </button>
-      </div></AppDialog
-    >
+      ><CommandSearch @navigate="navigate"
+    /></AppDialog>
   </template>
   <div
     v-if="toast.message"

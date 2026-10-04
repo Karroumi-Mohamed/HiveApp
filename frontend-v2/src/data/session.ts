@@ -57,11 +57,11 @@ configureHttpAuth(
   refreshSession,
 );
 export function can(...permissions: string[]) {
+  const requested = permissions.filter(Boolean);
+  if (!requested.length) return false;
   return (
     !!session.me?.isSuperAdmin ||
-    permissions.some((permission) =>
-      session.me?.permissions.includes(permission),
-    )
+    requested.some((permission) => session.me?.permissions.includes(permission))
   );
 }
 export async function acceptSession(auth: AuthResponse) {

@@ -7,18 +7,18 @@ export function destination(path: string | undefined | null) {
     return "/operations?view=notification-events";
   if (/^\/admin\/analytics(?:\?|$)/.test(path)) return "/overview?view=reports";
   if (/^\/admin\/observability(?:\?|$)/.test(path))
-    return "/operations?view=health";
+    return "/settings?view=health";
   if (/^\/admin\/billing\/invoices\/([^/?]+)\/document/.test(path))
     return path.replace(
       /^\/admin\/billing\/invoices\/([^/?]+)\/document.*/,
-      "/billing/$1?view=document",
+      "/customers/invoices/$1?view=document",
     );
   if (/^\/admin\/billing\/provider-events(?:\?|$)/.test(path))
     return "/billing?view=provider-events";
   if (/^\/admin\/billing\/reconciliation(?:\?|$)/.test(path))
     return "/billing?view=provider-commands";
   if (/^\/admin\/subscriptions\/agreements(?:\?|$)/.test(path))
-    return "/billing?view=agreements";
+    return "/customers?view=agreements";
   path = path.replace(
     /^\/admin\/subscriptions\/account\//,
     "/admin/subscriptions/",
@@ -30,7 +30,7 @@ export function destination(path: string | undefined | null) {
     ],
     [/^\/admin\/subscriptions\/([^/?]+)/, "/customers/$1"],
     [/^\/admin\/subscription-(?:change-)?jobs/, "/operations"],
-    [/^\/admin\/billing\/invoices/, "/billing"],
+    [/^\/admin\/billing\/invoices/, "/customers/invoices"],
     [/^\/admin\/billing/, "/billing"],
     [/^\/admin\/plans/, "/catalog/plans"],
     [/^\/admin\/add-ons/, "/catalog/addons"],
@@ -41,10 +41,10 @@ export function destination(path: string | undefined | null) {
     [/^\/admin\/commercial-policies/, "/commercial/policies"],
     [/^\/admin\/offers/, "/commercial/offers"],
     [/^\/admin\/(?:subscription-)?repricing/, "/operations/repricing"],
-    [/^\/admin\/customer-communications/, "/operations/messages"],
-    [/^\/admin\/communications/, "/operations/messages"],
+    [/^\/admin\/customer-communications/, "/customers/communications"],
+    [/^\/admin\/communications/, "/operations/delivery"],
     [/^\/admin\/activities/, "/operations/activity"],
-    [/^\/admin\/notifications/, "/operations/inbox"],
+    [/^\/admin\/notifications/, "/inbox"],
     [/^\/admin\/plan-version-applications/, "/operations/rollouts"],
     [/^\/admin\/operators/, "/settings/operators"],
     [/^\/admin\/roles/, "/settings/roles"],
@@ -54,7 +54,7 @@ export function destination(path: string | undefined | null) {
     if (pattern.test(path)) {
       const mapped = path.replace(pattern, to);
       const detail =
-        /^(\/(?:catalog|commercial|settings)\/[^/]+\/[^/?]+)\/([^/?]+)(.*)$/.exec(
+        /^(\/(?:catalog|commercial|settings|operations|customers)\/[^/]+\/[^/?]+)\/([^/?]+)(.*)$/.exec(
           mapped,
         );
       if (detail)

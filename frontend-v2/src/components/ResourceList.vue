@@ -13,6 +13,7 @@ import CellValue from "@/components/CellValue.vue";
 import StatusBadge from "./StatusBadge.vue";
 import Pagination from "./Pagination.vue";
 import { date, money, label } from "@/lib/format";
+import { withReturnTo } from "@/lib/navigation";
 const props = defineProps<{ resourceKey: string }>(),
   route = useRoute(),
   router = useRouter(),
@@ -22,6 +23,7 @@ const page = computed(() => Math.max(0, Number(route.query.page) || 0)),
   status = computed(() => String(route.query.status || ""));
 let timer: ReturnType<typeof setTimeout>;
 watch([() => props.resourceKey, () => route.query.q], () => {
+  clearTimeout(timer);
   search.value = String(route.query.q || "");
 });
 function query(values: Record<string, unknown>) {
@@ -29,6 +31,7 @@ function query(values: Record<string, unknown>) {
 }
 watch(search, (value) => {
   clearTimeout(timer);
+  if (value === String(route.query.q || "")) return;
   timer = setTimeout(
     () => query({ q: value || undefined, page: undefined }),
     250,
@@ -62,6 +65,10 @@ const result = useResource(
             ? { planId: route.query.planId }
             : {}),
           search: String(route.query.q || "") || undefined,
+          sort: route.query.sort || undefined,
+          direction: route.query.sort
+            ? route.query.direction || "asc"
+            : undefined,
           status: status.value || undefined,
           ...Object.fromEntries(
             (resource.value.filters || []).map((f) => [
@@ -76,16 +83,27 @@ const result = useResource(
 onUnmounted(() => clearTimeout(timer));
 const selected = ref<string[]>([]);
 const bulkActions = computed(
-  () => resource.value.bulkActions?.filter((a) => can(a.permission)) || [],
+  () =>
+    resource.value.bulkActions?.filter(
+      (a) =>
+        can(a.permission) && (!a.visible || a.visible({ ids: selected.value })),
+    ) || [],
 );
 watch(
-  () => props.resourceKey,
+  [() => props.resourceKey, () => JSON.stringify(route.query)],
   () => (selected.value = []),
 );
 const action = ref<Action>(),
   actionData = ref<RecordData>({});
 const data = result.data;
 const items = computed(() => rows(data.value));
+function recordLink(row: RecordData, column: any) {
+  const path = column.link?.(row) || resource.value.base + "/" + row.id;
+  const url = new URL(path, window.location.origin);
+  if (route.query.account)
+    url.searchParams.set("account", String(route.query.account));
+  return withReturnTo(url.pathname + url.search, route.fullPath);
+}
 function render(row: any, column: any) {
   const value = get(row, column.key);
   if (column.format === "date") return date(value, true);
@@ -146,7 +164,44 @@ function render(row: any, column: any) {
         <option value="">All {{ f.label.toLowerCase() }}</option>
         <option v-for="v in f.values" :value="v">{{ label(v) }}</option>
       </select></label
-    ><span class="muted small">{{
+    ><label v-if="resource.sortable?.length" class="inline-field"
+      ><span class="sr-only">Sort records</span
+      ><select
+        :value="route.query.sort || ''"
+        aria-label="Sort records"
+        @change="
+          query({
+            sort: ($event.target as HTMLSelectElement).value || undefined,
+            direction: route.query.direction || 'asc',
+            page: undefined,
+          })
+        "
+      >
+        <option value="">Default order</option>
+        <option
+          v-for="column in resource.sortable"
+          :key="column.key"
+          :value="column.key"
+        >
+          {{ column.label }}
+        </option>
+      </select></label
+    >
+    <select
+      v-if="resource.sortable?.length && route.query.sort"
+      :value="route.query.direction || 'asc'"
+      aria-label="Sort direction"
+      @change="
+        query({
+          direction: ($event.target as HTMLSelectElement).value,
+          page: undefined,
+        })
+      "
+    >
+      <option value="asc">Ascending</option>
+      <option value="desc">Descending</option>
+    </select>
+    <span class="muted small">{{
       result.loading.value
         ? "Loading…"
         : result.error.value
@@ -156,12 +211,14 @@ function render(row: any, column: any) {
     ><button class="button small" @click="result.refresh()">Refresh</button
     ><RouterLink
       v-if="
-        resource.createPermission &&
-        can(resource.createPermission) &&
+        (resource.createPermissions?.length || resource.createPermission) &&
+        (resource.createPermissions || [resource.createPermission || '']).some(
+          (permission) => can(permission),
+        ) &&
         (resource.createRequirements || []).every((x) => can(x))
       "
       class="button primary"
-      :to="resource.base + '/new'"
+      :to="withReturnTo(resource.base + '/new', route.fullPath)"
       >New {{ resource.singular.toLowerCase() }}</RouterLink
     >
   </div>
@@ -225,12 +282,7 @@ function render(row: any, column: any) {
               /><RouterLink
                 v-else-if="column.link || (index === 0 && !resource.listOnly)"
                 class="resource-link"
-                :to="{
-                  path: column.link?.(row) || resource.base + '/' + row.id,
-                  query: route.query.account
-                    ? { account: route.query.account }
-                    : undefined,
-                }"
+                :to="recordLink(row, column)"
                 >{{ render(row, column) }}</RouterLink
               ><CellValue
                 v-else

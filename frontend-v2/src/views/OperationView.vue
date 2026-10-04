@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import PageHeading from "@/components/PageHeading.vue";
 import Icon from "@/components/Icon.vue";
 import ResourceState from "@/components/ResourceState.vue";
@@ -12,7 +12,9 @@ import { useResource } from "@/composables/useResource";
 import { date, money, label, errorMessage } from "@/lib/format";
 import { can, session, notify } from "@/data/session";
 import { adminPermissions as p } from "@/auth/permissions";
-const route = useRoute();
+import { safeReturnTo, withReturnTo } from "@/lib/navigation";
+const route = useRoute(),
+  router = useRouter();
 const id = computed(() => String(route.params.id));
 const job = useResource(
   () => gateway.job(id.value),
@@ -24,10 +26,26 @@ const data = job.data;
 const active = computed<boolean>((): boolean =>
   ["QUEUED", "RUNNING", "SCHEDULED"].includes(data.value?.summary.status || ""),
 );
-const resultPage = ref(0);
+const canCancel = computed(() =>
+  ["PREVIEWED", "QUEUED", "SCHEDULED"].includes(
+    data.value?.summary.status || "",
+  ),
+);
+const resultPage = computed({
+  get: () => Math.max(0, Number(route.query.resultPage) || 0),
+  set: (value) => {
+    void router.replace({
+      query: { ...route.query, resultPage: value || undefined },
+    });
+  },
+});
+const resultStatus = computed(() => String(route.query.resultStatus || ""));
 const results = useResource(
-  () => gateway.jobResults(id.value, resultPage.value),
-  [id, resultPage],
+  () =>
+    gateway.jobResults(id.value, resultPage.value, {
+      status: resultStatus.value || undefined,
+    } as any),
+  [id, resultPage, resultStatus],
   3000,
   () => active.value,
 );
@@ -81,6 +99,8 @@ async function execute() {
     notify(
       action.value === "cancel" ? "Operation cancelled." : "Retry requested.",
     );
+    await job.refresh();
+    await results.refresh();
     action.value = null;
     reason.value = "";
   } catch (e) {
@@ -91,11 +111,16 @@ async function execute() {
 }
 </script>
 <template>
-  <RouterLink class="back-link" to="/operations"
+  <RouterLink
+    class="back-link"
+    :to="
+      safeReturnTo(route.query.returnTo) ||
+      '/operations?view=executions&kind=jobs'
+    "
     ><Icon name="back" :size="14" />All executions</RouterLink
   ><PageHeading :title="'Subscription change'"
     ><StatusBadge v-if="data" :status="data.summary.status" /><button
-      v-if="active && can(p.subscriptionsCancelChangeJob)"
+      v-if="canCancel && can(p.subscriptionsCancelChangeJob)"
       class="button"
       @click="
         action = 'cancel';
@@ -130,7 +155,15 @@ async function execute() {
               }}
             </h2>
             <p>
-              {{ active ? "Auto refresh" : "Completed" }}
+              {{
+                active
+                  ? "Auto refresh"
+                  : data.summary.status === "PREVIEWED"
+                    ? "Preview saved; execution has not started"
+                    : data.summary.status === "CANCELLED"
+                      ? "Execution cancelled"
+                      : "Processing finished; review individual outcomes"
+              }}
             </p>
           </div>
           <strong class="progress-number">{{ progress }}%</strong>
@@ -143,9 +176,7 @@ async function execute() {
         <div class="metric">
           <p class="metric-label">Assessed customers</p>
           <p class="metric-value">{{ data.summary.targetCount }}</p>
-          <p class="metric-foot">
-            {{ data.summary.readyCount }} initially ready
-          </p>
+          <p class="metric-foot">{{ data.summary.readyCount }} ready now</p>
         </div>
         <div class="metric">
           <p class="metric-label">Applied</p>
@@ -167,74 +198,97 @@ async function execute() {
           <p class="metric-foot">Conflicts and failures</p>
         </div>
       </div>
-      <div class="equal-columns">
-        <section class="panel">
-          <div class="panel-header"><h2>Target configuration</h2></div>
-          <div class="panel-body">
-            <dl class="detail-list">
-              <div>
-                <dt>Plan</dt>
-                <dd>{{ data.selection.targetPlanCode }}</dd>
-              </div>
-              <div>
-                <dt>Timing</dt>
-                <dd>{{ label(data.selection.timing) }}</dd>
-              </div>
-              <div>
-                <dt>Price currency / cycle</dt>
-                <dd>
-                  {{ data.selection.planPriceSelection.currencyCode }} ·
-                  {{ label(data.selection.planPriceSelection.billingCycle) }}
-                </dd>
-              </div>
-              <div>
-                <dt>Add-ons</dt>
-                <dd>{{ data.selection.addOnCodes.join(", ") || "None" }}</dd>
-              </div>
-              <div>
-                <dt>Capacity packages</dt>
-                <dd>
-                  {{
-                    data.selection.quotaPackages
-                      .map((q) => `${q.packageCode} × ${q.quantity}`)
-                      .join(", ") || "None"
-                  }}
-                </dd>
-              </div>
-            </dl>
-          </div>
-        </section>
-        <section class="panel">
-          <div class="panel-header"><h2>Execution trail</h2></div>
-          <div class="panel-body">
-            <dl class="detail-list">
-              <div>
-                <dt>Created</dt>
-                <dd>{{ date(data.summary.createdAt, true) }}</dd>
-              </div>
-              <div>
-                <dt>Scheduled start</dt>
-                <dd>{{ date(data.summary.executeAt, true) }}</dd>
-              </div>
-              <div>
-                <dt>Completed</dt>
-                <dd>{{ date(data.summary.completedAt, true) }}</dd>
-              </div>
-              <div>
-                <dt>Retries</dt>
-                <dd>{{ data.summary.retryCount }}</dd>
-              </div>
-              <div>
-                <dt>Operation ID</dt>
-                <dd class="operation-id">{{ data.summary.id }}</dd>
-              </div>
-            </dl>
-          </div>
-        </section>
-      </div></template
+      <p
+        v-if="data.summary.pendingCount || data.summary.awaitingPaymentCount"
+        class="notice"
+      >
+        Processing progress includes pending outcomes.
+        {{ data.summary.pendingCount }} await renewal;
+        {{ data.summary.awaitingPaymentCount }} await payment. Payment handling
+        is not available in this release.
+      </p>
+      <details class="evidence-disclosure">
+        <summary>Configuration and execution trail</summary>
+        <div class="execution-context">
+          <section class="report-section">
+            <header class="section-heading">
+              <h2>Target configuration</h2>
+            </header>
+            <div>
+              <dl class="detail-list">
+                <div>
+                  <dt>Plan</dt>
+                  <dd>{{ data.selection.targetPlanCode }}</dd>
+                </div>
+                <div>
+                  <dt>Timing</dt>
+                  <dd>{{ label(data.selection.timing) }}</dd>
+                </div>
+                <div>
+                  <dt>Price selection</dt>
+                  <dd
+                    v-if="
+                      data.selection.planPriceSelection?.currencyCode &&
+                      data.selection.planPriceSelection?.billingCycle
+                    "
+                  >
+                    {{ data.selection.planPriceSelection.currencyCode }} ·
+                    {{ label(data.selection.planPriceSelection.billingCycle) }}
+                  </dd>
+                  <dd v-else>Resolved per customer</dd>
+                </div>
+                <div>
+                  <dt>Add-ons</dt>
+                  <dd>{{ data.selection.addOnCodes?.join(", ") || "None" }}</dd>
+                </div>
+                <div>
+                  <dt>Capacity packages</dt>
+                  <dd>
+                    {{
+                      (data.selection.quotaPackages || [])
+                        .map((q) => `${q.packageCode} × ${q.quantity}`)
+                        .join(", ") || "None"
+                    }}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+          <section class="report-section">
+            <header class="section-heading"><h2>Execution trail</h2></header>
+            <div>
+              <dl class="detail-list">
+                <div>
+                  <dt>Created</dt>
+                  <dd>{{ date(data.summary.createdAt, true) }}</dd>
+                </div>
+                <div>
+                  <dt>Scheduled start</dt>
+                  <dd>{{ date(data.summary.executeAt, true) }}</dd>
+                </div>
+                <div>
+                  <dt>Completed</dt>
+                  <dd>{{ date(data.summary.completedAt, true) }}</dd>
+                </div>
+                <div>
+                  <dt>Retries</dt>
+                  <dd>{{ data.summary.retryCount }}</dd>
+                </div>
+                <div>
+                  <dt>Operation ID</dt>
+                  <dd class="operation-id">{{ data.summary.id }}</dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+        </div>
+      </details></template
     ></ResourceState
   >
-  <section class="panel section-gap">
+  <section
+    v-if="can(p.subscriptionsReadChangeJobResults)"
+    class="panel section-gap"
+  >
     <div class="panel-header">
       <div>
         <h2>Individual outcomes</h2>
@@ -246,6 +300,40 @@ async function execute() {
       >
         <Icon name="refresh" />
       </button>
+    </div>
+    <div class="resource-toolbar">
+      <label class="inline-field"
+        >Outcome<select
+          :value="resultStatus"
+          @change="
+            router.replace({
+              query: {
+                ...route.query,
+                resultStatus:
+                  ($event.target as HTMLSelectElement).value || undefined,
+                resultPage: undefined,
+              },
+            })
+          "
+        >
+          <option value="">All outcomes</option>
+          <option
+            v-for="status in [
+              'READY',
+              'APPLIED',
+              'PENDING_RENEWAL',
+              'AWAITING_PAYMENT',
+              'CONFLICT',
+              'FAILED',
+              'CANCELLED',
+            ]"
+            :key="status"
+            :value="status"
+          >
+            {{ label(status) }}
+          </option>
+        </select></label
+      >
     </div>
     <ResourceState
       :loading="results.loading.value"
@@ -271,13 +359,18 @@ async function execute() {
                 <RouterLink
                   v-if="identityMap.get(row.id)"
                   class="text-link"
-                  :to="`/customers/${identityMap.get(row.id)!.accountId}`"
+                  :to="
+                    withReturnTo(
+                      `/customers/${identityMap.get(row.id)!.accountId}?view=changes${row.subscriptionOperationId ? '&change=' + row.subscriptionOperationId : ''}`,
+                      route.fullPath,
+                    )
+                  "
                   >{{ identityMap.get(row.id)!.accountName }}</RouterLink
                 ><span v-else>{{ row.id.slice(0, 8) }}</span>
               </td>
               <td><StatusBadge :status="row.status" /></td>
               <td>
-                {{ row.assessment.currentPlanCode }} →
+                {{ row.assessment.currentPlanCode || "Unavailable" }} →
                 {{ row.assessment.targetPlanCode }}
               </td>
               <td>
@@ -292,7 +385,7 @@ async function execute() {
               </td>
               <td>
                 <span v-if="!row.assessment.conflicts.length">{{
-                  row.outcomeCode || "No conflicts"
+                  row.outcomeCode ? label(row.outcomeCode) : "No conflicts"
                 }}</span>
                 <p
                   v-for="c in row.assessment.conflicts"

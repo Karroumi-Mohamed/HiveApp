@@ -22,6 +22,7 @@ import java.util.UUID;
 public class AdminUserController {
 
     private final AdminUserService adminUserService;
+    private final com.hiveapp.platform.admin.service.AdminOperatorProvisioningService adminOperatorProvisioningService;
     private final com.hiveapp.platform.admin.service.AdminUserRoleSetService adminUserRoleSetService;
     private final com.hiveapp.shared.email.delivery.EmailDeliveryTracker emailDeliveryTracker;
 
@@ -51,8 +52,7 @@ public class AdminUserController {
     @ResponseStatus(HttpStatus.CREATED)
     public com.hiveapp.platform.admin.dto.AdminUserCreationResponse create(
             @Valid @RequestBody CreateAdminUserRequest req) {
-        return withDelivery(adminUserService.createAdminUser(
-                req.firstName(), req.lastName(), req.email(), req.initialAccessMethod(), req.isSuperAdmin()));
+        return withDelivery(adminOperatorProvisioningService.create(req));
     }
 
     @PostMapping("/bulk/active")

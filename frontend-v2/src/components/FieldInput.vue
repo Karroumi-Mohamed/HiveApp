@@ -3,6 +3,7 @@ import { computed, ref, watch, onUnmounted } from "vue";
 import type { Field, RecordData, Choice } from "@/resources/types";
 import { get, set } from "@/resources/types";
 import { errorMessage } from "@/lib/format";
+import RolePermissionsEditor from "./settings/RolePermissionsEditor.vue";
 const props = defineProps<{
   field: Field;
   data: RecordData;
@@ -155,12 +156,20 @@ function dateValue(v: unknown) {
         field.full || field.type === 'array' || field.type === 'choices',
     }"
   >
-    <label :for="id"
+    <label :id="id + '-label'" :for="id"
       >{{ field.label
       }}<span v-if="field.required" class="required-mark"> *</span></label
     >
+    <RolePermissionsEditor
+      v-if="field.type === 'permissions'"
+      :id="id"
+      :labelled-by="id + '-label'"
+      :max-selections="field.max"
+      :known-permissions="data._permissionDetails"
+      v-model="value"
+    />
     <textarea
-      v-if="field.type === 'textarea'"
+      v-else-if="field.type === 'textarea'"
       :id="id"
       v-model="value"
       :required="field.required"
@@ -207,14 +216,16 @@ function dateValue(v: unknown) {
     >
     <template v-else-if="field.type === 'choices' || field.type === 'choice'">
       <details ref="picker" class="record-picker">
-        <summary>
-          {{
-            selectedOptions.length
-              ? field.type === "choices"
-                ? selectedOptions.length + " selected"
-                : selectedOptions[0]?.label
-              : "Select " + field.label.toLowerCase()
-          }}
+        <summary :id="id" :aria-labelledby="id + '-label ' + id + '-selection'">
+          <span :id="id + '-selection'">
+            {{
+              selectedOptions.length
+                ? field.type === "choices"
+                  ? selectedOptions.length + " selected"
+                  : selectedOptions[0]?.label
+                : "Select " + field.label.toLowerCase()
+            }}
+          </span>
         </summary>
         <div class="picker-options">
           <input

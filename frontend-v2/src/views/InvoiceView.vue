@@ -16,6 +16,8 @@ import { adminPermissions as p } from "@/auth/permissions";
 import { invoiceActions, paymentActions } from "@/resources/billing";
 import type { Action, RecordData } from "@/resources/types";
 import { text } from "@/resources/fields";
+import { paymentEnabled } from "@/lib/capabilities";
+import { safeReturnTo, withReturnTo } from "@/lib/navigation";
 const route = useRoute(),
   id = computed(() => String(route.params.id));
 const invoice = useResource(
@@ -53,7 +55,7 @@ const settleAction: Action = {
     gateway.settle(d.invoice.id, { reference: i.reference, reason: i.reason }),
 };
 const actions = computed(() =>
-  data.value
+  paymentEnabled && data.value
     ? [
         ...(data.value.invoice.status === "OPEN" ? [settleAction] : []),
         ...invoiceActions,
@@ -71,7 +73,11 @@ function printInvoice() {
 }
 </script>
 <template>
-  <RouterLink class="back-link" to="/billing">All invoices</RouterLink>
+  <RouterLink
+    class="back-link"
+    :to="safeReturnTo(route.query.returnTo) || '/customers?view=invoices'"
+    >All invoices</RouterLink
+  >
   <PageHeading
     :title="
       data?.invoice.invoiceNumber || doc?.invoice.invoiceNumber || 'Invoice'
@@ -126,7 +132,12 @@ function printInvoice() {
           <RouterLink
             v-if="data.invoice.account"
             class="text-link"
-            :to="'/customers/' + data.invoice.account.id + '?view=billing'"
+            :to="
+              withReturnTo(
+                '/customers/' + data.invoice.account.id + '?view=billing',
+                route.fullPath,
+              )
+            "
             >{{ data.invoice.account.name }}</RouterLink
           >
         </header>
@@ -217,8 +228,8 @@ function printInvoice() {
                   <td>{{ date(payment.completedAt, true) }}</td>
                   <td>
                     <button
-                      v-for="a in paymentActions.filter((a) =>
-                        can(a.permission),
+                      v-for="a in paymentActions.filter(
+                        (a) => paymentEnabled && can(a.permission),
                       )"
                       :key="a.key"
                       class="text-link"

@@ -11,6 +11,7 @@ import { read } from "@/data/gateway";
 import { useResource } from "@/composables/useResource";
 import { date, label, money, number } from "@/lib/format";
 import type { RecordData } from "@/resources/types";
+import { paymentEnabled } from "@/lib/capabilities";
 const route = useRoute(),
   router = useRouter();
 const reports = computed(() =>
@@ -35,7 +36,9 @@ const reports = computed(() =>
       label: "Current product holdings",
       permission: p.analyticsReadSubscriptionSeries,
     },
-  ].filter((x) => can(x.permission)),
+  ].filter(
+    (x) => (x.key !== "financial" || paymentEnabled) && can(x.permission),
+  ),
 );
 const kind = computed(
   () =>

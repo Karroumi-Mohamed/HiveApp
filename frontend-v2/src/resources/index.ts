@@ -45,7 +45,12 @@ const lifecycleFilters: Record<string, string[]> = {
   ],
 };
 for (const [key, values] of Object.entries(lifecycleFilters))
-  resources[key]!.filters = [{ key: "status", label: "Statuses", values }];
+  resources[key]!.filters = [
+    { key: "status", label: "Statuses", values },
+    ...(resources[key]!.filters || []).filter(
+      (filter) => filter.key !== "status",
+    ),
+  ];
 for (const key of [
   "jobs",
   "messages",

@@ -204,16 +204,6 @@ const planActions: Action[] = [
       }),
     destination: () => "/catalog",
   },
-  {
-    key: "compare",
-    label: "Compare revision",
-    permission: p.plansCompareVersions,
-    fields: [planField("target", "Compare with")],
-    reason: false,
-    readOnly: true,
-    preview: (d, i) => api.comparePlanVersions(d.id, i.target),
-    execute: async () => undefined,
-  },
 ];
 async function featureNames(items: RecordData[]) {
   if (!can(p.registryFeatureCatalog))
@@ -319,7 +309,46 @@ const plans: Resource = {
         } as any)
       : api.createPlan(i as any),
   actions: planActions,
+  links: (d) => [
+    ...(can(p.plansCompareVersions)
+      ? [
+          {
+            label: "Compare revisions",
+            to: "/catalog/plans/" + d.id + "?view=revision-comparison",
+          },
+        ]
+      : []),
+    ...(can(p.plansCompare)
+      ? [
+          {
+            label: "Compare plans",
+            to: "/catalog/plans/" + d.id + "?view=comparison",
+          },
+        ]
+      : []),
+  ],
   sections: [
+    {
+      key: "feature-map",
+      label: "Effective capabilities",
+      group: { key: "features", label: "Features and compatibility" },
+      permission: p.plansListFeatures,
+      load: async (d) => ({ planId: d.id }),
+    },
+    {
+      key: "comparison",
+      label: "Compare plans",
+      group: { key: "comparisons", label: "Comparison" },
+      permission: p.plansCompare,
+      load: async (d) => ({ planId: d.id }),
+    },
+    {
+      key: "revision-comparison",
+      label: "Compare revisions",
+      group: { key: "comparisons", label: "Comparison" },
+      permission: p.plansCompareVersions,
+      load: async (d) => ({ planId: d.id }),
+    },
     {
       key: "features",
       label: "Features",
@@ -422,11 +451,38 @@ const plans: Resource = {
       permission: p.plansListVersions,
       load: async (d, page) => {
         const x = await api.planVersions(d.id, { page, size: 20 });
-        return (x as any).versions || x;
+        return {
+          ...x.versions,
+          content: x.versions.content.map((revision) => ({
+            ...revision,
+            comparisonLabel: can(p.plansCompareVersions)
+              ? revision.id === d.id
+                ? "Current"
+                : "Compare"
+              : "—",
+            comparisonPath:
+              "/catalog/plans/" +
+              d.id +
+              "?view=revision-comparison&compare=" +
+              revision.id,
+          })),
+        };
       },
-      columns: productColumns.map((c) =>
-        c.key === "name" ? { ...c, link: (r) => "/catalog/plans/" + r.id } : c,
-      ),
+      columns: [
+        ...productColumns.map((c) =>
+          c.key === "name"
+            ? { ...c, link: (r: RecordData) => "/catalog/plans/" + r.id }
+            : c,
+        ),
+        {
+          key: "comparisonLabel",
+          label: "Comparison",
+          link: (r: RecordData) =>
+            can(p.plansCompareVersions) && r.comparisonLabel === "Compare"
+              ? r.comparisonPath
+              : undefined,
+        },
+      ],
     },
     {
       key: "compatibility",

@@ -28,7 +28,13 @@ const resultColumns = [
   {
     key: "accountName",
     label: "Customer",
-    link: (r: any) => (r.accountId ? "/customers/" + r.accountId : undefined),
+    link: (r: any) =>
+      r.accountId
+        ? "/customers/" +
+          r.accountId +
+          "?view=changes" +
+          (r.operationId ? "&change=" + r.operationId : "")
+        : undefined,
   },
   { key: "status", label: "Status", format: "status" as const },
   { key: "blocker", label: "Issue" },
@@ -101,7 +107,7 @@ const messages: Resource = {
   key: "messages",
   title: "Customer messages",
   singular: "Message",
-  base: "/operations/messages",
+  base: "/customers/communications",
   listPermission: p.customerCommunicationsRead,
   readPermission: p.customerCommunicationsRead,
   list: (q) => communications.list(q.page),
@@ -118,6 +124,26 @@ const messages: Resource = {
   editPermission: p.customerCommunicationsEdit,
   editable: (d) => d.state === "DRAFT",
   fields: messageFields,
+  formGroups: [
+    {
+      label: "Message",
+      keys: ["messageTitle", "messageBody", "kind", "purpose", "offerId"],
+    },
+    {
+      label: "Recipients and timing",
+      keys: ["accountIds", "email", "availableAt", "expiresAt"],
+    },
+    {
+      label: "Languages",
+      keys: [
+        "originalLanguage",
+        "translations.fr.messageTitle",
+        "translations.fr.messageBody",
+        "translations.ar.messageTitle",
+        "translations.ar.messageBody",
+      ],
+    },
+  ],
   defaults: {
     kind: "NOTICE",
     purpose: "SERVICE",
@@ -228,7 +254,7 @@ const repricing: Resource = {
     {
       key: "notices",
       label: "Retry notices",
-      permission: p.repricingRetry,
+      permission: p.repricingEmail,
       execute: (d, i) => repricingApi.retryNotices(d.id, i.reason),
     },
   ],
@@ -279,8 +305,8 @@ const repricing: Resource = {
 };
 const rollout: Resource = {
   key: "rollouts",
-  title: "Plan rollouts",
-  singular: "Plan rollout",
+  title: "Plan revision applications",
+  singular: "Plan revision application",
   base: "/operations/rollouts",
   listPermission: p.plansListApplications,
   readPermission: p.plansReadApplication,
@@ -295,9 +321,14 @@ const rollout: Resource = {
   actions: [
     {
       key: "confirm",
-      label: "Confirm rollout",
+      label: "Confirm application",
       permission: p.plansConfirmApplication,
-      visible: (d) => d.status === "PREVIEWED" && !d.reviewInvalidated,
+      visible: (d) =>
+        d.status === "PREVIEWED" &&
+        !d.reviewInvalidated &&
+        (d.counts?.READY || 0) > 0 &&
+        !!d.previewToken &&
+        Date.parse(d.expiresAt) > Date.now(),
       fields: [
         {
           key: "applyReadyOnly",
@@ -440,9 +471,9 @@ const delivery: Resource = {
 };
 const inbox: Resource = {
   key: "inbox",
-  title: "Notifications",
+  title: "Inbox",
   singular: "Notification",
-  base: "/operations/inbox",
+  base: "/inbox",
   listPermission: p.notificationsRead,
   readPermission: p.notificationsRead,
   list: (q) =>
@@ -466,7 +497,19 @@ const inbox: Resource = {
     { key: "availableAt", label: "Received", format: "date" },
     { key: "read", label: "Read", format: "boolean" },
   ],
+  links: (d) =>
+    d.actionPath
+      ? [{ label: "Open subject", to: destination(d.actionPath) }]
+      : [],
   actions: [
+    {
+      key: "restore",
+      label: "Restore to inbox",
+      permission: p.notificationsArchive,
+      visible: (d) => d.archived,
+      reason: false,
+      execute: (d) => communications.interact(d.id, "archive", false, true),
+    },
     ...(["read", "acknowledge", "archive"] as const).map<Action>((a) => ({
       key: a,
       label:
@@ -485,7 +528,7 @@ const inbox: Resource = {
         a === "read"
           ? !d.read
           : a === "archive"
-            ? d.canArchive
+            ? d.canArchive && !d.archived
             : d.canAcknowledge,
       reason: false,
       execute: (d) => communications.interact(d.id, a, true, true),
@@ -511,14 +554,35 @@ const jobs: Resource = {
 };
 const attention: Resource = {
   key: "attention",
-  title: "Attention",
-  singular: "Attention",
+  title: "Work queue",
+  singular: "Issue",
   base: "/operations/attention",
   listPermission: p.analyticsReadOperations,
   readPermission: p.analyticsReadOperations,
-  list: (q) => api.commercialAttention(q),
+  list: async (q) => {
+    const result = await api.commercialAttention(q);
+    return {
+      ...result,
+      content: result.content.map((row) => ({
+        ...row,
+        _reviewLabel: "Review",
+      })),
+    };
+  },
   detail: async () => undefined,
   listOnly: true,
+  filters: [
+    {
+      key: "type",
+      label: "Issue types",
+      values: [
+        "SUSPENDED",
+        "CHANGE_NEEDS_ATTENTION",
+        "PAST_DUE",
+        "OPEN_INVOICE",
+      ],
+    },
+  ],
   columns: [
     {
       key: "accountName",
@@ -531,7 +595,7 @@ const attention: Resource = {
     { key: "dueAt", label: "Due", format: "date" },
     { key: "amount", label: "Amount", format: "money" },
     {
-      key: "recordId",
+      key: "_reviewLabel",
       label: "Review",
       link: (r) => destination(r.destination),
     },

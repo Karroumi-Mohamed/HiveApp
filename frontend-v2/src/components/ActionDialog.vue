@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch, onUnmounted, nextTick } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import AccessResult from "./AccessResult.vue";
 import AppDialog from "./AppDialog.vue";
 import FieldInput from "./FieldInput.vue";
@@ -9,12 +9,17 @@ import type { Action, RecordData } from "@/resources/types";
 import { normalizeInput, validateFields } from "@/resources/types";
 import { write, read } from "@/data/gateway";
 import { notify } from "@/data/session";
+import { contextualPath } from "@/lib/navigation";
+import ExecutionSummary from "./ExecutionSummary.vue";
 import { errorMessage, date } from "@/lib/format";
 const props = defineProps<{ action: Action | undefined; data: RecordData }>(),
   emit = defineEmits<{ close: []; done: [unknown] }>(),
-  router = useRouter();
+  router = useRouter(),
+  route = useRoute();
 const accessResult = ref<RecordData>();
 let nextPath: string | undefined;
+const discardOpen = ref(false);
+let pristine = "";
 const input = reactive<RecordData>({}),
   preview = ref<RecordData>(),
   busy = ref(false),
@@ -33,6 +38,8 @@ watch(
     input.reason = "";
     input.page = 0;
     input._idempotencyKey = crypto.randomUUID();
+    pristine = JSON.stringify(input);
+    discardOpen.value = false;
     preview.value = undefined;
     error.value = "";
     confirmed.value = false;
@@ -80,6 +87,12 @@ const blocked = computed(
     preview.value?.executionSupported === false ||
     blockers.value.length > 0,
 );
+function close() {
+  if (busy.value) return;
+  if (!props.action?.readOnly && JSON.stringify(input) !== pristine)
+    discardOpen.value = true;
+  else emit("close");
+}
 function payload() {
   return {
     _idempotencyKey: input._idempotencyKey,
@@ -112,7 +125,8 @@ async function submit() {
       action.execute(props.data, payload(), preview.value),
     );
     notify(action.label + " completed.");
-    nextPath = action.destination?.(result as RecordData, props.data);
+    const destination = action.destination?.(result as RecordData, props.data);
+    nextPath = destination ? contextualPath(destination, route) : undefined;
     emit("done", result);
     if (
       (result && (result as RecordData).temporaryPassword) ||
@@ -152,7 +166,7 @@ async function finishAccess() {
     :open="!!action && !accessResult"
     :title="action?.label || 'Action'"
     wide
-    @close="!busy && emit('close')"
+    @close="close"
     ><form @submit.prevent="submit">
       <p v-if="data.ids?.length">{{ data.ids.length }} selected records</p>
       <div class="editor-grid">
@@ -174,7 +188,16 @@ async function finishAccess() {
       </label>
       <div v-if="preview" class="action-preview">
         <h3>Review</h3>
-        <Facts :data="preview" />
+        <ExecutionSummary
+          v-if="preview.summary?.counts"
+          :data="preview"
+          kind="rollouts"
+        />
+        <details v-if="preview.summary?.counts" class="evidence-disclosure">
+          <summary>Review evidence</summary>
+          <Facts :data="preview" />
+        </details>
+        <Facts v-else :data="preview" />
         <div v-if="evidencePage?.totalPages > 1" class="row section-gap">
           <button
             type="button"
@@ -209,12 +232,7 @@ async function finishAccess() {
         {{ action?.label.toLowerCase() }}</label
       >
       <div class="dialog-actions">
-        <button
-          type="button"
-          class="button"
-          :disabled="busy"
-          @click="emit('close')"
-        >
+        <button type="button" class="button" :disabled="busy" @click="close">
           Cancel</button
         ><button
           v-if="!action?.readOnly || !preview"
@@ -236,5 +254,21 @@ async function finishAccess() {
         </button>
       </div>
     </form></AppDialog
-  ><AccessResult :result="accessResult" @close="finishAccess" />
+  ><AccessResult :result="accessResult" @close="finishAccess" /><AppDialog
+    :open="discardOpen"
+    title="Discard changes?"
+    @close="discardOpen = false"
+    ><div class="dialog-actions">
+      <button class="button" @click="discardOpen = false">Keep editing</button
+      ><button
+        class="button danger"
+        @click="
+          discardOpen = false;
+          emit('close');
+        "
+      >
+        Discard
+      </button>
+    </div></AppDialog
+  >
 </template>
