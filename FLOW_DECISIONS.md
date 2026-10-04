@@ -1845,12 +1845,31 @@ All share one current versioned code-owned registry snapshot, then apply audienc
 
 ---
 
+## Frontend UX rebuild — React foundation
+
+**Status:** `DECIDED — 2026-10-04`
+
+- Replace the Vue experiment in `frontend-v2` with React. Keep the existing `frontend`
+  and backend implementation unchanged; this is a UI rebuild, not a business-model reset.
+- Work through UX one flow at a time. This directory is the administrator panel only; start
+  with administrator login, using the existing authentication APIs and Lucide icons. Do not
+  regenerate all management screens before their individual UX has been reviewed.
+- Platform administrator access remains invitation/bootstrap based, with no public administrator
+  signup. Customer login/registration and customer application screens are outside this frontend.
+- Include recovery, invitation activation and mandatory initial-password handling so authentication
+  links and restricted sessions do not lead to broken or unauthorized destinations.
+- Remove obsolete Vue source, previews and experiment-specific UI documents. Preserve ignored
+  local database/credential files; rebuilding the UI does not authorize deleting customer data.
+- Continue tracking accepted UX decisions here and remaining work in `TOFIX.md`, rather than
+  adding another competing UI specification document.
+
 ## Decisions log
 
 Record accepted decisions here with date, reason, and affected source areas.
 
 | Date | Decision | Reason | Affected areas |
 |---|---|---|---|
+| 2026-10-04 | Restart `frontend-v2` with React and rebuild UX incrementally, beginning with authentication | Review each workflow before implementing the next; remove the Vue experiment without changing the backend or existing frontend | New React entry point, authentication screens and tests; later management UI remains to be designed |
 | 2026-09-09 | Remove manually assigned segment origin; any future import records Account-inclusion provenance through the actual operation | A segment can mix imported-list and manual selections, while selecting an origin label currently performs no import and mixes creation method with support intent | Segment authoring/list/detail/review and public API metadata; MARKETING-002 implemented and verified, no import implementation approved |
 | 2026-09-09 | Replace manual tariff pause/date coordination with one current tariff and at most one reviewed immediate or scheduled replacement per offered product/currency/cycle, preserving continuous coverage | Prevent accidental sales gaps without another administrator workflow; cancellation must keep the current price available, while product sales stops and existing-subscriber changes remain explicit separate operations | Price-book lifecycle/API, applicability windows, replacement/cancellation, product availability, admin UX, audit and tests; PRICEBOOK-004 implemented and verified 2026-09-10 |
 | 2026-08-28 | Make Offer discovery and acceptance explicit, bind limits/codes to the lineage and exact Campaign/product/price revisions, keep Phase 11 application one-Account, and choose the greater Policy-or-Offer reduction without stacking | Codes must not become credentials; revisions must not reset limits or drift with catalogue changes; one authoritative price result avoids competing truths; bulk execution and recovery need the Phase 12 job/lifecycle engine | Offer lineage/revisions/codes/capacity, Campaign relation, subscription evaluation/operations/snapshots, client/admin authorization and UI, analytics boundaries |

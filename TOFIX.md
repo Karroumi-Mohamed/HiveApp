@@ -3631,6 +3631,31 @@ Without the remaining authenticated browser evidence, a mounted interaction or r
 - Browser checked light/dark themes, RTL and a 375px narrow viewport, with no card/page horizontal
   overflow and successful Plan navigation. Existing demo servers/data were not restarted or changed.
 
+### UI-004 — Incremental React UX rebuild
+
+**Status:** `IN PROGRESS — 2026-10-04; AUTHENTICATION FOUNDATION IMPLEMENTED`
+
+- Replaced the Vue experiment in `frontend-v2` with a small React/Vite application. The
+  original `frontend`, backend source and ignored local database/credentials remain untouched.
+- Authentication uses the actual administrator APIs: login, recovery, invitation activation,
+  email verification and mandatory initial-password change. Public signup and customer
+  screens are not exposed in this administrator-only frontend. Successful authentication currently opens a minimal
+  verified-session screen, not an invented replacement dashboard.
+- Shared labelled fields, password visibility controls, validation, retryable failures and
+  keyboard focus styles establish the baseline. Session refresh is coalesced and a late
+  response cannot restore a signed-out or replaced session.
+- Remaining work: review and build each management workflow individually with the user;
+  commercial/catalogue screens and navigation have deliberately not been rebuilt yet.
+- Verification: 25 React authentication/session tests pass, including absence of customer
+  routes, actual backend email-link paths, restricted-session handling, recovery failures and
+  refresh/logout races. TypeScript checks and the production build pass.
+- Browser checked administrator login against an isolated development backend, reload,
+  password visibility, logout, removal of customer/signup navigation and a 375px viewport
+  without horizontal overflow. This does not claim live invitation/reset mutation coverage;
+  those request contracts and response behaviors are covered by the rendered tests.
+
+---
+
 ### UI-001 — Shared section tabs lack complete keyboard and panel semantics
 
 **Status:** `CONFIRMED — DEFERRED TO PHASE 15 CONSISTENCY PASS`
