@@ -11,6 +11,7 @@ import lombok.Getter;
 import lombok.AccessLevel;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Check;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
@@ -28,6 +29,16 @@ import java.util.UUID;
 }, uniqueConstraints = {
         @UniqueConstraint(name = "uk_subscriptions_usable_account", columnNames = "usable_account_id")
 })
+@Check(name = "ck_subscriptions_usable_account", constraints = """
+        (status in ('ACTIVE', 'TRIALING', 'PAST_DUE') and usable_account_id is not null and usable_account_id = account_id)
+        or (status not in ('ACTIVE', 'TRIALING', 'PAST_DUE') and usable_account_id is null)
+        """)
+@Check(name = "ck_subscriptions_current_account", constraints = """
+        (status in ('ACTIVE', 'TRIALING', 'PAST_DUE', 'SUSPENDED')
+        and current_account_id is not null and current_account_id = account_id)
+        or (status not in ('ACTIVE', 'TRIALING', 'PAST_DUE', 'SUSPENDED')
+        and current_account_id is null)
+        """)
 @Getter @Setter
 public class Subscription extends BaseEntity {
 
@@ -68,19 +79,11 @@ public class Subscription extends BaseEntity {
      * Non-null only while this subscription can provide entitlement. Its uniqueness enforces
      * one entitled-or-grace subscription per account while allowing historical subscriptions.
      */
-    @Column(name = "usable_account_id", columnDefinition = """
-            uuid check ((status in ('ACTIVE', 'TRIALING', 'PAST_DUE') and usable_account_id is not null and usable_account_id = account_id)
-            or (status not in ('ACTIVE', 'TRIALING', 'PAST_DUE') and usable_account_id is null))
-            """)
+    @Column(name = "usable_account_id")
     private UUID usableAccountId;
 
     /** One non-terminal commercial subscription per Account, including restricted lifecycle states. */
-    @Column(name = "current_account_id", unique = true, columnDefinition = """
-            uuid check ((status in ('ACTIVE', 'TRIALING', 'PAST_DUE', 'SUSPENDED')
-            and current_account_id is not null and current_account_id = account_id)
-            or (status not in ('ACTIVE', 'TRIALING', 'PAST_DUE', 'SUSPENDED')
-            and current_account_id is null))
-            """)
+    @Column(name = "current_account_id", unique = true)
     private UUID currentAccountId;
 
     /** Queryable terms copied transactionally from the authoritative entitlement snapshot. */
